@@ -4,28 +4,16 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
-use Closure;
-
 /**
  * Resolves sibling-layer compositions that should be expressed on a target child
  * instead of emitted as separate visible DOM layers.
  */
 final class ChildLayerCompositionResolver
 {
-    /** @var Closure(array<string, mixed>): ?string */
-    private Closure $nodeAssetPath;
-
-    /** @var Closure(float): string */
-    private Closure $number;
-
-    /**
-     * @param Closure(array<string, mixed>): ?string $nodeAssetPath
-     * @param Closure(float): string $number
-     */
-    public function __construct(Closure $nodeAssetPath, Closure $number)
-    {
-        $this->nodeAssetPath = $nodeAssetPath;
-        $this->number = $number;
+    public function __construct(
+        private readonly StaticHtmlAssetRegistry $assetRegistry,
+        private readonly StaticHtmlValueFormatter $formatter,
+    ) {
     }
 
     /**
@@ -112,7 +100,7 @@ final class ChildLayerCompositionResolver
             }
 
             $nodeId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
-            if ( '' === $nodeId || null !== ($this->nodeAssetPath)($node) || ! $this->hasVisibleSolidFill($node) ) {
+            if ( '' === $nodeId || null !== $this->assetRegistry->resolveAndMarkNode($node) || ! $this->hasVisibleSolidFill($node) ) {
                 continue;
             }
 
@@ -121,7 +109,7 @@ final class ChildLayerCompositionResolver
                     continue;
                 }
 
-                $assetPath = ($this->nodeAssetPath)($candidate);
+                $assetPath = $this->assetRegistry->resolveAndMarkNode($candidate);
                 if ( null !== $assetPath && $this->isSameBoxNode($node, $candidate) && $this->isIconRecolorMaskComposition($node, $candidate, $assetPath) ) {
                     $maskPaths[$nodeId] = $assetPath;
                     $sourceId = isset($candidate['id']) && is_scalar($candidate['id']) ? (string) $candidate['id'] : '';
@@ -226,7 +214,7 @@ final class ChildLayerCompositionResolver
         }
 
         return array(
-            'key' => $type . '|width:' . ($this->number)(round($box['width'], 1)) . '|height:' . ($this->number)(round($box['height'], 1)) . '|' . $pathSignature,
+            'key' => $type . '|width:' . $this->formatter->number(round($box['width'], 1)) . '|height:' . $this->formatter->number(round($box['height'], 1)) . '|' . $pathSignature,
             'box' => $box,
         );
     }
@@ -419,17 +407,17 @@ final class ChildLayerCompositionResolver
         $relativeTop = $maskTop - $targetTop;
 
         if ( 'ELLIPSE' === $maskType ) {
-            return 'ellipse(' . ($this->number)($maskWidth / 2.0) . 'px ' . ($this->number)($maskHeight / 2.0) . 'px at ' . ($this->number)($relativeLeft + ($maskWidth / 2.0)) . 'px ' . ($this->number)($relativeTop + ($maskHeight / 2.0)) . 'px)';
+            return 'ellipse(' . $this->formatter->number($maskWidth / 2.0) . 'px ' . $this->formatter->number($maskHeight / 2.0) . 'px at ' . $this->formatter->number($relativeLeft + ($maskWidth / 2.0)) . 'px ' . $this->formatter->number($relativeTop + ($maskHeight / 2.0)) . 'px)';
         }
 
         $clip = 'inset('
-            . ($this->number)($relativeTop) . 'px '
-            . ($this->number)($targetWidth - ($relativeLeft + $maskWidth)) . 'px '
-            . ($this->number)($targetHeight - ($relativeTop + $maskHeight)) . 'px '
-            . ($this->number)($relativeLeft) . 'px';
+            . $this->formatter->number($relativeTop) . 'px '
+            . $this->formatter->number($targetWidth - ($relativeLeft + $maskWidth)) . 'px '
+            . $this->formatter->number($targetHeight - ($relativeTop + $maskHeight)) . 'px '
+            . $this->formatter->number($relativeLeft) . 'px';
         $radius = $this->simpleMaskRadius($maskNode);
         if ( null !== $radius && $radius > 0.0 ) {
-            $clip .= ' round ' . ($this->number)($radius) . 'px';
+            $clip .= ' round ' . $this->formatter->number($radius) . 'px';
         }
 
         return $clip . ')';

@@ -52,6 +52,14 @@ final class StaticHtmlValueFormatter
         return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
+    public function slug(string $value): string
+    {
+        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $value) ?? '');
+        $slug = trim($slug, '-');
+
+        return '' === $slug ? 'node' : $slug;
+    }
+
     private function colorChannel(mixed $value): ?int
     {
         if ( ! is_numeric($value) ) {

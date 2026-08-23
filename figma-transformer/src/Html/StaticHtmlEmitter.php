@@ -15,24 +15,9 @@ final class StaticHtmlEmitter
     private LayoutGapResolver $layoutGapResolver;
 
     /**
-     * @var array<string, array<string, mixed>>
-     */
-    private array $assetsById = array();
-
-    /**
-     * @var array<string, string>
-     */
-    private array $assetUnavailableReasonsById = array();
-
-    /**
      * @var callable|null
      */
     private mixed $archiveAssetContentResolver = null;
-
-    /**
-     * @var array<string, bool>
-     */
-    private array $usedAssetPaths = array();
 
     /**
      * @var array<string, array<string, mixed>>
@@ -71,8 +56,6 @@ final class StaticHtmlEmitter
 
     private ?TextStyleDeclarationResolver $textStyleDeclarationResolver = null;
 
-    private ?PaintStackResolver $paintStackResolver = null;
-
     private ?TransformDiagnosticsBuilder $transformDiagnosticsBuilder = null;
 
     private ?StaticHtmlEmissionDiagnostics $staticHtmlEmissionDiagnostics = null;
@@ -94,8 +77,6 @@ final class StaticHtmlEmitter
     private ?BreakpointMediaDiffBuilder $breakpointMediaDiffBuilder = null;
 
     private ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null;
-
-    private ?ChildLayerCompositionResolver $childLayerCompositionResolver = null;
 
     private ?LocalBorderShellClusterResolver $localBorderShellClusterResolver = null;
 
@@ -138,7 +119,6 @@ final class StaticHtmlEmitter
         return new StaticHtmlEmissionSession(
             $this->nodeInspector(),
             $this->valueFormatter(),
-            new StaticHtmlVectorEvidence($this->valueFormatter(), $this->paintStackResolver()),
         );
     }
 
@@ -175,10 +155,7 @@ final class StaticHtmlEmitter
 
     private function paintStackResolver(): PaintStackResolver
     {
-        return $this->paintStackResolver ??= new PaintStackResolver(
-            fn (array $paint): ?string => $this->resolveAndMarkPaintAssetPath($paint),
-            $this->valueFormatter(),
-        );
+        return $this->emissionSession->paintStackResolver();
     }
 
     private function transformDiagnosticsBuilder(): TransformDiagnosticsBuilder
@@ -274,10 +251,7 @@ final class StaticHtmlEmitter
 
     private function childLayerCompositionResolver(): ChildLayerCompositionResolver
     {
-        return $this->childLayerCompositionResolver ??= new ChildLayerCompositionResolver(
-            fn (array $node): ?string => $this->nodeAssetPath($node),
-            fn (float $value): string => $this->number($value),
-        );
+        return $this->emissionSession->childLayerCompositionResolver();
     }
 
     private function localBorderShellClusterResolver(): LocalBorderShellClusterResolver
@@ -287,7 +261,7 @@ final class StaticHtmlEmitter
 
     private function layoutIntentClassifier(): LayoutIntentClassifier
     {
-        return $this->layoutIntentClassifier ??= new LayoutIntentClassifier($this->assetsById);
+        return $this->layoutIntentClassifier ??= new LayoutIntentClassifier($this->emissionSession->assetRegistry()->index());
     }
 
     private function nodeInspector(): StaticHtmlNodeInspector
@@ -360,7 +334,6 @@ final class StaticHtmlEmitter
         $this->pageState = $this->emissionSession->pageState();
         $this->breakpointMediaDiffBuilder = null;
         $this->renderTextGlyphPaths = true === ($options['render_text_glyph_paths'] ?? false);
-        $this->usedAssetPaths = array();
         $this->generatedAssetFiles = array();
         $this->generatedVectorSvgPathsByHash = array();
         $this->staticHtmlCssRuleSet()->resetReadableNames();
@@ -4063,7 +4036,7 @@ final class StaticHtmlEmitter
      */
     private function visualNodeMap(array $nodes): array
     {
-        return (new VisualNodeMapBuilder($this->assetsById, $this->renderTextGlyphPaths, $this->emittedNodeMetadata))->build($this->withoutSuppressedVisualNodes($nodes));
+        return (new VisualNodeMapBuilder($this->emissionSession->assetRegistry()->index(), $this->renderTextGlyphPaths, $this->emittedNodeMetadata))->build($this->withoutSuppressedVisualNodes($nodes));
     }
 
     /**
@@ -9329,8 +9302,8 @@ final class StaticHtmlEmitter
      */
     private function normalizeAssets(mixed $assets, array &$diagnostics): array
     {
-        $this->assetsById = array();
-        $this->assetUnavailableReasonsById = array();
+        $assetRegistry = $this->emissionSession->assetRegistry();
+        $assetRegistry->reset();
         $this->staticHtmlSemanticClassifier = null;
         if ( ! is_array($assets) ) {
             return array();
@@ -9373,9 +9346,7 @@ final class StaticHtmlEmitter
                 }
 
                 $reason = true === ($asset['content_omitted'] ?? false) ? 'archive_asset_content_omitted' : 'asset_content_unavailable';
-                foreach ( $this->assetAliases($asset, $id) as $alias ) {
-                    $this->assetUnavailableReasonsById[$alias] = $reason;
-                }
+                $assetRegistry->markUnavailable($assetRegistry->aliases($asset, $id), $reason);
                 continue;
             }
 
@@ -9389,9 +9360,7 @@ final class StaticHtmlEmitter
             );
 
             $files[] = $file;
-            foreach ( $this->assetAliases($asset, $id) as $alias ) {
-                $this->assetsById[$alias] = $file;
-            }
+            $assetRegistry->register($assetRegistry->aliases($asset, $id), $file);
         }
 
         usort(
@@ -9511,15 +9480,7 @@ final class StaticHtmlEmitter
      */
     private function nodeAssetPath(array $node): ?string
     {
-        foreach ( $this->nodeAssetReferences($node) as $assetId ) {
-            $path = $this->resolveAssetPath($assetId);
-            if ( null !== $path ) {
-                $this->usedAssetPaths[$path] = true;
-                return $path;
-            }
-        }
-
-        return null;
+        return $this->emissionSession->assetRegistry()->resolveAndMarkNode($node);
     }
 
     /**
@@ -9568,14 +9529,7 @@ final class StaticHtmlEmitter
      */
     private function referencedAssetFiles(array $assetFiles): array
     {
-        if ( empty($this->usedAssetPaths) ) {
-            return array();
-        }
-
-        return array_values(array_filter(
-            $assetFiles,
-            fn (array $file): bool => isset($this->usedAssetPaths[(string) ($file['path'] ?? '')])
-        ));
+        return $this->emissionSession->assetRegistry()->referencedFiles($assetFiles);
     }
 
     /**
@@ -9749,117 +9703,11 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @param array<string, mixed> $asset
-     * @return array<int, string>
-     */
-    private function assetAliases(array $asset, string $id): array
-    {
-        $aliases = array($id);
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename', 'key', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
-            if ( isset($asset[$key]) && is_scalar($asset[$key]) ) {
-                $aliases[] = (string) $asset[$key];
-            }
-        }
-
-        foreach ( $aliases as $alias ) {
-            $aliases[] = $this->slug($alias);
-        }
-
-        if ( isset($asset['path']) && is_scalar($asset['path']) ) {
-            $path = (string) $asset['path'];
-            $aliases[] = $path;
-            $aliases[] = basename($path);
-            $aliases[] = pathinfo($path, PATHINFO_FILENAME);
-        }
-
-        return array_values(array_unique(array_filter($aliases, static fn (string $alias): bool => '' !== $alias)));
-    }
-
-    /**
      * @param array<int, string> $references
      */
     private function assetUnavailableReasonForReferences(array $references): ?string
     {
-        foreach ( $references as $reference ) {
-            if ( isset($this->assetUnavailableReasonsById[$reference]) ) {
-                return $this->assetUnavailableReasonsById[$reference];
-            }
-
-            $slugged = $this->slug($reference);
-            if ( isset($this->assetUnavailableReasonsById[$slugged]) ) {
-                return $this->assetUnavailableReasonsById[$slugged];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function nodeAssetReferences(array $node): array
-    {
-        $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref', 'id', 'name') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
-                $references[] = (string) $node[$key];
-            }
-        }
-
-        foreach ( array('fills', 'strokes', 'background') as $paintKey ) {
-            $paintCollections = array();
-            if ( is_array($node[$paintKey] ?? null) ) {
-                $paintCollections[] = $node[$paintKey];
-            }
-            if ( is_array($node['figma_paints'][$paintKey] ?? null) ) {
-                $paintCollections[] = $node['figma_paints'][$paintKey];
-            }
-
-            foreach ( $paintCollections as $paints ) {
-                foreach ( $paints as $paint ) {
-                    if ( ! is_array($paint) || 'IMAGE' !== strtoupper((string) ($paint['type'] ?? '')) ) {
-                        continue;
-                    }
-
-                    $references = array_merge($references, $this->paintAssetReferences($paint));
-                }
-            }
-        }
-
-        foreach ( $references as $reference ) {
-            $references[] = $this->slug($reference);
-        }
-
-        return array_values(array_unique($references));
-    }
-
-    private function resolveAssetPath(string $assetId): ?string
-    {
-        if ( isset($this->assetsById[$assetId]) ) {
-            return (string) $this->assetsById[$assetId]['path'];
-        }
-
-        $slugged = $this->slug($assetId);
-        return isset($this->assetsById[$slugged]) ? (string) $this->assetsById[$slugged]['path'] : null;
-    }
-
-    /**
-     * @param array<string, mixed> $paint
-     */
-    private function resolveAndMarkPaintAssetPath(array $paint): ?string
-    {
-        foreach ( $this->paintAssetReferences($paint) as $assetId ) {
-            $path = $this->resolveAssetPath($assetId);
-            if ( null === $path ) {
-                continue;
-            }
-
-            $this->usedAssetPaths[$path] = true;
-            return $path;
-        }
-
-        return null;
+        return $this->emissionSession->assetRegistry()->unavailableReason($references);
     }
 
     /**
@@ -10518,10 +10366,7 @@ final class StaticHtmlEmitter
 
     private function slug(string $value): string
     {
-        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $value) ?? '');
-        $slug = trim($slug, '-');
-
-        return '' === $slug ? 'node' : $slug;
+        return $this->valueFormatter()->slug($value);
     }
 
     /**

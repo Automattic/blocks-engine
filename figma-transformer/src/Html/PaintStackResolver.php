@@ -9,11 +9,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class PaintStackResolver
 {
-    /**
-     * @param callable(array<string, mixed>): ?string $resolveAndMarkPaintAssetPath
-     */
     public function __construct(
-        private readonly mixed $resolveAndMarkPaintAssetPath,
+        private readonly StaticHtmlAssetRegistry $assetRegistry,
         private readonly StaticHtmlValueFormatter $formatter,
     ) {
     }
@@ -337,7 +334,7 @@ final class PaintStackResolver
 
     private function resolveAndMarkPaintAssetPath(array $paint): ?string
     {
-        return ($this->resolveAndMarkPaintAssetPath)($paint);
+        return $this->assetRegistry->resolveAndMarkPaint($paint);
     }
 
     private function number(float $value): string
