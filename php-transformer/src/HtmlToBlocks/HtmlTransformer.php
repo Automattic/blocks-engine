@@ -4503,6 +4503,10 @@ final class HtmlTransformer
         }
 
         if ( 'p' === $tagName ) {
+            $marquee = $this->authoredMarqueeBlock($element);
+            if ( null !== $marquee ) {
+                return $marquee;
+            }
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
             $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
             if ( null !== $inlineSvgContent ) {
@@ -14454,6 +14458,59 @@ final class HtmlTransformer
             array(),
             $element
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function authoredMarqueeBlock(DOMElement $element): ?array
+    {
+        $track = null;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && in_array($this->attr($candidate, 'data-marquee-animation'), array( 'left', 'right' ), true) ) {
+                $track = $candidate;
+                break;
+            }
+        }
+        if ( ! $track instanceof DOMElement ) {
+            return null;
+        }
+
+        $content = '';
+        foreach ( $track->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || 'true' === $this->attr($candidate, 'aria-hidden') || 0 !== $candidate->childElementCount ) {
+                continue;
+            }
+            $text = trim($candidate->textContent ?? '');
+            if ( '' !== $text ) {
+                $content = $this->runtime->escapeHtml($text);
+                break;
+            }
+        }
+        if ( '' === $content ) {
+            return null;
+        }
+
+        if ( ! $this->authoredMarqueeBlockGenerated ) {
+            $this->generatedBlocks[] = ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlockNamespace);
+            $this->authoredMarqueeBlockGenerated = true;
+        }
+
+        $duration = 40.0;
+        $durationCandidates = array( $this->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
+        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
+            $durationCandidates[] = $this->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
+        }
+        foreach ( $durationCandidates as $value ) {
+            if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
+                $duration = (float) $matches[1];
+                break;
+            }
+        }
+
+        return $this->createBlock($this->generatedBlockNamespace . '/' . AuthoredMarqueeBlockGenerator::LOCAL_NAME, array(
+            'content' => $content,
+            'direction' => $this->attr($track, 'data-marquee-animation'),
+            'duration' => min(600, max(1, $duration)),
+        ), array(), $element);
     }
 
     /**
