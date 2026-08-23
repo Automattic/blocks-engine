@@ -207,6 +207,12 @@ final class ArtifactNormalizer
         }
 
         $runtimeDeclarations = RuntimeDeclarations::bindAssetPublications($runtimeDeclarations, $files);
+        $layoutGeometryProof = LayoutGeometryProof::normalize(is_array($artifact['layout_geometry_proof'] ?? null) ? $artifact['layout_geometry_proof'] : null, $files);
+        $diagnostics = array_merge($diagnostics, $layoutGeometryProof['diagnostics']);
+        foreach ($files as &$file) {
+            if ('html' === $file['kind']) $file['layout_geometry_proof'] = $layoutGeometryProof['proof'];
+        }
+        unset($file);
         $sourceHash = $this->sourceHash($files, $runtimeDeclarations);
         return array(
             'files'          => $files,
@@ -218,6 +224,7 @@ final class ArtifactNormalizer
             'source_hash'    => $sourceHash,
             'hash_payload'   => $sourceHash,
             'runtime_declarations' => $runtimeDeclarations,
+            'layout_geometry_proof' => $layoutGeometryProof['proof'],
             'truncation_impact' => $truncationImpact,
         );
     }

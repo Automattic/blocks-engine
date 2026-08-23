@@ -95,6 +95,9 @@ final class ArtifactCompiler
     /** @var array<string, array<string, bool>> */
     private array $scriptControlSelectorCache = array();
 
+    /** @var array<string,mixed> Optional normalized proof for the current artifact. */
+    private array $layoutGeometryProof = array();
+
     /**
      * Resolve the runtime selector context used when a caller converts one
      * source document or landmark separately from full artifact compilation.
@@ -541,6 +544,7 @@ final class ArtifactCompiler
 		$this->wordpressCompatCssCache = array();
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
+        $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
         $normalized['files'] = $capturedDialogs['files'];
         return $this->finalizeArtifact($artifact, array(
@@ -622,6 +626,7 @@ final class ArtifactCompiler
         $sourceReports = array(
             'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence),
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
+            'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
             'artifact' => array(
                 'schema'          => self::INPUT_SCHEMA,
                 'original_schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
@@ -1913,6 +1918,7 @@ final class ArtifactCompiler
             'visual_block_paths' => $result['visual_block_paths'] ?? array(),
             'editability_report' => $result['editability_report'] ?? null,
             'reusable_components' => $result['reusable_components'],
+            'layout_geometry_proof' => $result['layout_geometry_proof'] ?? array(),
         );
     }
 
@@ -1978,6 +1984,7 @@ final class ArtifactCompiler
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
+            'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ))->toArray();
 
         return array(
@@ -1989,6 +1996,7 @@ final class ArtifactCompiler
             'runtime_block_paths' => $this->runtimeBlockPaths($result),
             'visual_block_paths' => $this->visualBlockPaths($result),
             'editability_report' => is_array($result['source_reports']['editability_report'] ?? null) ? $result['source_reports']['editability_report'] : null,
+            'layout_geometry_proof' => is_array($result['source_reports']['html']['layout_geometry_proof'] ?? null) ? $result['source_reports']['html']['layout_geometry_proof'] : array(),
             'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
@@ -2006,6 +2014,18 @@ final class ArtifactCompiler
             'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
             'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
         );
+    }
+
+    /** @param array<int,array<string,mixed>> $files @return array<string,mixed> */
+    private function layoutGeometryProofForSource(array $files, string $sourcePath): array
+    {
+        foreach ($files as $file) {
+            if ($sourcePath !== ($file['path'] ?? null) || 'html' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) continue;
+            $proof = is_array($file['layout_geometry_proof'] ?? null) ? $file['layout_geometry_proof'] : $this->layoutGeometryProof;
+            $reductions = array_values(array_filter($proof['reductions'] ?? array(), static fn(mixed $reduction): bool => is_array($reduction) && $sourcePath === ($reduction['source_path'] ?? null) && hash('sha256', $file['content']) === ($reduction['source_hash'] ?? null)));
+            return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
+        }
+        return array();
     }
 
     /**
