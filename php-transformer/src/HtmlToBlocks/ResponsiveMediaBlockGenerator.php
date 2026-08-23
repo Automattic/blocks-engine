@@ -17,10 +17,11 @@ final class ResponsiveMediaBlockGenerator
             'name' => $namespace . '/' . self::LOCAL_NAME,
             'title' => 'Responsive Media',
             'category' => 'media',
-            'description' => 'An editable responsive or linked image.',
+            'description' => 'An editable captured media or layout boundary.',
             'editorScript' => 'file:./index.js',
             'attributes' => array(
                 'content' => array( 'type' => 'string', 'default' => '', 'role' => 'content' ),
+                'kind' => array( 'type' => 'string', 'default' => 'media' ),
             ),
             'supports' => array( 'html' => false ),
         );
@@ -34,13 +35,13 @@ final class ResponsiveMediaBlockGenerator
     var createElement = element.createElement;
     function edit( props ) {
         return createElement( 'div', blockEditor.useBlockProps(), createElement( components.TextareaControl, {
-            label: 'Responsive media HTML',
+            label: 'Captured media or layout HTML',
             value: props.attributes.content || '',
             onChange: function( content ) { props.setAttributes( { content: content } ); }
         } ) );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
-        attributes: { content: { type: 'string', default: '', role: 'content' } },
+        attributes: { content: { type: 'string', default: '', role: 'content' }, kind: { type: 'string', default: 'media' } },
         supports: { html: false },
         edit: edit,
         save: function() { return null; }
