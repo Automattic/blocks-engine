@@ -234,6 +234,17 @@ trait SvgMaterializationTrait
         }
 
         $style = trim($this->attr($element, 'style'));
+        $sourceDimensions = array_filter(array(
+            'width' => trim($this->attr($element, 'width')),
+            'height' => trim($this->attr($element, 'height')),
+        ), static fn (string $value): bool => '' !== $value);
+        $resolvedSourceDimensions = $this->richTextSvgDimensions($element, $sourceDimensions);
+        foreach ( array( 'width', 'height' ) as $dimension ) {
+            if ( empty($resolvedSourceDimensions[$dimension]) || ($sourceDimensions[$dimension] ?? '') === $resolvedSourceDimensions[$dimension] ) {
+                continue;
+            }
+            $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolvedSourceDimensions[$dimension];
+        }
         if ( $this->cssOwnsMediaBox($element) ) {
             $resolved = $this->richTextSvgDimensions($element, $this->presentationDeclarations($element));
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
