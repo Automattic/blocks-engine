@@ -5210,7 +5210,7 @@ final class HtmlTransformer
         }
 
         if ( 'nav' === $tagName ) {
-            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class), false);
+            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
             if ( null !== $navigation ) {
                 return $this->rememberAccordionDisclosureRoot($navigation, $element);
             }
