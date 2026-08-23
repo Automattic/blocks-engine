@@ -3,7 +3,15 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\AssetAnalysis;
 
-/** Parses srcset candidates without treating URL-internal commas as separators. */
+/**
+ * Public srcset parsing contract for transformer consumers.
+ *
+ * Candidate order and descriptors are preserved. Parsing is deliberately
+ * lossless rather than validating URL schemes or descriptor grammar; callers
+ * own those policies.
+ *
+ * @api
+ */
 final class SrcsetParser
 {
     /** @return array<int,array{url:string,descriptor:string}> */

@@ -38,6 +38,7 @@ PHP Transformer does not own product workflows such as importer admin screens, u
 Consumers should treat these classes and interface as the public entrypoints for the current package:
 
 - `Contract\TransformerResult` - stable result envelope. Use `toArray()` for complete compatibility boundaries or `toWordPressSitePlanView()` for bounded WordPress materialization handoffs.
+- `AssetAnalysis\SrcsetParser` - parses, lists, and rewrites `srcset` candidates while preserving URL-internal commas and descriptors.
 - `HtmlToBlocks\HtmlTransformer` - converts supported HTML elements into WordPress block arrays and serialized block markup. Unsupported top-level HTML is reported in `fallbacks`.
 - `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`. Markdown support is optional: the adapter registers only when `league/commonmark` + `league/html-to-markdown` are loadable (vendored copies may omit them and `FormatBridge/MarkdownAdapter.php` entirely), otherwise markdown conversion fails cleanly as `unsupported_source_format` and `supportedFormats()` omits `markdown`.
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
