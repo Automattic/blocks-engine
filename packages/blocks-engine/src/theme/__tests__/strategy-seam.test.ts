@@ -326,4 +326,52 @@ describe('structuredStrategy — interpretive theme-styled reconstruction (no-CS
     // and it genuinely differs from the default preserve-dom output (regression guard).
     expect(structuredBody).not.toEqual(defaultedBody);
   });
+
+  it('keeps a textless media-forward hero native and reports unrepresentable social controls', () => {
+    // Generic reduction of issue #1070's Eggchasers evidence: three localized large
+    // images, a linked CTA, and four icon-only controls with no heading/body copy.
+    const hero = sectionSpec({
+      interactionModel: 'color-block-grid',
+      height: 760,
+      images: [
+        sectionImage('/wp-content/uploads/2026/hero-main.jpg', { width: 1440, height: 900 }),
+        sectionImage('/wp-content/uploads/2026/hero-left.jpg', { width: 900, height: 900 }),
+        sectionImage('/wp-content/uploads/2026/hero-right.jpg', { width: 900, height: 900 }),
+      ],
+      buttons: [{ label: 'TICKETS', href: '/tickets/' }],
+      icons: Array.from({ length: 4 }, () => ({
+        kind: 'glyph' as const,
+        glyph: 'social',
+        width: 24,
+        height: 24,
+      })),
+      layout: {
+        containerWidth: 1440,
+        padding: '0',
+        childLayout: 'grid',
+        columnCount: 3,
+        gap: '24px',
+      },
+      sectionHtml:
+        '<section class="media-hero"><img src="/wp-content/uploads/2026/hero-main.jpg"><img src="/wp-content/uploads/2026/hero-left.jpg"><img src="/wp-content/uploads/2026/hero-right.jpg"><a href="/tickets/">TICKETS</a></section>',
+    });
+
+    const aggregate = reconstructNativeAggregate([hero], { strategy: structuredStrategy });
+    const body = aggregate.sectionMarkup.join('\n');
+
+    expect(aggregate.sections[0]).toMatchObject({
+      decision: 'native',
+      coverage: { lost: false, textCoverage: 1, missingImages: [] },
+    });
+    expect(body).toContain('wp:gallery');
+    expect(body).toContain('wp:button');
+    expect(body).toContain('href="/tickets/"');
+    expect(body).not.toContain('wp:html');
+    expect(body).not.toContain('wp:social-links');
+    expect(body).not.toMatch(/(?:min-)?width:1440px|min-width:980px|!important/);
+    expect(aggregate.fallbackDiagnostics).toEqual([]);
+    expect(aggregate.provenanceFlags).toContain(
+      'gutenberg-gap#0: 4 icon-only control(s) lack service/destination semantics — social links not emitted',
+    );
+  });
 });
