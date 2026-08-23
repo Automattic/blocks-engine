@@ -4713,6 +4713,12 @@ final class HtmlTransformer
             if ( $this->hasAuthorSemanticMarker($element) ) {
                 $content = $this->innerHtml($element);
                 if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                    if ( $this->richTextContentHasStructuralHtml($content) ) {
+                        $children = $this->convertChildren($element, $fallbacks, true);
+                        if ( array() !== $children ) {
+                            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                        }
+                    }
                     return $this->createBlock('core/group', $this->presentationAttributes($element), array(
                         $this->createBlock('core/paragraph', array( 'content' => $content )),
                     ), $element);
@@ -4769,7 +4775,10 @@ final class HtmlTransformer
             }
 
             $listItem = $this->ancestorElement($element, 'li');
-            $sourceElement = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem) ? $element : null;
+            $sourceElement = $this->richTextContentHasStructuralHtml($content)
+                || ($listItem instanceof DOMElement && $this->isStructuralListItem($listItem))
+                ? $element
+                : null;
             return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement);
         }
 
@@ -11575,6 +11584,10 @@ final class HtmlTransformer
             // A block-level child means this is not an inline card (e.g. a
             // product card with <img>/<h3>/<p>); leave it to the normal path.
             if ( 'br' !== $tag && 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+                return false;
+            }
+
+            if ( $this->hasBlockContentChildren($child) || $this->richTextContentHasStructuralHtml($this->innerHtml($child)) ) {
                 return false;
             }
 
