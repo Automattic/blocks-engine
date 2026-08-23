@@ -35,7 +35,7 @@ if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) t
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
     'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.home-owned{color:#123456}</style><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
     'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
-    'assets/global.css' => '.global-presentation{display:block}',
+    'assets/global.css' => 'body{color:#123456;background-color:#fefefe;font-family:Inter,sans-serif;font-size:18px;padding:24px}.global-presentation{display:block}',
     'assets/head.js' => 'window.headAsset=true;',
     'assets/defer.js' => 'window.deferAsset=true;',
     'assets/async.js' => 'window.asyncAsset=true;',
@@ -64,6 +64,19 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
+$themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
+$globalStylesheet = wp_get_global_stylesheet();
+$presetGroups = array(
+    'color' => $themeJson['settings']['color']['palette'] ?? array(),
+    'font-family' => $themeJson['settings']['typography']['fontFamilies'] ?? array(),
+    'font-size' => $themeJson['settings']['typography']['fontSizes'] ?? array(),
+    'spacing' => $themeJson['settings']['spacing']['spacingSizes'] ?? array(),
+);
+foreach ($presetGroups as $group => $presets) foreach ($presets as $preset) {
+    $slug = (string) ($preset['slug'] ?? '');
+    $variable = '--wp--preset--' . $group . '--' . $slug;
+    $assert('' !== $slug && $slug === _wp_to_kebab_case($slug) && str_contains($globalStylesheet, $variable . ':') && str_contains($globalStylesheet, 'var(' . $variable . ')'), 'WordPress emits and resolves the generated ' . $group . ' preset without changing its slug.');
+}
 $sidebarPart = current(array_filter($plan['template_parts'] ?? array(), static fn(array $part): bool => 'sidebar' === ($part['slug'] ?? null)));
 $sidebarWrite = current(array_filter($resolved['writes'] ?? array(), static fn(array $write): bool => 'templates/front-page.html' === ($write['target_path'] ?? null)));
 $sidebarTemplateBlocks = parse_blocks((string) ($sidebarWrite['payload']['data'] ?? ''));
