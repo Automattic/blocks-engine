@@ -7755,7 +7755,9 @@ final class HtmlTransformer
         foreach ($element->attributes ?? array() as $attribute) {
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
-        if (1 === preg_match('/!\s*important\b/i', (string) ($attributes['style'] ?? ''))) {
+        // Core serializes style declarations differently from React's save path
+        // (notably unitless zero lengths). Keep styled wrappers as core groups.
+        if ('' !== trim((string) ($attributes['style'] ?? ''))) {
             return null;
         }
         return array('tagName' => $tagName, 'attributes' => $attributes, 'opening' => $opening, 'closing' => $closing);

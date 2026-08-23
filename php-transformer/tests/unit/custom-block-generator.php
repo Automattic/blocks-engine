@@ -180,6 +180,9 @@ $assert(str_contains($branchMarkup, '<section id="branch-section"') && 2 === sub
 $importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
 $assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
 
+$styledShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="margin-top:0"><div class="blocks-engine-source-div-fixture-3"><p>Style-sensitive content</p></div></div>')->toArray();
+$assert(!str_ends_with((string) ($styledShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell leaves styled wrapper chains to core serialization');
+
 // ---------------------------------------------------------------------------
 // 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
 // ---------------------------------------------------------------------------

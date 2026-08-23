@@ -137,6 +137,7 @@
     "test:packaging": "php tests/packaging/install-proof.php"
   },
   "config": {
+    "cache-dir": "var/cache/composer",
     "platform": {
       "php": "8.1.0"
     },
