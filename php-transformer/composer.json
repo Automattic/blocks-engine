@@ -125,6 +125,7 @@
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/geometry-chain-coalescing.php",
+      "php tests/unit/pattern-recursive-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/pattern-registry-staged-dispatch.php"
     ],

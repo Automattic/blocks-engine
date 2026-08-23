@@ -11,15 +11,14 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
  * converts them to a core/columns block of core/column children.
  *
  * Extracted verbatim from HtmlTransformer::columnsBlockFromElement() and its
- * private helpers. The recognizer needs three coupling points from the host
- * transformer, supplied as callables so behavior is byte-identical:
+ * private helpers. The matcher keeps its frozen callback contract while the
+ * registry supplies recursive conversion through PatternRecursiveConverter:
  *   - $convertChildren: convertChildren($child, $fallbacks, true) for wrapper
  *     columns (recursion that may emit fallbacks).
  *   - $convertElement:  convertElement($child, $fallbacks, true) for non-wrapper
  *     children (single-element recursion that may return null / emit fallbacks).
- *   - $fallbacks (by reference): the mutable accumulator. Per-child fallbacks are
- *     collected into a local list and array_push'd onto the host accumulator,
- *     preserving the original ordering and counts.
+ *   - $fallbacks (by reference): the local transactional accumulator. Per-child
+ *     fallbacks are committed only if this recognizer wins.
  *
  * This recognizer is invoked at its specific div/section-like call site only and
  * is intentionally NOT registered in PatternRecognizerRegistry: looksLikeColumnsContainer
@@ -33,20 +32,23 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $children = $context->convertChildrenWithFallbacksCallback();
-        $convert = $context->convertElementWithFallbacksCallback();
-        $style = $context->structuralPresentationStyleCallback();
-        if (null === $children || null === $convert || null === $style) return null;
+        $converter = $context->recursiveConverter();
+        $style     = $context->structuralPresentationStyleCallback();
+        if ( null === $converter || null === $style ) {
+            return null;
+        }
+
         $fallbacks = array();
-        $block = $this->match($element, $fallbacks, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($children): array {
-            $result = $children($sourceElement, $captureUnsupported);
-            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
-            return $result->blocks();
-        }, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($convert): ?array {
-            $result = $convert($sourceElement, $captureUnsupported);
-            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
-            return $result->firstBlock();
-        }, $context->presentationAttributesCallback(), $style, $context->createBlockCallback());
+        $block = $this->match(
+            $element,
+            $fallbacks,
+            array($converter, 'children'),
+            array($converter, 'element'),
+            $context->presentationAttributesCallback(),
+            $style,
+            $context->createBlockCallback()
+        );
+
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 
