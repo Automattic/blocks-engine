@@ -6476,7 +6476,7 @@ final class StaticHtmlEmitter
                 }
             }
             if ( 'HUG' === $sizing ) {
-                $derivedTextSizeDecision = 'TEXT' === $type ? $this->derivedTextLayoutSizeDecision($node, $dimension) : null;
+                $derivedTextSizeDecision = 'TEXT' === $type ? $this->emissionSession->textSizingResolver()->derivedLayoutSizeDecision($node, $dimension) : null;
                 if ( null !== $derivedTextSizeDecision ) {
                     $derivedTextSize = $derivedTextSizeDecision['size'];
                     if ( 'source_box' === $derivedTextSizeDecision['authority'] ) {
@@ -6488,7 +6488,7 @@ final class StaticHtmlEmitter
                             'emitted_css_box' => array($dimension => $derivedTextSize),
                         ));
                     }
-                    if ( 'height' === $dimension && $this->textShouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                    if ( 'height' === $dimension && $this->emissionSession->textSizingResolver()->shouldAvoidTinyFixedHeight($node, $derivedTextSize) && ! $this->emissionSession->textSizingResolver()->shouldUseMeasuredFlexHeight($node, $parentNode) ) {
                         continue;
                     }
                     $styles[] = $dimension . ':' . $this->number($derivedTextSize) . 'px';
@@ -6503,7 +6503,7 @@ final class StaticHtmlEmitter
             } elseif ( $this->isFiniteNumeric($box[$dimension] ?? null) ) {
                 $property = $dimension;
                 $value = 'height' === $dimension && null !== $zeroHeightVectorFallbackHeight ? $zeroHeightVectorFallbackHeight : (float) $box[$dimension];
-                if ( 'height' === $dimension && 'TEXT' === $type && $this->textShouldAvoidTinyFixedHeight($node, $value) && ! $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+                if ( 'height' === $dimension && 'TEXT' === $type && $this->emissionSession->textSizingResolver()->shouldAvoidTinyFixedHeight($node, $value) && ! $this->emissionSession->textSizingResolver()->shouldUseMeasuredFlexHeight($node, $parentNode) ) {
                     continue;
                 }
                 $styles[] = $property . ':' . $this->number($value) . 'px';
@@ -6576,7 +6576,7 @@ final class StaticHtmlEmitter
                     $styles[] = $style;
                 }
             }
-            if ( $this->textShouldUseMeasuredFlexHeight($node, $parentNode) ) {
+            if ( $this->emissionSession->textSizingResolver()->shouldUseMeasuredFlexHeight($node, $parentNode) ) {
                 $styles[] = 'overflow:visible';
             }
         }
@@ -7142,52 +7142,6 @@ final class StaticHtmlEmitter
         }
 
         return $merged;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function derivedTextLayoutSize(array $node, string $dimension): ?float
-    {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        $size = is_array($derivedLayout['size'] ?? null) ? $derivedLayout['size'] : array();
-        if ( isset($size[$dimension]) && is_numeric($size[$dimension]) && 0.0 <= (float) $size[$dimension] ) {
-            return (float) $size[$dimension];
-        }
-
-        return null;
-    }
-
-    /**
-     * Chooses the authority for a HUG text dimension while preserving the
-     * derived layout measurement as diagnostic evidence.
-     *
-     * @param array<string, mixed> $node
-     * @return array{size: float, authority: string, derived_size: float, agreement_tolerance: float}|null
-     */
-    private function derivedTextLayoutSizeDecision(array $node, string $dimension): ?array
-    {
-        $derivedSize = $this->derivedTextLayoutSize($node, $dimension);
-        if ( null === $derivedSize ) {
-            return null;
-        }
-
-        $agreementTolerance = 0.5;
-        $sourceBox = $this->visualGeometryResolver()->nodeSourceBoxEvidence($node);
-        $sourceSize = isset($sourceBox[$dimension]) && is_numeric($sourceBox[$dimension]) && is_finite((float) $sourceBox[$dimension])
-            ? (float) $sourceBox[$dimension]
-            : null;
-        $sourceIsAuthoritative = 'height' === $dimension
-            && null !== $sourceSize
-            && abs($derivedSize - $sourceSize) > $agreementTolerance;
-
-        return array(
-            'size' => $sourceIsAuthoritative ? $sourceSize : $derivedSize,
-            'authority' => $sourceIsAuthoritative ? 'source_box' : 'derived_layout',
-            'derived_size' => $derivedSize,
-            'agreement_tolerance' => $agreementTolerance,
-        );
     }
 
     /**
@@ -8878,21 +8832,7 @@ final class StaticHtmlEmitter
      */
     private function textHasLineBreaks(array $node): bool
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
-        foreach ( $segments as $segment ) {
-            if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) && str_contains((string) $segment['characters'], "\n") ) {
-                return true;
-            }
-        }
-
-        foreach ( array($text['characters'] ?? null, $node['characters'] ?? null, $node['text'] ?? null) as $value ) {
-            if ( is_scalar($value) && str_contains((string) $value, "\n") ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->emissionSession->textSizingResolver()->hasLineBreaks($node);
     }
 
     /**
@@ -8936,9 +8876,7 @@ final class StaticHtmlEmitter
      */
     private function textHasDerivedLineBreaks(array $node): bool
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        return isset($derivedLayout['baseline_count']) && is_numeric($derivedLayout['baseline_count']) && 1 < (int) $derivedLayout['baseline_count'];
+        return $this->emissionSession->textSizingResolver()->hasDerivedLineBreaks($node);
     }
 
     /**
@@ -9037,72 +8975,6 @@ final class StaticHtmlEmitter
 
         sort($deltas);
         return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function textShouldAvoidTinyFixedHeight(array $node, float $height): bool
-    {
-        if ( 0.0 >= $height ) {
-            return false;
-        }
-
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        if ( '' === trim($this->nodePlainText($node)) || $this->textHasLineBreaks($node) || $this->textHasDerivedLineBreaks($node) ) {
-            return false;
-        }
-
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        $baselines = is_array($derivedLayout['baselines'] ?? null) ? array_values(array_filter($derivedLayout['baselines'], 'is_array')) : array();
-        if ( 1 !== count($baselines) ) {
-            return false;
-        }
-
-        $baseline = $baselines[0];
-        if ( ! isset($baseline['lineHeight'], $baseline['lineY']) || ! is_numeric($baseline['lineHeight']) || ! is_numeric($baseline['lineY']) ) {
-            return false;
-        }
-
-        $lineHeight = (float) $baseline['lineHeight'];
-        $lineY = (float) $baseline['lineY'];
-
-        return 0.0 > $lineY && $lineHeight > $height + 0.5;
-    }
-
-    /**
-     * @param array<string, mixed>      $node
-     * @param array<string, mixed>|null $parentNode
-     */
-    private function textShouldUseMeasuredFlexHeight(array $node, ?array $parentNode): bool
-    {
-        if ( null === $parentNode || 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
-            return false;
-        }
-
-        $parentLayout = is_array($parentNode['layout'] ?? null) ? $parentNode['layout'] : array();
-        if ( 'flex' !== ($parentLayout['display'] ?? null) ) {
-            return false;
-        }
-
-        if ( $this->flexTextShouldUseCenteredLineBox($parentLayout) ) {
-            return false;
-        }
-
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        return isset($box['height']) && is_numeric($box['height']) && $this->textShouldAvoidTinyFixedHeight($node, (float) $box['height']);
-    }
-
-    /**
-     * A centered flex parent should center the text line box itself. Preserving
-     * Figma's smaller measured glyph box height makes the line box overflow and
-     * defeats the parent's cross-axis centering.
-     *
-     * @param array<string, mixed> $parentLayout
-     */
-    private function flexTextShouldUseCenteredLineBox(array $parentLayout): bool
-    {
-        return 'center' === ($parentLayout['align_items'] ?? null);
     }
 
     /**
