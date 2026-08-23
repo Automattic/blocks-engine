@@ -71,6 +71,30 @@ $assert(
     CssValueSplitter::splitTopLevel('color: red; background: rgba(1, 2, 3, .4)', array( ';' )) === array( 'color: red', 'background: rgba(1, 2, 3, .4)' ),
     '3: declaration list splits on top-level semicolons only'
 );
+$assert(
+    CssValueSplitter::splitTopLevel('content: "a;b"; color: red', array( ';' )) === array( 'content: "a;b"', 'color: red' ),
+    '3b: quoted semicolons stay in their declaration'
+);
+$assert(
+    CssValueSplitter::splitTopLevel('"A,B", serif', array( ',' )) === array( '"A,B"', 'serif' ),
+    '3c: quoted commas stay in their value'
+);
+$assert(
+    CssValueSplitter::splitTopLevel('foo\\,bar,baz', array( ',' )) === array( 'foo\\,bar', 'baz' ),
+    '3d: escaped delimiters stay in their value'
+);
+$assert(
+    CssValueSplitter::splitTopLevel('"A\\", B", serif', array( ',' )) === array( '"A\\", B"', 'serif' ),
+    '3e: escaped quotes do not end a quoted value'
+);
+$assert(
+    CssValueSplitter::splitTopLevelWhitespace('"A B" serif') === array( '"A B"', 'serif' ),
+    '3f: quoted whitespace stays in its value'
+);
+$assert(
+    CssValueSplitter::splitTopLevelWhitespace('A\\ B serif') === array( 'A\\ B', 'serif' ),
+    '3g: escaped whitespace stays in its value'
+);
 
 // ---------------------------------------------------------------------------
 // 4. Balanced-paren detection (validity guard primitive).
@@ -79,6 +103,8 @@ $assert(CssValueSplitter::hasBalancedParens('rgba(251, 247, 241, .95)'), '4: com
 $assert(! CssValueSplitter::hasBalancedParens('rgba(251,'), '4b: truncated rgba() is unbalanced');
 $assert(! CssValueSplitter::hasBalancedParens('foo)bar'), '4c: stray close paren is unbalanced');
 $assert(CssValueSplitter::hasBalancedParens('linear-gradient(90deg, rgba(0,0,0,.5), #fff)'), '4d: nested functions are balanced');
+$assert(CssValueSplitter::hasBalancedParens('url("data:image/svg+xml,<svg>)</svg>")'), '4e: quoted parentheses do not affect balance');
+$assert(CssValueSplitter::hasBalancedParens('foo\\)bar'), '4f: escaped parentheses do not affect balance');
 
 // ---------------------------------------------------------------------------
 // 5. Mapper: function values survive end-to-end and stay whole.

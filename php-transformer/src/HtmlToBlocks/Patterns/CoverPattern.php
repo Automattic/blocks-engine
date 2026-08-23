@@ -290,7 +290,7 @@ final class CoverPattern implements PatternRecognizerInterface
         }
 
         $urlLayers = 0;
-        foreach ( $this->splitTopLevel($value, array( ',' )) as $layer ) {
+        foreach ( CssValueSplitter::splitTopLevel($value, array( ',' )) as $layer ) {
             if ( preg_match('/\burl\s*\(/i', $layer) && 2 <= ++$urlLayers ) {
                 return true;
             }
@@ -350,7 +350,7 @@ final class CoverPattern implements PatternRecognizerInterface
             return;
         }
 
-        $layers         = $this->splitTopLevel($gradient, array( ',' ));
+        $layers         = CssValueSplitter::splitTopLevel($gradient, array( ',' ));
         $gradientLayers = array();
         $hasDesignLayer = false;
         foreach ( $layers as $layer ) {
@@ -404,7 +404,7 @@ final class CoverPattern implements PatternRecognizerInterface
         }
 
         $type  = strtolower($matches[2]);
-        $stops = $this->splitTopLevel($matches[3], array( ',' ));
+        $stops = CssValueSplitter::splitTopLevel($matches[3], array( ',' ));
         if ( count($stops) >= 3 && $this->isGradientPrelude($type, $stops[0]) ) {
             array_shift($stops);
         }
@@ -539,76 +539,4 @@ final class CoverPattern implements PatternRecognizerInterface
         }
     }
 
-    /**
-     * @param array<int, string> $delimiters
-     * @return array<int, string>
-     */
-    private function splitTopLevel(string $input, array $delimiters): array
-    {
-        $masked = $this->maskQuotedAndEscapedCharacters($input);
-        $parts  = CssValueSplitter::splitTopLevel($masked, $delimiters);
-
-        return $this->restoreSplitParts($input, $masked, $parts);
-    }
-
-    private function maskQuotedAndEscapedCharacters(string $input): string
-    {
-        $masked = '';
-        $quote  = null;
-        $length = strlen($input);
-
-        for ( $index = 0; $index < $length; ++$index ) {
-            $character = $input[ $index ];
-            if ( '\\' === $character ) {
-                $masked .= 'x';
-                if ( $index + 1 < $length ) {
-                    $masked .= 'x';
-                    ++$index;
-                }
-                continue;
-            }
-
-            if ( null !== $quote ) {
-                if ( $quote === $character ) {
-                    $masked .= $character;
-                    $quote   = null;
-                } else {
-                    $masked .= 'x';
-                }
-                continue;
-            }
-
-            if ( '"' === $character || "'" === $character ) {
-                $quote  = $character;
-                $masked .= $character;
-                continue;
-            }
-
-            $masked .= $character;
-        }
-
-        return $masked;
-    }
-
-    /**
-     * @param array<int, string> $maskedParts
-     * @return array<int, string>
-     */
-    private function restoreSplitParts(string $input, string $masked, array $maskedParts): array
-    {
-        $parts  = array();
-        $offset = 0;
-
-        foreach ( $maskedParts as $maskedPart ) {
-            $start = strpos($masked, $maskedPart, $offset);
-            if ( false === $start ) {
-                return array();
-            }
-
-            $parts[] = substr($input, $start, strlen($maskedPart));
-            $offset  = $start + strlen($maskedPart);
-        }
-
-        return $parts;
-    }
 }
