@@ -40,7 +40,7 @@ final class RuntimeDependencyParityReport
      *        as an acceptable, superseded loss rather than a materialization bug.
      * @return array<string, mixed>
      */
-    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array()): array
+    public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array()): array
     {
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->withBlockCommentAnchorTargets(
@@ -52,9 +52,10 @@ final class RuntimeDependencyParityReport
         $findings = array();
         $flaggedSelectors = array();
         $bundleCanvasSelectors = $this->bundleCanvasSelectors($files, $sourceTargets);
+        $companionTargets = $this->htmlTargets($this->declaredCompanionRenderHtml($generatedBlocks));
 
         foreach ( $files as $file ) {
-            if ( ! $this->isScriptFile($file) ) {
+            if ( ! $this->isScriptFile($file) || ! $this->scriptAppliesToSource($file, $sourcePath) ) {
                 continue;
             }
 
@@ -68,7 +69,7 @@ final class RuntimeDependencyParityReport
             foreach ( $this->scriptDependencies($script, $bundleCanvasSelectors) as $dependency ) {
                 $selector = (string) $dependency['selector'];
                 $target = $sourceTargets[$selector] ?? array();
-                $exists = $this->targetExists($dependency, $generatedTargets);
+                $exists = $this->targetExists($dependency, $generatedTargets) || $this->targetExists($dependency, $companionTargets);
                 $canvasApi = true === $dependency['canvas_api'] && 'canvas' === ($target['tag'] ?? '');
                 $dependencyRow = array_filter(array(
                     'source_path'       => $target['source_path'] ?? $sourcePath,
@@ -83,6 +84,7 @@ final class RuntimeDependencyParityReport
                     'canvas_api'        => $canvasApi,
                     'source_present'    => array() !== $target,
                     'generated_present' => $exists,
+                    'generated_target_evidence' => $this->targetExists($dependency, $companionTargets) ? 'declared_companion_render' : '',
                     'disposition'       => $this->isSupersededSelector($selector, $superseded) ? self::DISPOSITION_SUPERSEDED : '',
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
                 $dependencies[] = $dependencyRow;
@@ -161,6 +163,41 @@ final class RuntimeDependencyParityReport
         $report['findings'] = $findings;
 
         return $report;
+    }
+
+    /**
+     * Page-owned scripts are evaluated only against the page which owns them.
+     * Shared scripts intentionally retain their cross-page parity behavior.
+     *
+     * @param array<string, mixed> $file
+     */
+    private function scriptAppliesToSource(array $file, string $sourcePath): bool
+    {
+        $ownership = $file['metadata']['compilation'] ?? null;
+        if ( ! is_array($ownership) || 'page' !== ($ownership['scope'] ?? null) ) {
+            return true;
+        }
+
+        return is_string($ownership['id'] ?? null) && $sourcePath === $ownership['id'];
+    }
+
+    /**
+     * Exact companion render strings are server-rendered DOM contracts only when
+     * the generated block explicitly declares its static render file.
+     *
+     * @param array<int, array<string, mixed>> $generatedBlocks
+     */
+    private function declaredCompanionRenderHtml(array $generatedBlocks): string
+    {
+        $renders = array();
+        foreach ( $generatedBlocks as $block ) {
+            if ( ! is_array($block) || 'file:./render.php' !== ($block['block_json']['render'] ?? null) || ! is_string($block['render'] ?? null) ) {
+                continue;
+            }
+            $renders[] = $block['render'];
+        }
+
+        return implode("\n", $renders);
     }
 
     /**

@@ -5123,6 +5123,13 @@ final class HtmlTransformer
 
         if ( 'script' === $tagName ) {
             if ( $this->captureStaticScriptMetadata($element) ) {
+                if ( $this->isAddressableStaticJsonTarget($element) ) {
+                    $this->recordRuntimeIsland($element, 'static_script', 'static_script_runtime_target', 'client_script_configuration', array(
+                        'script_role' => 'data',
+                        'required_scripts' => $this->requiredScriptsForElement($element),
+                    ));
+                    return $this->staticJsonTargetBlock($element);
+                }
                 return null;
             }
 
@@ -12479,6 +12486,44 @@ final class HtmlTransformer
     private function captureStaticScriptMetadata(DOMElement $element): bool
     {
         return $this->fallbackEmitter->captureStaticScriptMetadata($element, $this->scriptMetadata);
+    }
+
+    /**
+     * Keep a static JSON script in the page only when a carried runtime script
+     * addresses its id. JSON script types never execute, unlike static JavaScript
+     * assignments that remain metadata-only.
+     */
+    private function isAddressableStaticJsonTarget(DOMElement $element): bool
+    {
+        $id = trim($this->attr($element, 'id'));
+        $type = strtolower(trim($this->attr($element, 'type')));
+        if ( '' === $id || ! in_array($type, array('application/json', 'application/ld+json'), true) || ! isset($this->runtimeDomSelectors['#' . $id]) ) {
+            return false;
+        }
+
+        $metadata = end($this->scriptMetadata);
+        if ( ! is_array($metadata) || ! empty($metadata['body_truncated']) ) {
+            return false;
+        }
+
+        return null !== json_decode((string) ($metadata['body'] ?? ''), true);
+    }
+
+    private function staticJsonTargetBlock(DOMElement $element): array
+    {
+        $metadata = end($this->scriptMetadata);
+        $attributes = is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : array();
+        ksort($attributes, SORT_STRING);
+        $attributeHtml = '';
+        foreach ( $attributes as $name => $value ) {
+            if ( ! is_string($name) || ! is_string($value) ) {
+                continue;
+            }
+            $attributeHtml .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        $body = str_replace('</script', '<\\/script', (string) ($metadata['body'] ?? ''));
+
+        return $this->createBlock('core/html', array('content' => '<script' . $attributeHtml . '>' . $body . '</script>'), array(), $element);
     }
 
     /**
