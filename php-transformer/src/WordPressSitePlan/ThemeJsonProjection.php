@@ -114,5 +114,9 @@ final class ThemeJsonProjection
 
     /** @param array<string,string> $presets */
     private function presetValue(array $presets, string $value, string $type): string { return isset($presets[$value]) ? 'var:preset|' . $type . '|' . $presets[$value] : $value; }
-    private function slug(string $group, string $value): string { return $group . '-' . substr(hash('sha256', strtolower($value)), 0, 10); }
+    private function slug(string $group, string $value): string
+    {
+        $digest = substr(hash('sha256', strtolower($value)), 0, 10);
+        return $group . '-' . (preg_replace('/(?<=\d)(?=[a-f])|(?<=[a-f])(?=\d)/', '-', $digest) ?? $digest);
+    }
 }
