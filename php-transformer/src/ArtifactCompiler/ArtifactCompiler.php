@@ -109,10 +109,12 @@ final class ArtifactCompiler
             'files'      => $files,
         ));
         $this->indexFiles($normalized['files']);
+        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']);
 
         return array(
             'runtime_script_metadata'  => $this->runtimeScriptMetadataForSource($html, $sourcePath, $normalized['files']),
-            'runtime_dom_selectors'    => $this->runtimeDomSelectors($html, $sourcePath, $normalized['files']),
+            'runtime_dom_selectors'    => $runtimeDomSelectors,
+            'runtime_behavioral_selectors' => $runtimeDomSelectors,
             'runtime_canvas_selectors' => $this->runtimeCanvasSelectors($html, $sourcePath, $normalized['files']),
         );
     }
@@ -1878,6 +1880,7 @@ final class ArtifactCompiler
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
+        $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
@@ -1888,7 +1891,8 @@ final class ArtifactCompiler
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
-            'runtime_dom_selectors'     => $this->runtimeDomSelectors($html, $sourcePath, $files),
+            'runtime_dom_selectors'     => $runtimeDomSelectors,
+            'runtime_behavioral_selectors' => $runtimeDomSelectors,
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
@@ -3586,25 +3590,16 @@ final class ArtifactCompiler
         if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationalRuntimeSelector($selector) ) {
-                    continue;
-                }
                 $selectors[$selector] = true;
             }
         }
         if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationalRuntimeSelector($selector) ) {
-                    continue;
-                }
                 $selectors[$selector] = true;
             }
         }
         foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
-            if ( $this->isPresentationalRuntimeSelector($selector) ) {
-                continue;
-            }
             $selectors[$selector] = true;
         }
         foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
@@ -3619,9 +3614,6 @@ final class ArtifactCompiler
         if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $selector ) {
                 $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationalRuntimeSelector($selector) ) {
-                    continue;
-                }
                 $selectors[$selector] = true;
             }
         }
@@ -3636,16 +3628,19 @@ final class ArtifactCompiler
         }
 
         $selectorPattern = preg_quote($selector, '/');
-        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)(.{0,700})/s', $script, $matches) ) {
+        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:document\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+            foreach ($assignments as $assignment) {
+                if (preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|hidden|disabled|style|dataset)\b/', $script)) {
+                    return false;
+                }
+            }
+        }
+        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)([^;]{0,700})/', $script, $matches) ) {
             return false;
         }
 
         foreach ( $matches[2] as $tail ) {
-            $window = (string) $tail;
-            if ( ! str_contains($window, 'classList.') ) {
-                return false;
-            }
-            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:hidden|disabled|style|dataset)\b/', $window) ) {
+            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', (string) $tail) ) {
                 return false;
             }
         }

@@ -65,6 +65,7 @@ final class HtmlTransformerSession
     public array $imageShapeStyleRules = array();
     public array $staticPseudoElementStyleRules = array();
     public array $runtimeDomSelectors = array();
+    public array $runtimeBehavioralSelectors = array();
     public array $runtimeCanvasSelectors = array();
     public array $supersededRuntimeSelectors = array();
     public array $sourceTagMarkers = array();
