@@ -440,6 +440,11 @@ trait StyleResolutionTrait
             }
             $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
             $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
+            if (in_array($property, array( 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ), true)
+                && preg_match('/^(?:\d+|\d*\.\d+)$/', $value)
+            ) {
+                $value .= 'px';
+            }
             if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
             }

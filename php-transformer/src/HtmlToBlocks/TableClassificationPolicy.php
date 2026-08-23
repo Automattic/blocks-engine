@@ -76,6 +76,36 @@ final class TableClassificationPolicy
     }
 
     /**
+     * Legacy tables used for media composition have no tabular semantics, no
+     * spanning, and at least one image-bearing cell. Those can become Columns
+     * without changing the meaning of genuine data tables.
+     */
+    public function isMediaLayoutTable(DOMElement $table): bool
+    {
+        $classification = $this->classify($table);
+        if ( self::LAYOUT_SIMPLE !== $classification['classification']
+            || false === $classification['representable']
+            || empty($classification['signals']['row_count'])
+        ) {
+            return false;
+        }
+
+        foreach ($classification['signals']['column_counts'] as $columnCount) {
+            if ($columnCount < 2) {
+                return false;
+            }
+        }
+
+        foreach ($table->getElementsByTagName('img') as $image) {
+            if ($image instanceof DOMElement && $this->belongsToTable($image, $table)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function tableSignals(DOMElement $table): array
