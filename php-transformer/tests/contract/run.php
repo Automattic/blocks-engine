@@ -3772,8 +3772,8 @@ $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detec
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
 $importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
-$assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
-$assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
+$assert(array() === ($importantWebFontPlan['fonts'] ?? array()) && ! isset($importantWebFontPlan['css']), 'CSS-only font families do not fabricate Google font requests');
+$assert(array() === ($importantWebFontPlan['roles'] ?? array()), 'CSS-only font roles are omitted without a source-proven font face');
 
 $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '',
@@ -3824,6 +3824,15 @@ $assert(1 === count($deduplicatedWebFontPlan['webfont_contract']['imports'] ?? a
 $unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
 $assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
 $assert('unsupported' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['state'] ?? null) && 'webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['diagnostics'][0]['code'] ?? null) && array() === ($unsupportedWebFontPlan['webfont_contract']['faces'] ?? null), 'zero-face web-font contracts retain required import diagnostics');
+
+$directFaceCss = '@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2") format("woff2")}h1{font-family:"Festival Display",serif}body{font-family:"Unproven Sans",sans-serif}';
+$directFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $directFaceCss, array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))));
+$assert(array(array('family' => 'Festival Display', 'weights' => array(700))) === ($directFacePlan['fonts'] ?? null) && 'Festival Display' === ($directFacePlan['roles']['heading'] ?? null) && ! isset($directFacePlan['roles']['body']), 'source-proven direct font faces materialize their family and matching role without CSS-only families');
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' === ($directFacePlan['css'] ?? null), 'direct font materialization emits only the typed font-face declaration');
+$directContract = $directFacePlan['webfont_contract'] ?? array();
+$assert('direct' === ($directContract['imports'][0]['provider'] ?? null) && 'font' === ($directContract['imports'][0]['source']['format'] ?? null) && 'https://cdn.example.test/fonts/festival-display.woff2' === ($directContract['faces'][0]['sources'][0]['url'] ?? null) && 'styles/typography.css' === ($directContract['imports'][0]['provenance']['source_path'] ?? null) && 'css:@font-face(1)' === ($directContract['imports'][0]['provenance']['selector'] ?? null), 'direct font faces retain typed source URL and source provenance in the materialization contract');
+$directMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array('theme' => array('static_css' => $directFaceCss, 'font_css_sources' => array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))))));
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' . "\n" === ($directMaterializationPlan['theme']['font_materialization']['stylesheets'][0]['content'] ?? null), 'materialization plan carries the direct font declaration as its standalone stylesheet asset');
 
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
@@ -3921,22 +3930,19 @@ $materializedTypographyFindings = array_filter(
 );
 $assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
 
-// Negative: the base/body font-family is the document's foundational typography
-// and must survive into materialized output even when declared only in an inline
-// <style> block (no link, no static css). It is carried into the base typography
-// the transformer emits, so it must NOT surface a typography_font_family_dropped:body finding.
+// CSS-only body families have no source URL, so materialization must not guess a
+// Google endpoint for them.
 $inlineBodyFontResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
     array()
 )->toArray();
 $inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
-$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family is materialized and not reported dropped');
+$assert(array() !== $inlineBodyDropped && 'Brand Sans' === ($inlineBodyDropped[0]['font_family'] ?? null), 'inline <style> CSS-only body font-family is reported rather than fabricated');
 $inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
     ''
 );
-$assert('Brand Sans' === ($inlineBodyPlan['roles']['body'] ?? null), 'inline <style> base/body font-family flows into materialized body role');
-$assert('Brand Sans' === ($inlineBodyPlan['fonts'][0]['family'] ?? null), 'inline <style> base/body font-family is preserved in materialized fonts');
+$assert(array() === ($inlineBodyPlan['roles'] ?? array()) && array() === ($inlineBodyPlan['fonts'] ?? array()), 'inline <style> CSS-only body font-family has no materialization plan');
 
 // Positive: a heading-only font in an inline <style> block (no body declaration)
 // still requires a loaded web-font to render, so it remains a reported drop.

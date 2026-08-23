@@ -59,28 +59,33 @@ final class FontMaterializationPlanBuilder
         $resolvedCss = $this->resolveCssVariables($css);
 
         $imports = $this->webFontImports($css, $cssSources);
-        $fontUsage = array_merge(
+        $directFaces = $this->directFontFaces($css, $cssSources);
+        foreach ( $directFaces as $directFace ) {
+            $imports[] = array(
+                'id' => 'webfont-import-' . substr(hash('sha256', $directFace['provenance']['source_path'] . "\n" . $directFace['provenance']['selector'] . "\n" . $directFace['source_url']), 0, 20),
+                'href' => $directFace['source_url'],
+                'href_hash' => hash('sha256', $directFace['source_url']),
+                'provider' => 'direct',
+                'supported' => true,
+                'font_usage' => array(array('family' => $directFace['family'], 'weights' => $this->faceWeights($directFace['weight']))),
+                'faces' => array(array('id' => 'webfont-face-' . substr(hash('sha256', $directFace['family'] . "\n" . $directFace['style'] . "\n" . json_encode($directFace['weight']) . "\n" . $directFace['source_url']), 0, 20), 'family' => $directFace['family'], 'style' => $directFace['style'], 'weight' => $directFace['weight'], 'axes' => array('wght' => $directFace['weight']))),
+                'provenance' => $directFace['provenance'],
+            );
+        }
+        usort($imports, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
+        $googleFontUsage = array_merge(
             $this->fontUsageFromLinkedStylesheets($html),
-            ...array_merge(array_column($imports, 'font_usage'), array($this->fontUsageFromCssDeclarations($resolvedCss)))
+            ...array_column(array_filter($imports, static fn (array $import): bool => 'google_fonts' === $import['provider']), 'font_usage')
         );
         $roles = $this->fontRolesFromCss($resolvedCss);
 
-        // The base/body `font-family` is the document's foundational typography
-        // and must survive into the materialized output even when it is declared
-        // only in an inline `<style>` block (no external stylesheet, no linked
-        // web-font). Carry that base font into the plan so the generated base
-        // typography keeps the source's body face. Heading-only inline fonts are
-        // deliberately NOT materialized here: a custom heading face with no
-        // loaded web-font cannot render, so it stays a reported drop.
-        $inlineBody = (string) ($this->fontRolesFromCss($this->resolveCssVariables($this->styleBlockCss($html)))['body'] ?? '');
-        if ( '' !== $inlineBody ) {
-            $fontUsage[] = array('family' => $inlineBody, 'weights' => array(400));
-            if ( '' === (string) ($roles['body'] ?? '') ) {
-                $roles['body'] = $inlineBody;
-            }
-        }
-
-        $plan = $this->googleFonts($fontUsage, $roles);
+        // A CSS family name alone does not prove that Google hosts the font.
+        // Materialize only families backed by a Google import/link or a direct face.
+        $plan = $this->googleFonts($googleFontUsage, $roles);
+        $directFontUsage = array_column(array_filter($imports, static fn (array $import): bool => 'direct' === $import['provider']), 'font_usage');
+        $plan['fonts'] = $this->normalizeFontUsage(array_merge($googleFontUsage, ...$directFontUsage));
+        $plan['roles'] = $this->filterRoles($roles, $plan['fonts']);
+        if ( array() !== $directFontUsage ) $plan['provider'] = array() === $googleFontUsage ? 'direct' : 'mixed';
         $faces = array();
         $diagnostics = array();
         foreach ( $imports as $import ) {
@@ -95,9 +100,11 @@ final class FontMaterializationPlanBuilder
         }
         usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
         $importCss = $this->cssFromImports($imports);
-        if ( '' !== $importCss ) {
-            $plan['css'] = $importCss;
-            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $importCss . "\n"));
+        $directCss = $this->cssFromDirectFaces($directFaces);
+        $materializedCss = implode("\n", array_filter(array($importCss, $directCss)));
+        if ( '' !== $materializedCss ) {
+            $plan['css'] = $materializedCss;
+            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $materializedCss . "\n"));
         }
         if ( isset($plan['stylesheets'][0]) ) {
             $plan['stylesheets'][0]['content_hash'] = hash('sha256', (string) $plan['stylesheets'][0]['content']);
@@ -175,7 +182,7 @@ final class FontMaterializationPlanBuilder
     {
         $diagnosticsByImport = array();
         foreach ( $diagnostics as $diagnostic ) $diagnosticsByImport[$diagnostic['import_ref'] ?? ''][] = $diagnostic;
-        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
+        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'direct' === $import['provider'] ? 'font' : 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
         $importsById = array_column($contractImports, null, 'id');
         $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array(), 'sources' => array($importsById[$face['import_ref']]['source'])), $faces);
         $contractReceipts = array_map(static fn (array $face): array => array('id' => $face['receipt_id'], 'face_id' => $face['id'], 'import_id' => $face['import_id'], 'required' => true, 'state' => 'pending_browser_readiness'), $contractFaces);
@@ -195,8 +202,19 @@ final class FontMaterializationPlanBuilder
     private function cssFromImports(array $imports): string
     {
         $urls = array();
-        foreach ( $imports as $import ) if ( $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
+        foreach ( $imports as $import ) if ( 'google_fonts' === $import['provider'] && $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
         return implode("\n", $urls);
+    }
+
+    /** @param array<int,array<string,mixed>> $faces */
+    private function cssFromDirectFaces(array $faces): string
+    {
+        $css = array();
+        foreach ( $faces as $face ) {
+            $weight = 'range' === ($face['weight']['kind'] ?? '') ? $face['weight']['min'] . ' ' . $face['weight']['max'] : (string) ($face['weight']['value'] ?? 400);
+            $css[] = '@font-face{font-family:"' . str_replace('"', '\\"', $face['family']) . '";font-style:' . $face['style'] . ';font-weight:' . $weight . ';src:url("' . str_replace('"', '\\"', $face['source_url']) . '");}';
+        }
+        return implode("\n", $css);
     }
 
     /**
@@ -299,6 +317,49 @@ final class FontMaterializationPlanBuilder
         }
         usort($imports, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
         return $imports;
+    }
+
+    /**
+     * Extract a bounded set of source-proven direct font files. The emitted CSS
+     * is reconstructed from these typed facts rather than copying author CSS.
+     *
+     * @param array<int,array<string,mixed>> $cssSources
+     * @return array<int,array<string,mixed>>
+     */
+    private function directFontFaces(string $css, array $cssSources): array
+    {
+        $sources = array();
+        foreach ( $cssSources as $source ) {
+            if ( is_array($source) && is_string($source['content'] ?? null) ) $sources[] = array('content' => $source['content'], 'source_path' => (string) ($source['path'] ?? 'css:input'), 'source_hash' => (string) ($source['source_hash'] ?? hash('sha256', $source['content'])));
+        }
+        if ( array() === $sources && '' !== trim($css) ) $sources[] = array('content' => $css, 'source_path' => 'css:input', 'source_hash' => hash('sha256', $css));
+
+        $faces = array();
+        foreach ( $sources as $source ) {
+            if ( count($faces) >= 64 || ! preg_match_all('/@font-face\s*\{([^{}]{1,16384})\}/i', $source['content'], $matches, PREG_SET_ORDER) ) continue;
+            foreach ( $matches as $index => $match ) {
+                if ( count($faces) >= 64 ) break;
+                $declaration = (string) $match[1];
+                if ( ! preg_match('/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $declaration, $familyMatch) || ! preg_match('/(?:^|;)\s*src\s*:\s*[^;{}]*url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $declaration, $sourceMatch) ) continue;
+                $family = $this->normalizeFamily((string) $familyMatch[1]);
+                $sourceUrl = html_entity_decode((string) (($sourceMatch[1] ?? '') ?: ($sourceMatch[2] ?? '') ?: ($sourceMatch[3] ?? '')), ENT_QUOTES | ENT_HTML5);
+                if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! preg_match('~^https?://~i', $sourceUrl) ) continue;
+                preg_match('/(?:^|;)\s*font-style\s*:\s*([^;{}]+)/i', $declaration, $styleMatch);
+                preg_match('/(?:^|;)\s*font-weight\s*:\s*([^;{}]+)/i', $declaration, $weightMatch);
+                $style = strtolower(trim((string) ($styleMatch[1] ?? 'normal')));
+                $weight = $this->typedWeight(trim((string) ($weightMatch[1] ?? '400')));
+                if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) || ! preg_match('~^https?://[^\s"\']+$~i', $sourceUrl) ) continue;
+                $faces[] = array('family' => $family, 'style' => $style, 'weight' => $weight, 'source_url' => $sourceUrl, 'provenance' => array('source_kind' => 'css_font_face', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@font-face(' . ($index + 1) . ')'));
+            }
+        }
+        usort($faces, static fn (array $left, array $right): int => strcmp($left['provenance']['source_path'] . "\n" . $left['provenance']['selector'] . "\n" . $left['source_url'], $right['provenance']['source_path'] . "\n" . $right['provenance']['selector'] . "\n" . $right['source_url']));
+        return $faces;
+    }
+
+    /** @param array<string,int|string> $weight @return array<int,int> */
+    private function faceWeights(array $weight): array
+    {
+        return 'range' === ($weight['kind'] ?? '') ? array((int) $weight['min'], (int) $weight['max']) : array((int) ($weight['value'] ?? 400));
     }
 
     /** @return array<int,array<string,mixed>> */
