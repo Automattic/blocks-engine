@@ -13060,7 +13060,7 @@ final class HtmlTransformer
         $supersededRuntimeSelectors = $this->runtimeDomSelectorsForElement($element);
         if ( $replacesRuntimeIsland ) $supersededRuntimeSelectors[] = $this->runtimeIslandSelector($element);
 
-        return FallbackDiagnostic::build(array(
+        $finding = array(
             'type'            => 'html',
             'reason'          => 'form_requires_runtime',
             'diagnostic_code' => 'html_form_fallback',
@@ -13085,7 +13085,12 @@ final class HtmlTransformer
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->fallbackProvenance);
+        );
+        if ( 'form' !== strtolower($element->tagName) ) {
+            $finding['form_boundary'] = $this->pseudoFormBoundaryMetadata($element);
+        }
+
+        return FallbackDiagnostic::build($finding, $this->fallbackProvenance);
     }
 
     /**
@@ -13093,6 +13098,16 @@ final class HtmlTransformer
      */
     private function formSuccessPanelMetadata(DOMElement $form): array
     {
+        if ( 'form' !== strtolower($form->tagName) ) {
+            foreach ( $this->descendantElements($form) as $descendant ) {
+                if ( $this->hasSuccessPanelSignal($descendant) ) {
+                    return $this->successPanelMetadata($descendant);
+                }
+            }
+
+            return array();
+        }
+
         for ( $sibling = $form->nextSibling; $sibling instanceof DOMNode; $sibling = $sibling->nextSibling ) {
             if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
                 continue;
@@ -13106,21 +13121,27 @@ final class HtmlTransformer
                 return array();
             }
 
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($sibling));
-            return array_filter(array(
-                'selector'       => $this->elementSelector($sibling),
-                'id'             => $this->attr($sibling, 'id'),
-                'class'          => $this->attr($sibling, 'class'),
-                'role'           => $this->attr($sibling, 'role'),
-                'aria_live'      => $this->attr($sibling, 'aria-live'),
-                'text'           => $this->normalizedSuccessPanelText($sibling),
-                'html'           => $boundedHtml['html'],
-                'html_bytes'     => $boundedHtml['bytes'],
-                'html_truncated' => $boundedHtml['truncated'],
-            ), static fn (mixed $value): bool => is_bool($value) || is_int($value) || '' !== trim((string) $value));
+            return $this->successPanelMetadata($sibling);
         }
 
         return array();
+    }
+
+    /** @return array<string, mixed> */
+    private function successPanelMetadata(DOMElement $element): array
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        return array_filter(array(
+            'selector'       => $this->elementSelector($element),
+            'id'             => $this->attr($element, 'id'),
+            'class'          => $this->attr($element, 'class'),
+            'role'           => $this->attr($element, 'role'),
+            'aria_live'      => $this->attr($element, 'aria-live'),
+            'text'           => $this->normalizedSuccessPanelText($element),
+            'html'           => $boundedHtml['html'],
+            'html_bytes'     => $boundedHtml['bytes'],
+            'html_truncated' => $boundedHtml['truncated'],
+        ), static fn (mixed $value): bool => is_bool($value) || is_int($value) || '' !== trim((string) $value));
     }
 
     private function normalizedSuccessPanelText(DOMElement $element): string
@@ -13166,6 +13187,12 @@ final class HtmlTransformer
             return false;
         }
 
+        // A pseudo-form must be a local interaction region, never the page shell
+        // that happens to contain navigation or editorial content plus controls.
+        if ( $this->pseudoFormContainsUnrelatedLandmark($element) ) {
+            return false;
+        }
+
         if ( ! $this->containerPairsDataEntryWithSubmit($element) ) {
             return false;
         }
@@ -13185,28 +13212,81 @@ final class HtmlTransformer
     }
 
     /**
-     * Whether a container holds at least one data-entry control AND at least one
-     * submit-like control. Reuses the issue #315 control-detection helpers
-     * (formControlElements / isDataEntryControl) so detection stays in one place.
+     * Whether a container holds a local, labeled data-entry control and a submit
+     * action. Unlike a real form, a div gives a plain button no submit ownership,
+     * so its action must be explicit in type or semantics.
      */
     private function containerPairsDataEntryWithSubmit(DOMElement $element): bool
     {
         $hasDataEntry = false;
+        $hasFieldLabel = false;
         $hasSubmit = false;
+        $hasActionControl = false;
+        $hasContainerAction = '' !== trim($this->attr($element, 'action')) || '' !== trim($this->attr($element, 'method')) || '' !== trim($this->attr($element, 'data-action'));
 
         foreach ( $this->formControlElements($element) as $control ) {
-            if ( $this->isPseudoFormDataEntryControl($control) ) {
+            if ( $this->isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
-            } elseif ( $this->isSubmitLikeControl($control) ) {
-                $hasSubmit = true;
+                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlLabel($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
+            } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array($this->formControlType($control), array( 'reset', 'button' ), true) ) ) {
+                $hasActionControl = true;
+                $hasSubmit = $hasSubmit || $this->isPseudoFormSubmitControl($control);
             }
 
-            if ( $hasDataEntry && $hasSubmit ) {
+            if ( $hasDataEntry && $hasFieldLabel && ( $hasSubmit || ( $hasContainerAction && $hasActionControl ) ) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function isPseudoFormSubmitControl(DOMElement $control): bool
+    {
+        $type = $this->formControlType($control);
+        if ( in_array($type, array( 'submit', 'image' ), true) ) {
+            return true;
+        }
+
+        return $this->hasSubmitSemantics($control);
+    }
+
+    private function pseudoFormContainsUnrelatedLandmark(DOMElement $element): bool
+    {
+        foreach ( $this->descendantElements($element) as $descendant ) {
+            $tagName = strtolower($descendant->tagName);
+            $role = strtolower($this->attr($descendant, 'role'));
+            if ( in_array($tagName, array( 'article', 'nav', 'header', 'footer', 'main' ), true)
+                || in_array($role, array( 'article', 'navigation', 'banner', 'contentinfo', 'main' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function pseudoFormBoundaryMetadata(DOMElement $element): array
+    {
+        $rejectedAncestors = array();
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && count($rejectedAncestors) < 4; $ancestor = $ancestor->parentNode ) {
+            if ( ! $this->pseudoFormContainsUnrelatedLandmark($ancestor) && ! $this->containerPairsDataEntryWithSubmit($ancestor) ) {
+                continue;
+            }
+            $rejectedAncestors[] = array(
+                'selector' => $this->elementSelector($ancestor),
+                'reason'   => $this->pseudoFormContainsUnrelatedLandmark($ancestor) ? 'contains_unrelated_landmark' : 'contains_nested_coherent_form',
+            );
+        }
+
+        return array(
+            'schema' => 'generic/form-boundary/v1',
+            'selector' => $this->elementSelector($element),
+            'selection_basis' => array( 'local_controls', 'associated_label', 'submit_semantics' ),
+            'rejected_ancestors' => $rejectedAncestors,
+        );
     }
 
     /**

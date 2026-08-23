@@ -786,6 +786,24 @@ $assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''),
 $assert('form_provider' === ($newsletterFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'static newsletter form declares the form provider materialization role');
 $assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
 
+$nestedPseudoForm = ( new HtmlTransformer() )->transform(
+    '<article><nav aria-label="Blog"><a href="/posts">Posts</a></nav><div class="content-wrapper"><h1>Article title</h1><p>Article copy stays editable.</p><div class="contact-panel" action="/contact"><label for="contact-email">Email</label><input id="contact-email" name="email" type="email"><button>Send message</button><p role="status">Thanks, we will reply shortly.</p></div><p>Related reading.</p></div></article>'
+)->toArray();
+$nestedPseudoFallback = $nestedPseudoForm['fallbacks'][0] ?? array();
+$nestedPseudoBoundary = $nestedPseudoFallback['form_boundary'] ?? array();
+$assert(1 === count($nestedPseudoForm['fallbacks'] ?? array()) && 'contact-panel' === ($nestedPseudoFallback['form']['class'] ?? ''), 'nested pseudo-form selects the local control region instead of its article wrapper');
+$assert('/contact' === ($nestedPseudoFallback['form']['action'] ?? '') && 'Email' === ($nestedPseudoFallback['controls'][0]['label'] ?? '') && 'Send message' === ($nestedPseudoFallback['controls'][1]['text'] ?? '') && 'Thanks, we will reply shortly.' === ($nestedPseudoFallback['success_panel']['text'] ?? ''), 'nested pseudo-form preserves action, associated label, submit text, and success-state metadata');
+$assert('generic/form-boundary/v1' === ($nestedPseudoBoundary['schema'] ?? '') && array( 'local_controls', 'associated_label', 'submit_semantics' ) === ($nestedPseudoBoundary['selection_basis'] ?? array()) && in_array('contains_unrelated_landmark', array_column($nestedPseudoBoundary['rejected_ancestors'] ?? array(), 'reason'), true), 'pseudo-form diagnostics explain the local boundary and rejected editorial ancestors');
+$assert(str_contains((string) ($nestedPseudoForm['serialized_blocks'] ?? ''), 'Article title') && str_contains((string) ($nestedPseudoForm['serialized_blocks'] ?? ''), 'Related reading.') && ! str_contains((string) ($nestedPseudoFallback['html'] ?? ''), 'Article title'), 'surrounding article content remains native blocks and outside pseudo-form fallback metadata');
+$actionPseudoForm = ( new HtmlTransformer() )->transform('<div action="/request-quote"><label for="quote-email">Email</label><input id="quote-email" name="email" type="email"><button>Continue</button></div>')->toArray();
+$assert('/request-quote' === ($actionPseudoForm['fallbacks'][0]['form']['action'] ?? '') && 'Continue' === ($actionPseudoForm['fallbacks'][0]['controls'][1]['text'] ?? ''), 'explicit local action semantics retain a coherent pseudo-form with a neutral submit label');
+
+$broadPseudoForm = ( new HtmlTransformer() )->transform(
+    '<div id="content-wrapper"><nav aria-label="Blog"><a href="/posts">Posts</a></nav><article><h1>Post title</h1><div class="search"><input class="search-input" type="text" placeholder="Search"></div><button aria-label="Share via Facebook">Share</button><p>Long article copy.</p></article></div>'
+)->toArray();
+$assert(array() === array_values(array_filter($broadPseudoForm['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? ''))), 'search fields and unrelated buttons never promote a content wrapper to a pseudo-form');
+$assert(str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Post title') && str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Long article copy.'), 'rejected broad pseudo-form candidates remain ordinary native content');
+
 $commerceControls = ( new HtmlTransformer() )->transform(
     '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li></ul></main>'
 )->toArray();
