@@ -6546,25 +6546,9 @@ final class StaticHtmlEmitter
         }
         $fullBleedBreakoutDecision = $this->canvasShellResolver()->fullBleedViewportBreakoutDecision($canvasShell);
 
-        if ( $this->nodeShouldEmitCssBackground($type, $zeroHeightVectorFallbackHeight, $rendersInlineVectorSvg) ) {
-            $background = $this->backgroundColor($node);
-            if ( null !== $background ) {
-                $styles[] = 'background:' . $background;
-            }
-        }
+        array_push($styles, ...$this->emissionSession->visualStyleResolver()->backgroundDeclarations($node, $type, $zeroHeightVectorFallbackHeight, $rendersInlineVectorSvg));
 
         $box = is_array($node['figma_box'] ?? null) ? $node['figma_box'] : array();
-        if ( $this->isFiniteNumeric($box['opacity'] ?? null) ) {
-            $styles[] = 'opacity:' . $this->number((float) $box['opacity']);
-        }
-
-        if ( isset($box['blend_mode']) && is_scalar($box['blend_mode']) ) {
-            $blendMode = $this->blendModeCss((string) $box['blend_mode']);
-            if ( null !== $blendMode ) {
-                $styles[] = 'mix-blend-mode:' . $blendMode;
-            }
-        }
-
         $transform = $this->isNearZeroHeightContainer($node, $type) || $this->hasAbsoluteVisualBounds($node) ? null : $this->transformStyle($box);
         if ( null !== $transform ) {
             $styles[] = 'transform:' . $transform;
@@ -6578,22 +6562,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        foreach ( $this->radiusStyles($box) as $style ) {
-            $styles[] = $style;
-        }
-
-        if ( ! $this->rendersStrokeInsideInlineSvg($node, $type, $parentNode) ) {
-            foreach ( $this->strokeStyles($node) as $style ) {
-                $styles[] = $style;
-            }
-        }
-
-        foreach ( $this->composedImageBackgroundStyles($node) as $style ) {
-            $styles[] = $style;
-        }
-        if ( $canvasShell->fullBleedCanvasChild ) {
-            $styles = $this->scaleFullBleedImageCropStyles($styles, $layoutBox);
-        }
+        array_push($styles, ...$this->emissionSession->visualStyleResolver()->decorationDeclarations($node, $type, $parentNode, $canvasShell->fullBleedCanvasChild, $layoutBox));
 
         if ( 'TEXT' === $type ) {
             foreach ( $this->textStyles($node, $parentNode, $grandParentNode) as $style ) {
@@ -6612,9 +6581,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        foreach ( $this->effectStyles($node, $type) as $style ) {
-            $styles[] = $style;
-        }
+        array_push($styles, ...$this->emissionSession->visualStyleResolver()->effectDeclarations($node, $type));
 
         $layoutIntent = $plan->layoutIntent;
         $freeformFlowIntent = empty($layout['display'] ?? null) ? $this->freeformContainerFlowIntent($node) : null;
@@ -6686,35 +6653,6 @@ final class StaticHtmlEmitter
         $this->recordGeometryDecisionDiagnostics($node, $type, $parentNode, $layoutBox, $box, $layout, $canvasShell, $canvasWidthDecision, $fullBleedBreakoutDecision, $positioningStyleDecision, $styles, $transform);
 
         return $styles;
-    }
-
-    /**
-     * @param array<int, string> $styles
-     * @param array<string, mixed> $box
-     * @return array<int, string>
-     */
-    private function scaleFullBleedImageCropStyles(array $styles, array $box): array
-    {
-        if ( ! isset($box['width']) || ! is_numeric($box['width']) || (float) $box['width'] <= 0.0 ) {
-            return $styles;
-        }
-
-        $sourceWidth = (float) $box['width'];
-        $scaled = array();
-        foreach ( $styles as $style ) {
-            if ( str_starts_with($style, 'background-size:') ) {
-                $scaled[] = $this->scaleFullBleedImageCropDeclaration($style, $sourceWidth, 'size');
-                continue;
-            }
-            if ( str_starts_with($style, 'background-position:') ) {
-                $scaled[] = $this->scaleFullBleedImageCropDeclaration($style, $sourceWidth, 'position');
-                continue;
-            }
-
-            $scaled[] = $style;
-        }
-
-        return $scaled;
     }
 
     /**
@@ -6927,40 +6865,6 @@ final class StaticHtmlEmitter
         return $attributes;
     }
 
-    private function scaleFullBleedImageCropDeclaration(string $style, float $sourceWidth, string $kind): string
-    {
-        $parts = explode(':', $style, 2);
-        if ( 2 !== count($parts) ) {
-            return $style;
-        }
-
-        $layers = explode(',', $parts[1]);
-        $scaledLayers = array();
-        foreach ( $layers as $layer ) {
-            $tokens = preg_split('/\s+/', trim($layer));
-            if ( ! is_array($tokens) || 2 !== count($tokens) ) {
-                return $style;
-            }
-
-            $scaledTokens = array();
-            foreach ( $tokens as $token ) {
-                if ( 1 !== preg_match('/^-?\d+(?:\.\d+)?px$/', $token) ) {
-                    return $style;
-                }
-
-                $value = (float) substr($token, 0, -2);
-                if ( 'size' === $kind && $value <= 0.0 ) {
-                    return $style;
-                }
-                $scaledTokens[] = 'calc(100vw * ' . $this->number($value / $sourceWidth) . ')';
-            }
-
-            $scaledLayers[] = implode(' ', $scaledTokens);
-        }
-
-        return $parts[0] . ':' . implode(',', $scaledLayers);
-    }
-
     /**
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
@@ -7171,15 +7075,6 @@ final class StaticHtmlEmitter
             '-webkit-mask-repeat:no-repeat',
             'mask-repeat:no-repeat',
         );
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function composedImageBackgroundStyles(array $node): array
-    {
-        return $this->paintStackResolver()->composedImageBackgroundStyles($node, $this->nodeAssetPaths($node));
     }
 
     /**
@@ -9238,38 +9133,6 @@ final class StaticHtmlEmitter
     }
 
     /**
-     * @param array<string, mixed> $node
-     */
-    private function rendersStrokeInsideInlineSvg(array $node, string $type, ?array $parentNode): bool
-    {
-        if ( ! in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
-            return false;
-        }
-
-        $strokeStyles = $this->strokeStyles($node);
-        if ( empty($strokeStyles) ) {
-            return false;
-        }
-
-        foreach ( $strokeStyles as $style ) {
-            if ( str_starts_with($style, 'border-image:') ) {
-                return false;
-            }
-        }
-
-        return null !== $this->supportedVectorSvg($node, $type, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function effectStyles(array $node, string $type): array
-    {
-        return $this->styleDeclarationBuilder()->effectStyles($node, $type);
-    }
-
-    /**
      * @param mixed $assets
      * @param array<int, array<string, mixed>> $diagnostics
      * @return array<int, array<string, mixed>>
@@ -9455,33 +9318,6 @@ final class StaticHtmlEmitter
     private function nodeAssetPath(array $node): ?string
     {
         return $this->emissionSession->assetRegistry()->resolveAndMarkNode($node);
-    }
-
-    /**
-     * Return all image-fill asset paths for a node ordered top→bottom (Figma's
-     * topmost paint first), matching CSS background-image layer stacking order.
-     * Figma stores fills bottom→top in the array, so fills are reversed before
-     * resolution. Paints with `visible === false` are skipped. Every resolved
-     * path is marked used so its blob is emitted.
-     *
-     * When a node carries no fill-based image paints the method falls back to
-     * the legacy node-level reference (same as {@see nodeAssetPath()}) so that
-     * simple `asset_id` nodes continue to work unchanged.
-     *
-     * @param array<string, mixed> $node
-     * @return array<int, string>
-     */
-    private function nodeAssetPaths(array $node): array
-    {
-        $layers = $this->nodeImagePaintLayers($node);
-        if ( ! empty($layers) ) {
-            return array_map(static fn (array $layer): string => (string) $layer['path'], $layers);
-        }
-
-        // Fallback: node-level asset reference (e.g. explicit `asset_id` key
-        // not expressed as a fill paint).
-        $fallbackPath = $this->nodeAssetPath($node);
-        return null !== $fallbackPath ? array($fallbackPath) : array();
     }
 
     /**
@@ -10046,34 +9882,6 @@ final class StaticHtmlEmitter
     private function numericOrNull(mixed $value): ?float
     {
         return is_numeric($value) ? (float) $value : null;
-    }
-
-    /**
-     * Map a Figma node-level blendMode enum to the equivalent CSS
-     * `mix-blend-mode` keyword. Returns null for the default compositing
-     * modes (NORMAL / PASS_THROUGH) and any unrecognized value so no CSS
-     * is emitted in those cases.
-     */
-    private function blendModeCss(string $blendMode): ?string
-    {
-        return match ( strtoupper($blendMode) ) {
-            'MULTIPLY' => 'multiply',
-            'SCREEN' => 'screen',
-            'OVERLAY' => 'overlay',
-            'DARKEN' => 'darken',
-            'LIGHTEN' => 'lighten',
-            'COLOR_DODGE' => 'color-dodge',
-            'COLOR_BURN' => 'color-burn',
-            'HARD_LIGHT' => 'hard-light',
-            'SOFT_LIGHT' => 'soft-light',
-            'DIFFERENCE' => 'difference',
-            'EXCLUSION' => 'exclusion',
-            'HUE' => 'hue',
-            'SATURATION' => 'saturation',
-            'COLOR' => 'color',
-            'LUMINOSITY' => 'luminosity',
-            default => null,
-        };
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string

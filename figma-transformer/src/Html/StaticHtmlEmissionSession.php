@@ -20,6 +20,7 @@ final class StaticHtmlEmissionSession
     private readonly ChildLayerCompositionResolver $childLayerCompositionResolver;
     private readonly StaticHtmlVectorEvidence $vectorEvidence;
     private readonly VectorSvgRenderer $vectorSvgRenderer;
+    private readonly StaticHtmlVisualStyleResolver $visualStyleResolver;
 
     public function __construct(
         StaticHtmlNodeInspector $nodeInspector,
@@ -37,6 +38,14 @@ final class StaticHtmlEmissionSession
         $this->childLayerCompositionResolver = new ChildLayerCompositionResolver($this->assetRegistry, $formatter);
         $this->vectorEvidence = new StaticHtmlVectorEvidence($formatter, $this->paintStackResolver);
         $this->vectorSvgRenderer = new VectorSvgRenderer($nodeInspector, $formatter, $this->vectorEvidence);
+        $this->visualStyleResolver = new StaticHtmlVisualStyleResolver(
+            $formatter,
+            $this->vectorEvidence,
+            $this->vectorSvgRenderer,
+            $this->styleDeclarationBuilder,
+            $this->paintStackResolver,
+            $this->assetRegistry,
+        );
     }
 
     public function pageState(): StaticHtmlPageState
@@ -92,6 +101,11 @@ final class StaticHtmlEmissionSession
     public function vectorEvidence(): StaticHtmlVectorEvidence
     {
         return $this->vectorEvidence;
+    }
+
+    public function visualStyleResolver(): StaticHtmlVisualStyleResolver
+    {
+        return $this->visualStyleResolver;
     }
 
 }
