@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
@@ -4443,7 +4444,6 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
-            $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
             new PatternRecursiveConverter(
                 function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
                     $fallbacks = array();
@@ -4459,10 +4459,13 @@ final class HtmlTransformer
                     return new PatternConversionResult($this->convertChildrenWithoutTags($sourceElement, $fallbacks, $excludedTags), $fallbacks);
                 }
             ),
-            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
+            new NavigationPatternContext(
+                $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
+                fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
+            ),
             fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
             fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
@@ -4504,9 +4507,11 @@ final class HtmlTransformer
                 'innerBlocks' => $innerBlocks,
             ),
             null,
-            null,
-            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
+            new NavigationPatternContext(
+                null,
+                fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
+            )
         );
     }
 
