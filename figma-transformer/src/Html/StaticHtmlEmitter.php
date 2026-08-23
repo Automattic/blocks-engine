@@ -520,7 +520,9 @@ final class StaticHtmlEmitter
     private function finalizeArtifactEmission(array $scenegraph, array $options, array $emission): array
     {
         $assetFiles = array_merge($this->referencedAssetFiles($emission['asset_files']), array_values($this->generatedAssetFiles));
-        $shared = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($emission['css_rules'], $emission['complete_shared_styles']);
+        $shared = ! empty($emission['styles_precompacted'])
+            ? array('rules' => $emission['css_rules'], 'class_map' => array())
+            : $this->staticHtmlCssRuleSet()->applySharedStyleClasses($emission['css_rules'], $emission['complete_shared_styles']);
         $cssRules = $shared['rules'];
         $files = $emission['files'];
         if ( ! empty($shared['class_map']) ) {
@@ -568,7 +570,7 @@ final class StaticHtmlEmitter
             $diagnostics[] = $diagnostic;
         }
 
-        return array('diagnostics' => $diagnostics, 'files' => $files, 'asset_files' => $assetFiles, 'font_families' => $fontFamilies, 'font_usage' => $fontUsage, 'font_resolution' => $fontResolution, 'visual_node_map' => $visualNodeMap, 'transform_diagnostics' => $transformDiagnostics, 'design_system' => $emission['design_system']);
+        return array('diagnostics' => $diagnostics, 'files' => $files, 'asset_files' => $assetFiles, 'font_families' => $fontFamilies, 'font_usage' => $fontUsage, 'font_resolution' => $fontResolution, 'visual_node_map' => $visualNodeMap, 'transform_diagnostics' => $transformDiagnostics, 'design_system' => $emission['design_system'], 'css' => $css);
     }
 
     /**
@@ -692,6 +694,8 @@ final class StaticHtmlEmitter
         $seenPaths = array();
         $mediaBlocks = array();
         $plannedPages = $this->plannedPages($pagePlan);
+        $pageDesignSystemCss = array();
+        $pageEmissionReports = array();
 
         $stickyDetectionRoots = array();
         foreach ( $plannedPages as $page ) {
@@ -749,8 +753,38 @@ final class StaticHtmlEmitter
             }
             $seenPaths[$path] = true;
 
+            $pageDesignSystem = $emission['design_system'];
+            if ( count($plannedPages) > 1 ) {
+                $pageScenegraph = $scenegraph;
+                $pageScenegraph['nodes'] = array($frameNode);
+                $pageDesignSystem = $this->designSystemExtractor()->extract($pageScenegraph);
+                $this->typographyTokenVars = is_array($pageDesignSystem['type_token_map'] ?? null) ? $pageDesignSystem['type_token_map'] : array();
+                $rootClass = 'figma-node-' . $this->slug($frameId . '-' . $pageName);
+                $pageDesignSystemCss[] = (string) preg_replace('/(^|\n):root\{/m', '$1.' . $rootClass . '{', (string) ($pageDesignSystem['css'] ?? ''));
+            }
+
+            $pageCssRuleOffset = count($emission['css_rules']);
+            $pageDiagnosticOffset = count($diagnostics);
+            $pageStyleDiagnosticOffset = count($nodeStyleDiagnostics);
+            $pageDecisionTraceOffset = count($this->decisionTraces);
+            $pageResponsiveTraceOffset = count($this->breakpointMediaDiffBuilder()->decisionTraces());
+            $pageLinkDiagnosticsBefore = $this->linkState->diagnostics();
             $pageDocument = $this->emitPageDocument(array($frameNode), $path, $this->sanitizeText($pageName), $pageName, is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '', is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path), 1, $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics, $options);
+            $pageRules = array_splice($emission['css_rules'], $pageCssRuleOffset);
+            $pageSharedStyles = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($pageRules, true);
+            array_push($emission['css_rules'], ...$pageSharedStyles['rules']);
+            if ( ! empty($pageSharedStyles['class_map']) ) {
+                $pageDocument['body'] = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($pageDocument['body'], $pageSharedStyles['class_map']);
+                $pageDocument['content'] = $this->staticHtmlCssRuleSet()->applySharedClassMapToHtml($pageDocument['content'], $pageSharedStyles['class_map']);
+            }
             $body = $pageDocument['body'];
+            $pageEmissionReports[$path] = array(
+                'body' => $body,
+                'css_rules' => $pageSharedStyles['rules'],
+                'design_system_css' => (string) ($pageDesignSystem['css'] ?? ''),
+                'node_style_diagnostics' => array_slice($nodeStyleDiagnostics, $pageStyleDiagnosticOffset),
+                'diagnostics' => array_merge(array_slice($diagnostics, $pageDiagnosticOffset), $this->designSystemDiagnostics($pageDesignSystem)),
+            );
             $files[] = array(
                 'path'      => $path,
                 'role'      => true === ($page['entrypoint'] ?? false) ? 'entrypoint' : 'document',
@@ -771,7 +805,14 @@ final class StaticHtmlEmitter
             }
             $renderedNodes[] = $frameNode;
 
-            foreach ( $this->breakpointMediaDiffBuilder()->buildMediaBlocks($page, $frameNode, $nodeMap) as $mediaBlock ) {
+            $pageMediaBlocks = $this->breakpointMediaDiffBuilder()->buildMediaBlocks($page, $frameNode, $nodeMap);
+            $pageEmissionReports[$path]['media_blocks'] = $pageMediaBlocks;
+            $pageEmissionReports[$path]['decision_traces'] = array_merge(
+                array_slice($this->decisionTraces, $pageDecisionTraceOffset),
+                array_slice($this->breakpointMediaDiffBuilder()->decisionTraces(), $pageResponsiveTraceOffset)
+            );
+            $pageEmissionReports[$path]['links'] = $this->linkDiagnosticsDelta($pageLinkDiagnosticsBefore, $this->linkState->diagnostics());
+            foreach ( $pageMediaBlocks as $mediaBlock ) {
                 $mediaBlocks[] = $mediaBlock;
             }
 
@@ -812,10 +853,70 @@ final class StaticHtmlEmitter
         $emission['rendered_nodes'] = $renderedNodes;
         $emission['files'] = $files;
         $emission['media_blocks'] = $mediaBlocks;
-        $emission['complete_shared_styles'] = true;
+        if ( count($plannedPages) > 1 ) {
+            $emission['design_system']['css'] = implode("\n", array_filter($pageDesignSystemCss, static fn (string $css): bool => '' !== $css));
+        }
+        $emission['complete_shared_styles'] = false;
+        $emission['styles_precompacted'] = true;
         $emission['site_stylesheet'] = true;
         $emission['inline_css'] = true === ($options['inline_css'] ?? false);
         $result = $this->finalizeArtifactEmission($scenegraph, $options, $emission);
+        foreach ( $pages as $pageIndex => $page ) {
+            $path = is_array($page) && isset($page['path']) && is_scalar($page['path']) ? (string) $page['path'] : '';
+            $pageEmissionReport = is_array($pageEmissionReports[$path] ?? null) ? $pageEmissionReports[$path] : array();
+            $pageCss = $this->htmlArtifactAssembler()->stylesheet(
+                '',
+                (string) ($pageEmissionReport['design_system_css'] ?? ''),
+                is_array($pageEmissionReport['css_rules'] ?? null) ? $pageEmissionReport['css_rules'] : array(),
+                is_array($pageEmissionReport['media_blocks'] ?? null) ? $pageEmissionReport['media_blocks'] : array(),
+                true
+            );
+            $pageFontUsage = $this->fontUsage(
+                is_array($pageEmissionReport['node_style_diagnostics'] ?? null) ? $pageEmissionReport['node_style_diagnostics'] : array(),
+                $pageCss,
+                (string) ($pageEmissionReport['body'] ?? '')
+            );
+            $pageFontResolution = $this->fontResolver()->resolve($pageFontUsage, (string) $emission['operator_font_css'], is_array($emission['family_overrides'] ?? null) ? $emission['family_overrides'] : array());
+            $pageDiagnostics = array_merge(
+                is_array($scenegraph['diagnostics'] ?? null) ? $scenegraph['diagnostics'] : array(),
+                is_array($pageEmissionReport['diagnostics'] ?? null) ? $pageEmissionReport['diagnostics'] : array(),
+                $this->unresolvedSourceFontDiagnostics($pageFontResolution)
+            );
+            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
+            $pageNodes = '' !== $frameId && isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ? array($nodeMap[$frameId]) : array();
+            $pageVisualNodeMap = array_values(array_filter(
+                $result['visual_node_map'],
+                static fn (mixed $node): bool => is_array($node) && $path === (string) ($node['page_path'] ?? '')
+            ));
+            $pageAssetFiles = array_values(array_filter(
+                $result['asset_files'],
+                static function (mixed $file) use ($pageEmissionReport, $pageCss): bool {
+                    if ( ! is_array($file) || ! isset($file['path']) || ! is_scalar($file['path']) ) {
+                        return false;
+                    }
+                    $path = (string) $file['path'];
+                    return '' !== $path && (str_contains((string) ($pageEmissionReport['body'] ?? ''), $path) || str_contains($pageCss, $path));
+                }
+            ));
+            $pages[$pageIndex]['font_families'] = array_column($pageFontUsage, 'family');
+            $pages[$pageIndex]['font_usage'] = $pageFontUsage;
+            $pages[$pageIndex]['font_css_supplied'] = (bool) ($pageFontResolution['operator_supplied'] ?? false);
+            $pages[$pageIndex]['transform_diagnostics'] = $this->transformDiagnostics(
+                $pageNodes,
+                $pageVisualNodeMap,
+                $pageAssetFiles,
+                $pages[$pageIndex]['font_families'],
+                $pageFontUsage,
+                $pageFontResolution,
+                $pageCss,
+                $pageDiagnostics,
+                (string) ($pageEmissionReport['body'] ?? ''),
+                is_array($options['source_loss_evidence'] ?? null) ? $options['source_loss_evidence'] : array(),
+                is_array($pageEmissionReport['decision_traces'] ?? null) ? $pageEmissionReport['decision_traces'] : array(),
+                is_array($pageEmissionReport['links'] ?? null) ? $pageEmissionReport['links'] : array()
+            );
+            $pages[$pageIndex]['diagnostic_codes'] = $this->diagnosticCodeCounts($pageDiagnostics);
+        }
 
         return array(
             'status'        => 'success',
@@ -3586,6 +3687,28 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * @param array<string, mixed> $before
+     * @param array<string, mixed> $after
+     * @return array<string, mixed>
+     */
+    private function linkDiagnosticsDelta(array $before, array $after): array
+    {
+        $delta = array('schema' => (string) ($after['schema'] ?? 'blocks-engine/figma-transformer/link-coverage/v1'));
+        foreach ( array('sources_found', 'anchors_emitted', 'url_links', 'node_links', 'toc_links', 'implicit_route_links', 'implicit_route_self_suppressed', 'implicit_route_unresolved', 'unresolved') as $key ) {
+            $delta[$key] = max(0, (int) ($after[$key] ?? 0) - (int) ($before[$key] ?? 0));
+        }
+        // Route discovery describes the site map, not links emitted by this page.
+        $delta['route_targets'] = array();
+        foreach ( array('implicit_route_unresolved_targets', 'implicit_route_self_suppressed_targets', 'unresolved_targets') as $key ) {
+            $beforeValues = is_array($before[$key] ?? null) ? $before[$key] : array();
+            $afterValues = is_array($after[$key] ?? null) ? $after[$key] : array();
+            $delta[$key] = array_slice($afterValues, count($beforeValues));
+        }
+
+        return $delta;
+    }
+
+    /**
      * @param array<string, mixed> $pagePlan
      * @param array<string, mixed> $options
      * @return array<string, string>
@@ -4129,7 +4252,7 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $sourceLossEvidence
      * @return array<string, mixed>
      */
-    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = '', array $sourceLossEvidence = array()): array
+    private function transformDiagnostics(array $nodes, array $visualNodeMap, array $assetFiles, array $fontFamilies, array $fontUsage, array $fontResolution, string $css, array $diagnostics, string $html = '', array $sourceLossEvidence = array(), ?array $decisionTraceOverride = null, ?array $linksOverride = null): array
     {
         $image = array(
             'paint_refs'      => 0,
@@ -4316,11 +4439,13 @@ final class StaticHtmlEmitter
         );
 
         $text = $this->textCoverageDiagnostics($nodes, $html);
-        $links = $this->linkState->diagnostics();
+        $links = $linksOverride ?? $this->linkState->diagnostics();
         $cssDiagnostics = $this->staticHtmlEmissionDiagnostics()->cssDiagnostics($css);
         $htmlArtifactDiagnostics = $this->staticHtmlEmissionDiagnostics()->htmlArtifactDiagnostics($html, $css);
-        $responsiveDecisionTraces = $this->breakpointMediaDiffBuilder()->decisionTraces();
-        $decisionTraces = $this->decisionTraceDiagnostics($responsiveDecisionTraces);
+        $rawDecisionTraces = $decisionTraceOverride ?? $this->breakpointMediaDiffBuilder()->decisionTraces();
+        $decisionTraces = null === $decisionTraceOverride
+            ? $this->decisionTraceDiagnostics($rawDecisionTraces)
+            : DecisionTraceBuilder::summary($rawDecisionTraces);
         $layout['positional_parity'] = $this->staticHtmlEmissionDiagnostics()->positionalParityDiagnostics($layout, $css, $decisionTraces);
 
         return array(
@@ -4341,7 +4466,7 @@ final class StaticHtmlEmitter
             'links' => $links,
             'css' => $cssDiagnostics,
             'html_artifact' => $htmlArtifactDiagnostics,
-            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics, $responsiveDecisionTraces, $diagnostics, $sourceLossEvidence),
+            'artifact_quality' => $this->transformDiagnosticsBuilder()->artifactQualityDiagnostics($image, $vectors, $fonts, $assets, $generatedSvgAssets, $layout, $links, $text, $components, $effects, $maskEffectClipping, $cssDiagnostics, $htmlArtifactDiagnostics, $rawDecisionTraces, $diagnostics, $sourceLossEvidence),
             'diagnostic_codes' => $this->diagnosticCodeCounts($diagnostics),
         );
     }
