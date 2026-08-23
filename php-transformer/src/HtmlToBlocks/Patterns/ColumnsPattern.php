@@ -26,10 +26,29 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
  * is a broad flex/grid/class heuristic that would misfire ahead of more specific
  * recognizers in the shared dispatch.
  */
-final class ColumnsPattern
+final class ColumnsPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
     use PatternGateHelpersTrait;
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $children = $context->convertChildrenWithFallbacksCallback();
+        $convert = $context->convertElementWithFallbacksCallback();
+        $style = $context->structuralPresentationStyleCallback();
+        if (null === $children || null === $convert || null === $style) return null;
+        $fallbacks = array();
+        $block = $this->match($element, $fallbacks, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($children): array {
+            $result = $children($sourceElement, $captureUnsupported);
+            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
+            return $result->blocks();
+        }, static function (DOMElement $sourceElement, array &$sourceFallbacks, bool $captureUnsupported) use ($convert): ?array {
+            $result = $convert($sourceElement, $captureUnsupported);
+            $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
+            return $result->firstBlock();
+        }, $context->presentationAttributesCallback(), $style, $context->createBlockCallback());
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks, array(), array('fallbacks'));
+    }
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks

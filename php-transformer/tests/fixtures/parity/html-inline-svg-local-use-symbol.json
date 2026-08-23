@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-inline-svg-local-use-symbol",
-  "description": "Materializes an inline SVG that references in-document artwork via local <use href=\"#id\"> while reporting an external-sprite <use> as a bounded fallback because that artwork cannot travel in the static SVG file.",
+  "description": "Materializes an inline SVG that references in-document artwork via local <use href=\"#id\"> after sanitizing an embedded style, while reporting an external-sprite <use> as a bounded fallback because that artwork cannot travel in the static SVG file.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-inline-svg-local-use-symbol.json",
@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><div class=\"icon-row\"><svg viewBox=\"0 0 48 24\" role=\"img\" aria-label=\"Valve pair\"><defs><symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol></defs><use href=\"#valve\" x=\"0\" y=\"0\"></use><use href=\"#valve\" x=\"24\" y=\"0\"></use></svg></div><div class=\"svc\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><use href=\"icons.svg#gear\"></use></svg></div></main>"
+    "content": "<main><div class=\"icon-row\"><svg viewBox=\"0 0 48 24\" role=\"img\" aria-label=\"Valve pair\"><defs><style>.icon-row [data-color=\"valve\"]{fill:#e94560}</style><symbol id=\"valve\"><circle data-color=\"valve\" cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol></defs><use href=\"#valve\" x=\"0\" y=\"0\"></use><use href=\"#valve\" x=\"24\" y=\"0\"></use></svg></div><div class=\"svc\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><use href=\"icons.svg#gear\"></use></svg></div></main>"
   },
   "expected_blocks": [
     {
@@ -41,7 +41,7 @@
     {
       "path": "assets.0.content",
       "assert": "contains",
-      "value": "<symbol id=\"valve\"><circle cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol>"
+      "value": "<symbol id=\"valve\"><circle data-color=\"valve\" cx=\"6\" cy=\"6\" r=\"5\" fill=\"#e94560\"></circle></symbol>"
     },
     {
       "path": "assets.0.content",
@@ -52,6 +52,11 @@
       "path": "assets.0.content",
       "assert": "contains",
       "value": "<use href=\"#valve\" x=\"24\" y=\"0\"></use>"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "not_contains",
+      "value": "<style"
     },
     {
       "path": "assets.0.content",

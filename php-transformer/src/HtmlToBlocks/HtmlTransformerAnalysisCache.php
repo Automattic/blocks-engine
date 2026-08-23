@@ -56,6 +56,12 @@ final class HtmlTransformerAnalysisCache
 
     public int $sourceSelectorMatchHits = 0;
 
+    public int $sourceSelectorMatchMisses = 0;
+
+    public int $sourceSelectorMatchEvictions = 0;
+
+    public int $sourceSelectorMatchPeakEntries = 0;
+
     public int $sourceSelectorClassTokenBuilds = 0;
 
     public int $sourceSelectorClassTokenHits = 0;
@@ -65,6 +71,16 @@ final class HtmlTransformerAnalysisCache
     public int $sourceStyleCandidateRuleChecks = 0;
 
     public int $sourceStyleCandidateRulesSkipped = 0;
+
+    public int $sourceStyleCandidateRuleHits = 0;
+
+    public int $sourceStyleCandidateRuleMisses = 0;
+
+    public int $sourceStyleCandidateRuleEvictions = 0;
+
+    public int $sourceStyleCandidateRulePeakEntries = 0;
+
+    public int $sourceStyleCandidateRulePeakRetained = 0;
 
     /** @param array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array} $analysis */
     public function rememberStyle(string $key, array $analysis): void

@@ -1351,6 +1351,43 @@ $runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
 $assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
 $assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
 $assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
+$runtimeClockRoundTrip = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+$runtimeClockEdited = $runtimeClockRoundTrip->parseBlocks($runtimeClockMarkup);
+$editRuntimeClock = static function (array &$blocks) use (&$editRuntimeClock): void {
+    foreach ($blocks as &$block) {
+        if (is_array($block['innerContent'] ?? null)) {
+            foreach ($block['innerContent'] as &$content) {
+                if (is_string($content)) {
+                    $content = str_replace('id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">12</mark>', 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>', $content);
+                }
+            }
+            unset($content);
+        }
+        if (is_array($block['innerBlocks'] ?? null)) {
+            $editRuntimeClock($block['innerBlocks']);
+        }
+    }
+    unset($block);
+};
+$editRuntimeClock($runtimeClockEdited);
+$runtimeClockEditedMarkup = $runtimeClockRoundTrip->serializeBlocks($runtimeClockEdited);
+$runtimeClockRendered = $runtimeClockRoundTrip->renderBlocks($runtimeClockEdited);
+$assert(str_contains($runtimeClockEditedMarkup, 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>') && str_contains($runtimeClockRendered, 'id="minutes"') && ! str_contains($runtimeClockEditedMarkup, '<!-- wp:html'), 'native runtime RichText survives parse, edit, serialize, and render without becoming Custom HTML', $runtimeClockEditedMarkup);
+
+$runtimeGroup = ( new HtmlTransformer() )->transform(
+    '<section id="scoreboard"><p>Score: <span id="score">0</span></p></section>',
+    array('runtime_dom_selectors' => array('#scoreboard', '#score'))
+)->toArray();
+$runtimeGroupMarkup = (string) ($runtimeGroup['serialized_blocks'] ?? '');
+$runtimeGroupDiagnostics = array_values(array_filter($runtimeGroup['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '')));
+$assert('core/group' === ($runtimeGroup['blocks'][0]['blockName'] ?? '') && str_contains($runtimeGroupMarkup, 'id="scoreboard"') && str_contains($runtimeGroupMarkup, 'id="score"') && ! str_contains($runtimeGroupMarkup, '<!-- wp:html') && 1 <= count($runtimeGroupDiagnostics), 'script-addressed container remains a native Group with a stable native-preservation diagnostic', $runtimeGroupMarkup);
+
+$mixedCanvasRuntime = ( new HtmlTransformer() )->transform(
+    '<section class="demo"><p>Editable <span id="count">0</span></p><canvas id="chart">Chart</canvas><p>Still editable</p></section>',
+    array('runtime_dom_selectors' => array('#count'), 'runtime_canvas_selectors' => array('#chart'))
+)->toArray();
+$mixedCanvasMarkup = (string) ($mixedCanvasRuntime['serialized_blocks'] ?? '');
+$assert(1 === substr_count($mixedCanvasMarkup, '<!-- wp:html') && str_contains($mixedCanvasMarkup, '<canvas id="chart">Chart</canvas>') && str_contains($mixedCanvasMarkup, 'Editable <span id="count">0</span>') && str_contains($mixedCanvasMarkup, 'Still editable'), 'an irreducible canvas remains one bounded runtime island without forcing editable siblings into Custom HTML', $mixedCanvasMarkup);
 
 $emptyRuntimeText = ( new HtmlTransformer() )->transform(
     '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',
@@ -4059,7 +4096,7 @@ $capturedDialog = $compiler->compile(array(
     'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<main><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></main>'),
+        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
             'schema' => 'data-liberation/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
@@ -4070,7 +4107,7 @@ $capturedDialog = $compiler->compile(array(
                 'sourceUrl' => 'https://example.com/',
                 'states' => array(array(
                     'status' => 'captured',
-                    'trigger' => array('selector' => 'body > main > a', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
+                    'trigger' => array('selector' => 'body > header > nav > a:nth-of-type(2)', 'tag' => 'a', 'ariaHaspopup' => 'dialog', 'dataBindings' => array('data-popupid' => 'contact')),
                     'dialog' => array(
                         'html' => '<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>',
                         'htmlBytes' => strlen('<div role="dialog" aria-label="Contact"><form action="https://provider.example/forms"><label>Name<input name="name"></label><script>window.provider=true</script></form></div>'),
@@ -4084,6 +4121,7 @@ $capturedDialog = $compiler->compile(array(
 $assert(1 === ($capturedDialog['source_reports']['captured_interactions']['projected_dialog_count'] ?? null), 'captured interaction reports project one matched dialog');
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/captured-dialog'), 'captured dialogs serialize as a site companion block', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
+$assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();

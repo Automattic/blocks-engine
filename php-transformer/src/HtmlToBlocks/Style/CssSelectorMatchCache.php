@@ -8,9 +8,11 @@ use DOMElement;
 /** Caches immutable-DOM selector inputs for one author-selector discovery pass. */
 final class CssSelectorMatchCache
 {
-    private const MAX_MATCHES = 4096;
+    public const MAX_MATCHES = 4096;
 
-    private const MAX_CANDIDATE_RULES = 4096;
+    public const MAX_CANDIDATE_RULES = 4096;
+
+    public const MAX_CANDIDATE_LISTS = 4096;
 
     /** @var array<string, list<string>> */
     private array $classTokens = array();
@@ -37,11 +39,27 @@ final class CssSelectorMatchCache
 
     public int $matchHits = 0;
 
+    public int $matchMisses = 0;
+
+    public int $matchEvictions = 0;
+
+    public int $matchPeakEntries = 0;
+
     public int $candidateRuleChecks = 0;
 
     public int $candidateRulesSkipped = 0;
 
     public int $candidateRulesRetained = 0;
+
+    public int $candidateRuleHits = 0;
+
+    public int $candidateRuleMisses = 0;
+
+    public int $candidateRuleEvictions = 0;
+
+    public int $candidateRulePeakEntries = 0;
+
+    public int $candidateRulePeakRetained = 0;
 
     /** @return list<string> */
     public function classTokens(DOMElement $element): array
@@ -93,16 +111,22 @@ final class CssSelectorMatchCache
         $key = $this->elementKey($element) . "\0" . $selectorText . "\0" . ($accountForPseudoStateSuffix ? '1' : '0');
         if ( isset($this->matches[$key]) ) {
             ++$this->matchHits;
-            return $this->matches[$key];
+            $match = $this->matches[$key];
+            // PHP arrays retain insertion order, making this a compact LRU queue.
+            unset($this->matches[$key]);
+            $this->matches[$key] = $match;
+            return $match;
         }
 
+        ++$this->matchMisses;
         if ( count($this->matches) >= self::MAX_MATCHES ) {
-            // Keep input tokens for this immutable revision, but bound selector
-            // result retention when a single element sees a huge stylesheet.
-            $this->matches = array();
+            unset($this->matches[array_key_first($this->matches)]);
+            ++$this->matchEvictions;
         }
         ++$this->matchExecutions;
-        return $this->matches[$key] = CssSelectorMatcher::matches($element, $selector, $accountForPseudoStateSuffix, $this);
+        $this->matches[$key] = CssSelectorMatcher::matches($element, $selector, $accountForPseudoStateSuffix, $this);
+        $this->matchPeakEntries = max($this->matchPeakEntries, count($this->matches));
+        return $this->matches[$key];
     }
 
     /**
@@ -113,8 +137,14 @@ final class CssSelectorMatchCache
     {
         $key = $collection . "\0" . $this->elementKey($element);
         if ( isset($this->ruleCandidates[$key]) ) {
-            return $this->ruleCandidates[$key];
+            ++$this->candidateRuleHits;
+            $rules = $this->ruleCandidates[$key];
+            unset($this->ruleCandidates[$key]);
+            $this->ruleCandidates[$key] = $rules;
+            return $rules;
         }
+
+        ++$this->candidateRuleMisses;
 
         $candidates = $index['universal'];
         $id = $this->attribute($element, 'id');
@@ -142,12 +172,20 @@ final class CssSelectorMatchCache
         if ( $ruleCount > self::MAX_CANDIDATE_RULES ) {
             return $rules;
         }
-        if ( $this->candidateRulesRetained + $ruleCount > self::MAX_CANDIDATE_RULES ) {
-            $this->ruleCandidates = array();
-            $this->candidateRulesRetained = 0;
+        while (
+            $this->candidateRulesRetained + $ruleCount > self::MAX_CANDIDATE_RULES
+            || count($this->ruleCandidates) >= self::MAX_CANDIDATE_LISTS
+        ) {
+            $oldestKey = array_key_first($this->ruleCandidates);
+            $this->candidateRulesRetained -= count($this->ruleCandidates[$oldestKey]);
+            unset($this->ruleCandidates[$oldestKey]);
+            ++$this->candidateRuleEvictions;
         }
         $this->candidateRulesRetained += $ruleCount;
-        return $this->ruleCandidates[$key] = $rules;
+        $this->ruleCandidates[$key] = $rules;
+        $this->candidateRulePeakEntries = max($this->candidateRulePeakEntries, count($this->ruleCandidates));
+        $this->candidateRulePeakRetained = max($this->candidateRulePeakRetained, $this->candidateRulesRetained);
+        return $rules;
     }
 
     /** Clear results and selector inputs after a source-DOM mutation. */

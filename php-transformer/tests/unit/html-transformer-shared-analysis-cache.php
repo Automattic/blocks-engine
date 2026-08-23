@@ -26,6 +26,20 @@ $withoutDurations = static function (array $value) use (&$withoutDurations): arr
 
     return $value;
 };
+$withoutObservationalMetrics = static function (array $value) use (&$withoutObservationalMetrics): array {
+    foreach ( $value as $key => &$item ) {
+        if ( 'transform_duration_ms' === $key || str_contains((string) $key, '_cache_') ) {
+            unset($value[$key]);
+            continue;
+        }
+        if ( is_array($item) ) {
+            $item = $withoutObservationalMetrics($item);
+        }
+    }
+    unset($item);
+
+    return $value;
+};
 
 $css = ':root{--brand:#123456}.card{display:grid;color:var(--brand)}.card img{aspect-ratio:4/3;object-fit:cover}';
 $options = array('static_css' => $css, 'skip_author_stylesheet_materialization' => true);
@@ -113,9 +127,10 @@ $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache-
 
 $sourceSelectorCache = new HtmlTransformerAnalysisCache();
 $sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
-(new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml);
+$sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml)->toArray();
 $assert(12 === $sourceSelectorCache->sourceSelectorMatchExecutions && 18 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 12 matcher calls and reuses 18 repeated element-selector results.');
 $assert(9 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 14 === $sourceSelectorCache->sourceSelectorClassTokenHits && 18 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
+$assert(18 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 12 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 8 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 11 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -126,5 +141,39 @@ $candidateHtml = '<style>' . implode('', array_merge($noiseRules, array( '.targe
 $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transform($candidateHtml)->toArray();
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
 $assert(4 === $candidateCache->sourceStyleCandidateRuleChecks && 305 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection walks check four relevant rule candidates while deterministically skipping 305 irrelevant candidates.');
+
+// One repeated hot rule across 4,097 elements forces both bounded result caches
+// past capacity while later style-resolution passes refresh the same entries.
+$pressureElementCount = 4097;
+$pressureHtml = '<main class="pressure">' . str_repeat('<p class="pressure">cache pressure</p>', $pressureElementCount) . '</main>';
+$pressureOptions = array('static_css' => '.pressure{color:#123456}', 'skip_author_stylesheet_materialization' => true);
+$pressureResult = (new HtmlTransformer())->transform($pressureHtml, $pressureOptions)->toArray();
+$pressureIsolatedResult = (new HtmlTransformer())->transform($pressureHtml, $pressureOptions)->toArray();
+$pressureMetrics = $pressureResult['metrics'];
+$assert(
+    $withoutObservationalMetrics($pressureResult) === $withoutObservationalMetrics($pressureIsolatedResult),
+    'Selector cache pressure preserves the full isolated transform envelope after observational metrics are excluded.'
+);
+$assert(
+    $pressureResult['blocks'] === $pressureIsolatedResult['blocks']
+    && $pressureResult['serialized_blocks'] === $pressureIsolatedResult['serialized_blocks']
+    && $pressureResult['diagnostics'] === $pressureIsolatedResult['diagnostics'],
+    'Selector cache pressure preserves canonical blocks, serialized output, and diagnostics.'
+);
+$assert(
+    8197 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
+    && 8199 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
+    && 2 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
+    && 4096 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null),
+    'Repeated hot selector matches are refreshed while the 4,097-element transform exceeds the selector-result capacity.'
+);
+$assert(
+    16397 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
+    && 4105 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 6 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
+    && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
+    && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),
+    'Repeated hot candidate lists are refreshed while the transform exceeds both candidate-list and rule-reference capacities.'
+);
 
 fwrite(STDOUT, sprintf("HTML transformer shared analysis cache passed: 54 pages, %.1fms, style builds=%d hits=%d evictions=%d entries=%d bytes=%d; author builds=%d hits=%d evictions=%d entries=%d bytes=%d; byte budget style builds=%d evictions=%d retained=%d evicted=%d author builds=%d evictions=%d retained=%d evicted=%d\n", $elapsedMs, $cache->styleBuilds, $cache->styleHits, $cache->styleEvictions, count($cache->styles), $cache->styleBytes, $cache->authorSelectorBuilds, $cache->authorSelectorHits, $cache->authorSelectorEvictions, count($cache->authorSelectorAnalyses), $cache->authorSelectorBytes, $byteBudgetCache->styleBuilds, $byteBudgetCache->styleEvictions, $byteBudgetCache->styleBytes, $byteBudgetCache->styleEvictedBytes, $byteBudgetCache->authorSelectorBuilds, $byteBudgetCache->authorSelectorEvictions, $byteBudgetCache->authorSelectorBytes, $byteBudgetCache->authorSelectorEvictedBytes));

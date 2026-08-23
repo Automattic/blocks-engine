@@ -913,6 +913,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         $itemAttrs = $item->isSameNode($anchor) ? array() : $this->withoutCoreNavigationClasses($presentationAttributes($item));
         $anchorAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($anchor));
         $submenuAttrs = $submenuContainer instanceof DOMElement ? $this->withoutCoreNavigationClasses($presentationAttributes($submenuContainer)) : array();
+        $sourceAnchor = trim($anchor->getAttribute('id'));
+        if ( '' === $sourceAnchor ) {
+            $sourceAnchor = trim($item->getAttribute('id'));
+        }
+        if ( 1 === preg_match('/^[A-Za-z][A-Za-z0-9_.:-]*$/D', $sourceAnchor) ) {
+            $itemAttrs['anchor'] = $sourceAnchor;
+        }
         if ( $isCurrentNavigationItem ) {
             // Current-page identity belongs to WordPress/runtime URL state. A
             // source snapshot's active/current/selected hooks must not remain

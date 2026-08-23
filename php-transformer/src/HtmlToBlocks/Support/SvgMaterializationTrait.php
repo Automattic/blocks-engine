@@ -41,7 +41,7 @@ trait SvgMaterializationTrait
                 ? $this->ensureInlineSvgBoxStyle($html, $element)
                 : $this->ensureInlineSvgSizing($html, $element)
         );
-        $html = $this->resolveMaterializedSvgColors($html, $element);
+        $html = $this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -228,7 +228,7 @@ trait SvgMaterializationTrait
                 ? $this->ensureInlineSvgBoxStyle($html, $element)
                 : $this->ensureInlineSvgSizing($html, $element)
         );
-        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->resolveMaterializedSvgColors($html, $element), true);
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element), true);
         if ( null === $attrs ) {
             return null;
         }
@@ -370,6 +370,64 @@ trait SvgMaterializationTrait
         $html = preg_replace('/<!--.*?-->/s', '', $html) ?? $html;
         $html = preg_replace('/>\s+</', '><', $html) ?? $html;
         return trim($html);
+    }
+
+    /**
+     * SVG image assets are standalone documents. Copy local definitions used by
+     * the image into its payload so a document-level capture store is not needed
+     * at render time.
+     */
+    private function inlineSvgMaterializationMarkup(string $html, DOMElement $element): string
+    {
+        if ( ! $element->ownerDocument instanceof \DOMDocument || 0 === $element->getElementsByTagName('use')->length ) {
+            return $html;
+        }
+
+        $references = array();
+        foreach ( $element->getElementsByTagName('use') as $use ) {
+            if ( ! $use instanceof DOMElement ) {
+                continue;
+            }
+            $href = trim($this->attr($use, 'href'));
+            if ( '' === $href ) {
+                $href = trim($this->attr($use, 'xlink:href'));
+            }
+            if ( preg_match('/^#(.+)$/', $href, $match) ) {
+                $references[$match[1]] = true;
+            }
+        }
+        if ( array() === $references ) {
+            return $html;
+        }
+
+        $definitions = array();
+        foreach ( $element->ownerDocument->getElementsByTagName('defs') as $defs ) {
+            if ( ! $defs instanceof DOMElement || $this->svgDefinitionBelongsTo($defs, $element) ) {
+                continue;
+            }
+            foreach ( $defs->getElementsByTagName('*') as $definition ) {
+                if ( $definition instanceof DOMElement && isset($references[trim($this->attr($definition, 'id'))]) ) {
+                    $definitions[] = $this->safeFallbackHtml($defs);
+                    break;
+                }
+            }
+        }
+        if ( array() === $definitions ) {
+            return $html;
+        }
+
+        return preg_replace('/<\/svg>\s*$/i', implode('', array_unique($definitions)) . '</svg>', $html, 1) ?? $html;
+    }
+
+    private function svgDefinitionBelongsTo(DOMElement $definition, DOMElement $svg): bool
+    {
+        for ( $node = $definition; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($svg) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function svgImageAssetIdentity(string $html): string
@@ -849,6 +907,13 @@ trait SvgMaterializationTrait
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {
+            // Inline styles are removed before either core/html preservation or
+            // SVG asset materialization. They cannot survive into the generated
+            // image document, so they must not disqualify otherwise passive,
+            // self-contained artwork from the native image path.
+            if ( 'style' === strtolower($child->tagName) ) {
+                continue;
+            }
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
                 return false;
             }

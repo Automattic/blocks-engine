@@ -6,7 +6,10 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
-$transform = static fn(string $html): array => (new HtmlTransformer())->transform($html, array())->toArray();
+$transform = static fn(string $html, array $options = array()): array => (new HtmlTransformer())->transform($html, $options)->toArray();
+$engineCss = static function (array $result): string {
+    return implode('', array_map(static fn(array $asset): string => (string) ($asset['content'] ?? ''), $result['assets'] ?? array()));
+};
 
 $coalesced = $transform('<div class="image-carrier" style="padding-top:0;margin-left:0;text-align:left"><img src="hero.jpg" alt="Hero" width="640" height="360"></div>');
 $image = $coalesced['blocks'][0] ?? array();
@@ -14,6 +17,35 @@ $markup = (string) ($coalesced['serialized_blocks'] ?? '');
 $assert('core/image' === ($image['blockName'] ?? null) && array() === ($image['innerBlocks'] ?? null), 'A render-neutral carrier around a synthetic image coalesces into the native image block.');
 $assert(str_contains((string) ($image['attrs']['className'] ?? ''), 'image-carrier') && str_contains((string) ($image['attrs']['className'] ?? ''), 'blocks-engine-synthetic-image-figure'), 'Coalescing moves the carrier selector and synthetic figure class onto the image block.');
 $assert('640px' === ($image['attrs']['width'] ?? null) && '360px' === ($image['attrs']['height'] ?? null) && str_contains($markup, 'src="hero.jpg"'), 'Image geometry and source survive coalescing.');
+
+$fullWidth = $transform('<div style="width:100%"><div class="surface"><p>Copy</p></div></div>');
+$fullWidthBlock = $fullWidth['blocks'][0] ?? array();
+$assert('core/group' === ($fullWidthBlock['blockName'] ?? null) && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'surface') && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'be-inline-geometry-') && str_contains($engineCss($fullWidth), 'width:100% !important'), 'A full-width transparent normal-flow shell coalesces its generated width carrier onto the surviving group.');
+
+foreach (array(
+    '<div style="width:80%"><div class="surface"><p>Copy</p></div></div>',
+    '<div style="width:100%;padding:1px"><div class="surface"><p>Copy</p></div></div>',
+    '<div style="width:100%"><div class="surface" style="width:50%"><p>Copy</p></div></div>',
+    '<div style="width:100%"><img src="hero.jpg" alt="Hero"></div>',
+    '<div style="width:100%"><div class="surface" style="display:flex"><p>Copy</p></div></div>',
+    '<style>.shell .surface{color:red}</style><div class="shell" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<div id="shell" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<div role="region" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<div data-state="open" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<div onclick="return false" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<style>.shell{background:red}</style><div class="shell" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+    '<div class="slider" style="width:100%"><div class="surface"><p>Copy</p></div></div>',
+) as $html) {
+    $result = $transform($html);
+    $root = $result['blocks'][0] ?? array();
+    $assert('core/group' === ($root['blockName'] ?? null) && array() !== ($root['innerBlocks'] ?? array()), 'Non-transparent full-width shells retain their source wrapper.');
+}
+
+$structuralLayout = $transform('<table><tr><td><div style="width:100%"><div class="surface"><p>Copy</p></div></div></td></tr></table>');
+$assert('core/table' === ($structuralLayout['blocks'][0]['blockName'] ?? null), 'Structural-layout parents retain their full-width child boundary.');
+
+$runtimeTarget = $transform('<div class="shell" style="width:100%"><div class="surface"><p>Copy</p></div></div>', array('runtime_dom_selectors' => array('.shell')));
+$assert('core/group' === ($runtimeTarget['blocks'][0]['blockName'] ?? null) && array() !== ($runtimeTarget['blocks'][0]['innerBlocks'] ?? array()), 'Runtime DOM targets retain their full-width shell.');
 
 $selectorOwned = $transform('<style>.image-carrier img{border:1px solid red}</style><div class="image-carrier"><img src="hero.jpg" alt="Hero"></div>');
 $assert('core/group' === ($selectorOwned['blocks'][0]['blockName'] ?? null), 'A selector whose descendant relationship would change retains its carrier.');

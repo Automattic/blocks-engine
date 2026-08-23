@@ -32,6 +32,7 @@ final class HtmlTransformerSession
     public array $structureProvenance = array();
     public array $scriptMetadata = array();
     public array $runtimeIslands = array();
+    public array $runtimeDomPreservations = array();
     public array $nativeDisclosureRootIds = array();
     public array $generatedBlocks = array();
     public bool $descriptionListBlockGenerated = false;

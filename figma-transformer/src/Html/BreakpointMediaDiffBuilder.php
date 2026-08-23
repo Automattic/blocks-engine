@@ -240,7 +240,9 @@ final class BreakpointMediaDiffBuilder
                 }
             }
             if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
-                $declarations[] = $parentStacksOnMobile || $isInferredGrid
+                // A stacked row turns its normal children into vertical flow; their
+                // desktop equal-height floors would otherwise become blank space.
+                $declarations[] = $isInferredGrid
                     ? 'min-height:' . ($this->number)($minHeight) . 'px'
                     : 'min-height:0';
             }
@@ -272,8 +274,14 @@ final class BreakpointMediaDiffBuilder
             $declarations[] = 'min-width:0';
             if ( $isHorizontalFlexChild ) {
                 $declarations[] = $parentStacksOnMobile ? 'flex-shrink:0' : 'flex-shrink:1';
+                if ( $parentStacksOnMobile ) {
+                    // Desktop equal-column sizing must not constrain a card once
+                    // the parent becomes a vertical, content-driven flow.
+                    $declarations[] = 'flex-basis:auto';
+                    $declarations[] = 'flex-grow:0';
+                }
             }
-            if ( $this->isEqualWidthFlexRow($parentNode) ) {
+            if ( ! $parentStacksOnMobile && $this->isEqualWidthFlexRow($parentNode) ) {
                 $declarations[] = 'flex-basis:0';
                 $declarations[] = 'flex-grow:1';
             }
