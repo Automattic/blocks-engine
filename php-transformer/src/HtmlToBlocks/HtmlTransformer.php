@@ -14624,7 +14624,15 @@ final class HtmlTransformer
             $geometry['position'] = 'relative';
         }
         $presentation = $this->presentationDeclarations($element);
+        $inline = $this->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
+            $family = $this->responsivePropertyFamily($property);
+            if ( array() !== $this->conditionalStyleRules
+                && $this->hasConditionalStyleFamily($element, $family)
+                && ! $this->inlineOwnsResponsiveProperty($property, $family, $inline)
+            ) {
+                continue;
+            }
             $value = trim($this->cssValueWithoutImportant((string) ($presentation[ $property ] ?? '')));
             if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
                 $geometry[ $property ] = str_ends_with($value, 'px') ? $value : $value . 'px';
