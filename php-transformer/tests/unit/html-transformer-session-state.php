@@ -27,7 +27,7 @@ $withoutDurations = static function (array $value) use (&$withoutDurations): arr
 $tiles = '<my-pricing><div class="tier"><h3>Basic</h3><p>$9</p></div><div class="tier"><h3>Pro</h3><p>$19</p></div><div class="tier"><h3>Max</h3><p>$49</p></div></my-pricing>';
 $svg = '<main><svg viewBox="0 0 10 10" role="img" aria-label="Map"><path d="M0 0h10v10z"/></svg></main>';
 $script = '<main><script src="widget.js"></script><canvas id="map">Map</canvas></main>';
-$styled = '<style>.card{display:grid;gap:1rem;color:#123}.card .title{font-weight:700}</style><main class="card"><h2 class="title">Styled</h2></main>';
+$styled = '<style>.card{display:grid;gap:1rem;color:#123}.card .title{font-weight:700}</style><main class="card" style="display:flex;gap:2rem"><h2 class="title">Styled</h2></main>';
 $accordion = static fn (string $label, string $answer): string => '<section class="faq"><div class="faq-item"><button aria-controls="a">' . $label . ' A?</button><div id="a"><p>' . $answer . ' A.</p></div></div><div class="faq-item"><button aria-controls="b">' . $label . ' B?</button><div id="b"><p>' . $answer . ' B.</p></div></div></section>';
 
 $families = array(
