@@ -79,6 +79,21 @@ $assert(
     str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
     'video playback attributes should be preserved in native save markup'
 );
+$customVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video></wix-video>')->toArray();
+$assert(
+    'core/video' === ($customVideoResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg' === ($customVideoResult['blocks'][0]['attrs']['poster'] ?? null)
+        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($customVideoResult['blocks'][0]['attrs']['tracks'] ?? null)
+        && str_contains((string) ($customVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
+        && array() === ($customVideoResult['fallbacks'] ?? array()),
+    'custom media hosts with one native video lower to editable core/video markup'
+);
+$ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4"></video><video src="trailer.mp4"></video></wix-video>')->toArray();
+$assert(
+    'core/video' !== ($ambiguousCustomVideoResult['blocks'][0]['blockName'] ?? null)
+        && ! str_contains((string) ($ambiguousCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
+    'ambiguous custom media hosts remain typed gaps rather than raw HTML'
+);
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
