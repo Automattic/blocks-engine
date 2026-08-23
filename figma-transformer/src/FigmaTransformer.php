@@ -862,7 +862,7 @@ final class FigmaTransformer
             $artifact['files'][$fileIndex]['source_frame_identity'] = $isAlias
                 ? array_merge($sourceFrameIdentity, array('path' => $filePath, 'alias_for_path' => $path))
                 : $sourceFrameIdentity;
-            if ( ! in_array($pageType, array('single', 'archive', '404'), true) ) {
+            if ( $isAlias || ! in_array($pageType, array('single', 'archive', '404'), true) ) {
                 continue;
             }
             $templateSlug = $this->canonicalTemplateSlug($pageType);
