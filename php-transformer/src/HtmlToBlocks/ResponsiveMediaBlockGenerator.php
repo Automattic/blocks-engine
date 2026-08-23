@@ -20,7 +20,7 @@ final class ResponsiveMediaBlockGenerator
             'description' => 'An editable responsive or linked image.',
             'editorScript' => 'file:./index.js',
             'attributes' => array(
-                'content' => array( 'type' => 'string', 'default' => '' ),
+                'content' => array( 'type' => 'string', 'default' => '', 'role' => 'content' ),
             ),
             'supports' => array( 'html' => false ),
         );
@@ -40,7 +40,7 @@ final class ResponsiveMediaBlockGenerator
         } ) );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
-        attributes: { content: { type: 'string', default: '' } },
+        attributes: { content: { type: 'string', default: '', role: 'content' } },
         supports: { html: false },
         edit: edit,
         save: function() { return null; }

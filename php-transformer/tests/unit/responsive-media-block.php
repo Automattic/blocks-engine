@@ -26,6 +26,20 @@ $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), ar
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, 'RawHTML'), 'the editor registers an editable dynamic block with no unsafe markup preview');
+$editorSchemaRunner = <<<'JS'
+const vm = require( 'node:vm' );
+let settings;
+vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), {
+    window: { wp: {
+        blocks: { registerBlockType: ( name, blockSettings ) => { settings = blockSettings; } },
+        blockEditor: {}, components: {}, element: {}
+    } }
+} );
+process.stdout.write( JSON.stringify( settings.attributes ) );
+JS;
+$editorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($editor))), true);
+$assert(($definition['block_json']['attributes'] ?? null) === $editorAttributes, 'the editor registration attribute schema exactly matches generated block metadata');
+$assert('content' === ($editorAttributes['content']['role'] ?? null), 'the editor registration marks responsive media HTML as Gutenberg content');
 
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();
