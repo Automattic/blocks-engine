@@ -86,4 +86,45 @@ $indexMarkup = $waveWrites['templates/index.html']['payload']['data'] ?? '';
 $assert(1 === substr_count($indexMarkup, '"slug":"header"') && str_contains($indexMarkup, 'wp:query') && str_contains($indexMarkup, 'wp:post-template') && !str_contains($indexMarkup, 'wp:post-content') && str_contains($indexMarkup, '"anchor":"wrapper"'), 'Index restores the shared wrapper context around the header part and native Query Loop.');
 foreach (array('templates/page.html', 'templates/front-page.html') as $target) $assert(1 === substr_count($waveWrites[$target]['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($waveWrites[$target]['payload']['data'] ?? '', 'wp:post-content') && str_contains($waveWrites[$target]['payload']['data'] ?? '', '"anchor":"wrapper"'), "{$target} restores the shared wrapper context around the header part and singular post content.");
 
+$statefulWaveShell = static function (string $current, string $content, bool $color = false): string {
+    $link = static function (string $name, string $label, string $current): string {
+        $active = $name === $current;
+        return '<a class="site-link' . ($active ? ' current" id="' . $name . '-source" style="font-weight:700" aria-current="page"' : '"') . ' href="https://example.test/' . $name . '">' . $label . '</a>';
+    };
+    if ($color) $link = static function (string $name, string $label, string $current): string {
+        $active = $name === $current;
+        return '<a class="site-link' . ($active ? ' current" id="' . $name . '-source" style="color:#aa1100;font-weight:700" aria-current="page"' : '"') . ' href="https://example.test/' . $name . '">' . $label . '</a>';
+    };
+    return '<input class="nav-trigger" type="checkbox" id="navTrigger"><div id="wrapper" class="site-frame blocks-engine-source-div-a1b2c3d4-4"><div id="header-wrapper-sticky-wrapper" class="blocks-engine-source-div-a1b2c3d4-4"><div id="header-wrapper"><div class="logo">Brand</div><nav>' . $link('home', 'Home', $current) . $link('about', 'About', $current) . $link('services', 'Services', $current) . '</nav></div></div><div id="main-container"><main><h1>' . $content . '</h1></main></div></div>';
+};
+$statefulResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<style>.nav-trigger{appearance:none;border:1px solid}.current{text-decoration:underline}</style>' . $statefulWaveShell('home', 'Home', true),
+    'about.html' => '<style>.nav-trigger{appearance:none;border:1px solid}.current{text-decoration:underline}</style>' . $statefulWaveShell('about', 'About', true),
+    'services.html' => '<style>.nav-trigger{appearance:none;border:1px solid}.current{text-decoration:underline}</style>' . $statefulWaveShell('services', 'Services', true),
+    // This responsive route has no extractable nested chrome candidate and stays page-owned.
+    'contact.html' => '<div class="responsive-contact"><main><h1>Contact</h1></main></div>',
+)))->toArray();
+$statefulPlan = $statefulResult['source_reports']['wordpress_site_plan']; $statefulPages = $pages($statefulPlan);
+$statefulHeader = array_values(array_filter($statefulPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$statefulDiagnostic = current(array_filter($statefulPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
+$statefulMarkup = (string) ($statefulHeader['canonical_block_markup'] ?? '');
+$assert(1 === count(array_filter($statefulPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains($statefulPages['index.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['about.html']['canonical_block_markup'] ?? '', 'header-wrapper') && !str_contains($statefulPages['services.html']['canonical_block_markup'] ?? '', 'header-wrapper'), 'Nested headers differing only by route-current navigation state produce one shared header and leave page content without its shell.');
+$assert(!str_contains($statefulMarkup, 'blocks-engine-current-navigation-item') && 1 === preg_match_all('/blocks-engine-navigation-current-color-[a-f0-9]{64}/', $statefulMarkup) && str_contains($statefulMarkup, 'blocks-engine-navigation-link-color-states-0') && !str_contains($statefulMarkup, 'blocks-engine-navigation--color-') && !str_contains($statefulMarkup, '"anchor":"home-source"') && str_contains($statefulMarkup, 'site-link'), 'The emitted header keeps its navigation-root current-color and link-state carriers while removing child route state without corrupting tokens or non-state presentation.');
+$assert(str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'Contact') && !str_contains($statefulPages['contact.html']['canonical_block_markup'] ?? '', 'header-wrapper') && array(array('source_path' => 'contact.html', 'reason' => 'missing')) === ($statefulDiagnostic['exclusions'] ?? null), 'A responsive route without an equivalent nested header candidate remains explicitly page-owned.');
+
+$variantShell = static function (string $current, bool $variant): string {
+    $link = static function (string $name, string $current, bool $variant): string {
+        $style = $variant && 'services' === $name ? ' style="letter-spacing:3px"' : '';
+        return '<a class="site-link' . ($name === $current ? ' current' : '') . '"' . $style . ' href="https://example.test/' . $name . '">' . ucfirst($name) . '</a>';
+    };
+    return '<div id="wrapper"><div id="header-wrapper-sticky-wrapper"><div id="header-wrapper"><nav>' . $link('home', $current, $variant) . $link('about', $current, $variant) . $link('services', $current, $variant) . '</nav></div></div><div id="main-container"><main><h1>Content</h1></main></div></div>';
+};
+$variantResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<style>.current{text-decoration:underline}</style>' . $variantShell('home', false),
+    'about.html' => '<style>.current{text-decoration:underline}</style>' . $variantShell('about', true),
+)))->toArray();
+$variantPlan = $variantResult['source_reports']['wordpress_site_plan'];
+$variantDiagnostic = current(array_filter($variantPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
+$assert(array() === array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'non_equivalent' === ($variantDiagnostic['provenance']['reason'] ?? null), 'A non-current navigation presentation difference prevents false shared-header equivalence.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

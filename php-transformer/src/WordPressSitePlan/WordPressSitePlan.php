@@ -665,21 +665,49 @@ final class WordPressSitePlan
 
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
-        $markup = self::withoutCurrentNavigationState($markup);
+        $markup = self::withoutCurrentNavigationState($markup, true);
         return preg_replace('/\s*blocks-engine-source-[a-z0-9_-]+-[a-f0-9]{6,}-[0-9]+/', '', $markup) ?? $markup;
     }
 
-    private static function withoutCurrentNavigationState(string $markup): string
+    private static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
     {
-        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match): string {
+        $stateCarrierCounts = array();
+        $linkColorCounts = array();
+        $linkCount = 0;
+        preg_match_all('/<!--\s*wp:navigation(?:-link|-submenu)?\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $navigationMatches);
+        foreach ($navigationMatches[0] as $index => $opening) {
+            $attributes = $navigationMatches[1][$index];
+            $attrs = json_decode($attributes, true);
+            if (!is_array($attrs)) continue;
+            $isLink = !preg_match('/<!--\s*wp:navigation\s/', $opening);
+            if ($isLink) ++$linkCount;
+            foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+                if (preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)) $stateCarrierCounts[$class] = ($stateCarrierCounts[$class] ?? 0) + 1;
+                if ($isLink && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) $linkColorCounts[$class] = ($linkColorCounts[$class] ?? 0) + 1;
+            }
+        }
+        $sharedLinkColors = array_keys(array_filter($linkColorCounts, static fn(int $count): bool => 1 < $linkCount && $linkCount - 1 === $count));
+        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors): string {
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
-            $class = (string) ($attrs['className'] ?? '');
-            if (!str_contains($class, 'blocks-engine-current-navigation-item')) return $match[0];
-            $attrs['className'] = trim(str_replace(array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), '', $class));
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $current = in_array('blocks-engine-current-navigation-item', $classes, true);
+            if (!$current && !$semanticIdentity) return $match[0];
+            $isLink = 'navigation' !== $match[1];
+            $classes = array_values(array_filter($classes, static function (string $class) use ($current, $semanticIdentity, $stateCarrierCounts): bool {
+                if ($current && in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)) return false;
+                if (($current || $semanticIdentity) && preg_match('/^blocks-engine-navigation-current-color-[a-f0-9]{64}$/', $class)) return false;
+                if ($current && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) return false;
+                if ($semanticIdentity && $current && 1 === ($stateCarrierCounts[$class] ?? 0)) return false;
+                if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class)) return false;
+                return true;
+            }));
+            if ($semanticIdentity && $current && $isLink) $classes = array_values(array_unique(array_merge($classes, $sharedLinkColors)));
+            $attrs['className'] = implode(' ', $classes);
             if ('' === $attrs['className']) unset($attrs['className']);
-            unset($attrs['anchor'], $attrs['anchorClassName'], $attrs['color'], $attrs['style'], $attrs['typography']);
-            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . ($match[3] ? '/' : '') . '-->';
+            if ($current) unset($attrs['color'], $attrs['style'], $attrs['typography']);
+            if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
+            return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
     }
 
