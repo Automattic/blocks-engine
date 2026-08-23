@@ -47,7 +47,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $sourceFallbacks = array_merge($sourceFallbacks, $result->fallbacks());
             return $result->firstBlock();
         }, $context->presentationAttributesCallback(), $style, $context->createBlockCallback());
-        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks, array(), array('fallbacks'));
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
     }
 
     /**

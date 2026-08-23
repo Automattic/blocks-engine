@@ -29,29 +29,42 @@ $context = new PatternContext(
     static fn (DOMElement $source): string => '',
     static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name )
 );
-$first = new class implements PatternRecognizerInterface {
+$calls = new ArrayObject();
+$declined = new class($calls) implements PatternRecognizerInterface {
+    public function __construct(private readonly ArrayObject $calls) {}
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        $this->calls[] = 'declined';
+        return null;
+    }
+};
+$first = new class($calls) implements PatternRecognizerInterface {
+    public function __construct(private readonly ArrayObject $calls) {}
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $this->calls[] = 'first';
         return new PatternRecognitionResult(
             array( 'blockName' => 'first' ),
-            array( array( 'type' => 'fallback' ) ),
-            array( array( 'source' => 'first' ) ),
-            array( 'records_fallback' )
+            array( array( 'type' => 'fallback' ) )
         );
     }
 };
-$second = new class implements PatternRecognizerInterface {
+$second = new class($calls) implements PatternRecognizerInterface {
+    public function __construct(private readonly ArrayObject $calls) {}
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        $this->calls[] = 'second';
         throw new RuntimeException('Ordered registry invoked a lower-precedence recognizer.');
     }
 };
 
-$result = ( new PatternRecognizerRegistry( array( $first, $second ) ) )->firstMatch($element, $context);
+$result = ( new PatternRecognizerRegistry( array( $declined, $first, $second ) ) )->firstMatch($element, $context);
 $assertSame('first', $result?->block()['blockName'] ?? null, 'First matching recognizer wins.');
 $assertSame(array( array( 'type' => 'fallback' ) ), $result?->fallbacks(), 'Result keeps fallbacks with its block.');
-$assertSame(array( array( 'source' => 'first' ) ), $result?->provenance(), 'Result keeps provenance with its block.');
-$assertSame(array( 'records_fallback' ), $result?->declaredSideEffects(), 'Result declares committed side effects.');
+$assertSame(array( 'declined', 'first' ), $calls->getArrayCopy(), 'Declined recognizers contribute no result and dispatch stops after the winner.');
 
 echo "pattern recognizer registry ok\n";
 exit(0 === $failures ? 0 : 1);
