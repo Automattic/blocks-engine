@@ -42,9 +42,9 @@ final class FontMaterializationPlanBuilder
      * Build a materialization plan from raw web-font sources.
      *
      * Detects web-font stylesheets (e.g. Google Fonts `css2`/`css` `<link>` and
-     * CSS `@import` sources) plus `font-family` declarations, preserving the
-     * discovered typefaces and their heading/body roles so that materialized
-     * output keeps the source typography.
+     * CSS `@import` sources), preserving their requested typefaces. CSS
+     * `font-family` declarations select heading/body roles but cannot introduce
+     * families that are not backed by a supported provider source.
      *
      * @return array<string,mixed>
      */
@@ -61,24 +61,9 @@ final class FontMaterializationPlanBuilder
         $imports = $this->webFontImports($css, $cssSources);
         $fontUsage = array_merge(
             $this->fontUsageFromLinkedStylesheets($html),
-            ...array_merge(array_column($imports, 'font_usage'), array($this->fontUsageFromCssDeclarations($resolvedCss)))
+            ...array_column($imports, 'font_usage')
         );
         $roles = $this->fontRolesFromCss($resolvedCss);
-
-        // The base/body `font-family` is the document's foundational typography
-        // and must survive into the materialized output even when it is declared
-        // only in an inline `<style>` block (no external stylesheet, no linked
-        // web-font). Carry that base font into the plan so the generated base
-        // typography keeps the source's body face. Heading-only inline fonts are
-        // deliberately NOT materialized here: a custom heading face with no
-        // loaded web-font cannot render, so it stays a reported drop.
-        $inlineBody = (string) ($this->fontRolesFromCss($this->resolveCssVariables($this->styleBlockCss($html)))['body'] ?? '');
-        if ( '' !== $inlineBody ) {
-            $fontUsage[] = array('family' => $inlineBody, 'weights' => array(400));
-            if ( '' === (string) ($roles['body'] ?? '') ) {
-                $roles['body'] = $inlineBody;
-            }
-        }
 
         $plan = $this->googleFonts($fontUsage, $roles);
         $faces = array();
@@ -197,18 +182,6 @@ final class FontMaterializationPlanBuilder
         $urls = array();
         foreach ( $imports as $import ) if ( $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
         return implode("\n", $urls);
-    }
-
-    /**
-     * Concatenate the CSS inside every `<style>` block of an HTML document.
-     */
-    private function styleBlockCss(string $html): string
-    {
-        if ( '' === trim($html) || ! preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
-            return '';
-        }
-
-        return implode("\n", $matches[1]);
     }
 
     /**
