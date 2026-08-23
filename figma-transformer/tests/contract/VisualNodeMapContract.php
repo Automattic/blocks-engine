@@ -1261,10 +1261,19 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     blocks_engine_figma_transformer_contract_assert_node_rect($assert, $staleNestedInstanceImage, array('x' => 112.0, 'y' => 198.0, 'width' => 376.0, 'height' => 282.0), 'visual-map-nested-instance-stale-definition-transform-rect-parent-local');
 
     $reusedEmitter = new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter();
-    $reusedEmitter->emit(array(
+    $reusedPriorResult = $reusedEmitter->emit(array(
         'name' => 'Prior emission',
-        'nodes' => array(array('id' => 'reuse:prior', 'type' => 'FRAME', 'name' => 'Prior root', 'width' => 320, 'height' => 160)),
+        'nodes' => array(array(
+            'id' => 'reuse:prior',
+            'type' => 'FRAME',
+            'name' => 'Prior root',
+            'width' => 320,
+            'height' => 160,
+            'children' => array(array('id' => 'reuse:prior:vector', 'type' => 'VECTOR', 'name' => 'Prior unsupported vector', 'width' => 24, 'height' => 24)),
+        )),
     ));
+    $reusedPriorDiagnostics = is_array($reusedPriorResult['source_report']['transform_diagnostics'] ?? null) ? $reusedPriorResult['source_report']['transform_diagnostics'] : array();
+    $assert(1 === ($reusedPriorDiagnostics['decision_traces']['reason_counts']['non_renderable_unsupported_vector_suppressed'] ?? null), 'visual-map-emitter-reuse-prior-decision-trace-recorded');
     $reusedSite = $reusedEmitter->emitSite(array(
         'name' => 'Reused emitter site',
         'nodes' => array(
@@ -1290,8 +1299,10 @@ function blocks_engine_figma_transformer_run_visual_node_map_contract(callable $
     ), array('static_site_page_path' => 'single.html'));
     $reusedSingleCss = blocks_engine_figma_transformer_contract_file_content($reusedSinglePage, 'style.css');
     $reusedSingleHtml = blocks_engine_figma_transformer_contract_file_content($reusedSinglePage, 'index.html');
+    $reusedSingleDiagnostics = is_array($reusedSinglePage['source_report']['transform_diagnostics'] ?? null) ? $reusedSinglePage['source_report']['transform_diagnostics'] : array();
     $assert(! str_contains($reusedSingleCss, 'figma-node-reuse-home-home') && ! str_contains($reusedSingleCss, 'figma-node-reuse-about-about'), 'visual-map-emitter-reuse-clears-prior-site-css');
     $assert(str_contains($reusedSingleHtml, 'data-page-path="single.html"') && null === blocks_engine_figma_transformer_contract_find_visual_node_in_map($reusedSinglePage['source_report']['visual_node_map'] ?? array(), 'reuse:home'), 'visual-map-emitter-reuse-clears-prior-site-page-state');
+    $assert(! isset($reusedSingleDiagnostics['decision_traces']['reason_counts']['non_renderable_unsupported_vector_suppressed']), 'visual-map-emitter-reuse-clears-prior-decision-traces');
 
     $inlineSite = (new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter())->emitSite(array(
         'name' => 'Inline diagnostics site',

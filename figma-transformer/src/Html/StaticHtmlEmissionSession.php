@@ -13,6 +13,7 @@ final class StaticHtmlEmissionSession
     private readonly StaticHtmlLinkState $linkState;
     private readonly StaticHtmlAssetRegistry $assetRegistry;
     private readonly StaticHtmlTypographyState $typographyState;
+    private readonly StaticHtmlDecisionTraceState $decisionTraceState;
     private readonly TextStyleDeclarationResolver $textStyleDeclarationResolver;
     private readonly PaintStackResolver $paintStackResolver;
     private readonly ChildLayerCompositionResolver $childLayerCompositionResolver;
@@ -28,6 +29,7 @@ final class StaticHtmlEmissionSession
         $this->linkState = new StaticHtmlLinkState();
         $this->assetRegistry = new StaticHtmlAssetRegistry($formatter);
         $this->typographyState = new StaticHtmlTypographyState();
+        $this->decisionTraceState = new StaticHtmlDecisionTraceState();
         $this->textStyleDeclarationResolver = new TextStyleDeclarationResolver($typographyModel, $formatter, $this->typographyState);
         $this->paintStackResolver = new PaintStackResolver($this->assetRegistry, $formatter);
         $this->childLayerCompositionResolver = new ChildLayerCompositionResolver($this->assetRegistry, $formatter);
@@ -63,6 +65,11 @@ final class StaticHtmlEmissionSession
     public function textStyleDeclarationResolver(): TextStyleDeclarationResolver
     {
         return $this->textStyleDeclarationResolver;
+    }
+
+    public function decisionTraceState(): StaticHtmlDecisionTraceState
+    {
+        return $this->decisionTraceState;
     }
 
     public function paintStackResolver(): PaintStackResolver

@@ -305,14 +305,6 @@ final class StaticHtmlEmitter
     private array $suppressedVisualNodeIds = array();
 
     /**
-     * Stable reason traces for behavior decisions that suppress, re-route, or
-     * normalize source nodes without changing the emitted artifact contract.
-     *
-     * @var array<string, array<string, mixed>>
-     */
-    private array $decisionTraces = array();
-
-    /**
      * Reset state whose lifetime is one public emission call.
      *
      * @param array<string, mixed> $options
@@ -329,7 +321,6 @@ final class StaticHtmlEmitter
         $this->staticHtmlCssRuleSet()->resetReadableNames();
         $this->emittedNodeMetadata = array();
         $this->suppressedVisualNodeIds = array();
-        $this->decisionTraces = array();
         $this->archiveAssetContentResolver = is_callable($options['archive_asset_content_resolver'] ?? null) ? $options['archive_asset_content_resolver'] : null;
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
@@ -682,7 +673,7 @@ final class StaticHtmlEmitter
             $pageCssRuleOffset = count($emission['css_rules']);
             $pageDiagnosticOffset = count($diagnostics);
             $pageStyleDiagnosticOffset = count($nodeStyleDiagnostics);
-            $pageDecisionTraceOffset = count($this->decisionTraces);
+            $pageDecisionTraceOffset = $this->emissionSession->decisionTraceState()->count();
             $pageResponsiveTraceOffset = count($this->breakpointMediaDiffBuilder()->decisionTraces());
             $pageLinkDiagnosticsBefore = $this->linkState->diagnostics();
             $pageDocument = $this->emitPageDocument(array($frameNode), $path, $this->sanitizeText($pageName), $pageName, is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '', is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path), 1, $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics, $options);
@@ -724,7 +715,7 @@ final class StaticHtmlEmitter
             $pageMediaBlocks = $this->breakpointMediaDiffBuilder()->buildMediaBlocks($page, $frameNode, $nodeMap);
             $pageEmissionReports[$path]['media_blocks'] = $pageMediaBlocks;
             $pageEmissionReports[$path]['decision_traces'] = array_merge(
-                array_slice($this->decisionTraces, $pageDecisionTraceOffset),
+                $this->emissionSession->decisionTraceState()->slice($pageDecisionTraceOffset),
                 array_slice($this->breakpointMediaDiffBuilder()->decisionTraces(), $pageResponsiveTraceOffset)
             );
             $pageEmissionReports[$path]['links'] = $this->linkDiagnosticsDelta($pageLinkDiagnosticsBefore, $this->linkState->diagnostics());
@@ -4312,7 +4303,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        return DecisionTraceBuilder::summary($this->decisionTraces);
+        return $this->emissionSession->decisionTraceState()->summary();
     }
 
     /**
@@ -4330,8 +4321,9 @@ final class StaticHtmlEmitter
      */
     private function recordDecisionTrace(string $domain, string $reasonCode, array $node, string $decision, ?array $parentNode = null, array $evidence = array()): void
     {
-        DecisionTraceBuilder::recordEmitterTrace(
-            $this->decisionTraces,
+        $nodeId = (string) ($node['id'] ?? '');
+        $class = '' !== $nodeId || ! empty($node['name'] ?? '') ? $this->nodeDiagnosticClass($node) : null;
+        $this->emissionSession->decisionTraceState()->record(
             $domain,
             $reasonCode,
             $node,
@@ -4339,7 +4331,7 @@ final class StaticHtmlEmitter
             $parentNode,
             $evidence,
             $this->pageState->path,
-            fn (array $traceNode): string => $this->nodeDiagnosticClass($traceNode)
+            $class
         );
     }
 
