@@ -735,6 +735,7 @@ final class HtmlTransformer
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeBehavioralSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
+        $this->layoutGeometryProofReductions = is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array();
         $this->supersededRuntimeSelectors = array();
         $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
@@ -949,6 +950,7 @@ final class HtmlTransformer
                 'reusable_components' => $reusableComponentRecognition,
                 'script_metadata'      => $this->scriptMetadata,
                 'runtime_islands'      => $this->runtimeIslands,
+                'layout_geometry_proof' => $this->layoutGeometryProofProvenance,
             ),
         );
         if ( array() !== $authorStylesheetProjections ) {
@@ -5222,6 +5224,8 @@ final class HtmlTransformer
                 && ! $this->hasClass($element, 'wp-block-columns')
                 && $this->isAuthorOwnedLayout($element)
             ) {
+                $proofBacked = $this->proofBackedWrapperCoalescing($element, $fallbacks);
+                if (null !== $proofBacked) return $proofBacked;
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
@@ -7776,18 +7780,19 @@ final class HtmlTransformer
     /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
+        $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
         if ( 'div' !== strtolower($element->tagName)
             || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
             || ($fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null))
             || $this->isRuntimeDomTarget($element)
-            || $this->isDirectChildOfStructuralLayout($element)
+            || (null === $proof && $this->isDirectChildOfStructuralLayout($element))
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || (! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element))
+            || (null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element))
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
-            || array() !== $this->structureSignals($element, array())
+            || (null === $proof && array() !== $this->structureSignals($element, array()))
             || $this->hasMotionStructureToken($element)
         ) {
             return null;
@@ -7804,19 +7809,72 @@ final class HtmlTransformer
         if ( ! $sourceChild instanceof DOMElement
             || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
             || $this->hasMotionStructureToken($sourceChild)
-            || ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element))
-            || ($fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
+            || (null === $proof && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)))
+            || (null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
             || ('core/image' !== ($childBlock['blockName'] ?? null) && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
-            || (! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell))
+            || (null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell))
         ) {
             return null;
         }
 
         $childAttrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
-        $childAttrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element));
+        $childAttrs['className'] = null === $proof
+            ? $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element))
+            : $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
+        if (null !== $proof) $this->layoutGeometryProofProvenance[] = $proof;
 
         return $this->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /** @return array<string,mixed>|null */
+    private function layoutGeometryProofFor(DOMElement $element): ?array
+    {
+        foreach ($this->layoutGeometryProofReductions as $proof) {
+            // The normalizer binds the document digest. This lookup uses the
+            // canonical structural selector, not a reusable author class.
+            if (!is_array($proof) || $this->elementSelector($element) !== ($proof['wrapper_selector'] ?? null)) continue;
+            $child = $this->soleElementChild($element);
+            if ($child instanceof DOMElement && $this->elementSelector($child) === ($proof['target_selector'] ?? null)) return $proof;
+        }
+        return null;
+    }
+
+    /**
+     * This runs before author-layout lowering, whose custom block deliberately
+     * owns CSS flex/grid topology. The contract has already compared source and
+     * wrapper-free layouts; this method only carries the wrapper identity and
+     * generated geometry carrier onto an existing native child block.
+     *
+     * @param array<int,array<string,mixed>> $fallbacks
+     * @return array<string,mixed>|null
+     */
+    private function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
+    {
+        $proof = $this->layoutGeometryProofFor($element);
+        if (null === $proof || $this->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || array() !== $this->safeDataAttributes($element) || $this->hasMotionStructureToken($element)) return null;
+        $children = $this->convertChildren($element, $fallbacks, true);
+        if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)) return null;
+        $sourceChild = $this->soleElementChild($element);
+        if (!$sourceChild instanceof DOMElement || $this->elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
+        $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
+        $childAttrs['className'] = $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
+        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
+        $this->layoutGeometryProofProvenance[] = $proof;
+        return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
+    }
+
+    /** @param array<string,mixed> $proof */
+    private function layoutGeometryProofCarrier(array $proof): string
+    {
+        $declarations = $proof['corrective_css']['declarations'] ?? array();
+        if (!is_array($declarations)) return '';
+        $parts = array();
+        foreach ($declarations as $declaration) if (is_array($declaration)) $parts[] = $declaration['property'] . ':' . $declaration['value'];
+        if (array() === $parts) return '';
+        $className = 'be-layout-proof-' . substr(hash('sha256', (string) $proof['source_hash'] . "\n" . (string) $proof['wrapper_selector'] . "\n" . implode(';', $parts)), 0, 32);
+        $this->generatedGeometryRules[$className] = ':root .' . $className . '{' . implode(';', $parts) . '}';
+        return $className;
     }
 
     private function sameSourceGroupChainLeaf(DOMElement $element, string $sourceDigest): ?DOMElement

@@ -118,6 +118,9 @@ final class HtmlTransformerSession
     public readonly SourceStyleResolutionState $sourceStyleResolutionState;
     public array $generatedGeometryRules = array();
     public ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
+    /** @var array<int,array<string,mixed>> */
+    public array $layoutGeometryProofReductions = array();
+    public array $layoutGeometryProofProvenance = array();
     public readonly FallbackEmitter $fallbackEmitter;
 
     /** @param Closure(DOMElement): array<string, mixed> $sourceContextResolver */
