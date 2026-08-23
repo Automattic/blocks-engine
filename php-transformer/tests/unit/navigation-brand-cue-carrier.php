@@ -548,6 +548,27 @@ $assert(
     'blocks=' . json_encode($submenuBlocks) . ' css=' . substr($submenuCss, -700)
 );
 
+$clippedSubmenu = $transform(
+    '<style>#header-wrapper .container{display:table;overflow:hidden;position:relative}</style>'
+        . '<header id="header-wrapper"><div class="container"><nav><ul>'
+        . '<li><a href="/services">Services</a><ul><li><a href="/design">Design</a></li></ul></li>'
+        . '<li><a href="/about">About</a></li></ul></nav></div></header>'
+);
+$clippedSubmenuCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($clippedSubmenu['assets'] ?? null) ? $clippedSubmenu['assets'] : array()
+));
+$assert(
+    str_contains(
+        $clippedSubmenuCss,
+        ':where(.wp-block-group:has(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-submenu)){overflow:visible!important}'
+    )
+        && ! str_contains($clippedSubmenuCss, '.wp-block-navigation.blocks-engine-list-navigation{overflow:visible')
+        && ! str_contains($clippedSubmenuCss, '.wp-block-navigation__responsive-container{overflow:visible'),
+    'a native submenu releases only its converted Group ancestors from source overflow clipping',
+    substr($clippedSubmenuCss, -900)
+);
+
 $inlineColour = $transform(
     '<nav><a href="/" style="color:#aa1100">Home</a><a href="/about" style="color:#aa1100">About</a></nav>'
 );
