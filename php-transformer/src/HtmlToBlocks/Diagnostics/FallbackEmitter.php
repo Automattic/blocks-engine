@@ -141,13 +141,13 @@ final class FallbackEmitter
      * @param bool                             $preserveRoot    Include the source root when it carries required semantics or styling.
      * @return array{blockName: string, attrs: array<string, mixed>}|null
      */
-    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace, bool $preserveRoot = false): ?array
+    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
         $result = $this->classifier->classify($element, $this->classificationContext($element));
-        if ( ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
+        if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
             return null;
         }
-        if ( $result->confidence() < self::GENERATION_CONFIDENCE_THRESHOLD ) {
+        if ( ! $confirmedComponent && $result->confidence() < self::GENERATION_CONFIDENCE_THRESHOLD ) {
             return null;
         }
 
@@ -188,6 +188,70 @@ final class FallbackEmitter
             'blockName' => $namespace . '/' . $localName,
             'attrs'     => $this->blockGenerator->referenceAttributes($content),
         );
+    }
+
+    public function isRepeatableContentComponent(DOMElement $element): bool
+    {
+        if (0 < $element->getElementsByTagName('script')->length) {
+            return false;
+        }
+
+        $result = $this->classifier->classify($element, $this->classificationContext($element));
+        $signals = $result->signals();
+        $safeComponent = $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK)
+            && $result->confidence() >= self::GENERATION_CONFIDENCE_THRESHOLD
+            && empty($signals['inline_event_handlers']);
+        if ($safeComponent && (2 <= (int) ($signals['repeatable_children'] ?? 0) || (str_contains(strtolower($element->tagName), '-') && (!empty($signals['media_gallery']) || !empty($signals['cohesive_content_unit']))))) {
+            return true;
+        }
+        if (!str_contains(strtolower($element->tagName), '-') || !empty($signals['inline_event_handlers'])) {
+            return false;
+        }
+        foreach ($element->childNodes as $child) {
+            if (! $child instanceof DOMElement) {
+                continue;
+            }
+            $childResult = $this->classifier->classify($child, $this->classificationContext($child));
+            $childSignals = $childResult->signals();
+            if ($childResult->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK)
+                && $childResult->confidence() >= self::GENERATION_CONFIDENCE_THRESHOLD
+                && 2 <= (int) ($childSignals['repeatable_children'] ?? 0)
+                && empty($childSignals['inline_event_handlers'])
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function isSafeCustomElementHost(DOMElement $element): bool
+    {
+        if (!str_contains(strtolower($element->tagName), '-')) {
+            return false;
+        }
+        $elements = array($element);
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement) {
+                $elements[] = $descendant;
+            }
+        }
+        if (4 > count($elements)) {
+            return false;
+        }
+        foreach ($elements as $candidate) {
+            if (in_array(strtolower($candidate->tagName), array('script', 'form', 'input', 'select', 'textarea', 'canvas'), true)
+                || $candidate->hasAttribute('contenteditable')
+            ) {
+                return false;
+            }
+            foreach ($candidate->attributes ?? array() as $attribute) {
+                $name = strtolower($attribute->nodeName);
+                if (str_starts_with($name, 'on') || str_starts_with($name, 'data-wp-')) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -277,12 +341,7 @@ final class FallbackEmitter
      */
     private function sanitizeHtmlString(string $html): string
     {
-        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
-        $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
-        $html = preg_replace('/\s+(?:href|src|xlink:href)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
-        $html = preg_replace('/\s+srcdoc\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
-
-        return trim($html);
+        return $this->safeFallbackHtmlString($html);
     }
 
     /**
