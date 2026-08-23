@@ -1167,10 +1167,20 @@ final class StaticHtmlEmitter
         $assetPath = null;
         $paint = array();
         if ( ! empty($layers) ) {
+            $composedLayers = $this->nodeComposedBackgroundLayers($node, $layers);
+            if ( 1 !== count($composedLayers) || 'image' !== ($composedLayers[0]['type'] ?? null) ) {
+                return null;
+            }
             $assetPath = (string) ($layers[0]['path'] ?? '');
             $paint = is_array($layers[0]['paint'] ?? null) ? $layers[0]['paint'] : array();
         } else {
             $assetPath = $this->nodeAssetPath($node);
+            if ( null !== $assetPath ) {
+                $composedLayers = $this->nodeComposedBackgroundLayers($node, array(array('path' => $assetPath, 'paint' => array())));
+                if ( 1 !== count($composedLayers) || 'image' !== ($composedLayers[0]['type'] ?? null) ) {
+                    return null;
+                }
+            }
         }
         if ( null === $assetPath || '' === $assetPath ) {
             return null;
@@ -1178,6 +1188,9 @@ final class StaticHtmlEmitter
 
         $scaleMode = empty($paint) ? $this->nodeImageScaleMode($node) : $this->imagePaintScaleMode($paint);
         $backgroundStyles = empty($paint) ? array() : $this->imagePaintLayerBackgroundStyles($node, $paint, $scaleMode);
+        if ( ! $this->imagePaintCanRenderSemantically($scaleMode, $backgroundStyles) ) {
+            return null;
+        }
 
         return array(
             'src'                 => $assetPath,
@@ -1197,7 +1210,7 @@ final class StaticHtmlEmitter
         $attributes = ' src="' . $this->sanitizeAttribute($metadata['src']) . '"';
         $attributes .= ' alt="' . $this->sanitizeAttribute($metadata['alt']) . '"';
         $attributes .= ' loading="lazy" decoding="async"';
-        $attributes .= ' style="object-fit:' . $this->sanitizeAttribute($metadata['object_fit']) . ';object-position:' . $this->sanitizeAttribute($metadata['object_position']) . '"';
+        $attributes .= ' style="object-fit:' . $this->sanitizeAttribute($metadata['object_fit']) . ';object-position:' . $this->sanitizeAttribute($metadata['object_position']) . ';background-image:none"';
         $attributes .= ' data-figma-image-fill="true" data-figma-image-rendering="semantic-img" data-figma-image-scale-mode="' . $this->sanitizeAttribute($metadata['scale_mode']) . '"';
         $attributes .= ' data-figma-image-object-fit="' . $this->sanitizeAttribute($metadata['object_fit']) . '" data-figma-image-object-position="' . $this->sanitizeAttribute($metadata['object_position']) . '"';
         if ( null !== $metadata['background_size'] ) {
@@ -1211,6 +1224,24 @@ final class StaticHtmlEmitter
         }
 
         return $attributes;
+    }
+
+    /**
+     * @param array{size?: string, repeat?: string, position?: string} $backgroundStyles
+     */
+    private function imagePaintCanRenderSemantically(string $scaleMode, array $backgroundStyles): bool
+    {
+        if ( empty($backgroundStyles) ) {
+            return true;
+        }
+
+        $size = (string) ($backgroundStyles['size'] ?? '');
+        return match ( strtoupper($scaleMode) ) {
+            'FILL' => 'cover' === $size,
+            'FIT' => 'contain' === $size,
+            'STRETCH' => '100% 100%' === $size,
+            default => false,
+        };
     }
 
     private function imageObjectFit(string $scaleMode): string
