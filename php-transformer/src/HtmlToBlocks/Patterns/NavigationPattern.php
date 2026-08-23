@@ -788,16 +788,13 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * A list-backed menu can carry direct support nodes that have no rendered
-     * menu meaning. Limit this exception to a recognized list so visible or
-     * ambiguous siblings still reject the navigation conversion.
+     * A list-backed menu can carry direct support nodes that cannot render.
+     * Attribute-only accessibility and interaction state is insufficient:
+     * authors can keep aria-hidden or inert content visible. Limit this
+     * exception to a recognized list and structural or presentation proof.
      */
     private function isInertNavigationSupportChild(DOMElement $element, ?callable $isRuntimeDomTarget, ?callable $resolvedStyle): bool
     {
-        if ( $element->hasAttribute('hidden') || $element->hasAttribute('inert') || 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
-            return true;
-        }
-
         if ( null !== $isRuntimeDomTarget
             && $isRuntimeDomTarget($element)
             && '' === trim($element->textContent ?? '')
