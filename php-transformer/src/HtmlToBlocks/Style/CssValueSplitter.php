@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 /**
- * Parenthesis-depth-aware splitting for CSS declaration lists and values.
+ * Syntax-aware splitting for CSS declaration lists and values.
  *
  * Naive `explode(';', ...)`, `explode(',', ...)`, and `preg_split('/\s+/', ...)`
  * over CSS values break apart the inside of functional notation —
@@ -15,43 +15,22 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
  * which is what produces "unexpected or invalid content" and mangled spacing.
  *
  * Every method here only treats a delimiter as a separator when it appears at
- * paren depth 0, so functional values stay whole.
+ * paren depth 0 and outside quotes or escapes, so CSS tokens stay whole.
  */
 final class CssValueSplitter
 {
     /**
      * Split on any of the given single-character delimiters, but only when the
-     * delimiter occurs outside of `(...)`. Empty/whitespace-only segments are
-     * dropped and remaining segments are trimmed.
+     * delimiter occurs outside of `(...)`, quotes, and escapes.
+     * Empty/whitespace-only segments are dropped and remaining segments are
+     * trimmed.
      *
      * @param array<int, string> $delimiters
      * @return array<int, string>
      */
     public static function splitTopLevel(string $input, array $delimiters): array
     {
-        $parts  = array();
-        $buffer = '';
-        $depth  = 0;
-        $length = strlen($input);
-
-        for ( $index = 0; $index < $length; ++$index ) {
-            $char = $input[ $index ];
-            if ( '(' === $char ) {
-                ++$depth;
-            } elseif ( ')' === $char && $depth > 0 ) {
-                --$depth;
-            }
-
-            if ( 0 === $depth && in_array($char, $delimiters, true) ) {
-                $parts[] = $buffer;
-                $buffer  = '';
-                continue;
-            }
-
-            $buffer .= $char;
-        }
-
-        $parts[] = $buffer;
+        $parts = self::split($input, $delimiters, false);
 
         $trimmed = array();
         foreach ( $parts as $part ) {
@@ -65,8 +44,8 @@ final class CssValueSplitter
     }
 
     /**
-     * Split on top-level whitespace runs, keeping functional values whole. This
-     * is the paren-aware replacement for `preg_split('/\s+/', ...)` over CSS
+     * Split on top-level whitespace runs, keeping CSS tokens whole. This is the
+     * syntax-aware replacement for `preg_split('/\s+/', ...)` over CSS
      * shorthand values such as `padding: clamp(3.5rem, 8vw, 6.5rem) 0` or
      * `border: 1px solid rgba(0, 0, 0, .1)`.
      *
@@ -74,31 +53,64 @@ final class CssValueSplitter
      */
     public static function splitTopLevelWhitespace(string $input): array
     {
+        return self::split($input, array(), true);
+    }
+
+    /**
+     * @param array<int, string> $delimiters
+     * @return array<int, string>
+     */
+    private static function split(string $input, array $delimiters, bool $splitWhitespace): array
+    {
         $parts  = array();
         $buffer = '';
         $depth  = 0;
+        $quote  = null;
         $length = strlen($input);
 
         for ( $index = 0; $index < $length; ++$index ) {
             $char = $input[ $index ];
+            if ( '\\' === $char ) {
+                $buffer .= $char;
+                if ( $index + 1 < $length ) {
+                    $buffer .= $input[ ++$index ];
+                }
+                continue;
+            }
+
+            if ( null !== $quote ) {
+                $buffer .= $char;
+                if ( $quote === $char ) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ( '"' === $char || "'" === $char ) {
+                $quote  = $char;
+                $buffer .= $char;
+                continue;
+            }
+
             if ( '(' === $char ) {
                 ++$depth;
             } elseif ( ')' === $char && $depth > 0 ) {
                 --$depth;
             }
 
-            if ( 0 === $depth && '' === trim($char) ) {
-                if ( '' !== $buffer ) {
+            $isDelimiter = $splitWhitespace ? '' === trim($char) : in_array($char, $delimiters, true);
+            if ( 0 === $depth && $isDelimiter ) {
+                if ( ! $splitWhitespace || '' !== $buffer ) {
                     $parts[] = $buffer;
-                    $buffer  = '';
                 }
+                $buffer = '';
                 continue;
             }
 
             $buffer .= $char;
         }
 
-        if ( '' !== $buffer ) {
+        if ( ! $splitWhitespace || '' !== $buffer ) {
             $parts[] = $buffer;
         }
 
@@ -114,10 +126,30 @@ final class CssValueSplitter
     public static function hasBalancedParens(string $value): bool
     {
         $depth  = 0;
+        $quote  = null;
         $length = strlen($value);
 
         for ( $index = 0; $index < $length; ++$index ) {
             $char = $value[ $index ];
+            if ( '\\' === $char ) {
+                if ( $index + 1 < $length ) {
+                    ++$index;
+                }
+                continue;
+            }
+
+            if ( null !== $quote ) {
+                if ( $quote === $char ) {
+                    $quote = null;
+                }
+                continue;
+            }
+
+            if ( '"' === $char || "'" === $char ) {
+                $quote = $char;
+                continue;
+            }
+
             if ( '(' === $char ) {
                 ++$depth;
             } elseif ( ')' === $char ) {

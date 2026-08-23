@@ -33,8 +33,8 @@ final class CoverStyleResolver
         }
 
         $declarations = array();
-        foreach ( $this->splitTopLevel($style, array( ';' )) as $declaration ) {
-            $parts = $this->splitTopLevel($declaration, array( ':' ));
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            $parts = CssValueSplitter::splitTopLevel($declaration, array( ':' ));
             if ( count($parts) < 2 ) {
                 continue;
             }
@@ -96,7 +96,7 @@ final class CoverStyleResolver
         }
 
         $value    = (string) $declarations[ $property ];
-        $layers   = $this->splitTopLevel($value, array( ',' ));
+        $layers   = CssValueSplitter::splitTopLevel($value, array( ',' ));
         $urlIndex = null;
         foreach ( $layers as $index => $layer ) {
             if ( preg_match('/\burl\s*\(/i', $layer) ) {
@@ -114,7 +114,7 @@ final class CoverStyleResolver
                 continue;
             }
 
-            $stops = $this->splitTopLevel($matches[1], array( ',' ));
+            $stops = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
             if ( 3 === count($stops) && $this->isVerticalGradientDirection($stops[0]) ) {
                 array_shift($stops);
             }
@@ -175,7 +175,7 @@ final class CoverStyleResolver
             return null;
         }
 
-        $parts = $this->splitTopLevelWhitespace($value);
+        $parts = CssValueSplitter::splitTopLevelWhitespace($value);
         if ( count($parts) < 1 || count($parts) > 2 ) {
             return null;
         }
@@ -222,8 +222,8 @@ final class CoverStyleResolver
         foreach ( array_reverse(array_keys($declarations)) as $name ) {
             if ( 'background-size' === $name ) {
                 $size = strtolower(trim((string) $declarations[ $name ]));
-                foreach ( $this->splitTopLevel($size, array( ',' )) as $layerSize ) {
-                    if ( array( 'cover' ) === $this->splitTopLevelWhitespace($layerSize) ) {
+                foreach ( CssValueSplitter::splitTopLevel($size, array( ',' )) as $layerSize ) {
+                    if ( array( 'cover' ) === CssValueSplitter::splitTopLevelWhitespace($layerSize) ) {
                         return true;
                     }
                 }
@@ -232,10 +232,10 @@ final class CoverStyleResolver
 
             if ( 'background' === $name ) {
                 $background = (string) $declarations[ $name ];
-                foreach ( $this->splitTopLevel($background, array( ',' )) as $layer ) {
-                    $slashParts = $this->splitTopLevel($layer, array( '/' ));
+                foreach ( CssValueSplitter::splitTopLevel($background, array( ',' )) as $layer ) {
+                    $slashParts = CssValueSplitter::splitTopLevel($layer, array( '/' ));
                     foreach ( array_slice($slashParts, 1) as $sizeAndRepeat ) {
-                        $tokens = $this->splitTopLevelWhitespace(strtolower($sizeAndRepeat));
+                        $tokens = CssValueSplitter::splitTopLevelWhitespace(strtolower($sizeAndRepeat));
                         if ( 'cover' === ($tokens[0] ?? '') ) {
                             return true;
                         }
@@ -272,8 +272,8 @@ final class CoverStyleResolver
                 $repeatingTokens[] = 'round';
                 $repeatingTokens[] = 'space';
             }
-            foreach ( $this->splitTopLevel($value, array( ',' )) as $layer ) {
-                $tokens = $this->splitTopLevelWhitespace($layer);
+            foreach ( CssValueSplitter::splitTopLevel($value, array( ',' )) as $layer ) {
+                $tokens = CssValueSplitter::splitTopLevelWhitespace($layer);
                 foreach ( $tokens as $token ) {
                     if ( in_array($token, $repeatingTokens, true) ) {
                         return true;
@@ -309,7 +309,7 @@ final class CoverStyleResolver
     private function overlayColor(string $literal): ?array
     {
         $literal = strtolower(trim($literal));
-        $parts   = $this->splitTopLevelWhitespace($literal);
+        $parts   = CssValueSplitter::splitTopLevelWhitespace($literal);
         if ( count($parts) < 1 || count($parts) > 3 ) {
             return null;
         }
@@ -381,90 +381,6 @@ final class CoverStyleResolver
             '/^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)?|(?:calc|min|max|clamp|var)\(.*\))$/is',
             trim($value)
         );
-    }
-
-    /**
-     * @param array<int, string> $delimiters
-     * @return array<int, string>
-     */
-    private function splitTopLevel(string $input, array $delimiters): array
-    {
-        $masked = $this->maskQuotedAndEscapedCharacters($input);
-        $parts  = CssValueSplitter::splitTopLevel($masked, $delimiters);
-
-        return $this->restoreSplitParts($input, $masked, $parts);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function splitTopLevelWhitespace(string $input): array
-    {
-        $masked = $this->maskQuotedAndEscapedCharacters($input);
-        $parts  = CssValueSplitter::splitTopLevelWhitespace($masked);
-
-        return $this->restoreSplitParts($input, $masked, $parts);
-    }
-
-    private function maskQuotedAndEscapedCharacters(string $input): string
-    {
-        $masked = '';
-        $quote  = null;
-        $length = strlen($input);
-
-        for ( $index = 0; $index < $length; ++$index ) {
-            $character = $input[ $index ];
-            if ( '\\' === $character ) {
-                $masked .= 'x';
-                if ( $index + 1 < $length ) {
-                    $masked .= 'x';
-                    ++$index;
-                }
-                continue;
-            }
-
-            if ( null !== $quote ) {
-                if ( $quote === $character ) {
-                    $masked .= $character;
-                    $quote   = null;
-                } else {
-                    $masked .= 'x';
-                }
-                continue;
-            }
-
-            if ( '"' === $character || "'" === $character ) {
-                $quote  = $character;
-                $masked .= $character;
-                continue;
-            }
-
-            $masked .= $character;
-        }
-
-        return $masked;
-    }
-
-    /**
-     * @param array<int, string> $maskedParts
-     * @return array<int, string>
-     */
-    private function restoreSplitParts(string $input, string $masked, array $maskedParts): array
-    {
-        $parts  = array();
-        $offset = 0;
-
-        foreach ( $maskedParts as $maskedPart ) {
-            $start = strpos($masked, $maskedPart, $offset);
-            if ( false === $start ) {
-                return array();
-            }
-
-            $parts[] = substr($input, $start, strlen($maskedPart));
-            $offset  = $start + strlen($maskedPart);
-        }
-
-        return $parts;
     }
 
     /**
