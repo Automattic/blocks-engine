@@ -18,6 +18,21 @@ $assert('core/image' === ($image['blockName'] ?? null) && array() === ($image['i
 $assert(str_contains((string) ($image['attrs']['className'] ?? ''), 'image-carrier') && str_contains((string) ($image['attrs']['className'] ?? ''), 'blocks-engine-synthetic-image-figure'), 'Coalescing moves the carrier selector and synthetic figure class onto the image block.');
 $assert('640px' === ($image['attrs']['width'] ?? null) && '360px' === ($image['attrs']['height'] ?? null) && str_contains($markup, 'src="hero.jpg"'), 'Image geometry and source survive coalescing.');
 
+$maxDepth = static function (array $blocks, int $depth = 0) use (&$maxDepth): int {
+    $maximum = $depth;
+    foreach ($blocks as $block) $maximum = max($maximum, $maxDepth($block['innerBlocks'] ?? array(), $depth + 1));
+    return $maximum;
+};
+$svgChain = '<svg viewBox="0 0 10 10" aria-label="Mark"><path d="M0 0h10v10H0z"/></svg>';
+for ($depth = 0; $depth < 44; ++$depth) $svgChain = '<div class="depth-' . $depth . '">' . $svgChain . '</div>';
+$deepSvg = $transform($svgChain);
+$assert('core/image' === ($deepSvg['blocks'][0]['blockName'] ?? null) && $maxDepth($deepSvg['blocks'] ?? array()) <= 20 && 1 === count(array_filter($deepSvg['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? null))), 'A depth-44 passive SVG image chain coalesces to one native image without losing its materialized asset.');
+
+$wowChain = '<wow-image class="captured-media"><img src="hero.jpg" alt="Hero"></wow-image>';
+for ($depth = 0; $depth < 39; ++$depth) $wowChain = '<div class="depth-' . $depth . '">' . $wowChain . '</div>';
+$deepWow = $transform($wowChain);
+$assert('core/image' === ($deepWow['blocks'][0]['blockName'] ?? null) && $maxDepth($deepWow['blocks'] ?? array()) <= 20 && str_contains((string) ($deepWow['blocks'][0]['attrs']['className'] ?? ''), 'captured-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'src="hero.jpg"'), 'A depth-39 custom media chain coalesces while preserving media selector ownership and image semantics.');
+
 $fullWidth = $transform('<div style="width:100%"><div class="surface"><p>Copy</p></div></div>');
 $fullWidthBlock = $fullWidth['blocks'][0] ?? array();
 $assert('core/group' === ($fullWidthBlock['blockName'] ?? null) && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'surface') && str_contains((string) ($fullWidthBlock['attrs']['className'] ?? ''), 'be-inline-geometry-') && str_contains($engineCss($fullWidth), 'width:100% !important'), 'A full-width transparent normal-flow shell coalesces its generated width carrier onto the surviving group.');
@@ -52,5 +67,8 @@ $assert('core/group' === ($selectorOwned['blocks'][0]['blockName'] ?? null), 'A 
 
 $slider = $transform('<div class="slider image-carrier"><img src="hero.jpg" alt="Hero"></div>');
 $assert('core/group' === ($slider['blocks'][0]['blockName'] ?? null), 'Runtime-shaped slider topology is never flattened around media.');
+
+$customSelectorOwned = $transform('<style>.shell wow-image{border:1px solid red}</style><div class="shell"><wow-image><img src="hero.jpg" alt="Hero"></wow-image></div>');
+$assert('core/group' === ($customSelectorOwned['blocks'][0]['blockName'] ?? null), 'A custom media carrier whose ancestor selector relationship would change retains its wrapper.');
 
 fwrite(STDOUT, "Geometry chain coalescing contract passed\n");
