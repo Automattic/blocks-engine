@@ -33,11 +33,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         $presentationAttributes = $context->presentationAttributesCallback();
         $innerHtml = $context->innerHtmlCallback();
         $createBlock = $context->createBlockCallback();
-        $isRuntimeDomTarget = $context->isRuntimeDomTargetCallback();
-        $navigationUnderlineColor = $context->navigationUnderlineColorCallback();
-        $resolvedStyle = $context->resolvedStyleCallback();
-        $navigationColorInteractionStates = $context->navigationColorInteractionStatesCallback();
-        $navigationOverlayMenu = $context->navigationOverlayMenuCallback();
+        $navigationContext = $context->navigationContext();
+        $isRuntimeDomTarget = $navigationContext?->runtimeDomTargetCallback();
+        $navigationUnderlineColor = $navigationContext?->underlineColorCallback();
+        $resolvedStyle = $navigationContext?->resolvedStyleCallback();
+        $navigationColorInteractionStates = $navigationContext?->colorInteractionStatesCallback();
+        $navigationOverlayMenu = $navigationContext?->overlayMenuCallback();
 
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) && ! $this->hasDirectListNavigationSignal($element) ) {
             return null;
