@@ -131,8 +131,11 @@ final class ComponentSourceCloneGeometry
             $scaleX = isset($clone['_component_source_clone_scale']['x']) && is_numeric($clone['_component_source_clone_scale']['x']) ? (float) $clone['_component_source_clone_scale']['x'] : 1.0;
             $scaleY = isset($clone['_component_source_clone_scale']['y']) && is_numeric($clone['_component_source_clone_scale']['y']) ? (float) $clone['_component_source_clone_scale']['y'] : 1.0;
             if ( abs($scaleX - 1.0) >= 0.0001 || abs($scaleY - 1.0) >= 0.0001 ) {
-                $merged['children'] = $this->vectorInstanceScaler->scaleVectorChildren($merged['children'], $scaleX, $scaleY);
-                $merged['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
+                $scaledChildren = $this->vectorInstanceScaler->scaleComponentChildren($merged['children'], $refreshed, $scaleX, $scaleY);
+                if ( $scaledChildren !== $merged['children'] ) {
+                    $merged['children'] = $scaledChildren;
+                    $merged['_component_source_clone_scale'] = array('x' => $scaleX, 'y' => $scaleY);
+                }
             }
         }
 
@@ -148,21 +151,16 @@ final class ComponentSourceCloneGeometry
     private function mergeLayoutMetadata(array $merged, array $clone, array $refreshed): array
     {
         $refreshedLayout = is_array($refreshed['layout'] ?? null) ? $refreshed['layout'] : array();
-        if ( ! isset($refreshedLayout['z_index']) || ! is_numeric($refreshedLayout['z_index']) ) {
-            return $merged;
-        }
-
         $cloneLayout = is_array($clone['layout'] ?? null) ? $clone['layout'] : array();
-        if ( isset($cloneLayout['z_index']) && is_numeric($cloneLayout['z_index']) ) {
-            return $merged;
-        }
-
         $mergedLayout = is_array($merged['layout'] ?? null) ? $merged['layout'] : array();
-        $mergedLayout['z_index'] = (int) $refreshedLayout['z_index'];
-        if ( is_string($refreshedLayout['z_index_source'] ?? null) ) {
-            $mergedLayout['z_index_source'] = $refreshedLayout['z_index_source'];
+        foreach ( $refreshedLayout as $key => $value ) {
+            if ( ! array_key_exists($key, $cloneLayout) || null === $cloneLayout[$key] || '' === $cloneLayout[$key] ) {
+                $mergedLayout[$key] = $value;
+            }
         }
-        $merged['layout'] = $mergedLayout;
+        if ( array() !== $mergedLayout ) {
+            $merged['layout'] = $mergedLayout;
+        }
 
         return $merged;
     }

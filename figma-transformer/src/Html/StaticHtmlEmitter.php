@@ -920,7 +920,7 @@ final class StaticHtmlEmitter
         $assetComposition = $this->nodeAssetComposition($node, $type, $parentNode);
         $vectorSvg = $assetComposition['vector_svg'];
         $hasVectorAssetFallback = $assetComposition['has_vector_asset_fallback'];
-        $buttonLayerComposition = 'button' === $tag ? $this->buttonLayerComposition($node, $children) : array('styles' => array(), 'suppressed_child_ids' => array());
+        $buttonLayerComposition = 'button' === $tag ? $this->buttonLayerComposition($node, $children) : array('styles' => array(), 'suppressed_child_ids' => array(), 'child_rules' => array());
 
         if ( ! in_array($tag, array('input', 'textarea'), true) && ! ( 'BOOLEAN_OPERATION' === $type && null !== $vectorSvg ) && ! $this->vectorSvgComposesChildren($vectorSvg) ) {
             $insertedAccessoryInput = false;
@@ -1034,6 +1034,9 @@ final class StaticHtmlEmitter
         }
         if ( ! empty($styles) ) {
             $cssRules[] = '.' . $className . '{' . implode(';', $styles) . '}';
+            foreach ( $buttonLayerComposition['child_rules'] as $childRule ) {
+                $cssRules[] = '.' . $className . $childRule;
+            }
             foreach ( $this->negativeAutoLayoutSpacingRules($className, $node) as $rule ) {
                 $cssRules[] = $rule;
             }
@@ -1368,28 +1371,91 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $button
      * @param array<int, mixed> $children
-     * @return array{styles: array<int, string>, suppressed_child_ids: array<string, string>}
+     * @return array{styles: array<int, string>, suppressed_child_ids: array<string, string>, child_rules: array<int, string>}
      */
     private function buttonLayerComposition(array $button, array $children): array
     {
+        $flowComposition = $this->inferredButtonFlowComposition($button, $children);
         $backgroundChild = $this->buttonBackgroundLayerChild($button, $children);
         if ( null === $backgroundChild ) {
-            return array('styles' => array(), 'suppressed_child_ids' => array());
+            return $flowComposition;
         }
 
         $childId = isset($backgroundChild['id']) && is_scalar($backgroundChild['id']) ? (string) $backgroundChild['id'] : '';
         if ( '' === $childId ) {
-            return array('styles' => array(), 'suppressed_child_ids' => array());
+            return $flowComposition;
         }
 
         $styles = $this->buttonBackgroundLayerStyles($backgroundChild);
         if ( empty($styles) ) {
-            return array('styles' => array(), 'suppressed_child_ids' => array());
+            return $flowComposition;
         }
 
         return array(
-            'styles' => $styles,
+            'styles' => array_merge($flowComposition['styles'], $styles),
             'suppressed_child_ids' => array($childId => 'button_background_layer_composed_into_control'),
+            'child_rules' => $flowComposition['child_rules'],
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $button
+     * @param array<int, mixed> $children
+     * @return array{styles: array<int, string>, suppressed_child_ids: array<string, string>, child_rules: array<int, string>}
+     */
+    private function inferredButtonFlowComposition(array $button, array $children): array
+    {
+        $layout = is_array($button['layout'] ?? null) ? $button['layout'] : array();
+        if ( in_array((string) ($layout['display'] ?? ''), array('flex', 'inline-flex', 'grid', 'inline-grid'), true) ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array(), 'child_rules' => array());
+        }
+
+        $textChildren = array();
+        $visualChildren = array();
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) || false === ($child['visible'] ?? true) ) {
+                continue;
+            }
+            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) && '' !== trim($this->subtreePlainText($child)) ) {
+                $textChildren[] = $child;
+                continue;
+            }
+            if ( '' === trim($this->subtreePlainText($child)) && ($this->subtreeHasRenderableVector($child) || null !== $this->nodeAssetPath($child)) ) {
+                $visualChildren[] = $child;
+            }
+        }
+        if ( 1 !== count($textChildren) || 1 !== count($visualChildren) ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array(), 'child_rules' => array());
+        }
+        $visualBox = is_array($visualChildren[0]['figma_box'] ?? null) ? $visualChildren[0]['figma_box'] : array();
+        $sourceKind = $visualBox['component_clone_source_kind'] ?? $visualBox['_geometry_provenance'] ?? null;
+        if ( true !== ($visualChildren[0]['_component_source_clone_geometry'] ?? false)
+            || 'local' !== ($visualBox['coordinate_space'] ?? null)
+            || in_array($sourceKind, array('transform', 'absolute_transform', 'override_transform'), true) ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array(), 'child_rules' => array());
+        }
+
+        $height = $this->boxValue($button, 'height');
+        $visualWidth = $this->boxValue($visualChildren[0], 'width');
+        $visualHeight = $this->boxValue($visualChildren[0], 'height');
+        if ( null === $height || null === $visualWidth || null === $visualHeight || $height <= 0.0 || $visualWidth <= 0.0 || $visualHeight <= 0.0 ) {
+            return array('styles' => array(), 'suppressed_child_ids' => array(), 'child_rules' => array());
+        }
+
+        $visualScale = min(1.0, ($height * 0.5) / max($visualWidth, $visualHeight));
+        $flowVisualWidth = $visualWidth * $visualScale;
+        $flowVisualHeight = $visualHeight * $visualScale;
+        $textClass = 'figma-node-' . $this->slug((string) ($textChildren[0]['id'] ?? '') . '-' . (string) ($textChildren[0]['name'] ?? 'Node'));
+        $visualClass = 'figma-node-' . $this->slug((string) ($visualChildren[0]['id'] ?? '') . '-' . (string) ($visualChildren[0]['name'] ?? 'Node'));
+
+        return array(
+            'styles' => array('display:flex', 'flex-direction:row', 'justify-content:center', 'align-items:center', 'padding:0 24px', 'gap:' . $this->number(min(16.0, $height * 0.2)) . 'px'),
+            'suppressed_child_ids' => array(),
+            'child_rules' => array(
+                '>.' . $textClass . '{position:relative;left:auto;right:auto;top:auto;bottom:auto;width:auto;height:auto;z-index:auto;flex-shrink:0}',
+                '>.' . $visualClass . '{position:relative;left:auto;right:auto;top:auto;bottom:auto;width:' . $this->number($flowVisualWidth) . 'px;height:' . $this->number($flowVisualHeight) . 'px;z-index:auto;flex-shrink:0}',
+                '>.' . $visualClass . '>*{position:relative;left:auto;right:auto;top:auto;bottom:auto;width:100%;height:100%;z-index:auto}',
+            ),
         );
     }
 

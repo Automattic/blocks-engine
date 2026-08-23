@@ -97,6 +97,82 @@ function blocks_engine_figma_transformer_run_component_clone_emission_contract(c
     $assert(false === $absoluteSourceDecision->useRefreshedGeometry, 'component-clone-source-decision-rejects-absolute-source');
     $assert('refreshed-box-not-parent-local' === $absoluteSourceDecision->reason, 'component-clone-source-decision-rejects-absolute-source-reason');
 
+    $mixedComponent = array(
+        'id'       => 'component-source:mixed-control',
+        'type'     => 'SYMBOL',
+        'box'      => array('x' => 0, 'y' => 0, 'width' => 200, 'height' => 60, 'coordinate_space' => 'local'),
+        'layout'   => array('display' => 'flex', 'flex_direction' => 'row', 'align_items' => 'center', 'gap' => 12),
+        'children' => array(
+            array('id' => 'component-source:mixed-label', 'type' => 'TEXT', 'text' => 'Contact', 'box' => array('x' => 24, 'y' => 18, 'width' => 100, 'height' => 24, 'coordinate_space' => 'local')),
+            array('id' => 'component-source:mixed-icon', 'type' => 'VECTOR', 'box' => array('x' => 136, 'y' => 18, 'width' => 24, 'height' => 24, 'coordinate_space' => 'local')),
+        ),
+    );
+    $mixedClone = array(
+        'id'                              => 'instance:mixed-control',
+        'type'                            => 'INSTANCE',
+        'figma_component_source_id'       => 'component-source:mixed-control',
+        'box'                             => array('x' => 20, 'y' => 20, 'width' => 400, 'height' => 72, 'coordinate_space' => 'local'),
+        'layout'                          => array('display' => null, 'flex_direction' => null),
+        '_component_source_clone_scale'   => array('x' => 2, 'y' => 1.2),
+    );
+    $mixedMerged = $cloneGeometry->mergeRefreshed($mixedClone, $mixedComponent, 'component-source:mixed-control');
+    $assert('flex' === ($mixedMerged['layout']['display'] ?? null) && 'row' === ($mixedMerged['layout']['flex_direction'] ?? null), 'component-clone-mixed-control-inherits-source-auto-layout');
+    $assert(100 === ($mixedMerged['children'][0]['box']['width'] ?? null) && 24 === ($mixedMerged['children'][1]['box']['width'] ?? null), 'component-clone-mixed-control-does-not-scale-text-or-icon-children');
+
+    $vectorComponent = array(
+        'id'       => 'component-source:vector-icon',
+        'type'     => 'SYMBOL',
+        'box'      => array('x' => 0, 'y' => 0, 'width' => 24, 'height' => 24, 'coordinate_space' => 'local'),
+        'children' => array(
+            array('id' => 'component-source:vector-path', 'type' => 'VECTOR', 'box' => array('x' => 0, 'y' => 0, 'width' => 24, 'height' => 24, 'coordinate_space' => 'local')),
+        ),
+    );
+    $vectorClone = array(
+        'id'                            => 'instance:vector-icon',
+        'type'                          => 'INSTANCE',
+        'figma_component_source_id'     => 'component-source:vector-icon',
+        'box'                           => array('x' => 0, 'y' => 0, 'width' => 48, 'height' => 48, 'coordinate_space' => 'local'),
+        '_component_source_clone_scale' => array('x' => 2, 'y' => 2),
+    );
+    $vectorMerged = $cloneGeometry->mergeRefreshed($vectorClone, $vectorComponent, 'component-source:vector-icon');
+    $assert(48.0 === ($vectorMerged['children'][0]['box']['width'] ?? null) && 48.0 === ($vectorMerged['children'][0]['box']['height'] ?? null), 'component-clone-vector-only-control-still-scales-vector-children');
+
+    $unresolvedControlResult = blocks_engine_figma_transformer_contract_transform(array(
+        'name'  => 'Unresolved Mixed Control Fixture',
+        'nodes' => array(
+            array(
+                'id'       => 'unresolved-control:button',
+                'type'     => 'INSTANCE',
+                'name'     => 'Secondary Button',
+                'width'    => 520,
+                'height'   => 72,
+                'children' => array(
+                    array('id' => 'unresolved-control:label', 'type' => 'TEXT', 'name' => 'Label', 'text' => 'WhatsApp', 'x' => 100, 'y' => 12, 'width' => 176, 'height' => 48),
+                    array(
+                        'id'       => 'unresolved-control:icon',
+                        'type'     => 'INSTANCE',
+                        'name'     => 'WhatsApp icon',
+                        'x'        => 178,
+                        'y'        => -2,
+                        'width'    => 77,
+                        'height'   => 77,
+                        '_component_source_clone_geometry' => true,
+                        'figma_box' => array('width' => 77, 'height' => 77, 'coordinate_space' => 'local'),
+                        'children' => array(
+                            array('id' => 'unresolved-control:path', 'type' => 'VECTOR', 'name' => 'Vector', 'width' => 77, 'height' => 77, 'pathData' => 'M0 0H77V77H0Z'),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    ));
+    $unresolvedControlHtml = blocks_engine_figma_transformer_contract_file_content($unresolvedControlResult, 'index.html');
+    $unresolvedControlCss = blocks_engine_figma_transformer_contract_file_content($unresolvedControlResult, 'style.css');
+    $assert(str_contains($unresolvedControlHtml, '<button class="figma-node-unresolved-control-button-secondary-button"'), 'component-clone-unresolved-named-control-remains-semantic-button');
+    $assert(str_contains($unresolvedControlCss, 'button{appearance:none;font:inherit;color:inherit;background:none;border-width:0;border-style:none;padding:0}'), 'component-clone-semantic-button-resets-user-agent-chrome');
+    blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $unresolvedControlCss, '.figma-node-unresolved-control-button-secondary-button', array('display:flex', 'flex-direction:row', 'justify-content:center', 'align-items:center'), 'component-clone-unresolved-control-infers-flow-row');
+    $assert(str_contains($unresolvedControlCss, '>.figma-node-unresolved-control-icon-whatsapp-icon{position:relative;left:auto;right:auto;top:auto;bottom:auto;width:36px;height:36px'), 'component-clone-unresolved-control-clamps-visual-to-cross-axis');
+
     $result = blocks_engine_figma_transformer_contract_transform(array(
         'name'  => 'Component Clone Emission Fixture',
         'nodes' => array(
