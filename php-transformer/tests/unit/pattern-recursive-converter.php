@@ -28,6 +28,13 @@ $converter = new PatternRecursiveConverter(
             array( array( 'blockName' => 'core/group' ) ),
             array( array( 'diagnostic_code' => 'element_fallback' ) )
         );
+    },
+    static function (DOMElement $source, array $excludedTags) use (&$captureCalls): PatternConversionResult {
+        $captureCalls[] = array( 'without_tags', $excludedTags );
+        return new PatternConversionResult(
+            array( array( 'blockName' => 'core/quote' ) ),
+            array( array( 'diagnostic_code' => 'excluded_tags_fallback' ) )
+        );
     }
 );
 
@@ -47,7 +54,14 @@ if ( 'core/group' !== ($block['blockName'] ?? null) ) {
 if ( array( 'existing_fallback', 'child_fallback', 'element_fallback' ) !== array_column($fallbacks, 'diagnostic_code') ) {
     throw new RuntimeException('Element conversion must append fallback diagnostics in source order.');
 }
-if ( array( array( 'children', true ), array( 'element', false ) ) !== $captureCalls ) {
+$withoutTags = $converter->childrenWithoutTags($element, $fallbacks, array( 'summary' ));
+if ( 'core/quote' !== ($withoutTags[0]['blockName'] ?? null) ) {
+    throw new RuntimeException('Excluded-tag conversion must return every converted block.');
+}
+if ( array( 'existing_fallback', 'child_fallback', 'element_fallback', 'excluded_tags_fallback' ) !== array_column($fallbacks, 'diagnostic_code') ) {
+    throw new RuntimeException('Excluded-tag conversion must append fallback diagnostics in source order.');
+}
+if ( array( array( 'children', true ), array( 'element', false ), array( 'without_tags', array( 'summary' ) ) ) !== $captureCalls ) {
     throw new RuntimeException('Capture policy must pass through unchanged.');
 }
 
@@ -56,7 +70,8 @@ $emptyConverter = new PatternRecursiveConverter(
     static fn (DOMElement $source, bool $captureUnsupported): PatternConversionResult => new PatternConversionResult(
         array(),
         array( array( 'diagnostic_code' => 'empty_element_fallback' ) )
-    )
+    ),
+    static fn (DOMElement $source, array $excludedTags): PatternConversionResult => new PatternConversionResult(array())
 );
 $emptyFallbacks = array();
 if ( null !== $emptyConverter->element($element, $emptyFallbacks, true) ) {

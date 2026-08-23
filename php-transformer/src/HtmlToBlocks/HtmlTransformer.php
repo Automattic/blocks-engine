@@ -634,8 +634,15 @@ final class HtmlTransformer
                 return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
             }),
             new CallbackPatternRecognizer('disclosure', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->detailsPattern->matchDisclosure($element, fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
+                $converter = $context->recursiveConverter();
+                if ( null === $converter ) {
+                    return null;
+                }
+                $fallbacks = array();
+                $block = $this->detailsPattern->matchDisclosure($element, function (DOMElement $sourceElement) use ($converter, &$fallbacks): array {
+                    return $converter->children($sourceElement, $fallbacks, true);
+                }, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
             }),
             new CallbackPatternRecognizer('gallery', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
@@ -4423,13 +4430,6 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
-            fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
-            fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
-            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): ?array => $this->convertPatternElement($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
             new PatternRecursiveConverter(
                 function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
                     $fallbacks = array();
@@ -4439,8 +4439,16 @@ final class HtmlTransformer
                     $fallbacks = array();
                     $block = $this->convertElement($sourceElement, $fallbacks, $captureUnsupported);
                     return new PatternConversionResult(null === $block ? array() : array($block), $fallbacks);
+                },
+                function (DOMElement $sourceElement, array $excludedTags): PatternConversionResult {
+                    $fallbacks = array();
+                    return new PatternConversionResult($this->convertChildrenWithoutTags($sourceElement, $fallbacks, $excludedTags), $fallbacks);
                 }
             ),
+            fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
+            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
+            fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
+            fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement),
             fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
             fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
@@ -4463,34 +4471,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function convertPatternChildren(DOMElement $element): array
-    {
-        $fallbacks = array();
-        return $this->convertChildren($element, $fallbacks, true);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function convertPatternElement(DOMElement $element): ?array
-    {
-        $fallbacks = array();
-        return $this->convertElement($element, $fallbacks, true);
-    }
-
-    /**
-     * @param array<int, string> $excludedTags
-     * @return array<int, array<string, mixed>>
-     */
-    private function convertPatternChildrenWithoutTags(DOMElement $element, array $excludedTags): array
-    {
-        $fallbacks = array();
-        return $this->convertChildrenWithoutTags($element, $fallbacks, $excludedTags);
-    }
-
-    /**
      * A side-effect-free pattern context for probing whether an element would
      * convert to a given block, without recording provenance or runtime islands.
      */
@@ -4504,7 +4484,6 @@ final class HtmlTransformer
                 'attrs'       => $attrs,
                 'innerBlocks' => $innerBlocks,
             ),
-            null,
             null,
             null,
             fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),

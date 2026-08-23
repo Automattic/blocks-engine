@@ -11,15 +11,18 @@ final class PatternRecursiveConverter
 {
     private readonly Closure $convertChildren;
     private readonly Closure $convertElement;
+    private readonly Closure $convertChildrenWithoutTags;
 
     /**
      * @param callable(DOMElement, bool): PatternConversionResult $convertChildren
      * @param callable(DOMElement, bool): PatternConversionResult $convertElement
+     * @param callable(DOMElement, list<string>): PatternConversionResult $convertChildrenWithoutTags
      */
-    public function __construct(callable $convertChildren, callable $convertElement)
+    public function __construct(callable $convertChildren, callable $convertElement, callable $convertChildrenWithoutTags)
     {
-        $this->convertChildren = Closure::fromCallable($convertChildren);
-        $this->convertElement  = Closure::fromCallable($convertElement);
+        $this->convertChildren            = Closure::fromCallable($convertChildren);
+        $this->convertElement             = Closure::fromCallable($convertElement);
+        $this->convertChildrenWithoutTags = Closure::fromCallable($convertChildrenWithoutTags);
     }
 
     /**
@@ -44,5 +47,18 @@ final class PatternRecursiveConverter
         $fallbacks = array_merge($fallbacks, $result->fallbacks());
 
         return $result->firstBlock();
+    }
+
+    /**
+     * @param list<array<string, mixed>> $fallbacks
+     * @param list<string> $excludedTags
+     * @return list<array<string, mixed>>
+     */
+    public function childrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array
+    {
+        $result    = ($this->convertChildrenWithoutTags)($element, $excludedTags);
+        $fallbacks = array_merge($fallbacks, $result->fallbacks());
+
+        return $result->blocks();
     }
 }
