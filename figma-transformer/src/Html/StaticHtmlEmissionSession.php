@@ -34,7 +34,8 @@ final class StaticHtmlEmissionSession
         $this->assetRegistry = new StaticHtmlAssetRegistry($formatter);
         $this->typographyState = new StaticHtmlTypographyState();
         $this->decisionTraceState = new StaticHtmlDecisionTraceState();
-        $this->textStyleDeclarationResolver = new TextStyleDeclarationResolver($typographyModel, $formatter, $this->typographyState);
+        $this->textSizingResolver = new StaticHtmlTextSizingResolver($nodeInspector);
+        $this->textStyleDeclarationResolver = new TextStyleDeclarationResolver($typographyModel, $formatter, $this->typographyState, $this->textSizingResolver);
         $this->paintStackResolver = new PaintStackResolver($this->assetRegistry, $formatter);
         $this->styleDeclarationBuilder = new StyleDeclarationBuilder($formatter, $this->paintStackResolver);
         $this->childLayerCompositionResolver = new ChildLayerCompositionResolver($this->assetRegistry, $formatter);
@@ -48,7 +49,6 @@ final class StaticHtmlEmissionSession
             $this->paintStackResolver,
             $this->assetRegistry,
         );
-        $this->textSizingResolver = new StaticHtmlTextSizingResolver($nodeInspector);
         $this->textWrappingResolver = new StaticHtmlTextWrappingResolver();
     }
 

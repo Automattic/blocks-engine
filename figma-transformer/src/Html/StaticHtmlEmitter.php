@@ -1075,7 +1075,7 @@ final class StaticHtmlEmitter
             array_push($styles, ...$buttonLayerComposition['styles']);
         }
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
-        if ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        if ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $styles = array_values(array_filter($styles, static fn (string $style): bool => 'text-transform:uppercase' !== $style));
         }
         if ( ! empty($styles) ) {
@@ -1088,10 +1088,10 @@ final class StaticHtmlEmitter
             }
             $this->staticHtmlCssRuleSet()->rememberNodeReadableName($className, $name, $type);
         }
-        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleDeclarationResolver()->containsLowercase($this->rawDecodedText($node)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
             $cssRules[] = '.' . $parentClassName . '>.' . $className . '{text-transform:none}';
-        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $cssRules[] = 'ol .' . $className . ',ul .' . $className . '{text-transform:none}';
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
@@ -8635,35 +8635,20 @@ final class StaticHtmlEmitter
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleHasUnprovenUppercaseTransform($node, $style) ) {
-            unset($style['text_transform']);
-        }
+        $fallbackColor = null;
         if ( ! isset($style['color']) ) {
             $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-            $color = $this->firstSolidPaint($paints);
-            if ( null !== $color ) {
-                $style['css_color'] = $color;
-            }
+            $fallbackColor = $this->firstSolidPaint($paints);
         }
 
-        $styles = $this->textStyleDeclarations($style);
-        $derivedLineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
-        if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
-            $styles = array_values(array_filter(
-                $styles,
-                static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
-            ));
-            $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
-        }
-        if ( $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
-            $styles[] = 'white-space:pre-wrap';
-        } elseif ( $this->textHasLineBreaks($node) && ! $this->shouldSplitParagraphs($node) ) {
-            $styles[] = 'white-space:pre-line';
-        } elseif ( $this->textIsAtomicSingleLineLabel($node, $text) ) {
-            $styles[] = 'white-space:nowrap';
-        }
-
-        return $styles;
+        return $this->textStyleDeclarationResolver()->nodeDeclarations(
+            $node,
+            $fallbackColor,
+            $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode),
+            $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode),
+            $this->shouldSplitParagraphs($node),
+            $this->textIsAtomicSingleLineLabel($node, $text),
+        );
     }
 
     /**
@@ -8694,41 +8679,6 @@ final class StaticHtmlEmitter
         return isset($node['characters']) && is_scalar($node['characters']) && '' !== trim((string) $node['characters']);
     }
 
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $style
-     */
-    private function textStyleHasUnprovenUppercaseTransform(array $node, array $style): bool
-    {
-        if ( 'uppercase' !== strtolower((string) ($style['text_transform'] ?? '')) ) {
-            return false;
-        }
-
-        if ( ! $this->textContainsLowercase($this->rawDecodedText($node)) ) {
-            return false;
-        }
-
-        return ! $this->hasExplicitUppercaseTextCase($node);
-    }
-
-    /** @param array<string, mixed> $source */
-    private function hasExplicitUppercaseTextCase(array $source): bool
-    {
-        foreach ( array('textCase', 'text_case') as $key ) {
-            if ( isset($source[$key]) && is_scalar($source[$key]) && 'UPPER' === strtoupper((string) $source[$key]) ) {
-                return true;
-            }
-        }
-
-        foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
-            if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function hasBodyTextNameIntent(string $lowerName): bool
     {
         foreach ( array('paragraph', 'body', 'supporting text', 'caption', 'description', 'excerpt', 'copy') as $needle ) {
@@ -8738,11 +8688,6 @@ final class StaticHtmlEmitter
         }
 
         return false;
-    }
-
-    private function textContainsLowercase(string $text): bool
-    {
-        return 1 === preg_match('/\p{Ll}/u', $text);
     }
 
     /**

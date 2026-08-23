@@ -13,7 +13,107 @@ final class TextStyleDeclarationResolver
         private readonly TypographyModel $typographyModel,
         private readonly StaticHtmlValueFormatter $formatter,
         private readonly StaticHtmlTypographyState $typographyState,
+        private readonly StaticHtmlTextSizingResolver $textSizingResolver,
     ) {
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    public function nodeDeclarations(
+        array $node,
+        ?string $fallbackColor,
+        bool $semanticListItemBodyText,
+        bool $preserveChromeSpacing,
+        bool $splitParagraphs,
+        bool $atomicSingleLineLabel
+    ): array {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( $semanticListItemBodyText && $this->hasUnprovenUppercaseTransform($node, $style) ) {
+            unset($style['text_transform']);
+        }
+        if ( ! isset($style['color']) && null !== $fallbackColor ) {
+            $style['css_color'] = $fallbackColor;
+        }
+
+        $styles = $this->declarations($style);
+        $derivedLineHeight = $this->textSizingResolver->derivedBaselineLineHeight($text);
+        if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
+            $styles = array_values(array_filter(
+                $styles,
+                static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
+            ));
+            $styles[] = 'line-height:' . $this->formatter->number($derivedLineHeight) . 'px';
+        }
+        if ( $preserveChromeSpacing ) {
+            $styles[] = 'white-space:pre-wrap';
+        } elseif ( $this->textSizingResolver->hasLineBreaks($node) && ! $splitParagraphs ) {
+            $styles[] = 'white-space:pre-line';
+        } elseif ( $atomicSingleLineLabel ) {
+            $styles[] = 'white-space:nowrap';
+        }
+
+        return $styles;
+    }
+
+    /** @param array<string, mixed> $source */
+    public function hasExplicitUppercaseTextCase(array $source): bool
+    {
+        foreach ( array('textCase', 'text_case') as $key ) {
+            if ( isset($source[$key]) && is_scalar($source[$key]) && 'UPPER' === strtoupper((string) $source[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
+            if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function containsLowercase(string $text): bool
+    {
+        return 1 === preg_match('/\p{Ll}/u', $text);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $style
+     */
+    private function hasUnprovenUppercaseTransform(array $node, array $style): bool
+    {
+        return 'uppercase' === strtolower((string) ($style['text_transform'] ?? ''))
+            && $this->containsLowercase($this->rawDecodedText($node))
+            && ! $this->hasExplicitUppercaseTextCase($node);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function rawDecodedText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $content = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $content .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $content ) {
+                return $content;
+            }
+        }
+
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        return (string) ($node['characters'] ?? $node['text'] ?? '');
     }
 
     /**
