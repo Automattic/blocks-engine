@@ -107,6 +107,8 @@ final class StaticHtmlEmitter
 
     private ?SourceGeometryFlexGapResolver $sourceGeometryFlexGapResolver = null;
 
+    private ?LayoutIntentClassifier $layoutIntentClassifier = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -215,10 +217,8 @@ final class StaticHtmlEmitter
     {
         return $this->canvasShellResolver ??= new CanvasShellResolver(
             $this->layoutFrameRoleClassifier(),
-            fn (array $node): bool => $this->isFreeformContainer($node),
+            $this->layoutIntentClassifier(),
             fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
-            fn (array $node): bool => $this->hasAbsoluteChild($node),
-            fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
             $this->visualGeometryResolver(),
             $this->breakpointDimensionPolicy(),
         );
@@ -227,13 +227,8 @@ final class StaticHtmlEmitter
     private function positioningStyleResolver(): PositioningStyleResolver
     {
         return $this->positioningStyleResolver ??= new PositioningStyleResolver(
-            $this->layoutIntentClassifier(),
             $this->cssPositioningResolver(),
             $this->canvasShellResolver(),
-            fn (array $node): bool => $this->isFreeformContainer($node),
-            fn (array $node): bool => $this->freeformContainerShouldUseFlow($node),
-            fn (array $node, array $parentNode): bool => $this->isDecorativeFlexUnderlay($node, $parentNode),
-            fn (array $node): bool => $this->hasDecorativeFlexUnderlayChild($node),
         );
     }
 
@@ -289,7 +284,7 @@ final class StaticHtmlEmitter
 
     private function layoutIntentClassifier(): LayoutIntentClassifier
     {
-        return new LayoutIntentClassifier($this->assetsById);
+        return $this->layoutIntentClassifier ??= new LayoutIntentClassifier($this->assetsById);
     }
 
     private function layoutFrameRoleClassifier(): LayoutFrameRoleClassifier
@@ -418,6 +413,11 @@ final class StaticHtmlEmitter
         $this->breakpointMediaDiffBuilder()->resetDecisionTraces();
         $this->stickyLayoutCoordinator()->reset();
         $this->cssPositioningResolver = null;
+        $this->layoutIntentClassifier = null;
+        $this->sourceGeometryFlexGapResolver = null;
+        $this->canvasShellResolver = null;
+        $this->positioningStyleResolver = null;
+        $this->staticHtmlSemanticClassifier = null;
     }
 
     /**
@@ -853,6 +853,33 @@ final class StaticHtmlEmitter
     }
 
     /**
+     * Resolve layout and stacking facts once for both markup and CSS emission.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, mixed>|null $grandParentNode
+     */
+    private function nodeRenderPlan(array $node, ?array $parentNode, ?array $grandParentNode): NodeRenderPlan
+    {
+        $layoutIntentClassifier = $this->layoutIntentClassifier();
+        $layoutIntent = $layoutIntentClassifier->layoutIntent($node, $parentNode);
+        $parentIsFreeform = null !== $parentNode && $layoutIntentClassifier->isFreeformContainer($parentNode);
+        $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
+
+        return new NodeRenderPlan(
+            strtoupper((string) ($node['type'] ?? 'FRAME')),
+            $this->childrenInEmissionOrder($node, $layoutIntentClassifier->layoutIntent($node)),
+            $layoutIntent,
+            $this->canvasShellResolver()->resolve($node, $parentNode, $grandParentNode),
+            $layoutIntentClassifier->stackingContextPlan($node, $parentNode),
+            $parentIsFreeform,
+            $parentFreeformUsesFlow,
+            null !== $parentNode && $layoutIntentClassifier->isDecorativeFlexUnderlay($node, $parentNode),
+            null !== $parentNode && $layoutIntentClassifier->hasDecorativeFlexUnderlayChild($parentNode),
+        );
+    }
+
+    /**
      * @param array<string, mixed> $node
      * @param array<int, string>                 $cssRules
      * @param array<int, array<string, mixed>>   $diagnostics
@@ -896,7 +923,8 @@ final class StaticHtmlEmitter
         $id = $this->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $attributeName = $this->sanitizeAttribute($name);
-        $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
+        $plan = $this->nodeRenderPlan($node, $parentNode, $grandParentNode);
+        $type = $plan->type;
         if ( 'TEXT' === $type ) {
             $text = $this->textGlyphSvg($node);
             if ( null === $text ) {
@@ -925,7 +953,7 @@ final class StaticHtmlEmitter
                 'page_path' => $this->currentPagePath,
             );
         }
-        $children = $this->childrenInEmissionOrder($node);
+        $children = $plan->children;
         $imageElement = $this->imageElementMetadata($node, $type, $children);
         if ( null !== $imageElement ) {
             $tag = 'img';
@@ -1042,7 +1070,7 @@ final class StaticHtmlEmitter
         }
 
         $rendersInlineVectorSvg = null !== $vectorSvgMarkup && '' !== trim($vectorSvgMarkup);
-        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode, $rendersInlineVectorSvg);
+        $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode, $rendersInlineVectorSvg, $plan);
         if ( ! empty($buttonLayerComposition['styles']) ) {
             array_push($styles, ...$buttonLayerComposition['styles']);
         }
@@ -1083,7 +1111,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
+        $layoutIntent = $plan->layoutIntent;
         $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
         $attributes .= ' data-source-node-type="' . $this->sanitizeAttribute($type) . '"';
@@ -6470,14 +6498,16 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, string>
      */
-    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode, bool $rendersInlineVectorSvg = false): array
+    private function styleDeclarations(array $node, string $type, ?array $parentNode, ?array $grandParentNode, bool $rendersInlineVectorSvg = false, ?NodeRenderPlan $plan = null): array
     {
         $styles = array();
+
+        $plan ??= $this->nodeRenderPlan($node, $parentNode, $grandParentNode);
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $layoutBox = $box;
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        $canvasShell = $this->canvasShellResolver()->resolve($node, $parentNode, $grandParentNode);
+        $canvasShell = $plan->canvasShell;
         $canvasWidthDecision = null;
         $zeroHeightVectorFallbackHeight = $this->zeroHeightVectorFallbackHeight($node, $type);
         foreach ( array('width', 'height') as $dimension ) {
@@ -6593,7 +6623,7 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
-        $positioningStyleDecision = $this->positioningStyleResolver()->resolve($node, $type, $parentNode, $box, $layout, $canvasShell, $styles);
+        $positioningStyleDecision = $this->positioningStyleResolver()->resolve($node, $parentNode, $box, $layout, $plan, $styles);
         foreach ( $positioningStyleDecision->styles as $style ) {
             $styles[] = $style;
         }
@@ -6669,7 +6699,7 @@ final class StaticHtmlEmitter
             $styles[] = $style;
         }
 
-        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node, $parentNode);
+        $layoutIntent = $plan->layoutIntent;
         $freeformFlowIntent = empty($layout['display'] ?? null) ? $this->freeformContainerFlowIntent($node) : null;
         if ( null !== $freeformFlowIntent ) {
             $layoutIntent = $freeformFlowIntent;
@@ -6825,11 +6855,11 @@ final class StaticHtmlEmitter
      * @param array<string, mixed> $node
      * @return array<int, mixed>
      */
-    private function childrenInEmissionOrder(array $node): array
+    private function childrenInEmissionOrder(array $node, ?array $layoutIntent = null): array
     {
         $children = $this->nodeList($node);
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
-        $layoutIntent = $this->layoutIntentClassifier()->layoutIntent($node);
+        $layoutIntent ??= $this->layoutIntentClassifier()->layoutIntent($node);
         if (
             ! empty($layout['display'] ?? null)
             || ! is_array($layoutIntent)
