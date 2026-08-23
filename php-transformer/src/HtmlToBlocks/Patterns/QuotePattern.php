@@ -131,6 +131,13 @@ final class QuotePattern
      */
     private function phrasingQuoteChildren(DOMElement $element, string $value, callable $isInlineContentElement, callable $createBlock): array
     {
+        // A blockquote may be wrapped in phrasing elements while still carrying
+        // structural descendants. Send that shape through child lowering so the
+        // structural nodes become inner blocks rather than paragraph RichText.
+        if ( preg_match('/<(?:address|article|aside|blockquote|details|div|dl|figure|h[1-6]|hr|main|menu|nav|ol|p|pre|section|table|ul)\b/i', $value) ) {
+            return array();
+        }
+
         $isDirectText = true;
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
