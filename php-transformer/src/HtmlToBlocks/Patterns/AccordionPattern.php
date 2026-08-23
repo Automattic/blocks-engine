@@ -12,18 +12,18 @@ final class AccordionPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $createBlock = $context->createBlockCallback();
-        $convertChildren = $context->convertChildrenCallback();
-        $convertChildrenWithoutTags = $context->convertChildrenWithoutTagsCallback();
+        $converter = $context->recursiveConverter();
         $presentationAttributes = $context->presentationAttributesCallback();
         $innerHtml = $context->innerHtmlCallback();
 
-        if ( null === $convertChildren || null === $convertChildrenWithoutTags || ! $this->hasAccordionSignal($element) || $this->hasRuntimeHeavyDescendant($element) ) {
+        if ( null === $converter || ! $this->hasAccordionSignal($element) || $this->hasRuntimeHeavyDescendant($element) ) {
             return null;
         }
 
+        $fallbacks = array();
         $items = array();
         foreach ( $this->directChildElements($element) as $child ) {
-            $item = $this->accordionItem($child, $innerHtml, $convertChildren, $convertChildrenWithoutTags, $createBlock, $presentationAttributes);
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes);
             if ( null === $item ) {
                 return null;
             }
@@ -35,11 +35,13 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         return new PatternRecognitionResult(
-            $createBlock('core/accordion', $presentationAttributes($element), $items, $element)
+            $createBlock('core/accordion', $presentationAttributes($element), $items, $element),
+            $fallbacks
         );
     }
 
-    private function accordionItem(DOMElement $item, callable $innerHtml, callable $convertChildren, callable $convertChildrenWithoutTags, callable $createBlock, callable $presentationAttributes): ?array
+    /** @param list<array<string, mixed>> $fallbacks */
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternRecursiveConverter $converter, callable $createBlock, callable $presentationAttributes): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -60,7 +62,9 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $panelBlocks = $panel instanceof DOMElement ? $convertChildren($panel) : $convertChildrenWithoutTags($item, array( 'summary' ));
+        $panelBlocks = $panel instanceof DOMElement
+            ? $converter->children($panel, $fallbacks, true)
+            : $converter->childrenWithoutTags($item, $fallbacks, array( 'summary' ));
         if ( array() === $panelBlocks ) {
             return null;
         }

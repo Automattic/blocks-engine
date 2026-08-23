@@ -68,9 +68,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         // current page in, and destinations left as inner-HTML hrefs rather than
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
-        $hoisted = $this->brandAnchorCarrier($element, $presentationAttributes, $innerHtml, $createBlock, $context->convertElementCallback(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates, $navigationOverlayMenu);
+        $carrierFallbacks = array();
+        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $isRuntimeDomTarget, $navigationUnderlineColor, $resolvedStyle, $navigationColorInteractionStates, $navigationOverlayMenu);
         if ( null !== $hoisted ) {
-            return new PatternRecognitionResult($hoisted);
+            return new PatternRecognitionResult($hoisted, $carrierFallbacks);
         }
 
         if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
@@ -173,11 +174,12 @@ final class NavigationPattern implements PatternRecognizerInterface
      * deferring the shapes it already recognises, so this covers exactly the
      * containers that would otherwise absorb the brand.
      *
+     * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $convertElement, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null, ?callable $navigationOverlayMenu = null): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternRecursiveConverter $converter, ?callable $isRuntimeDomTarget, ?callable $navigationUnderlineColor, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null, ?callable $navigationOverlayMenu = null): ?array
     {
-        if ( null === $convertElement ) {
+        if ( null === $converter ) {
             return null;
         }
 
@@ -276,7 +278,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
-        $brand = $convertElement($anchor);
+        $brand = $converter->element($anchor, $fallbacks, true);
         $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
         if ( '' === $brandName || 'core/html' === $brandName ) {
             return null;
@@ -359,7 +361,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
-            $extraBlock = $convertElement($extra);
+            $extraBlock = $converter->element($extra, $fallbacks, true);
             $extraName = is_array($extraBlock) ? (string) ($extraBlock['blockName'] ?? '') : '';
             if ( '' === $extraName || 'core/html' === $extraName ) {
                 return null;
