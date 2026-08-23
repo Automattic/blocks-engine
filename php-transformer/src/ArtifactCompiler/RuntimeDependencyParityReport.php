@@ -1001,7 +1001,7 @@ final class RuntimeDependencyParityReport
         }
 
         $selectorPattern = preg_quote($selector, '/');
-        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:document\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ($assignments as $assignment) {
                 if (preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|hidden|disabled|style|dataset)\b/', $script)) {
                     return false;

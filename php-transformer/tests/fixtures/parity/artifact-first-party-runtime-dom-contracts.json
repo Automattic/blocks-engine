@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "artifact-first-party-runtime-dom-contracts",
-  "description": "Preserves first-party ID, class, and data-attribute DOM contracts in native RichText output.",
+  "description": "Preserves native first-party ID and class contracts while bounding root data-attribute contracts to their source element.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/artifact-first-party-runtime-dom-contracts.json",
@@ -19,12 +19,12 @@
         {
           "path": "index.html",
           "kind": "html",
-          "content": "<main><p id=\"clock\" class=\"clock\" data-counter=\"clock\">0 <span id=\"score\">score</span></p><script src=\"js/clock.js\"></script></main>"
+          "content": "<main><section class=\"panel\"><p id=\"clock\" class=\"clock\">0 <span id=\"score\">score</span></p><p data-counter=\"clock\">Counter</p><p>Editable sibling</p></section><script src=\"js/clock.js\"></script></main>"
         },
         {
           "path": "js/clock.js",
           "kind": "js",
-          "content": "document.getElementById('clock').textContent = '1'; document.querySelector('.clock').classList.add('ready'); document.querySelector('[data-counter]').textContent = '2'; document.querySelector('#score').textContent = '3';"
+          "content": "document.getElementById('clock').textContent = '1'; document.querySelector('.clock').classList.add('ready'); document.querySelector('[data-counter]').textContent = '2'; document.querySelector('#score').closest('.panel').classList.add('ready');"
         }
       ]
     }
@@ -32,9 +32,9 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
-    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 4 },
+    { "path": "source_reports.runtime_dependency_parity.dependencies", "assert": "count", "count": 5 },
     { "path": "serialized_blocks", "assert": "contains", "value": "id=\"clock\" class=\"clock\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "data-counter=\"clock\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p data-counter=\"clock\">Counter</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "id=\"score\"" }
   ]
 }

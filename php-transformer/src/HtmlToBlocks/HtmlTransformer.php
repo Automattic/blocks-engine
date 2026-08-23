@@ -833,6 +833,7 @@ final class HtmlTransformer
             $fallbacks,
             $this->runtimeIslands,
             array_values($this->runtimeDomPreservations),
+            array_values($this->runtimeDomFallbacks),
             $blockValidityReport,
             $semanticParityReport,
             $contentRoundTripReport
@@ -897,6 +898,7 @@ final class HtmlTransformer
             'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeIslands,
             'runtime_dom_contracts' => array_values($this->runtimeDomPreservations),
+            'runtime_dom_fallbacks' => array_values($this->runtimeDomFallbacks),
             'generated_blocks' => $this->generatedBlocks,
             'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
                 array(
@@ -4569,7 +4571,7 @@ final class HtmlTransformer
             return $this->capturedDialogBlock($element, $fallbacks);
         }
 
-        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) && ! in_array($tagName, array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true) ) {
+        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -4586,7 +4588,6 @@ final class HtmlTransformer
 
         if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            $content = $this->richTextContentWithRuntimeRootAttributes($element, $content);
             $content = $this->headingRichTextContent($content);
             if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
                 return $this->htmlPreservationBlock($element);
@@ -4607,7 +4608,6 @@ final class HtmlTransformer
                 return $marquee;
             }
             $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            $content = $this->richTextContentWithRuntimeRootAttributes($element, $content);
             $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
             if ( null !== $inlineSvgContent ) {
                 $content = $inlineSvgContent;
@@ -5777,6 +5777,7 @@ final class HtmlTransformer
                         'events'          => $this->eventMetadata($sourceElement),
                         'required_scripts' => $this->requiredScriptsForElement($sourceElement),
                     ));
+                    $this->recordRuntimeDomFallback($sourceElement, $name);
                 } else {
                     $this->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
                 }
@@ -12190,19 +12191,19 @@ final class HtmlTransformer
         }
     }
 
-    private function richTextContentWithRuntimeRootAttributes(DOMElement $element, string $content): string
+    private function recordRuntimeDomFallback(DOMElement $element, string $blockName): void
     {
-        $attributes = array();
         foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
-            if (!preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match)) {
+            $key = $blockName . "\n" . $selector;
+            if (isset($this->runtimeDomFallbacks[$key])) {
                 continue;
             }
-            $name = strtolower((string) $match[1]);
-            if ($element->hasAttribute($name)) {
-                $attributes[$name] = $element->getAttribute($name);
-            }
+            $this->runtimeDomFallbacks[$key] = array(
+                'block_name' => $blockName,
+                'tag' => strtolower($element->tagName),
+                'selector' => $selector,
+            );
         }
-        return array() === $attributes ? $content : '<mark' . $this->htmlAttributeString($attributes) . '>' . $content . '</mark>';
     }
 
     private function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool

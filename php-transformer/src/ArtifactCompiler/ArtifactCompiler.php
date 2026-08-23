@@ -667,6 +667,16 @@ final class ArtifactCompiler
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
         $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors']);
+        foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
+            if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
+                continue;
+            }
+            $diagnostics[] = $this->diagnostic('runtime_dependency_contract_failed', 'error', (string) ($finding['message'] ?? 'A required runtime DOM target is absent from generated markup.'), array_filter(array(
+                'selector' => $finding['selector'] ?? null,
+                'script_path' => $finding['script_path'] ?? null,
+                'source_path' => $finding['source_path'] ?? null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value));
+        }
         if ( array() !== $entryBlocks['runtime_islands'] ) {
             $sourceReports['runtime_islands'] = $entryBlocks['runtime_islands'];
             if ( array() !== $runtimeIslandPackage ) {
@@ -3667,7 +3677,7 @@ final class ArtifactCompiler
         }
 
         $selectorPattern = preg_quote($selector, '/');
-        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:document\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
+        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
             foreach ($assignments as $assignment) {
                 if (preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|hidden|disabled|style|dataset)\b/', $script)) {
                     return false;
@@ -5619,7 +5629,7 @@ final class ArtifactCompiler
                 return 'failed';
             }
 
-            if ( in_array(($diagnostic['code'] ?? ''), array('preserved_runtime_island', 'runtime_dom_contract_preserved'), true) ) {
+            if ( in_array(($diagnostic['code'] ?? ''), array('preserved_runtime_island', 'runtime_dom_contract_preserved', 'runtime_dom_contract_fallback'), true) ) {
                 continue;
             }
 
