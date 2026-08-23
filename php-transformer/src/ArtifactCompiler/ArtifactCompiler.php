@@ -269,7 +269,43 @@ final class ArtifactCompiler
     /** Compile one serialized page plan without receiving the source artifact. */
     public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
     {
+        return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
+    }
+
+    /**
+     * Compile multiple independently serializable page plans while retaining
+     * bounded immutable analysis within this worker batch.
+     *
+     * @param array<string,mixed> $sharedPlan
+     * @param array<int|string,array<string,mixed>> $pagePlans
+     * @return array<string,array<string,mixed>>
+     */
+    public function compilePreparedPages(array $sharedPlan, array $pagePlans, ?PayloadReader $payloadReader = null): array
+    {
+        $this->assertSharedPlan($sharedPlan);
+        $stageCompiler = $this->preparedPageCompiler();
+        $receipts = array();
+        foreach ($pagePlans as $pagePlan) {
+            if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
+                throw new \InvalidArgumentException('Prepared page batches require unique page plans with string page ids.');
+            }
+            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader);
+        }
+        return $receipts;
+    }
+
+    private function preparedPageCompiler(): self
+    {
+        $compiler = new self();
+        $compiler->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
+        return $compiler;
+    }
+
+    /** @param array<string,mixed> $sharedPlan @param array<string,mixed> $pagePlan @return array<string,mixed> */
+    private function compilePreparedPageWithCompiler(array $sharedPlan, array $pagePlan, self $stageCompiler, ?PayloadReader $payloadReader): array
+    {
         $startedAt = hrtime(true);
+        $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
         $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $sharedArtifact = isset($sharedPlan['shared_reduction'])
@@ -278,10 +314,6 @@ final class ArtifactCompiler
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
 
-        $stageCompiler = new self();
-        $stageCompiler->themeStaticCssCache = array();
-        $stageCompiler->wordpressCompatCssCache = array();
-        $stageCompiler->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
         $stageCompiler->generatedAssetRoot = (string) ($sharedPlan['analysis']['generated_asset_root'] ?? '');
         $hasSharedStylesheetOccurrences = false;
@@ -340,7 +372,7 @@ final class ArtifactCompiler
         if (!isset($sharedPlan['shared_reduction'])) {
             $pagePlan['work'] = array(
                 'compiled_document_count' => count($compiledDocuments),
-                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+                'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount - $initialTransformCount,
                 'normalization_count' => 0,
                 'analysis_count' => 0,
                 'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
@@ -364,7 +396,7 @@ final class ArtifactCompiler
          */
         $pagePlan['work'] = array(
             'compiled_document_count' => count($compiledDocuments),
-            'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount,
+            'html_document_transform_count' => $stageCompiler->htmlDocumentTransformCount - $initialTransformCount,
             'normalization_count' => 0,
             'analysis_count' => 3,
             'compile_duration_ms' => (hrtime(true) - $startedAt) / 1000000,

@@ -50,6 +50,12 @@ $assert(array('about.html', 'contact.html', 'index.html') === array_keys($batchP
 $compiledPages = array();
 foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($artifact, $shared, $pageId);
 $assert(1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+$compiledBatch = $compiler->compilePreparedPages($shared, $pages);
+foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms']);
+unset($compiledBatchPage);
+foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_duration_ms']);
+unset($compiledPage);
+$assert($compiledPages === $compiledBatch, 'Worker-batch compilation reuses bounded analysis without changing independently compiled receipt content.');
 
 // Simulate interruption/resume and arbitrary parallel completion order.
 $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
@@ -81,10 +87,10 @@ $serializedPages = json_decode(json_encode($preparedPages, JSON_THROW_ON_ERROR),
 // source artifact, so a worker cannot normalize or retain all fifty pages.
 $manyReceipts = array();
 $initialWorker = new ArtifactCompiler();
-foreach (array_slice(array_keys($serializedPages), 0, 25) as $pageId) $manyReceipts[] = $initialWorker->compilePreparedPage($serializedShared, $serializedPages[$pageId]);
+$manyReceipts = array_values($initialWorker->compilePreparedPages($serializedShared, array_slice($serializedPages, 0, 25, true)));
 unset($initialWorker, $manyArtifact, $preparedPages);
 $resumedWorker = new ArtifactCompiler();
-foreach (array_slice(array_keys($serializedPages), 25) as $pageId) $manyReceipts[] = $resumedWorker->compilePreparedPage($serializedShared, $serializedPages[$pageId]);
+$manyReceipts = array_merge($manyReceipts, array_values($resumedWorker->compilePreparedPages($serializedShared, array_slice($serializedPages, 25, null, true))));
 $serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
