@@ -22,39 +22,12 @@ trait ButtonLinkDispatchTrait
             return $linkedLogo;
         }
 
-        $button = $this->buttonsPattern->matchAnchor(
-            $element,
-            fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-            fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-            fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
-            function (DOMElement $anchor) use (&$fallbacks): array {
-                $fallbacks[] = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic::build(array(
-                    'type'            => 'html',
-                    'reason'          => 'stylable_button_accessible_name_requires_typed_companion',
-                    'diagnostic_code' => 'html_stylable_button_accessible_name_fallback',
-                    'source_format'   => 'html',
-                    'tag'             => 'a',
-                    'html'            => $this->safeFallbackHtml($anchor),
-                ), $this->fallbackProvenance);
-                return $this->htmlPreservationBlock($anchor);
-            }
-        );
+        $button = $this->recognizePatterns($element, $fallbacks, array('button-anchor'));
         if ( null !== $button ) {
             return $button;
         }
 
-        $logo = $this->logoPattern->match(
-            $element,
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
-            fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
-        );
+        $logo = $this->recognizePatterns($element, $fallbacks, array('logo'));
         if ( null !== $logo ) {
             return $logo;
         }
@@ -137,14 +110,7 @@ trait ButtonLinkDispatchTrait
             return $this->htmlPreservationBlock($element);
         }
 
-        return $this->buttonsPattern->matchButton(
-            $element,
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
-            fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-            fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-            fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array( 'grid', 'inline-grid' ), true),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
+        $fallbacks = array();
+        return $this->recognizePatterns($element, $fallbacks, array('button'));
     }
 }
