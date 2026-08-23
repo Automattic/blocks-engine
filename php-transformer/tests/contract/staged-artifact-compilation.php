@@ -420,4 +420,18 @@ $deepMediaStaged = $deepMediaCompiler->compose($deepMediaShared, array_reverse($
 $assert('passed' === ($deepMediaWhole['source_reports']['editability_policy']['status'] ?? null) && 20 >= ($deepMediaWhole['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), 'Depth-44 SVG and depth-39 custom media routes satisfy the unchanged editability nesting policy.');
 $assert($canonical($deepMediaWhole) === $canonical($deepMediaStaged), 'Deep media wrapper coalescing preserves direct and staged canonical equivalence.');
 
+$layoutBoundary = '<main class="story">';
+for ($depth = 0; $depth < 24; ++$depth) $layoutBoundary .= '<div class="layer-' . $depth . '">';
+$layoutBoundary .= '<a href="/story" aria-label="Story"><img src="story.jpg" alt="Story"></a>';
+for ($depth = 0; $depth < 24; ++$depth) $layoutBoundary .= '</div>';
+$layoutBoundary .= '</main>';
+$layoutArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => $layoutBoundary)));
+$layoutCompiler = new ArtifactCompiler();
+$layoutWhole = $layoutCompiler->compile($layoutArtifact)->toArray();
+$layoutShared = $layoutCompiler->prepareShared($layoutArtifact);
+$layoutStaged = $layoutCompiler->compose($layoutShared, array($layoutCompiler->compilePage($layoutArtifact, $layoutShared, 'index.html')))->toArray();
+$layoutPage = $layoutWhole['source_reports']['compiled_site']['pages'][0] ?? array();
+$assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '"kind":"layout"'), 'A deep semantic media main compiles as one typed layout boundary under the unchanged editability policy.');
+$assert($canonical($layoutWhole) === $canonical($layoutStaged), 'Typed captured layout boundaries preserve direct and staged canonical equivalence.');
+
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

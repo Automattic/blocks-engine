@@ -40,6 +40,7 @@ JS;
 $editorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($editor))), true);
 $assert(($definition['block_json']['attributes'] ?? null) === $editorAttributes, 'the editor registration attribute schema exactly matches generated block metadata');
 $assert('content' === ($editorAttributes['content']['role'] ?? null), 'the editor registration marks responsive media HTML as Gutenberg content');
+$assert('media' === ($editorAttributes['kind']['default'] ?? null), 'the editor registration carries the typed captured-boundary kind');
 
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();
@@ -65,5 +66,27 @@ $assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains
 
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
+
+$layoutHtml = '<main class="story"><div class="shell">';
+for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '<div class="layer-' . $depth . '">';
+$layoutHtml .= '<a href="/story" aria-label="Story"><img src="story.jpg" alt="Story"></a>';
+for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '</div>';
+$layoutHtml .= '</div></main>';
+$layout = ( new HtmlTransformer() )->transform($layoutHtml)->toArray();
+$layoutBlock = $layout['blocks'][0] ?? array();
+$assert('custom/responsive-media' === ($layoutBlock['blockName'] ?? null) && 'layout' === ($layoutBlock['attrs']['kind'] ?? null), 'A deep semantic media main uses the existing companion as a typed layout boundary.');
+$assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'href="/story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'aria-label="Story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'layer-20'), 'A captured layout boundary retains links, accessibility, and authored selector identity.');
+$assert('pass' === ($layout['source_reports']['wp_block_validity']['status'] ?? null), 'A captured layout boundary remains valid Gutenberg block markup.');
+$layoutPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), $layout['source_reports']['generated_blocks'] ?? array());
+$assert(array( 'content', 'kind' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveMediaBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the bounded typed layout schema and audited renderer only.');
+
+$shallow = ( new HtmlTransformer() )->transform('<main><div><img src="story.jpg" alt="Story"></div></main>')->toArray();
+$assert('custom/responsive-media' !== ($shallow['blocks'][0]['blockName'] ?? null), 'A shallow media main remains on native conversion paths.');
+
+$runtimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.story')))->toArray();
+$assert('custom/responsive-media' !== ($runtimeLayout['blocks'][0]['blockName'] ?? null), 'A declared runtime layout boundary remains addressable instead of being captured.');
+
+$nestedRuntimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.layer-20')))->toArray();
+$assert('custom/responsive-media' !== ($nestedRuntimeLayout['blocks'][0]['blockName'] ?? null), 'A declared runtime descendant remains addressable instead of being captured.');
 
 fwrite(STDOUT, "Responsive media companion tests passed\n");

@@ -68,6 +68,7 @@ final class HtmlTransformer
     use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
+    private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -5176,6 +5177,11 @@ final class HtmlTransformer
             $flankedSeparator = $this->flankedSeparatorBlockFromElement($element);
             if ( null !== $flankedSeparator ) {
                 return $flankedSeparator;
+            }
+
+            $capturedMediaLayout = $this->capturedMediaLayoutBoundaryBlock($element);
+            if ( null !== $capturedMediaLayout ) {
+                return $capturedMediaLayout;
             }
 
             // A gallery can only contain native image blocks. Preserve the
@@ -14857,10 +14863,63 @@ final class HtmlTransformer
 
         return $this->createBlock(
             $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
-            array( 'content' => $this->safeFallbackHtml($element) ),
+            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
             array(),
             $element
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function capturedMediaLayoutBoundaryBlock(DOMElement $element): ?array
+    {
+        if ( 'main' !== strtolower($element->tagName)
+            || $this->isRuntimeDomTarget($element)
+            || $this->hasRuntimeTargetInSubtree($element)
+            || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
+            || ! $this->hasCapturedMediaContent($element)
+        ) {
+            return null;
+        }
+
+        if ( ! $this->responsiveMediaBlockGenerated ) {
+            $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
+            $this->responsiveMediaBlockGenerated = true;
+        }
+
+        return $this->createBlock(
+            $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
+            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'layout' ),
+            array(),
+            $element
+        );
+    }
+
+    private function hasCapturedMediaContent(DOMElement $element): bool
+    {
+        return 0 < $element->getElementsByTagName('img')->length
+            || 0 < $element->getElementsByTagName('svg')->length
+            || 0 < $element->getElementsByTagName('video')->length;
+    }
+
+    private function hasRuntimeTargetInSubtree(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function sourceElementNestingDepth(DOMElement $element): int
+    {
+        $depth = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $depth = max($depth, 1 + $this->sourceElementNestingDepth($child));
+            }
+        }
+        return $depth;
     }
 
     /** @return array<string, mixed>|null */
