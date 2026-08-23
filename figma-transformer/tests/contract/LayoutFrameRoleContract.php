@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\FigmaTransformer\Html\CanvasShellDecision;
 use Automattic\BlocksEngine\FigmaTransformer\Html\CssPositioningResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutFrameRoleClassifier;
 use Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier;
+use Automattic\BlocksEngine\FigmaTransformer\Html\NodeRenderPlan;
 use Automattic\BlocksEngine\FigmaTransformer\Html\PositioningStyleResolver;
 use Automattic\BlocksEngine\FigmaTransformer\Html\VisualGeometryResolver;
 
@@ -102,17 +103,8 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
 
     $resolver = new CanvasShellResolver(
         $classifier,
-        static fn (array $node): bool => true === (($node['layout']['freeform'] ?? false)),
+        new LayoutIntentClassifier(),
         static fn (array $node): bool => true === (($node['layout']['freeform_uses_flow'] ?? false)),
-        static function (array $node): bool {
-            foreach ( is_array($node['children'] ?? null) ? $node['children'] : array() as $child ) {
-                if ( is_array($child) && 'absolute' === (($child['layout']['positioning'] ?? null)) ) {
-                    return true;
-                }
-            }
-            return false;
-        },
-        static fn (array $node): bool => true === (($node['layout']['has_decorative_underlay'] ?? false)),
         $visualGeometry,
     );
     $freeformBand = $band;
@@ -127,15 +119,21 @@ function blocks_engine_figma_transformer_run_layout_frame_role_contract(callable
 
     $positioningIntent = new LayoutIntentClassifier();
     $positioningResolver = new PositioningStyleResolver(
-        $positioningIntent,
         new CssPositioningResolver($positioningIntent, static fn (float $value): string => 0.0 === fmod($value, 1.0) ? (string) (int) $value : rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
         $resolver,
-        static fn (array $node): bool => true === (($node['layout']['freeform'] ?? false)),
-        static fn (array $node): bool => true === (($node['layout']['freeform_uses_flow'] ?? false)),
-        static fn (array $node, array $parentNode): bool => false,
-        static fn (array $node): bool => false,
     );
-    $positioningDecision = $positioningResolver->resolve($backgroundNode, 'FRAME', $freeformBand, $backgroundBox, $backgroundLayout, $backgroundDecision, array('width:100vw'));
+    $backgroundPlan = new NodeRenderPlan(
+        'FRAME',
+        array(),
+        $positioningIntent->layoutIntent($backgroundNode, $freeformBand),
+        $backgroundDecision,
+        $positioningIntent->stackingContextPlan($backgroundNode, $freeformBand),
+        true,
+        false,
+        false,
+        false,
+    );
+    $positioningDecision = $positioningResolver->resolve($backgroundNode, $freeformBand, $backgroundBox, $backgroundLayout, $backgroundPlan, array('width:100vw'));
     $assert(null !== $positioningDecision->absolutePositioningDecision, 'positioning-decision-records-absolute-boundary');
     $assert('freeform_parent_absolute_child' === ($positioningDecision->absolutePositioningDecision->reasonCode ?? null), 'positioning-decision-reason-freeform-parent');
     $assert(array('position:absolute', 'top:0px', 'left:50%', 'margin-left:-50vw') === ($positioningDecision->absolutePositioningDecision->declarations ?? array()), 'positioning-decision-declarations-filter-local-and-append-viewport');

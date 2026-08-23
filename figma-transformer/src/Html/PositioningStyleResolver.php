@@ -9,20 +9,9 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class PositioningStyleResolver
 {
-    /**
-     * @param callable(array<string, mixed>): bool $isFreeformContainer
-     * @param callable(array<string, mixed>): bool $freeformContainerShouldUseFlow
-     * @param callable(array<string, mixed>, array<string, mixed>): bool $isDecorativeFlexUnderlay
-     * @param callable(array<string, mixed>): bool $hasDecorativeFlexUnderlayChild
-     */
     public function __construct(
-        private readonly LayoutIntentClassifier $layoutIntentClassifier,
         private readonly CssPositioningResolver $cssPositioningResolver,
         private readonly CanvasShellResolver $canvasShellResolver,
-        private readonly mixed $isFreeformContainer,
-        private readonly mixed $freeformContainerShouldUseFlow,
-        private readonly mixed $isDecorativeFlexUnderlay,
-        private readonly mixed $hasDecorativeFlexUnderlayChild,
     ) {
     }
 
@@ -33,21 +22,21 @@ final class PositioningStyleResolver
      * @param array<string, mixed>|null $parentNode
      * @param array<int, string> $declaredStyles
      */
-    public function resolve(array $node, string $type, ?array $parentNode, array $box, array $layout, CanvasShellDecision $canvasShell, array $declaredStyles): PositioningStyleDecision
+    public function resolve(array $node, ?array $parentNode, array $box, array $layout, NodeRenderPlan $plan, array $declaredStyles): PositioningStyleDecision
     {
         $styles = array();
-        $isDecorativeFlexUnderlay = null !== $parentNode && $this->isDecorativeFlexUnderlay($node, $parentNode);
-        $parentFreeformUsesFlow = null !== $parentNode && $this->freeformContainerShouldUseFlow($parentNode);
-        $willPositionAbsolute = (null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow) || ('absolute' === ($layout['positioning'] ?? null) && ! $parentFreeformUsesFlow) || $isDecorativeFlexUnderlay;
-        $stackingContextPlan = $this->layoutIntentClassifier->stackingContextPlan($node, $parentNode);
+        $isDecorativeFlexUnderlay = $plan->decorativeFlexUnderlay;
+        $parentFreeformUsesFlow = $plan->parentFreeformUsesFlow;
+        $willPositionAbsolute = ($plan->parentIsFreeform && ! $parentFreeformUsesFlow) || ('absolute' === ($layout['positioning'] ?? null) && ! $parentFreeformUsesFlow) || $isDecorativeFlexUnderlay;
+        $stackingContextPlan = $plan->stackingContext;
         $effectiveZIndex = isset($stackingContextPlan['z_index']) && is_int($stackingContextPlan['z_index']) ? $stackingContextPlan['z_index'] : null;
         $zIndexReason = isset($stackingContextPlan['z_index_reason']) && is_string($stackingContextPlan['z_index_reason']) ? $stackingContextPlan['z_index_reason'] : null;
 
-        if ( $canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
+        if ( $plan->canvasShell->responsiveCenteredFlowShell && ! $willPositionAbsolute ) {
             $styles[] = 'margin-left:auto';
             $styles[] = 'margin-right:auto';
         }
-        if ( ! $willPositionAbsolute && (true === ($stackingContextPlan['manages_local_stacking'] ?? false) || ($parentFreeformUsesFlow && 'FRAME' === $type)) ) {
+        if ( ! $willPositionAbsolute && (true === ($stackingContextPlan['manages_local_stacking'] ?? false) || ($parentFreeformUsesFlow && 'FRAME' === $plan->type)) ) {
             $styles[] = 'position:relative';
         }
 
@@ -55,7 +44,7 @@ final class PositioningStyleResolver
             $styles[] = 'isolation:isolate';
         }
 
-        $absolutePositioningDecision = $this->absolutePositioningDecision($node, $parentNode, $box, $layout, $canvasShell, $isDecorativeFlexUnderlay, $parentFreeformUsesFlow);
+        $absolutePositioningDecision = $this->absolutePositioningDecision($node, $parentNode, $box, $layout, $plan->canvasShell, $isDecorativeFlexUnderlay, $parentFreeformUsesFlow, $plan->parentIsFreeform);
         if ( null !== $absolutePositioningDecision ) {
             foreach ( $absolutePositioningDecision->declarations as $style ) {
                 $styles[] = $style;
@@ -69,7 +58,7 @@ final class PositioningStyleResolver
             $styles[] = 'pointer-events:none';
         }
 
-        if ( null !== $parentNode && ! $willPositionAbsolute && null === $effectiveZIndex && $this->hasDecorativeFlexUnderlayChild($parentNode) ) {
+        if ( null !== $parentNode && ! $willPositionAbsolute && null === $effectiveZIndex && $plan->parentHasDecorativeFlexUnderlay ) {
             $styles[] = 'position:relative';
             $styles[] = 'z-index:1';
         }
@@ -91,12 +80,12 @@ final class PositioningStyleResolver
      * @param array<string, mixed> $box
      * @param array<string, mixed> $layout
      */
-    private function absolutePositioningDecision(array $node, ?array $parentNode, array $box, array $layout, CanvasShellDecision $canvasShell, bool $isDecorativeFlexUnderlay, bool $parentFreeformUsesFlow): ?AbsolutePositioningDecision
+    private function absolutePositioningDecision(array $node, ?array $parentNode, array $box, array $layout, CanvasShellDecision $canvasShell, bool $isDecorativeFlexUnderlay, bool $parentFreeformUsesFlow, bool $parentIsFreeform): ?AbsolutePositioningDecision
     {
         $reasonCode = '';
         if ( $isDecorativeFlexUnderlay ) {
             $reasonCode = 'decorative_flex_underlay_absolute';
-        } elseif ( null !== $parentNode && $this->isFreeformContainer($parentNode) && ! $parentFreeformUsesFlow ) {
+        } elseif ( null !== $parentNode && $parentIsFreeform && ! $parentFreeformUsesFlow ) {
             $reasonCode = 'freeform_parent_absolute_child';
         } elseif ( 'absolute' === ($layout['positioning'] ?? null) && ! $parentFreeformUsesFlow ) {
             $reasonCode = 'explicit_absolute_positioning';
@@ -142,36 +131,4 @@ final class PositioningStyleResolver
         return str_starts_with($style, 'left:') || str_starts_with($style, 'right:') || str_starts_with($style, 'margin-left:') || str_starts_with($style, 'margin-right:');
     }
 
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function isFreeformContainer(array $node): bool
-    {
-        return ($this->isFreeformContainer)($node);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function freeformContainerShouldUseFlow(array $node): bool
-    {
-        return ($this->freeformContainerShouldUseFlow)($node);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $parentNode
-     */
-    private function isDecorativeFlexUnderlay(array $node, array $parentNode): bool
-    {
-        return ($this->isDecorativeFlexUnderlay)($node, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function hasDecorativeFlexUnderlayChild(array $node): bool
-    {
-        return ($this->hasDecorativeFlexUnderlayChild)($node);
-    }
 }

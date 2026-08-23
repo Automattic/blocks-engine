@@ -10,17 +10,12 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 final class CanvasShellResolver
 {
     /**
-     * @param callable(array<string, mixed>): bool $isFreeformContainer
      * @param callable(array<string, mixed>): bool $freeformContainerShouldUseFlow
-     * @param callable(array<string, mixed>): bool $hasAbsoluteChild
-     * @param callable(array<string, mixed>): bool $hasDecorativeFlexUnderlayChild
      */
     public function __construct(
         private readonly LayoutFrameRoleClassifier $layoutFrameRoleClassifier,
-        private readonly mixed $isFreeformContainer,
+        private readonly LayoutIntentClassifier $layoutIntentClassifier,
         private readonly mixed $freeformContainerShouldUseFlow,
-        private readonly mixed $hasAbsoluteChild,
-        private readonly mixed $hasDecorativeFlexUnderlayChild,
         private readonly VisualGeometryResolver $visualGeometryResolver,
         private readonly ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
     ) {
@@ -218,7 +213,7 @@ final class CanvasShellResolver
      */
     private function isFreeformContainer(array $node): bool
     {
-        return ($this->isFreeformContainer)($node);
+        return $this->layoutIntentClassifier->isFreeformContainer($node);
     }
 
     /**
@@ -234,7 +229,7 @@ final class CanvasShellResolver
      */
     private function hasAbsoluteChild(array $node): bool
     {
-        return ($this->hasAbsoluteChild)($node);
+        return $this->layoutIntentClassifier->hasAbsoluteChild($node);
     }
 
     /**
@@ -242,6 +237,6 @@ final class CanvasShellResolver
      */
     private function hasDecorativeFlexUnderlayChild(array $node): bool
     {
-        return ($this->hasDecorativeFlexUnderlayChild)($node);
+        return $this->layoutIntentClassifier->hasDecorativeFlexUnderlayChild($node);
     }
 }
