@@ -131,6 +131,88 @@ final class VisualGeometryResolver
 
     /**
      * @param array<string, mixed> $node
+     * @return array{height: float, children: array<int, array<string, mixed>>}|null
+     */
+    public function absoluteChildReserveHeightDecision(array $node): ?array
+    {
+        $children = is_array($node['nodes'] ?? null)
+            ? array_values($node['nodes'])
+            : (is_array($node['children'] ?? null) ? array_values($node['children']) : array());
+        $isFreeform = $this->layoutIntentClassifier->isFreeformContainer($node);
+        if ( empty($children) || (! $isFreeform && ! $this->layoutIntentClassifier->hasAbsoluteChild($node) && ! $this->layoutIntentClassifier->hasDecorativeFlexUnderlayChild($node)) ) {
+            return null;
+        }
+
+        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
+        $maxBottom = null;
+        $contributingChildren = 0;
+        $childEvidence = array();
+        foreach ( $children as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( ! $isFreeform && 'absolute' !== ($layout['positioning'] ?? null) && ! $this->layoutIntentClassifier->isDecorativeFlexUnderlay($child, $node) ) {
+                continue;
+            }
+
+            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
+            if ( ! isset($childBox['height']) || ! is_numeric($childBox['height']) ) {
+                continue;
+            }
+
+            $top = $this->layoutIntentClassifier->positionOffset($childBox, $box, 'y');
+            if ( null === $top ) {
+                continue;
+            }
+            if ( $top < -0.5 ) {
+                return null;
+            }
+
+            $visualBoundsEvidence = $this->childVisualBoundsEvidenceInParent($child, $node);
+            $visualBounds = is_array($visualBoundsEvidence['transformed_visual_box'] ?? null) ? $visualBoundsEvidence['transformed_visual_box'] : array();
+            if ( isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
+                $top = (float) $visualBounds['y'];
+                $bottom = $top + (float) $visualBounds['height'];
+            } else {
+                $bottom = $top + (float) $childBox['height'];
+            }
+            if ( $top < -0.5 ) {
+                return null;
+            }
+            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 && ! $this->isFooterChromeNode($node) ) {
+                return null;
+            }
+            $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
+            ++$contributingChildren;
+            $visualBoundsEvidence['reserve_top'] = $top;
+            $visualBoundsEvidence['reserve_bottom'] = $bottom;
+            $childEvidence[] = $visualBoundsEvidence;
+        }
+
+        if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
+            return null;
+        }
+        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 && ! $this->isFooterChromeNode($node) ) {
+            return null;
+        }
+
+        return array(
+            'height' => $maxBottom,
+            'children' => $childEvidence,
+        );
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isFooterChromeNode(array $node): bool
+    {
+        return LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $this->layoutIntentClassifier->chromeGroupRole($node, null, 1);
+    }
+
+    /**
+     * @param array<string, mixed> $node
      */
     public function isHorizontallyReflected(array $node): bool
     {

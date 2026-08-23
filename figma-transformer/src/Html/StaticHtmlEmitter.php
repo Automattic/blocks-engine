@@ -6510,7 +6510,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $absoluteChildReserveHeightDecision = $this->absoluteChildReserveHeightDecision($node);
+        $absoluteChildReserveHeightDecision = $this->visualGeometryResolver()->absoluteChildReserveHeightDecision($node);
         $absoluteChildReserveHeight = is_array($absoluteChildReserveHeightDecision) && isset($absoluteChildReserveHeightDecision['height']) && is_numeric($absoluteChildReserveHeightDecision['height']) ? (float) $absoluteChildReserveHeightDecision['height'] : null;
         if ( null !== $absoluteChildReserveHeight && ! $this->stylesDeclareProperty($styles, 'min-height') ) {
             $layoutMinHeight = isset($layout['min_height']) && is_numeric($layout['min_height']) ? (float) $layout['min_height'] : null;
@@ -7343,78 +7343,6 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function absoluteChildReserveHeightDecision(array $node): ?array
-    {
-        $children = $this->nodeList($node);
-        if ( empty($children) || (! $this->isFreeformContainer($node) && ! $this->hasAbsoluteChild($node) && ! $this->hasDecorativeFlexUnderlayChild($node)) ) {
-            return null;
-        }
-
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $maxBottom = null;
-        $contributingChildren = 0;
-        $childEvidence = array();
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( ! $this->isFreeformContainer($node) && 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isDecorativeFlexUnderlay($child, $node) ) {
-                continue;
-            }
-
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( ! isset($childBox['height']) || ! is_numeric($childBox['height']) ) {
-                continue;
-            }
-
-            $top = $this->positionOffset($childBox, $box, 'y');
-            if ( null === $top ) {
-                continue;
-            }
-            if ( $top < -0.5 ) {
-                return null;
-            }
-
-            $visualBoundsEvidence = $this->visualGeometryResolver()->childVisualBoundsEvidenceInParent($child, $node);
-            $visualBounds = is_array($visualBoundsEvidence['transformed_visual_box'] ?? null) ? $visualBoundsEvidence['transformed_visual_box'] : array();
-            if ( isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
-                $top = (float) $visualBounds['y'];
-                $bottom = $top + (float) $visualBounds['height'];
-            } else {
-                $bottom = $top + (float) $childBox['height'];
-            }
-            if ( $top < -0.5 ) {
-                return null;
-            }
-            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
-                return null;
-            }
-            $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
-            $contributingChildren++;
-            $visualBoundsEvidence['reserve_top'] = $top;
-            $visualBoundsEvidence['reserve_bottom'] = $bottom;
-            $childEvidence[] = $visualBoundsEvidence;
-        }
-
-        if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
-            return null;
-        }
-        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
-            return null;
-        }
-
-        return array(
-            'height' => $maxBottom,
-            'children' => $childEvidence,
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
     private function isNearZeroHeightContainer(array $node, string $type): bool
     {
         if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE'), true) || empty($this->nodeList($node)) ) {
@@ -7441,14 +7369,6 @@ final class StaticHtmlEmitter
     private function positionOffset(array $box, array $parentBox, string $dimension, ?array $parentNode = null): ?float
     {
         return $this->layoutIntentClassifier()->positionOffset($box, $parentBox, $dimension, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function hasAbsoluteChild(array $node): bool
-    {
-        return $this->layoutIntentClassifier()->hasAbsoluteChild($node);
     }
 
     /**
