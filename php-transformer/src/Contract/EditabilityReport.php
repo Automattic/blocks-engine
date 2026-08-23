@@ -55,7 +55,7 @@ final class EditabilityReport
             'metrics' => $metrics,
             'deepest_block' => $deepestBlock,
             'block_types' => $blockTypes,
-            'signals' => array_slice($signals, 0, self::MAX_REPORTED_SIGNALS),
+            'signals' => $this->boundedSignals($signals),
             'signal_totals' => array(
                 'observed' => $signalCount,
                 'reported' => min($signalCount, self::MAX_REPORTED_SIGNALS),
@@ -118,7 +118,7 @@ final class EditabilityReport
             'metrics' => $totals,
             'block_types' => $blockTypes,
             'documents' => $reports,
-            'signals' => array_slice($signals, 0, self::MAX_REPORTED_SIGNALS),
+            'signals' => $this->boundedSignals($signals),
             'signal_totals' => array(
                 'observed' => $signalCount,
                 'reported' => min($signalCount, self::MAX_REPORTED_SIGNALS),
@@ -194,7 +194,7 @@ final class EditabilityReport
                 if (str_starts_with($class, 'blocks-engine-source-')) $metrics['source_marker_class_count']++;
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
             }
-            $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals);
+            $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals, $provenanceByBlockPath[implode('.', $blockPath)] ?? array());
             if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock);
         }
     }
@@ -242,8 +242,8 @@ final class EditabilityReport
         return false;
     }
 
-    /** @param array<string,mixed> $attrs @param array<int,int> $path @param array<string,int|float> $metrics @param array<int,array<string,mixed>> $signals */
-    private function inspectAttributes(array $attrs, string $blockName, string $sourcePath, array $path, array &$metrics, array &$signals): void
+    /** @param array<string,mixed> $attrs @param array<int,int> $path @param array<string,int|float> $metrics @param array<int,array<string,mixed>> $signals @param array<string,mixed> $provenance */
+    private function inspectAttributes(array $attrs, string $blockName, string $sourcePath, array $path, array &$metrics, array &$signals, array $provenance): void
     {
         $iterator = new \RecursiveIteratorIterator(new \RecursiveArrayIterator($attrs), \RecursiveIteratorIterator::LEAVES_ONLY);
         foreach ($iterator as $key => $value) {
@@ -258,7 +258,7 @@ final class EditabilityReport
                 $metrics['structural_rich_text_attribute_bytes'] += strlen($value);
                 $kind = 'structural_rich_text_attribute';
             }
-            $signals[] = $this->signal($kind, $sourcePath, $path, $blockName, (string) $key);
+            $signals[] = $this->signal($kind, $sourcePath, $path, $blockName, (string) $key, $provenance);
         }
     }
 
@@ -269,8 +269,8 @@ final class EditabilityReport
         return false;
     }
 
-    /** @param array<int,int> $path @return array<string,mixed> */
-    private function signal(string $kind, string $sourcePath, array $path, string $blockName, string $attribute = ''): array
+    /** @param array<int,int> $path @param array<string,mixed> $provenance @return array<string,mixed> */
+    private function signal(string $kind, string $sourcePath, array $path, string $blockName, string $attribute = '', array $provenance = array()): array
     {
         return array_filter(array(
             'kind' => $kind,
@@ -278,6 +278,17 @@ final class EditabilityReport
             'block_path' => implode('.', $path),
             'block_name' => $blockName,
             'attribute' => $attribute,
+            'source_selector' => is_string($provenance['selector'] ?? null) ? $provenance['selector'] : '',
+            'source_fragment' => is_string($provenance['source_fragment'] ?? null) ? substr($provenance['source_fragment'], 0, 512) : '',
         ), static fn(string $value): bool => '' !== $value);
+    }
+
+    /** @param array<int,array<string,mixed>> $signals @return array<int,array<string,mixed>> */
+    private function boundedSignals(array $signals): array
+    {
+        // Preserve actionable policy failures when a noisy document reaches the
+        // evidence cap; aggregate counts still describe omitted lower-priority facts.
+        usort($signals, static fn(array $left, array $right): int => ('structural_rich_text_attribute' === ($right['kind'] ?? '')) <=> ('structural_rich_text_attribute' === ($left['kind'] ?? '')));
+        return array_slice($signals, 0, self::MAX_REPORTED_SIGNALS);
     }
 }

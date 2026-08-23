@@ -420,8 +420,17 @@ $assert(str_contains($inlineWidthTableCss, '>table>tbody>tr:nth-child(1)>td:nth-
 $assert('pass' === ($inlineWidthTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'inline-width native tables remain editor-valid');
 $paddedTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td style="width:50%;padding:0 15px"><div style="text-align:center"><img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%"></div></td><td style="width:50%;padding:0 15px">Copy</td></tr></tbody></table>')->toArray();
 $paddedTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $paddedTableResult['assets'] ?? array()));
-$assert(str_contains($paddedTableCss, 'width:50%!important;padding:0 15px!important'), 'native table geometry CSS preserves authored cell width and padding together');
-$assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native table images remain editor-valid');
+$assert('core/columns' === ($paddedTableResult['blocks'][0]['blockName'] ?? null) && str_contains($paddedTableCss, 'width:50% !important') && str_contains((string) ($paddedTableResult['serialized_blocks'] ?? ''), 'padding-right:15px'), 'image-and-copy layout tables lower to native columns while preserving authored cell geometry');
+$assert('pass' === ($paddedTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'padded native image columns remain editor-valid');
+$legacyMediaTableResult = ( new HtmlTransformer() )->transform('<table class="portfolio-row"><tbody><tr><td style="width:50%;text-align:right"><img src="dsc-9062.jpg" alt="Portrait" style="width:466"></td><td style="width:50%"><h2>Portfolio</h2><p>Selected work.</p></td></tr></tbody></table>')->toArray();
+$legacyMediaTableMarkup = (string) ($legacyMediaTableResult['serialized_blocks'] ?? '');
+$legacyMediaTableCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $legacyMediaTableResult['assets'] ?? array()));
+$legacyMediaTableColumns = $legacyMediaTableResult['blocks'][0]['innerBlocks'][0]['innerBlocks'] ?? array();
+$assert('core/group' === ($legacyMediaTableResult['blocks'][0]['blockName'] ?? null) && 'core/columns' === ($legacyMediaTableResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 2 === count($legacyMediaTableColumns) && 'core/image' === ($legacyMediaTableColumns[0]['innerBlocks'][0]['blockName'] ?? null) && 'core/heading' === ($legacyMediaTableColumns[1]['innerBlocks'][0]['blockName'] ?? null) && 'core/paragraph' === ($legacyMediaTableColumns[1]['innerBlocks'][1]['blockName'] ?? null), 'legacy image table layouts lower their media and editorial cells into native Columns blocks');
+$assert(! str_contains($legacyMediaTableMarkup, '<!-- wp:table') && ! str_contains($legacyMediaTableMarkup, '<!-- wp:html') && str_contains($legacyMediaTableMarkup, 'width:466px') && str_contains($legacyMediaTableCss, 'text-align:right') && str_contains($legacyMediaTableCss, 'width:466px !important'), 'legacy image table lowering removes opaque table HTML while preserving aligned valid image geometry');
+$assert('pass' === ($legacyMediaTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'legacy image table columns remain Gutenberg-valid');
+$multiRowMediaTableResult = ( new HtmlTransformer() )->transform('<table><tbody><tr><td><img src="one.jpg" alt="One"></td><td><h2>One</h2></td></tr><tr><td><img src="two.jpg" alt="Two"></td><td><p>Two</p></td></tr></tbody></table>')->toArray();
+$assert('core/group' === ($multiRowMediaTableResult['blocks'][0]['blockName'] ?? null) && 2 === count($multiRowMediaTableResult['blocks'][0]['innerBlocks'] ?? array()) && array() === ($multiRowMediaTableResult['fallbacks'] ?? array()) && 'pass' === ($multiRowMediaTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'repeated legacy image rows retain their row topology as native Columns without fallbacks');
 $maxWidthImageResult = ( new HtmlTransformer() )->transform('<img src="centered.jpg" alt="Centered" style="width:auto;max-width:100%">')->toArray();
 $maxWidthImageMarkup = (string) ($maxWidthImageResult['serialized_blocks'] ?? '');
 $maxWidthImageCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $maxWidthImageResult['assets'] ?? array()));
@@ -785,6 +794,24 @@ $assert('interactive_form' === ($newsletterFallbackDiagnostic['pattern_family'] 
 $assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''), 'static newsletter form suggests a form primitive, not a fake native layout');
 $assert('form_provider' === ($newsletterFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'static newsletter form declares the form provider materialization role');
 $assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
+
+$nestedPseudoForm = ( new HtmlTransformer() )->transform(
+    '<article><nav aria-label="Blog"><a href="/posts">Posts</a></nav><div class="content-wrapper"><h1>Article title</h1><p>Article copy stays editable.</p><div class="contact-panel" action="/contact"><label for="contact-email">Email</label><input id="contact-email" name="email" type="email"><button>Send message</button><p role="status">Thanks, we will reply shortly.</p></div><p>Related reading.</p></div></article>'
+)->toArray();
+$nestedPseudoFallback = $nestedPseudoForm['fallbacks'][0] ?? array();
+$nestedPseudoBoundary = $nestedPseudoFallback['form_boundary'] ?? array();
+$assert(1 === count($nestedPseudoForm['fallbacks'] ?? array()) && 'contact-panel' === ($nestedPseudoFallback['form']['class'] ?? ''), 'nested pseudo-form selects the local control region instead of its article wrapper');
+$assert('/contact' === ($nestedPseudoFallback['form']['action'] ?? '') && 'Email' === ($nestedPseudoFallback['controls'][0]['label'] ?? '') && 'Send message' === ($nestedPseudoFallback['controls'][1]['text'] ?? '') && 'Thanks, we will reply shortly.' === ($nestedPseudoFallback['success_panel']['text'] ?? ''), 'nested pseudo-form preserves action, associated label, submit text, and success-state metadata');
+$assert('generic/form-boundary/v1' === ($nestedPseudoBoundary['schema'] ?? '') && array( 'local_controls', 'associated_label', 'submit_semantics' ) === ($nestedPseudoBoundary['selection_basis'] ?? array()) && in_array('contains_unrelated_landmark', array_column($nestedPseudoBoundary['rejected_ancestors'] ?? array(), 'reason'), true), 'pseudo-form diagnostics explain the local boundary and rejected editorial ancestors');
+$assert(str_contains((string) ($nestedPseudoForm['serialized_blocks'] ?? ''), 'Article title') && str_contains((string) ($nestedPseudoForm['serialized_blocks'] ?? ''), 'Related reading.') && ! str_contains((string) ($nestedPseudoFallback['html'] ?? ''), 'Article title'), 'surrounding article content remains native blocks and outside pseudo-form fallback metadata');
+$actionPseudoForm = ( new HtmlTransformer() )->transform('<div action="/request-quote"><label for="quote-email">Email</label><input id="quote-email" name="email" type="email"><button>Continue</button></div>')->toArray();
+$assert('/request-quote' === ($actionPseudoForm['fallbacks'][0]['form']['action'] ?? '') && 'Continue' === ($actionPseudoForm['fallbacks'][0]['controls'][1]['text'] ?? ''), 'explicit local action semantics retain a coherent pseudo-form with a neutral submit label');
+
+$broadPseudoForm = ( new HtmlTransformer() )->transform(
+    '<div id="content-wrapper"><nav aria-label="Blog"><a href="/posts">Posts</a></nav><article><h1>Post title</h1><div class="search"><input class="search-input" type="text" placeholder="Search"></div><button aria-label="Share via Facebook">Share</button><p>Long article copy.</p></article></div>'
+)->toArray();
+$assert(array() === array_values(array_filter($broadPseudoForm['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? ''))), 'search fields and unrelated buttons never promote a content wrapper to a pseudo-form');
+$assert(str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Post title') && str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Long article copy.'), 'rejected broad pseudo-form candidates remain ordinary native content');
 
 $commerceControls = ( new HtmlTransformer() )->transform(
     '<main><ul class="products"><li><article class="product-card"><h3>Tour Tee</h3><p>Heavy cotton shirt.</p><div class="price">$30</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li><li><article class="product-card"><h3>Signed CD</h3><p>Hand-signed disc.</p><div class="price">$15</div><div aria-label="Quantity"><button data-dir="down" aria-label="Decrease quantity">-</button><span aria-live="polite">1</span><button data-dir="up" aria-label="Increase quantity">+</button></div><button class="add-to-cart">Add to cart</button></article></li></ul></main>'
@@ -1351,6 +1378,43 @@ $runtimeClockMarkup = (string) ($runtimeClock['serialized_blocks'] ?? '');
 $assert(str_contains($runtimeClockMarkup, 'className":"clock-time blocks-engine-editor-anchor-clock-time blocks-engine-synthetic-paragraph') && 0 === substr_count($runtimeClockMarkup, '<!-- wp:html'), 'selector-addressed inline clock values remain one native RichText run inside a CSS-owned flex ancestor', $runtimeClockMarkup);
 $assert(str_contains($runtimeClockMarkup, 'id="hours"') && str_contains($runtimeClockMarkup, 'id="colon"') && str_contains($runtimeClockMarkup, 'id="minutes"') && str_contains($runtimeClockMarkup, 'id="ampm"') && str_contains($runtimeClockMarkup, 'id="timezone"'), 'native runtime text run retains every script-addressed id', $runtimeClockMarkup);
 $assert(! str_contains($runtimeClockMarkup, 'Initial State'), 'source comments do not become visible RichText editor content', $runtimeClockMarkup);
+$runtimeClockRoundTrip = new \Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime();
+$runtimeClockEdited = $runtimeClockRoundTrip->parseBlocks($runtimeClockMarkup);
+$editRuntimeClock = static function (array &$blocks) use (&$editRuntimeClock): void {
+    foreach ($blocks as &$block) {
+        if (is_array($block['innerContent'] ?? null)) {
+            foreach ($block['innerContent'] as &$content) {
+                if (is_string($content)) {
+                    $content = str_replace('id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">12</mark>', 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>', $content);
+                }
+            }
+            unset($content);
+        }
+        if (is_array($block['innerBlocks'] ?? null)) {
+            $editRuntimeClock($block['innerBlocks']);
+        }
+    }
+    unset($block);
+};
+$editRuntimeClock($runtimeClockEdited);
+$runtimeClockEditedMarkup = $runtimeClockRoundTrip->serializeBlocks($runtimeClockEdited);
+$runtimeClockRendered = $runtimeClockRoundTrip->renderBlocks($runtimeClockEdited);
+$assert(str_contains($runtimeClockEditedMarkup, 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>') && str_contains($runtimeClockRendered, 'id="minutes"') && ! str_contains($runtimeClockEditedMarkup, '<!-- wp:html'), 'native runtime RichText survives parse, edit, serialize, and render without becoming Custom HTML', $runtimeClockEditedMarkup);
+
+$runtimeGroup = ( new HtmlTransformer() )->transform(
+    '<section id="scoreboard"><p>Score: <span id="score">0</span></p></section>',
+    array('runtime_dom_selectors' => array('#scoreboard', '#score'))
+)->toArray();
+$runtimeGroupMarkup = (string) ($runtimeGroup['serialized_blocks'] ?? '');
+$runtimeGroupDiagnostics = array_values(array_filter($runtimeGroup['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'runtime_dom_contract_preserved' === ($diagnostic['code'] ?? '')));
+$assert('core/group' === ($runtimeGroup['blocks'][0]['blockName'] ?? '') && str_contains($runtimeGroupMarkup, 'id="scoreboard"') && str_contains($runtimeGroupMarkup, 'id="score"') && ! str_contains($runtimeGroupMarkup, '<!-- wp:html') && 1 <= count($runtimeGroupDiagnostics), 'script-addressed container remains a native Group with a stable native-preservation diagnostic', $runtimeGroupMarkup);
+
+$mixedCanvasRuntime = ( new HtmlTransformer() )->transform(
+    '<section class="demo"><p>Editable <span id="count">0</span></p><canvas id="chart">Chart</canvas><p>Still editable</p></section>',
+    array('runtime_dom_selectors' => array('#count'), 'runtime_canvas_selectors' => array('#chart'))
+)->toArray();
+$mixedCanvasMarkup = (string) ($mixedCanvasRuntime['serialized_blocks'] ?? '');
+$assert(1 === substr_count($mixedCanvasMarkup, '<!-- wp:html') && str_contains($mixedCanvasMarkup, '<canvas id="chart">Chart</canvas>') && str_contains($mixedCanvasMarkup, 'Editable <span id="count">0</span>') && str_contains($mixedCanvasMarkup, 'Still editable'), 'an irreducible canvas remains one bounded runtime island without forcing editable siblings into Custom HTML', $mixedCanvasMarkup);
 
 $emptyRuntimeText = ( new HtmlTransformer() )->transform(
     '<footer class="footer"><div id="runtime-status" class="runtime-status"></div></footer>',

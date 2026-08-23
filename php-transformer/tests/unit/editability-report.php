@@ -65,6 +65,23 @@ if ('structural_rich_text_attribute' !== ($richTextReport['signals'][0]['kind'] 
 $richTextPolicy = (new EditabilityPolicy())->evaluate($richTextReport);
 if ('failed' !== $richTextPolicy['status'] || 'required' !== $richTextPolicy['enforcement'] || 'structural_rich_text_attribute_count' !== ($richTextPolicy['failures'][0]['metric'] ?? null) || 'standalone.html' !== ($richTextPolicy['failures'][0]['source_path'] ?? null)) throw new RuntimeException('Standalone reports fail the bounded meaningful-editability policy with source-path attribution.');
 
+$structuralFixture = array(
+    array('blockName' => 'core/paragraph', 'attrs' => array('content' => '<div><h2>Heading</h2></div>'), 'innerBlocks' => array()),
+    array('blockName' => 'core/heading', 'attrs' => array('content' => '<section><p>Copy</p></section>'), 'innerBlocks' => array()),
+    array('blockName' => 'core/list-item', 'attrs' => array('content' => '<figure><img src="card.jpg" alt="Card"></figure>'), 'innerBlocks' => array()),
+);
+$structuralProvenance = array(
+    array('block_path' => 'blocks.0', 'selector' => '.quote > span', 'source_fragment' => '<span><div><h2>Heading</h2></div></span>'),
+    array('block_path' => 'blocks.1', 'selector' => '.feature > em', 'source_fragment' => '<em><section><p>Copy</p></section></em>'),
+    array('block_path' => 'blocks.2', 'selector' => '.cards > li', 'source_fragment' => '<li><figure><img src="card.jpg" alt="Card"></figure></li>'),
+);
+$structuralFixtureReport = (new EditabilityReport())->fromBlocks($structuralFixture, 'fixture.html', '', '', array(), array(), $structuralProvenance);
+$structuralSignals = array_values(array_filter($structuralFixtureReport['signals'], static fn(array $signal): bool => 'structural_rich_text_attribute' === ($signal['kind'] ?? '')));
+if (3 !== ($structuralFixtureReport['metrics']['structural_rich_text_attribute_count'] ?? null) || array('0', '1', '2') !== array_column($structuralSignals, 'block_path') || array('core/paragraph', 'core/heading', 'core/list-item') !== array_column($structuralSignals, 'block_name') || array('.quote > span', '.feature > em', '.cards > li') !== array_column($structuralSignals, 'source_selector') || !str_contains((string) ($structuralSignals[2]['source_fragment'] ?? ''), 'card.jpg')) throw new RuntimeException('Structural RichText fixtures attribute every affected attribute to its block, selector, and bounded source fragment.');
+
+$noisySignals = (new EditabilityReport())->fromBlocks(array_merge(array_fill(0, 100, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')), $structuralFixture), 'fixture.html', '', '', array(), array(), $structuralProvenance)['signals'];
+if (3 !== count(array_filter($noisySignals, static fn(array $signal): bool => 'structural_rich_text_attribute' === ($signal['kind'] ?? '')))) throw new RuntimeException('Bounded evidence retains every structural RichText finding ahead of lower-priority wrapper signals.');
+
 $intentionalEmpties = (new EditabilityReport())->fromBlocks(array(
     array('blockName' => 'core/group', 'attrs' => array('className' => 'be-inline-geometry-deadbeef'), 'innerBlocks' => array(), 'innerHTML' => ''),
     array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''),

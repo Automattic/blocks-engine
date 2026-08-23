@@ -32,12 +32,14 @@ final class HtmlTransformerSession
     public array $structureProvenance = array();
     public array $scriptMetadata = array();
     public array $runtimeIslands = array();
+    public array $runtimeDomPreservations = array();
     public array $nativeDisclosureRootIds = array();
     public array $generatedBlocks = array();
     public bool $descriptionListBlockGenerated = false;
     public bool $formSelectBlockGenerated = false;
     public bool $formInputBlockGenerated = false;
     public bool $responsiveMediaBlockGenerated = false;
+    public bool $authoredMarqueeBlockGenerated = false;
     public bool $emptyRuntimeTargetGenerated = false;
     public bool $capturedDialogBlockGenerated = false;
     public string $generatedBlockNamespace = 'custom';

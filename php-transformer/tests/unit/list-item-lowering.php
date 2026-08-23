@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $native = (new HtmlTransformer())->transform('<ul><li>Plain <strong>copy</strong><ul><li>Nested</li></ul></li></ul>')->toArray();
 if ('core/list' !== ($native['blocks'][0]['blockName'] ?? null)) throw new RuntimeException('RichText lists must remain native core/list output.');
@@ -45,5 +47,23 @@ if ('core/group' !== ($transparent['blocks'][0]['blockName'] ?? null) || 'core/p
 
 $runtimeCustom = (new HtmlTransformer())->transform('<runtime-repeater role="list" onclick="refreshCards()"><repeater-card role="listitem"><p>Unsafe runtime card</p></repeater-card></runtime-repeater>')->toArray();
 if ('runtime-repeater' !== ($runtimeCustom['fallbacks'][0]['tag'] ?? null) || 'html_unsupported_element' !== ($runtimeCustom['fallbacks'][0]['diagnostic_code'] ?? null)) throw new RuntimeException('Runtime-owned custom elements must remain diagnosed fallbacks.');
+
+$markedStructural = (new HtmlTransformer())->transform('<style>.quote span{color:#123}</style><div class="quote"><span><div><h3>Quote <em>heading</em></h3><p>Body <a href="/source">link</a></p><img src="quote.jpg" alt="Quote"></div></span></div>')->toArray();
+$markedBlocks = $markedStructural['blocks'] ?? array();
+$markedMarkup = (string) ($markedStructural['serialized_blocks'] ?? '');
+$markedReport = $markedStructural['source_reports']['editability_report'] ?? array();
+if ('core/group' !== ($markedBlocks[0]['innerBlocks'][0]['blockName'] ?? null) || 'core/group' !== ($markedBlocks[0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? null) || 'core/heading' !== ($markedBlocks[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? null) || 'core/paragraph' !== ($markedBlocks[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][1]['blockName'] ?? null) || 'core/image' !== ($markedBlocks[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][2]['blockName'] ?? null) || 0 !== ($markedReport['metrics']['structural_rich_text_attribute_count'] ?? -1)) throw new RuntimeException('Selector-addressed inline containers lower structural children to native editable blocks instead of RichText attributes.');
+if (!str_contains($markedMarkup, '<em>heading</em>') || !str_contains($markedMarkup, '<a href="/source">link</a>') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($markedBlocks)['status'] ?? '')) throw new RuntimeException('Structural lowering retains genuine inline formatting and Gutenberg block validity.');
+$runtime = new Runtime();
+$persisted = $runtime->parseBlocks($runtime->serializeBlocks($markedBlocks));
+$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][0]['innerHTML'] = '<h3 class="wp-block-heading">Edited <em>heading</em></h3>';
+$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][0]['innerContent'] = array('<h3 class="wp-block-heading">Edited <em>heading</em></h3>');
+$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][1]['innerHTML'] = '<p>Edited <a href="/updated">link</a></p>';
+$persisted[0]['innerBlocks'][0]['innerBlocks'][0]['innerBlocks'][1]['innerContent'] = array('<p>Edited <a href="/updated">link</a></p>');
+$edited = $runtime->serializeBlocks($persisted);
+if (!str_contains($edited, 'Edited <em>heading</em>') || !str_contains($edited, '<a href="/updated">link</a>') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($runtime->parseBlocks($edited))['status'] ?? '')) throw new RuntimeException('Native structural children persist text and link edits through parse and serialize.');
+
+$structuralQuote = (new HtmlTransformer())->transform('<style>.quote span{color:#123}</style><blockquote class="quote"><span><div><p>Quoted <strong>copy</strong> <a href="/quote">link</a></p></div></span></blockquote>')->toArray();
+if (0 !== ($structuralQuote['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'] ?? -1) || !str_contains((string) ($structuralQuote['serialized_blocks'] ?? ''), '<strong>copy</strong>') || !str_contains((string) ($structuralQuote['serialized_blocks'] ?? ''), '<a href="/quote">link</a>') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($structuralQuote['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('Structural blockquotes lower nested layout to native children while retaining valid inline RichText formats.');
 
 fwrite(STDOUT, "list item lowering contract passed\n");

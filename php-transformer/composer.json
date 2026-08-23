@@ -65,6 +65,7 @@
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
        "php tests/unit/responsive-media-block.php",
+       "php tests/unit/authored-marquee-block.php",
        "php tests/unit/responsive-document-variants.php",
        "php tests/unit/editability-report.php",
       "php tests/unit/core-block-capability-matrix.php",
@@ -122,8 +123,10 @@
       "php tests/unit/compile-fragment-author-stylesheet.php",
       "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
+      "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/geometry-chain-coalescing.php",
-      "php tests/unit/pattern-recognizer-registry.php"
+      "php tests/unit/pattern-recognizer-registry.php",
+      "php tests/unit/pattern-registry-staged-dispatch.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
