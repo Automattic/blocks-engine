@@ -11,13 +11,10 @@ final class PaintStackResolver
 {
     /**
      * @param callable(array<string, mixed>): ?string $resolveAndMarkPaintAssetPath
-     * @param callable(float): string $numberFormatter
-     * @param callable(mixed, mixed=): ?string $color
      */
     public function __construct(
         private readonly mixed $resolveAndMarkPaintAssetPath,
-        private readonly mixed $numberFormatter,
-        private readonly mixed $color,
+        private readonly StaticHtmlValueFormatter $formatter,
     ) {
     }
 
@@ -345,12 +342,12 @@ final class PaintStackResolver
 
     private function number(float $value): string
     {
-        return ($this->numberFormatter)($value);
+        return $this->formatter->number($value);
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
     {
-        return ($this->color)($value, $opacity);
+        return $this->formatter->color($value, $opacity);
     }
 
     /**

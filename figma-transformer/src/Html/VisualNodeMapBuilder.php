@@ -542,16 +542,7 @@ final class VisualNodeMapBuilder
 
     private function explicitNodeAssetReferences(array $node): array
     {
-        $references = array();
-        foreach ( array('asset_id', 'assetId', 'image_ref', 'imageRef', 'imageHash', 'ref') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) && '' !== (string) $node[$key] ) {
-                $references[] = (string) $node[$key];
-            }
-        }
-        if ( is_array($node['image'] ?? null) ) {
-            $references = array_merge($references, $this->imageAssetReferences($node['image']));
-        }
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::explicitNodeAssetReferences($node);
     }
 
     private function resolveAssetPath(string $assetId): ?string
@@ -570,21 +561,7 @@ final class VisualNodeMapBuilder
      */
     private function paintAssetReferences(array $paint): array
     {
-        $references = array();
-        foreach ( array('imageRef', 'imageHash', 'ref', 'asset_id', 'assetId', 'image_ref') as $key ) {
-            if ( isset($paint[$key]) && is_scalar($paint[$key]) && '' !== (string) $paint[$key] ) {
-                $references[] = (string) $paint[$key];
-            }
-        }
-        if ( is_array($paint['assetRef'] ?? null) ) {
-            $references = array_merge($references, $this->assetRefReferences($paint['assetRef']));
-        }
-        foreach ( array('image', 'thumbnail', 'imageThumbnail', 'sourceImage') as $imageKey ) {
-            if ( is_array($paint[$imageKey] ?? null) ) {
-                $references = array_merge($references, $this->imageAssetReferences($paint[$imageKey]));
-            }
-        }
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::paintAssetReferences($paint, array('imageRef', 'imageHash', 'ref', 'asset_id', 'assetId', 'image_ref'));
     }
 
     /**
@@ -593,39 +570,7 @@ final class VisualNodeMapBuilder
      */
     private function imageAssetReferences(array $image): array
     {
-        $references = array();
-        foreach ( array('hash', 'imageRef', 'imageHash', 'asset_id', 'assetId', 'image_ref', 'ref', 'source_id', 'node_id', 'nodeId', 'name', 'fileName', 'filename') as $key ) {
-            if ( isset($image[$key]) && is_scalar($image[$key]) && '' !== (string) $image[$key] ) {
-                $references[] = (string) $image[$key];
-            }
-        }
-        if ( is_array($image['assetRef'] ?? null) ) {
-            $references = array_merge($references, $this->assetRefReferences($image['assetRef']));
-        }
-        if ( is_array($image['sourceImage'] ?? null) ) {
-            $references = array_merge($references, $this->imageAssetReferences($image['sourceImage']));
-        }
-        return array_values(array_unique($references));
-    }
-
-    /**
-     * @param array<string, mixed> $assetRef
-     * @return array<int, string>
-     */
-    private function assetRefReferences(array $assetRef): array
-    {
-        $references = array();
-        foreach ( array('id', 'key', 'nodeID', 'fileKey', 'libraryKey', 'publishID', 'sourceLibraryKey') as $key ) {
-            if ( isset($assetRef[$key]) && is_scalar($assetRef[$key]) && '' !== (string) $assetRef[$key] ) {
-                $references[] = (string) $assetRef[$key];
-            }
-        }
-        if ( is_array($assetRef['guid'] ?? null) && isset($assetRef['guid']['sessionID'], $assetRef['guid']['localID']) ) {
-            $references[] = (string) $assetRef['guid']['sessionID'] . ':' . (string) $assetRef['guid']['localID'];
-        } elseif ( isset($assetRef['guid']) && is_scalar($assetRef['guid']) && '' !== (string) $assetRef['guid'] ) {
-            $references[] = (string) $assetRef['guid'];
-        }
-        return array_values(array_unique($references));
+        return VisualLayerEvidence::imageAssetReferences($image);
     }
 
     private function nodeImagePaints(array $node): array
