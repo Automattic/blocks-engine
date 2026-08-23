@@ -614,6 +614,47 @@ final class HtmlTransformer
                 $block = $this->placeholderMediaPattern->match($element, $context->presentationAttributesCallback(), fn (string $value): string => $this->runtime->escapeHtml($value), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
             }),
+            new CallbackPatternRecognizer('quote', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $fallbacks = array();
+                $block = $this->quotePattern->matchBlockquote($element, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+            }),
+            new CallbackPatternRecognizer('figure-quote', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $blockquote = $this->firstChildElement($element, 'blockquote');
+                if (! $blockquote instanceof DOMElement) return null;
+                $fallbacks = array();
+                $block = $this->quotePattern->matchFigureBlockquote($element, $blockquote, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), $context->innerHtmlCallback(), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+            }),
+            new CallbackPatternRecognizer('details', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $fallbacks = array();
+                $block = $this->detailsPattern->match($element, $fallbacks, fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+            }),
+            new CallbackPatternRecognizer('disclosure', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->detailsPattern->matchDisclosure($element, fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('gallery', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('buttons-container', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->buttonsPattern->matchContainer($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), $context->innerHtmlCallback(), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->createBlockCallback());
+                return null === $block ? null : new PatternRecognitionResult($block);
+            }),
+            new CallbackPatternRecognizer('button-anchor', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $fallbacks = array();
+                $block = $this->buttonsPattern->matchAnchor($element, fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->createBlockCallback(), function (DOMElement $anchor) use (&$fallbacks): array {
+                    $fallbacks[] = FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->fallbackProvenance);
+                    return $this->htmlPreservationBlock($anchor);
+                });
+                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+            }),
+            new CallbackPatternRecognizer('button', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
+                $block = $this->buttonsPattern->matchButton($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true), $context->createBlockCallback());
+                return new PatternRecognitionResult($block);
+            }),
             new AccordionPattern(),
             new SocialLinksPattern(),
             new NavigationPattern(),
@@ -4328,7 +4369,7 @@ final class HtmlTransformer
         return new PatternContext(
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
             fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
             fn (DOMElement $sourceElement, array $excludedTags): array => $this->convertPatternChildrenWithoutTags($sourceElement, $excludedTags),
@@ -4741,33 +4782,16 @@ final class HtmlTransformer
         }
 
         if ( 'blockquote' === $tagName ) {
-            return $this->quotePattern->matchBlockquote(
-                $element,
-                $fallbacks,
-                fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
-                fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
-                fn (string $html): string => $this->runtime->stripAllTags($html),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
-                fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
-            );
+            return $this->recognizePatterns($element, $fallbacks, array('quote'));
         }
 
         if ( 'figure' === $tagName ) {
-            $gallery = $this->mediaGalleryBlockFromElement($element);
+            $gallery = $this->mediaGalleryBlockFromElement($element, $fallbacks);
             if ( null !== $gallery ) {
                 return $gallery;
             }
 
-            $codeWindow = $this->codeWindowPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
-                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $codeWindow = $this->recognizePatterns($element, $fallbacks, array('code-window'));
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -4797,18 +4821,7 @@ final class HtmlTransformer
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
             if ( $blockquote instanceof DOMElement ) {
-                return $this->quotePattern->matchFigureBlockquote(
-                    $element,
-                    $blockquote,
-                    $fallbacks,
-                    fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
-                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                    fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
-                    fn (string $html): string => $this->runtime->stripAllTags($html),
-                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                    fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-                );
+                return $this->recognizePatterns($element, $fallbacks, array('figure-quote'));
             }
 
             return $this->convertFigureGeneric($element, $fallbacks);
@@ -4912,14 +4925,7 @@ final class HtmlTransformer
         }
 
         if ( 'details' === $tagName ) {
-            return $this->detailsPattern->match(
-                $element,
-                $fallbacks,
-                fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags),
-                fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            return $this->recognizePatterns($element, $fallbacks, array('details'));
         }
 
         if ( 'a' === $tagName ) {
@@ -5144,13 +5150,7 @@ final class HtmlTransformer
                     return $metadataGrid;
                 }
 
-                $disclosure = $this->detailsPattern->matchDisclosure(
-                    $element,
-                    fn (DOMElement $sourceElement): array => $this->convertPatternChildren($sourceElement),
-                    fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-                    fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                    fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-                );
+                $disclosure = $this->recognizePatterns($element, $fallbacks, array('disclosure'));
                 if ( null !== $disclosure ) {
                     $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
 
@@ -5172,7 +5172,7 @@ final class HtmlTransformer
                 return $columns;
             }
 
-            $gallery = $this->mediaGalleryBlockFromElement($element);
+            $gallery = $this->mediaGalleryBlockFromElement($element, $fallbacks);
             if ( null !== $gallery ) {
                 return $gallery;
             }
@@ -5207,15 +5207,7 @@ final class HtmlTransformer
                 return $standaloneSearch;
             }
 
-            $buttons = $this->buttonsPattern->matchContainer(
-                $element,
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
-                fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement)
-            );
+            $buttons = $this->recognizePatterns($element, $fallbacks, array('buttons-container'));
             if ( null !== $buttons ) {
                 return $buttons;
             }
@@ -5347,7 +5339,7 @@ final class HtmlTransformer
     /**
      * @return array<string, mixed>|null
      */
-    private function mediaGalleryBlockFromElement(DOMElement $element): ?array
+    private function mediaGalleryBlockFromElement(DOMElement $element, array &$fallbacks): ?array
     {
         if ( ! $this->isGalleryCompatibleMediaLayout($element) ) {
             return null;
@@ -5359,15 +5351,7 @@ final class HtmlTransformer
             return $this->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
         }
 
-        return $this->galleryPattern->match(
-            $element,
-            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
-            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
-            fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
-            fn (DOMElement $sourceElement): array => $this->presentationAttributes($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-        );
+        return $this->recognizePatterns($element, $fallbacks, array('gallery'));
     }
 
     private function isGalleryCompatibleMediaLayout(DOMElement $element): bool

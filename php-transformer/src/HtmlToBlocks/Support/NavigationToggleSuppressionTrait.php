@@ -561,7 +561,11 @@ trait NavigationToggleSuppressionTrait
 
     private function convertsToCoreNavigation(DOMElement $element): bool
     {
-        $navigation = $this->patternRecognizers->firstMatch($element, $this->probePatternContext());
+        $navigation = $this->patternRecognizers->firstMatch(
+            $element,
+            $this->probePatternContext(),
+            array( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern::class )
+        );
 
         return null !== $navigation && 'core/navigation' === ($navigation->block()['blockName'] ?? '');
     }
