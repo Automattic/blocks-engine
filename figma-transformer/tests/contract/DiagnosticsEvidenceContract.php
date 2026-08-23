@@ -377,8 +377,8 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
 
     $responsivePolicy = new \Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
         new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlNodeInspector(),
-        static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.'),
-        new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter(),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter()),
         new \Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
     );
     $responsiveDecision = $responsivePolicy->responsiveSafetyDecision(

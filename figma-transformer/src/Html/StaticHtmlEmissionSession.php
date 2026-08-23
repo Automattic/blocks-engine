@@ -16,6 +16,7 @@ final class StaticHtmlEmissionSession
     private readonly StaticHtmlDecisionTraceState $decisionTraceState;
     private readonly TextStyleDeclarationResolver $textStyleDeclarationResolver;
     private readonly PaintStackResolver $paintStackResolver;
+    private readonly StyleDeclarationBuilder $styleDeclarationBuilder;
     private readonly ChildLayerCompositionResolver $childLayerCompositionResolver;
     private readonly StaticHtmlVectorEvidence $vectorEvidence;
     private readonly VectorSvgRenderer $vectorSvgRenderer;
@@ -32,6 +33,7 @@ final class StaticHtmlEmissionSession
         $this->decisionTraceState = new StaticHtmlDecisionTraceState();
         $this->textStyleDeclarationResolver = new TextStyleDeclarationResolver($typographyModel, $formatter, $this->typographyState);
         $this->paintStackResolver = new PaintStackResolver($this->assetRegistry, $formatter);
+        $this->styleDeclarationBuilder = new StyleDeclarationBuilder($formatter, $this->paintStackResolver);
         $this->childLayerCompositionResolver = new ChildLayerCompositionResolver($this->assetRegistry, $formatter);
         $this->vectorEvidence = new StaticHtmlVectorEvidence($formatter, $this->paintStackResolver);
         $this->vectorSvgRenderer = new VectorSvgRenderer($nodeInspector, $formatter, $this->vectorEvidence);
@@ -75,6 +77,11 @@ final class StaticHtmlEmissionSession
     public function paintStackResolver(): PaintStackResolver
     {
         return $this->paintStackResolver;
+    }
+
+    public function styleDeclarationBuilder(): StyleDeclarationBuilder
+    {
+        return $this->styleDeclarationBuilder;
     }
 
     public function childLayerCompositionResolver(): ChildLayerCompositionResolver

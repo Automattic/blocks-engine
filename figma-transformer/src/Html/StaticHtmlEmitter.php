@@ -47,8 +47,6 @@ final class StaticHtmlEmitter
 
     private ?DesignSystemExtractor $designSystemExtractor = null;
 
-    private ?StyleDeclarationBuilder $styleDeclarationBuilder = null;
-
     private ?TransformDiagnosticsBuilder $transformDiagnosticsBuilder = null;
 
     private ?StaticHtmlEmissionDiagnostics $staticHtmlEmissionDiagnostics = null;
@@ -118,11 +116,7 @@ final class StaticHtmlEmitter
 
     private function styleDeclarationBuilder(): StyleDeclarationBuilder
     {
-        return $this->styleDeclarationBuilder ??= new StyleDeclarationBuilder(
-            fn (float $value): string => $this->number($value),
-            fn (array $paints): ?array => $this->firstCssPaint($paints),
-            fn (mixed $value, mixed $opacity = null): ?string => $this->color($value, $opacity),
-        );
+        return $this->emissionSession->styleDeclarationBuilder();
     }
 
     private function staticHtmlCssRuleSet(): StaticHtmlCssRuleSet
@@ -180,7 +174,7 @@ final class StaticHtmlEmitter
     {
         return $this->cssPositioningResolver ??= new CssPositioningResolver(
             $this->layoutIntentClassifier(),
-            fn (float $value): string => $this->number($value),
+            $this->valueFormatter(),
         );
     }
 
@@ -226,9 +220,7 @@ final class StaticHtmlEmitter
             $this->visualGeometryResolver(),
             $this->emissionSession->vectorSvgRenderer(),
             fn (array $node, string $type, ?array $parentNode, ?array $grandParentNode): array => $this->styleDeclarations($node, $type, $parentNode, $grandParentNode),
-            fn (string $value): string => $this->sanitizeAttribute($value),
-            fn (string $value): string => $this->slug($value),
-            fn (float $value): string => $this->number($value),
+            $this->valueFormatter(),
             null,
             $this->breakpointDimensionPolicy(),
         );
@@ -236,7 +228,7 @@ final class StaticHtmlEmitter
 
     private function breakpointDimensionPolicy(): BreakpointDimensionPolicy
     {
-        return $this->breakpointDimensionPolicy ??= new BreakpointDimensionPolicy(fn (float $value): string => $this->number($value));
+        return $this->breakpointDimensionPolicy ??= new BreakpointDimensionPolicy($this->valueFormatter());
     }
 
     private function childLayerCompositionResolver(): ChildLayerCompositionResolver

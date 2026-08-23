@@ -6,6 +6,8 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Builds responsive media-query overrides from planned breakpoint variants.
+ *
+ * @internal
  */
 final class BreakpointMediaDiffBuilder
 {
@@ -25,9 +27,6 @@ final class BreakpointMediaDiffBuilder
 
     /**
      * @param callable(array<string, mixed>, string, array<string, mixed>|null, array<string, mixed>|null): array<int, string> $styleDeclarations
-     * @param callable(string): string $sanitizeAttribute
-     * @param callable(string): string $slug
-     * @param callable(float): string $number
      */
     public function __construct(
         private readonly StickyLayoutCoordinator $stickyLayoutCoordinator,
@@ -35,20 +34,18 @@ final class BreakpointMediaDiffBuilder
         private readonly VisualGeometryResolver $visualGeometryResolver,
         private readonly VectorSvgRenderer $vectorSvgRenderer,
         private readonly mixed $styleDeclarations,
-        private readonly mixed $sanitizeAttribute,
-        private readonly mixed $slug,
-        private readonly mixed $number,
+        private readonly StaticHtmlValueFormatter $formatter,
         ?ResponsiveNodeMatcher $responsiveNodeMatcher = null,
         ?BreakpointDimensionPolicy $breakpointDimensionPolicy = null,
         ?LayoutIntentClassifier $layoutIntentClassifier = null,
         ?ResponsiveBreakpointSafetyPolicy $responsiveBreakpointSafetyPolicy = null,
     ) {
-        $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->slug);
-        $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->number);
+        $this->responsiveNodeMatcher = $responsiveNodeMatcher ?? new ResponsiveNodeMatcher($this->formatter);
+        $this->breakpointDimensionPolicy = $breakpointDimensionPolicy ?? new BreakpointDimensionPolicy($this->formatter);
         $this->layoutIntentClassifier = $layoutIntentClassifier ?? new LayoutIntentClassifier();
         $this->responsiveBreakpointSafetyPolicy = $responsiveBreakpointSafetyPolicy ?? new ResponsiveBreakpointSafetyPolicy(
             $this->nodeInspector,
-            $this->number,
+            $this->formatter,
             $this->breakpointDimensionPolicy,
             $this->layoutIntentClassifier
         );
@@ -237,14 +234,14 @@ final class BreakpointMediaDiffBuilder
                 // container child can re-establish flow height.
                 $isCanvasContainer = ! in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true);
                 if ( $isCanvasContainer || $isInferredGrid || ( ! $wrapsRow && ! $this->hasContainerChild($node) ) ) {
-                    $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+                    $declarations[] = 'min-height:' . $this->formatter->number(min($height, 720.0)) . 'px';
                 }
             }
             if ( null !== $minHeight && $minHeight > 720.0 && in_array($display, array('flex', 'inline-flex', 'grid', 'inline-grid'), true) && $this->hasContainerChild($node) ) {
                 // A stacked row turns its normal children into vertical flow; their
                 // desktop equal-height floors would otherwise become blank space.
                 $declarations[] = $isInferredGrid
-                    ? 'min-height:' . ($this->number)($minHeight) . 'px'
+                    ? 'min-height:' . $this->formatter->number($minHeight) . 'px'
                     : 'min-height:0';
             }
             if ( $mobile && $wrapsRow ) {
@@ -316,7 +313,7 @@ final class BreakpointMediaDiffBuilder
                         continue;
                     }
                     $minimum = max(14.0, $sourceValue * 0.55);
-                    $declarations[] = $property . ':clamp(' . ($this->number)($minimum) . 'px,' . ($this->number)($sourceValue / $sourceViewportWidth * 100.0) . 'vw,' . ($this->number)($sourceValue) . 'px)';
+                    $declarations[] = $property . ':clamp(' . $this->formatter->number($minimum) . 'px,' . $this->formatter->number($sourceValue / $sourceViewportWidth * 100.0) . 'vw,' . $this->formatter->number($sourceValue) . 'px)';
                 }
             }
         }
@@ -332,7 +329,7 @@ final class BreakpointMediaDiffBuilder
             }
             if ( null !== $height && $height > 0.0 ) {
                 $declarations[] = 'height:auto';
-                $declarations[] = 'aspect-ratio:' . ($this->number)($width) . ' / ' . ($this->number)($height);
+                $declarations[] = 'aspect-ratio:' . $this->formatter->number($width) . ' / ' . $this->formatter->number($height);
             }
             if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
                 $declarations[] = 'background-size:cover';
@@ -374,8 +371,8 @@ final class BreakpointMediaDiffBuilder
         }
 
         return array(
-            'width' => ($this->number)(min(100.0, $width / $parentWidth * 100.0)) . '%',
-            'left'  => ($this->number)(max(0.0, (float) $box['x'] / $parentWidth * 100.0)) . '%',
+            'width' => $this->formatter->number(min(100.0, $width / $parentWidth * 100.0)) . '%',
+            'left'  => $this->formatter->number(max(0.0, (float) $box['x'] / $parentWidth * 100.0)) . '%',
         );
     }
 
@@ -618,7 +615,7 @@ final class BreakpointMediaDiffBuilder
      */
     private function mediaBlock(string $feature, int $breakpointPx, array $rules): string
     {
-        return '@media (' . $feature . ':' . ($this->number)((float) $breakpointPx) . 'px){'
+        return '@media (' . $feature . ':' . $this->formatter->number((float) $breakpointPx) . 'px){'
             . "\n" . implode("\n", $rules) . "\n}";
     }
 
@@ -632,10 +629,10 @@ final class BreakpointMediaDiffBuilder
             return;
         }
 
-        $id = ($this->sanitizeAttribute)((string) ($node['id'] ?? ''));
+        $id = $this->formatter->sanitizeAttribute((string) ($node['id'] ?? ''));
         $name = (string) ($node['name'] ?? '');
         $type = strtoupper((string) ($node['type'] ?? 'FRAME'));
-        $className = 'figma-node-' . ($this->slug)($id . '-' . $name);
+        $className = 'figma-node-' . $this->formatter->slug($id . '-' . $name);
         $styles = $this->stickyLayoutCoordinator->stickyAwareStyleDeclarations($node, ($this->styleDeclarations)($node, $type, $parentNode, $grandParentNode));
 
         $map[$pathKey] = array(
