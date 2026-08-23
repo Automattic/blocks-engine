@@ -5,6 +5,7 @@ import {
   emptyNativeRenderOut,
   headingBlock,
   paragraphBlock,
+  sectionButtons,
   wrapSection,
 } from './native-block-builders.js';
 import { centerOf, isDarkSection, isTintedSection, sectionPad } from './native-layout.js';
@@ -115,6 +116,19 @@ export function renderImageRow(section: SectionSpec, ctx?: NativeRenderCtx): Nat
   );
   const gallery = galleryBlock(section.images, out, { sectionHeight: section.height }, ctx);
   if (gallery) parts.push(gallery);
+  const largeImages = section.images.filter((image) => Math.min(image.width || 0, image.height || 0) >= 200);
+  const mediaForwardControlHero =
+    section.headings.length === 0 &&
+    section.bodyText.length === 0 &&
+    largeImages.length >= 2 &&
+    section.icons.length > 0 &&
+    ((section.buttons?.length ?? 0) > 0 || section.buttonLabels.length > 0);
+  if (mediaForwardControlHero && ctx) parts.push(...sectionButtons(section, out, ctx));
+  if (mediaForwardControlHero) {
+    out.flags.push(
+      `gutenberg-gap#${section.sectionIndex}: ${section.icons.length} icon-only control(s) lack service/destination semantics — social links not emitted`,
+    );
+  }
   out.markup = wrapSection(parts.filter(Boolean), {
     wide: '1100px',
     raised: isTintedSection(section),
