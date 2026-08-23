@@ -26,6 +26,7 @@ final class DiagnosticsCollector
      * @param array<int, array<string, mixed>>  $scriptMetadata       Static script metadata preserved as bounded data.
      * @param array<int, array<string, mixed>>  $fallbacks            Fallback diagnostics emitted during conversion.
      * @param array<int, array<string, mixed>>  $runtimeIslands       Preserved runtime islands.
+     * @param array<int, array<string, mixed>>  $runtimeDomPreservations Runtime contracts retained by native blocks.
      * @param array<string, mixed>              $blockValidityReport  Block serialization validity report.
      * @param array<string, mixed>              $semanticParityReport Semantic parity report.
      * @param array<string, mixed>              $contentRoundTripReport Content round-trip (hallucination) report.
@@ -36,6 +37,7 @@ final class DiagnosticsCollector
         array $scriptMetadata,
         array $fallbacks,
         array $runtimeIslands,
+        array $runtimeDomPreservations,
         array $blockValidityReport,
         array $semanticParityReport,
         array $contentRoundTripReport = array()
@@ -127,6 +129,20 @@ final class DiagnosticsCollector
                 'controls'                        => $island['controls'] ?? null,
                 'control'                         => $island['control'] ?? null,
                 'form'                            => $island['form'] ?? null,
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
+        }
+
+        foreach ( $runtimeDomPreservations as $preservation ) {
+            $diagnostics[] = array_filter(array(
+                'code'                => 'runtime_dom_contract_preserved',
+                'message'             => 'A script-addressed DOM contract was retained by a native Gutenberg block.',
+                'source'              => $transformerSource,
+                'severity'            => 'info',
+                'conversion_classification' => 'native_block_conversion',
+                'preservation_strategy' => 'native_block_dom_contract',
+                'block_name'          => $preservation['block_name'] ?? null,
+                'tag'                 => $preservation['tag'] ?? null,
+                'selector'            => $preservation['selector'] ?? null,
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 
