@@ -1521,6 +1521,9 @@ final class LayoutIntentClassifier
     private function siblingLayerRoleRank(array $node, array $parentNode): int
     {
         $role = $this->siblingLayerRole($node, $parentNode);
+        if ( self::LAYER_ROLE_CONTENT === $role && $this->isInferredForegroundTextLayerOverImage($node, $parentNode) ) {
+            return 4;
+        }
         if ( self::LAYER_ROLE_CONTENT === $role && $this->isHeroMediaLayerOverTopChromeUnderlay($node, $parentNode) ) {
             return 3;
         }
@@ -1533,6 +1536,34 @@ final class LayoutIntentClassifier
             self::LAYER_ROLE_CHROME => 2,
             default => 1,
         };
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $parentNode
+     */
+    private function isInferredForegroundTextLayerOverImage(array $node, array $parentNode): bool
+    {
+        if ( ! $this->treeHasText($node) ) {
+            return false;
+        }
+
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( null !== $this->nodeZIndex($node) && 'reverse_child_order' !== ($layout['z_index_source'] ?? null) ) {
+            return false;
+        }
+
+        $nodeId = (string) ($node['id'] ?? '');
+        foreach ( $this->nodeList($parentNode) as $sibling ) {
+            if ( ! is_array($sibling) || (string) ($sibling['id'] ?? '') === $nodeId ) {
+                continue;
+            }
+            if ( $this->treeHasImageReference($sibling) && ! $this->treeHasText($sibling) && $this->nodesOverlapInParent($node, $sibling, $parentNode) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
