@@ -107,6 +107,8 @@ final class StaticHtmlEmitter
 
     private ?LayoutIntentClassifier $layoutIntentClassifier = null;
 
+    private ?StaticHtmlNodeInspector $nodeInspector = null;
+
     public function __construct(?LayoutGapResolver $layoutGapResolver = null)
     {
         $this->layoutGapResolver = $layoutGapResolver ?? new LayoutGapResolver();
@@ -286,6 +288,11 @@ final class StaticHtmlEmitter
         return $this->layoutIntentClassifier ??= new LayoutIntentClassifier($this->assetsById);
     }
 
+    private function nodeInspector(): StaticHtmlNodeInspector
+    {
+        return $this->nodeInspector ??= new StaticHtmlNodeInspector();
+    }
+
     private function layoutFrameRoleClassifier(): LayoutFrameRoleClassifier
     {
         return $this->layoutFrameRoleClassifier ??= new LayoutFrameRoleClassifier();
@@ -295,18 +302,12 @@ final class StaticHtmlEmitter
     {
         return $this->staticHtmlSemanticClassifier ??= new StaticHtmlSemanticClassifier(
             $this->layoutIntentClassifier(),
+            $this->nodeInspector(),
             array(
-                'nodeList' => fn (array $node): array => $this->nodeList($node),
                 'textContent' => fn (array $node, ?array $parentNode = null): string => $this->textContent($node, $parentNode),
-                'textDescendantCount' => fn (array $node): int => $this->textDescendantCount($node),
-                'subtreePlainText' => fn (array $node): string => $this->subtreePlainText($node),
-                'nodePlainText' => fn (array $node): string => $this->nodePlainText($node),
-                'boxValue' => fn (array $node, string $key): ?float => $this->boxValue($node, $key),
                 'backgroundColor' => fn (array $node): ?string => $this->backgroundColor($node),
-                'cornerRadius' => fn (array $node): float => $this->cornerRadius($node),
                 'hasStrokePaint' => fn (array $node): bool => $this->hasStrokePaint($node),
                 'nodeAssetPath' => fn (array $node): ?string => $this->nodeAssetPath($node),
-                'subtreeHasRenderableVector' => fn (array $node): bool => $this->subtreeHasRenderableVector($node),
                 'listItemIds' => fn (array $container): array => $this->listItemIds($container),
                 'listLooksOrdered' => fn (array $container): bool => $this->listLooksOrdered($container),
                 'headingLevel' => fn (array $node, string $lowerName, int $depth, ?array $parentNode = null): ?string => $this->headingLevel($node, $lowerName, $depth, $parentNode),
@@ -2285,18 +2286,7 @@ final class StaticHtmlEmitter
      */
     private function subtreeHasRenderableVector(array $node): bool
     {
-        $type = strtoupper((string) ($node['type'] ?? ''));
-        if ( in_array($type, array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'STAR', 'POLYGON', 'REGULAR_POLYGON'), true) ) {
-            return true;
-        }
-
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( is_array($child) && $this->subtreeHasRenderableVector($child) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->nodeInspector()->subtreeHasRenderableVector($node);
     }
 
     /**
@@ -2954,18 +2944,7 @@ final class StaticHtmlEmitter
      */
     private function textDescendantCount(array $node): int
     {
-        $count = 0;
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            if ( 'TEXT' === strtoupper((string) ($child['type'] ?? '')) ) {
-                $count++;
-            }
-            $count += $this->textDescendantCount($child);
-        }
-
-        return $count;
+        return $this->nodeInspector()->textDescendantCount($node);
     }
 
     /**
@@ -2981,24 +2960,7 @@ final class StaticHtmlEmitter
      */
     private function subtreePlainText(array $node): string
     {
-        $parts = array();
-        if ( 'TEXT' === strtoupper((string) ($node['type'] ?? '')) ) {
-            $own = $this->nodePlainText($node);
-            if ( '' !== $own ) {
-                $parts[] = $own;
-            }
-        }
-        foreach ( $this->nodeList($node) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            $childText = $this->subtreePlainText($child);
-            if ( '' !== $childText ) {
-                $parts[] = $childText;
-            }
-        }
-
-        return implode(' ', $parts);
+        return $this->nodeInspector()->subtreePlainText($node);
     }
 
     /**
@@ -3006,31 +2968,7 @@ final class StaticHtmlEmitter
      */
     private function nodePlainText(array $node): string
     {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
-            return (string) $text['characters'];
-        }
-
-        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
-        if ( ! empty($segments) ) {
-            $out = '';
-            foreach ( $segments as $segment ) {
-                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
-                    $out .= (string) $segment['characters'];
-                }
-            }
-            if ( '' !== $out ) {
-                return $out;
-            }
-        }
-
-        foreach ( array('characters', 'text') as $key ) {
-            if ( isset($node[$key]) && is_scalar($node[$key]) ) {
-                return (string) $node[$key];
-            }
-        }
-
-        return '';
+        return $this->nodeInspector()->nodePlainText($node);
     }
 
     /**
@@ -3131,12 +3069,7 @@ final class StaticHtmlEmitter
      */
     private function cornerRadius(array $node): float
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( isset($box['corner_radius']) && is_numeric($box['corner_radius']) ) {
-            return (float) $box['corner_radius'];
-        }
-
-        return 0.0;
+        return $this->nodeInspector()->cornerRadius($node);
     }
 
     /**
@@ -3144,15 +3077,7 @@ final class StaticHtmlEmitter
      */
     private function boxValue(array $node, string $key): ?float
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        if ( isset($box[$key]) && is_numeric($box[$key]) ) {
-            return (float) $box[$key];
-        }
-        if ( isset($node[$key]) && is_numeric($node[$key]) ) {
-            return (float) $node[$key];
-        }
-
-        return null;
+        return $this->nodeInspector()->boxValue($node, $key);
     }
 
     /**
@@ -10480,15 +10405,7 @@ final class StaticHtmlEmitter
      */
     private function nodeList(array $container): array
     {
-        if ( is_array($container['nodes'] ?? null) ) {
-            return array_values($container['nodes']);
-        }
-
-        if ( is_array($container['children'] ?? null) ) {
-            return array_values($container['children']);
-        }
-
-        return array();
+        return $this->nodeInspector()->nodeList($container);
     }
 
     /**
