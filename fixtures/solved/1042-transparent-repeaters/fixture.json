@@ -1,5 +1,0 @@
-{
-  "fixture_class": "regression/static",
-  "tags": ["custom-element", "repeater", "list", "responsive"],
-  "complexity": 1
-}
