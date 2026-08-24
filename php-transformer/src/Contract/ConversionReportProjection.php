@@ -174,6 +174,7 @@ final class ConversionReportProjection
                     'events'                 => $fallback['events'] ?? array(),
                     'script_dependency_hint' => $fallback['script_dependency_hint'] ?? '',
                     'readable_blocks'        => $fallback['readable_blocks'] ?? array(),
+                    'dependent_losses'       => $fallback['dependent_losses'] ?? array(),
                     'html_bytes'             => $fallback['html_bytes'] ?? (isset($fallback['html']) && is_string($fallback['html']) ? strlen($fallback['html']) : null),
                     'html_truncated'         => $fallback['html_truncated'] ?? null,
                 ),
