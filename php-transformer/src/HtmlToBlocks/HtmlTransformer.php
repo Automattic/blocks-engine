@@ -3000,6 +3000,7 @@ final class HtmlTransformer
                     if ( '' !== $path ) {
                         $marker = '' === $marker ? $this->allocateAuthorMarker('attribute-state') : $marker;
                         $this->sourceAttributeStateMarkers[$path][] = $marker;
+                        $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
                     }
                 }
                 if ( '' !== $marker ) {
@@ -3025,7 +3026,8 @@ final class HtmlTransformer
                 }
                 $path = $this->sourceElementIdentity($element);
                 if ( '' !== $path ) {
-                    $this->sourceAttributeMarkers[$path] ??= $this->allocateAuthorMarker('attribute');
+                    $marker = $this->sourceAttributeMarkers[$path] ??= $this->allocateAuthorMarker('attribute');
+                    $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
                 }
             }
 		}
