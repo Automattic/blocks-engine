@@ -333,17 +333,30 @@ final class FontMaterializationPlanBuilder
                 if ( ! preg_match('/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $declaration, $familyMatch) || ! preg_match('/(?:^|;)\s*src\s*:\s*[^;{}]*url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $declaration, $sourceMatch) ) continue;
                 $family = $this->normalizeFamily((string) $familyMatch[1]);
                 $sourceUrl = html_entity_decode((string) (($sourceMatch[1] ?? '') ?: ($sourceMatch[2] ?? '') ?: ($sourceMatch[3] ?? '')), ENT_QUOTES | ENT_HTML5);
-                if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! preg_match('~^https?://~i', $sourceUrl) ) continue;
+                if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! $this->isEligibleDirectFontSourceUrl($sourceUrl) ) continue;
                 preg_match('/(?:^|;)\s*font-style\s*:\s*([^;{}]+)/i', $declaration, $styleMatch);
                 preg_match('/(?:^|;)\s*font-weight\s*:\s*([^;{}]+)/i', $declaration, $weightMatch);
                 $style = strtolower(trim((string) ($styleMatch[1] ?? 'normal')));
                 $weight = $this->typedWeight(trim((string) ($weightMatch[1] ?? '400')));
-                if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) || ! preg_match('~^https?://[^\s"\']+$~i', $sourceUrl) ) continue;
+                if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) ) continue;
                 $faces[] = array('family' => $family, 'style' => $style, 'weight' => $weight, 'source_url' => $sourceUrl, 'provenance' => array('source_kind' => 'css_font_face', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@font-face(' . ($index + 1) . ')'));
             }
         }
         usort($faces, static fn (array $left, array $right): int => strcmp($left['provenance']['source_path'] . "\n" . $left['provenance']['selector'] . "\n" . $left['source_url'], $right['provenance']['source_path'] . "\n" . $right['provenance']['selector'] . "\n" . $right['source_url']));
         return $faces;
+    }
+
+    private function isEligibleDirectFontSourceUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        $path = is_array($parts) ? strtolower((string) ($parts['path'] ?? '')) : '';
+        return is_array($parts)
+            && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
+            && ! empty($parts['host'])
+            && (! isset($parts['port']) || 443 === (int) $parts['port'])
+            && ! isset($parts['user'])
+            && ! isset($parts['pass'])
+            && (bool) preg_match('/\.woff2?$/', $path);
     }
 
     /** @param array<string,int|string> $weight @return array<int,int> */
