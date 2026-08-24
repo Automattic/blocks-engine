@@ -55,6 +55,9 @@ final class ArtifactCompiler
     /** Observational only: excludes receipt cache hits. */
     private int $htmlDocumentTransformCount = 0;
 
+    /** Observational only: counts source stylesheet discovery passes. */
+    private int $stylesheetAssetDiscoveryCount = 0;
+
     public function __construct(private readonly bool $cacheHtmlAnalysis = true)
     {
     }
@@ -76,6 +79,7 @@ final class ArtifactCompiler
             'author_hits' => $cache->authorSelectorHits,
             'author_evictions' => $cache->authorSelectorEvictions,
             'author_bytes' => $cache->authorSelectorBytes,
+            'stylesheet_asset_discoveries' => $this->stylesheetAssetDiscoveryCount,
         );
     }
 
@@ -1968,7 +1972,8 @@ final class ArtifactCompiler
             );
         }
 
-        $stylesheetPayloads = $this->linkedStylesheetPayloads($html, $sourcePath, $files);
+        $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
+        $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
@@ -1977,9 +1982,9 @@ final class ArtifactCompiler
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
-            'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
-            'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
+            'author_stylesheet_assets'  => $stylesheetAssets,
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
@@ -2376,23 +2381,16 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
-    {
-        return trim(implode("\n", array_column($this->linkedStylesheetPayloads($html, $sourcePath, $files), 'content')));
-    }
-
-    /**
      * Keep source stylesheet boundaries intact for payload-addressed analysis.
      *
+     * @param list<array{path: string, content: string, source_hash: string}> $stylesheets
      * @param array<int, array<string, mixed>> $files
      * @return list<array{content: string, source_hash: string}>
      */
-    private function linkedStylesheetPayloads(string $html, string $sourcePath, array $files): array
+    private function linkedStylesheetPayloads(array $stylesheets, string $sourcePath, array $files): array
     {
         $payloads = array();
-        foreach ( $this->stylesheetAssetsForSource($html, $sourcePath, $files) as $stylesheet ) {
+        foreach ( $stylesheets as $stylesheet ) {
             $content = (string) ($stylesheet['content'] ?? '');
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
@@ -2414,6 +2412,7 @@ final class ArtifactCompiler
      */
     private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
     {
+        ++$this->stylesheetAssetDiscoveryCount;
         $byPath = array();
         $inline = array();
         $occurrencePaths = array();
