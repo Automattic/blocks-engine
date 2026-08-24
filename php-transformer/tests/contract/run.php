@@ -141,6 +141,16 @@ $assert(
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
+$staticVisualMediaWrapperResult = ( new HtmlTransformer() )->transform('<style>.visual-layer{position:absolute}</style><div class="media-shell"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
+$staticVisualMediaWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $staticVisualMediaWrapperResult['assets'] ?? array()));
+$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['className'] ?? '');
+preg_match('/(?:^|\s)(be-inline-geometry-[a-f0-9]+)(?:\s|$)/', $staticVisualMediaWrapperClass, $staticVisualMediaWrapperCarrier);
+$assert(
+    isset($staticVisualMediaWrapperCarrier[1])
+        && str_contains($staticVisualMediaWrapperCss, 'min-height:281px')
+        && ! preg_match('/\.' . preg_quote($staticVisualMediaWrapperCarrier[1], '/') . '\{[^}]*position:relative/', $staticVisualMediaWrapperCss),
+    'a source-static visual media wrapper reserves intrinsic height without changing the absolute child containing block'
+);
 $stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><media-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
 $stickyVisualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stickyVisualLayerImageResult['assets'] ?? array()));
 $assert(

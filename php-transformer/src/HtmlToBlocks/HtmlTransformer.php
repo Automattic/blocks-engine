@@ -15103,11 +15103,6 @@ final class HtmlTransformer
     private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs): array
     {
         $geometry = array();
-        $structural = $this->structuralPresentationDeclarations($element);
-        $position = strtolower(trim((string) ($structural['position'] ?? '')));
-        if ( $this->hasPositionedVisualMediaChild($element) && ! in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
-            $geometry['position'] = 'relative';
-        }
         $presentation = $this->presentationDeclarations($element);
         $inline = $this->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
