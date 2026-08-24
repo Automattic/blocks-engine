@@ -1,0 +1,23 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-implicit-dialog-standalone-preserved",
+  "description": "An icon-only dialog-popup control with no eligible hidden navigation target remains an ordinary source control; popup semantics alone never cause navigation projection or suppression.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-implicit-dialog-standalone-preserved.json",
+    "notes": "Negative guard for unrelated standalone dialog triggers." 
+  },
+  "legacy_comparison": { "skip": true, "reason": "This upstream primitive fixture has no downstream legacy comparison." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><button aria-label=\"Open menu\" aria-haspopup=\"dialog\" aria-expanded=\"false\"><span class=\"screen-reader-label\">Open menu</span><svg aria-hidden=\"true\"><path></path></svg></button></header>",
+    "options": { "static_css": ".screen-reader-label{display:none}" }
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Open menu" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation" }
+  ]
+}

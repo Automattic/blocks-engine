@@ -1,0 +1,23 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-implicit-dialog-ambiguous-preserved",
+  "description": "A dialog-popup hamburger shares its chrome scope with two hidden, link-bearing navigation dialogs. The implicit relationship is ambiguous, so neither target is projected or suppressed and the standalone control remains content.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-implicit-dialog-ambiguous-preserved.json",
+    "notes": "Fail-closed guard for implicit dialog pairing." 
+  },
+  "legacy_comparison": { "skip": true, "reason": "This upstream primitive fixture has no downstream legacy comparison." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><button aria-label=\"Open menu\" aria-haspopup=\"dialog\" aria-expanded=\"false\"><span class=\"screen-reader-label\">Open menu</span><svg aria-hidden=\"true\"><path></path></svg></button></header><div role=\"dialog\" aria-label=\"Site navigation\" data-visible=\"false\"><nav><a href=\"/\">HOME</a><a href=\"/about\">ABOUT</a></nav></div><div role=\"dialog\" aria-label=\"Account navigation\" data-visible=\"false\"><nav><a href=\"/account\">ACCOUNT</a><a href=\"/logout\">LOG OUT</a></nav></div>",
+    "options": { "static_css": ".screen-reader-label{display:none}" }
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Open menu" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"overlayMenu\":\"mobile\"" }
+  ]
+}
