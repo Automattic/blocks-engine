@@ -99,21 +99,35 @@ trait StyleResolutionTrait
     /**
      * Properties carried when NO author rule declares them at all.
      *
-     * Deliberately NOT general. `box-shadow` is decorative paint with no layout
-     * or animation side effects, and it is the only unmapped property in this
-     * defect family: the four service cards are classless elements whose inline
-     * box-shadow is their only ring, so nothing else can restore it. A general
-     * "carry every leftover inline declaration" rule would also carry
-     * `animation`, `filter` and `counter-reset`, which have side effects and sit
-     * outside this defect family. Conflicting declarations do not need to be on
-     * this list — a conflict is self-evidence that the author rule would
-     * otherwise reassert the opposite value.
+     * Deliberately NOT general. Decorative paint is safe to preserve without
+     * layout or animation side effects. Color declarations also land here when
+     * their custom properties cannot be proven compatible with Gutenberg color
+     * support; carrying the authored CSS avoids activating destructive support
+     * classes without discarding the source declaration. A general "carry every
+     * leftover inline declaration" rule would also carry `animation`, `filter`
+     * and `counter-reset`, which have side effects. Conflicting declarations do
+     * not need to be on this list — a conflict is self-evidence that the author
+     * rule would otherwise reassert the opposite value.
      *
      * @return list<string>
      */
     private function inlineUnmatchedCarrierProperties(): array
     {
-        return array( 'box-shadow' );
+        return array(
+            'box-shadow',
+            'color',
+            'background-color',
+            'border-color',
+            'border',
+            'border-top',
+            'border-right',
+            'border-bottom',
+            'border-left',
+            'border-top-color',
+            'border-right-color',
+            'border-bottom-color',
+            'border-left-color',
+        );
     }
 
     /**
@@ -238,7 +252,10 @@ trait StyleResolutionTrait
             $this->presentationDeclarations($element)
         );
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
-        $mapped       = $this->styleAttributeMapper()->map($declarations);
+        $mapped       = $this->styleAttributeMapper()->map(
+            $declarations,
+            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+        );
         $forcedGeometryDeclarations = array() === $forcedGeometryProperties
             ? array()
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
@@ -694,7 +711,10 @@ trait StyleResolutionTrait
         array $carried,
         array $excludedProperties
     ): array {
-        $candidates = $this->styleAttributeMapper()->map($inlineDeclarations)['leftover'] ?? array();
+        $candidates = $this->styleAttributeMapper()->map(
+            $inlineDeclarations,
+            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+        )['leftover'] ?? array();
         if ( isset($inlineDeclarations['box-shadow']) ) {
             $candidates['box-shadow'] = $inlineDeclarations['box-shadow'];
         }

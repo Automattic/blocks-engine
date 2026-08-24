@@ -1298,6 +1298,15 @@ $assert(str_contains($cssVariableButtonCss, 'border-radius:6px!important'), 'but
 $assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
 $assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
 
+$borderWidthVariableCta = ( new HtmlTransformer() )->transform(
+    '<style>:root{--corvid-border-width:var(--brw,0)}.cta{display:inline-block;width:142px;height:40px;background:#1684d6;color:#fff;border-color:var(--corvid-border-width,var(--brw,0))}</style><a class="cta" href="/more">Meer info</a>'
+)->toArray();
+$borderWidthVariableCtaMarkup = (string) ($borderWidthVariableCta['serialized_blocks'] ?? '');
+$borderWidthVariableCtaCss = implode("\n", array_column($borderWidthVariableCta['assets'] ?? array(), 'content'));
+$assert(! isset($borderWidthVariableCta['blocks'][0]['attrs']['style']['border']['color']) && ! str_contains($borderWidthVariableCtaMarkup, 'has-border-color'), 'dimension-valued custom properties do not activate Gutenberg border color support');
+$assert(str_contains($borderWidthVariableCtaMarkup, 'Meer info') && str_contains($borderWidthVariableCtaCss, 'width:142px;height:40px;background:#1684d6') && str_contains($borderWidthVariableCtaCss, 'border-color:var(--corvid-border-width,var(--brw,0))'), 'rejected CTA border color remains in authored CSS with its label, source fill, and dimensions');
+$assert('pass' === ($borderWidthVariableCta['source_reports']['wp_block_validity']['status'] ?? ''), 'dimension-valued CTA border variable preserves valid Gutenberg serialization');
+
 $plainWrappedLink = ( new HtmlTransformer() )->transform('<main><div class="card-link"><a href="/docs">Read docs</a></div></main>')->toArray();
 $assert(! str_contains((string) ($plainWrappedLink['serialized_blocks'] ?? ''), '<!-- wp:button'), 'plain single-anchor wrappers without button signals do not become buttons');
 

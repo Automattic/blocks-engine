@@ -60,6 +60,28 @@ $assert(
     json_encode($uniformBorder)
 );
 
+$colorDomainMapper = new StyleAttributeMapper();
+$dimensionBorderColor = $colorDomainMapper->map(
+    array( 'border-color' => 'var(--border-width,var(--fallback-width,0))' ),
+    static fn (string $value): string => '0'
+);
+$resolvedVariableBorderColor = $colorDomainMapper->map(
+    array( 'border-color' => 'var(--border-color,#123456)' ),
+    static fn (string $value): string => '#123456'
+);
+$assert(
+    ! isset($dimensionBorderColor['style']['border']['color'])
+        && 'var(--border-width,var(--fallback-width,0))' === ($dimensionBorderColor['leftover']['border-color'] ?? ''),
+    '8c: a dimension-resolving custom property stays authored CSS instead of becoming border color support',
+    json_encode($dimensionBorderColor)
+);
+$assert(
+    'var(--border-color,#123456)' === ($resolvedVariableBorderColor['style']['border']['color'] ?? '')
+        && ! isset($resolvedVariableBorderColor['leftover']['border-color']),
+    '8d: a color-resolving custom property retains its authored token in border color support',
+    json_encode($resolvedVariableBorderColor)
+);
+
 $classBorderImage = ( new HtmlTransformer() )->transform(
     '<img class="photo" src="/photo.jpg" alt="Portrait">',
     array('static_css' => '.photo{border-top-width:12.808px;border-right-width:12.808px;border-bottom-width:12.808px;border-left-width:12.808px;border-style:solid;border-color:#fff}')
@@ -397,7 +419,7 @@ $compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintH
 $compoundCandidateProbe = ( new StaticStyleParityProbe() )->extract(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($compoundPaintMarkup), $compoundPaintCssAsset);
 $assert(0 < (int) ($compoundSourceProbe['summary']['styled_total'] ?? 0) && 0 < (int) ($compoundCandidateProbe['summary']['styled_total'] ?? 0), '62: layered background cascade case produces nonzero source and candidate style probes', json_encode(array($compoundSourceProbe['summary'] ?? array(), $compoundCandidateProbe['summary'] ?? array())));
 
-$amberQuoteHtml = '<blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
+$amberQuoteHtml = '<style>:root{--secondary:#f0ac22}</style><blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
 $amberQuoteResult = ( new HtmlTransformer() )->transform($amberQuoteHtml, array())->toArray();
 $amberQuote = $amberQuoteResult['blocks'][0] ?? array();
 $amberQuoteAttrs = is_array($amberQuote['attrs'] ?? null) ? $amberQuote['attrs'] : array();
@@ -491,7 +513,7 @@ $assert(
 );
 
 $nativeBorderGroupResult = ( new HtmlTransformer() )->transform(
-    '<section style="border-left:2px solid var(--secondary)"><p>Native border</p></section>',
+    '<style>:root{--secondary:#f0ac22}</style><section style="border-left:2px solid var(--secondary)"><p>Native border</p></section>',
     array()
 )->toArray();
 $nativeBorderGroup = $nativeBorderGroupResult['blocks'][0] ?? array();

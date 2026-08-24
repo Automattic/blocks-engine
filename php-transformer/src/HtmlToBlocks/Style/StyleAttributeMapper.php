@@ -53,9 +53,10 @@ final class StyleAttributeMapper
      * Map resolved CSS declarations to canonical block style attributes.
      *
      * @param array<string, string> $declarations
+     * @param null|callable(string): string $resolveValue
      * @return array{style: array<string, mixed>, attrs: array<string, string>, leftover: array<string, string>}
      */
-    public function map(array $declarations): array
+    public function map(array $declarations, ?callable $resolveValue = null): array
     {
         $normalized = array();
         foreach ( $declarations as $name => $value ) {
@@ -75,7 +76,7 @@ final class StyleAttributeMapper
         }
 
         $attrs = array();
-        $color = $this->color($normalized, $consumed, $attrs);
+        $color = $this->color($normalized, $consumed, $attrs, $resolveValue);
         if ( array() !== $color ) {
             $style['color'] = $color;
         }
@@ -103,7 +104,7 @@ final class StyleAttributeMapper
             $style['spacing']['blockGap'] = $blockGap;
         }
 
-        $border = $this->border($normalized, $consumed);
+        $border = $this->border($normalized, $consumed, $resolveValue);
         if ( array() !== $border ) {
             $style['border'] = $border;
         }
@@ -279,14 +280,14 @@ final class StyleAttributeMapper
      * @param array<string, bool> $consumed
      * @return array<string, string>
      */
-    private function color(array $declarations, array &$consumed, array &$attrs): array
+    private function color(array $declarations, array &$consumed, array &$attrs, ?callable $resolveValue): array
     {
         $color = array();
 
         if ( isset($declarations['color']) ) {
-            $consumed['color'] = true;
-            $text = $this->cssColor($declarations['color']);
+            $text = $this->cssColor($declarations['color'], $resolveValue);
             if ( '' !== $text ) {
+                $consumed['color'] = true;
                 $preset = $this->presetColorSlug($text);
                 if ( '' !== $preset ) {
                     $attrs['textColor'] = $preset;
@@ -297,7 +298,7 @@ final class StyleAttributeMapper
         }
 
         $gradient = $this->gradient($declarations, $consumed);
-        $background = $this->backgroundColor($declarations, $consumed);
+        $background = $this->backgroundColor($declarations, $consumed, $resolveValue);
         if ( '' !== $background ) {
             $preset = $this->presetColorSlug($background);
             if ( '' !== $preset ) {
@@ -415,12 +416,15 @@ final class StyleAttributeMapper
      * @param array<string, string> $declarations
      * @param array<string, bool> $consumed
      */
-    private function backgroundColor(array $declarations, array &$consumed): string
+    private function backgroundColor(array $declarations, array &$consumed, ?callable $resolveValue): string
     {
         if ( isset($declarations['background-color']) ) {
-            $consumed['background-color'] = true;
             $color = trim($declarations['background-color']);
-            return 'transparent' === strtolower($color) ? $color : $this->cssColor($color);
+            $color = 'transparent' === strtolower($color) ? $color : $this->cssColor($color, $resolveValue);
+            if ( '' !== $color ) {
+                $consumed['background-color'] = true;
+            }
+            return $color;
         }
 
         $value = trim((string) ($declarations['background'] ?? ''));
@@ -428,9 +432,12 @@ final class StyleAttributeMapper
             return '';
         }
 
-        $consumed['background'] = true;
         $color = trim(CssValueSplitter::splitTopLevelWhitespace($value)[0] ?? '');
-        return 'transparent' === strtolower($color) ? $color : $this->cssColor($color);
+        $color = 'transparent' === strtolower($color) ? $color : $this->cssColor($color, $resolveValue);
+        if ( '' !== $color ) {
+            $consumed['background'] = true;
+        }
+        return $color;
     }
 
     /**
@@ -491,7 +498,7 @@ final class StyleAttributeMapper
      * @param array<string, bool> $consumed
      * @return array<string, string>
      */
-    private function border(array $declarations, array &$consumed): array
+    private function border(array $declarations, array &$consumed, ?callable $resolveValue): array
     {
         $border    = array();
         $positions = array_flip(array_keys($declarations));
@@ -500,15 +507,28 @@ final class StyleAttributeMapper
                 $consumed[ $name ] = true;
             }
         }
+        foreach ( $declarations as $name => $value ) {
+            if ( preg_match('/^border(?:-(?:top|right|bottom|left))?-color$/', $name)
+                && '' === $this->cssColor($value, $resolveValue)
+            ) {
+                unset($consumed[ $name ]);
+            }
+            if ( preg_match('/^border(?:-(?:top|right|bottom|left))?$/', $name)
+                && isset($this->parseBorderShorthand($value)['color'])
+                && ! isset($this->parseBorderShorthand($value, $resolveValue)['color'])
+            ) {
+                unset($consumed[ $name ]);
+            }
+        }
 
         $global = array();
         foreach ( array( 'width', 'style', 'color' ) as $component ) {
-            $global[ $component ] = $this->borderComponentCandidate($declarations, $positions, $component);
+            $global[ $component ] = $this->borderComponentCandidate($declarations, $positions, $component, '', $resolveValue);
         }
 
         $width      = trim($global['width']['value']);
         $style      = strtolower(trim($global['style']['value']));
-        $colorValue = $this->cssColor($global['color']['value']);
+        $colorValue = $this->cssColor($global['color']['value'], $resolveValue);
 
         $noBorder = 'none' === $style || ( '' !== $width && (float) $width === 0.0 && '' === $colorValue && '' === $style );
         if ( ! $noBorder ) {
@@ -533,7 +553,7 @@ final class StyleAttributeMapper
             $sideComponents = array();
             $sideDeclared   = array();
             foreach ( array( 'width', 'style', 'color' ) as $component ) {
-                $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side);
+                $candidate = $this->borderComponentCandidate($declarations, $positions, $component, $side, $resolveValue);
                 if ( $candidate['index'] > $global[ $component ]['index'] ) {
                     $sideComponents[ $component ] = $candidate['value'];
                     $sideDeclared[ $component ]   = $candidate['declared'];
@@ -542,7 +562,7 @@ final class StyleAttributeMapper
 
             $sideWidth = trim((string) ($sideComponents['width'] ?? ''));
             $sideStyle = strtolower(trim((string) ($sideComponents['style'] ?? '')));
-            $sideColor = $this->cssColor((string) ($sideComponents['color'] ?? ''));
+            $sideColor = $this->cssColor((string) ($sideComponents['color'] ?? ''), $resolveValue);
 
             $sideValues = array();
             $noSideBorder = 'none' === $sideStyle || ( '' !== $sideWidth && (float) $sideWidth === 0.0 && '' === $sideColor && '' === $sideStyle );
@@ -582,14 +602,14 @@ final class StyleAttributeMapper
      * @param array<string, int> $positions
      * @return array{value: string, index: int, declared: bool}
      */
-    private function borderComponentCandidate(array $declarations, array $positions, string $component, string $side = ''): array
+    private function borderComponentCandidate(array $declarations, array $positions, string $component, string $side = '', ?callable $resolveValue = null): array
     {
         $shorthandName = '' === $side ? 'border' : 'border-' . $side;
         $longhandName  = $shorthandName . '-' . $component;
         $candidate     = array( 'value' => '', 'index' => -1, 'declared' => false );
 
         if ( isset($declarations[ $shorthandName ]) ) {
-            $shorthand = $this->parseBorderShorthand($declarations[ $shorthandName ]);
+            $shorthand = $this->parseBorderShorthand($declarations[ $shorthandName ], $resolveValue);
             $initialValues = array(
                 'width' => 'medium',
                 'style' => 'none',
@@ -659,7 +679,7 @@ final class StyleAttributeMapper
     /**
      * @return array{width?: string, style?: string, color?: string}
      */
-    private function parseBorderShorthand(string $value): array
+    private function parseBorderShorthand(string $value, ?callable $resolveValue = null): array
     {
         $value = trim($value);
         if ( '' === $value ) {
@@ -677,7 +697,7 @@ final class StyleAttributeMapper
                 $parsed['width'] = $token;
                 continue;
             }
-            if ( '' !== $this->cssColor($token) ) {
+            if ( '' !== $this->cssColor($token, $resolveValue) ) {
                 $parsed['color'] = $token;
             }
         }
@@ -688,7 +708,7 @@ final class StyleAttributeMapper
     /**
      * Return the value when it is a usable CSS color, otherwise an empty string.
      */
-    private function cssColor(string $value): string
+    private function cssColor(string $value, ?callable $resolveValue = null): string
     {
         $value = trim($value);
         if ( '' === $value ) {
@@ -721,6 +741,15 @@ final class StyleAttributeMapper
             return $value;
         }
         if ( preg_match('/^var\s*\(\s*--[a-z0-9_-]+/i', $value) ) {
+            if ( preg_match('/^var\s*\(\s*--wp--preset--color--[a-z0-9_-]+\s*\)$/i', $value) ) {
+                return $value;
+            }
+            if ( null !== $resolveValue ) {
+                $resolved = trim((string) $resolveValue($value));
+                if ( $resolved === $value || str_contains($resolved, 'var(') || '' === $this->cssColor($resolved) ) {
+                    return '';
+                }
+            }
             return $value;
         }
         if ( 'currentcolor' === $lower ) {
