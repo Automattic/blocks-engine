@@ -38,6 +38,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $links = array();
         $showLabels = false;
+        $iconOnly = true;
+        $structuralItems = true;
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             if ( '' === $url ) {
@@ -53,16 +55,32 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $label = $text;
             }
             $showLabels = $showLabels || '' !== $text;
-            $links[] = $context->createBlockCallback()('core/social-link', array_filter(array(
+            $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
+            $sourceElement = $this->structuralItem($anchor, $element);
+            $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
+            $links[] = $context->createBlockCallback()('core/social-link', array_merge(
+                $context->presentationAttributesCallback()($sourceElement),
+                array_filter(array(
                 'url' => $url,
                 'service' => $this->service($url) ?? 'chain',
                 'label' => $label,
-            ), static fn(string $value): bool => '' !== $value), array(), $anchor);
+                ), static fn(string $value): bool => '' !== $value)
+            ), array(), $sourceElement);
         }
 
         $attrs = $context->presentationAttributesCallback()($element);
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
+        }
+        if ( $iconOnly ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
+            $size = $this->iconSize($anchors);
+            if ( null !== $size ) {
+                $attrs['size'] = $size;
+            }
+        }
+        if ( $structuralItems ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
         }
         return new PatternRecognitionResult(
             $context->createBlockCallback()('core/social-links', $attrs, $links, $element)
@@ -122,5 +140,56 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return null;
+    }
+
+    private function structuralItem(DOMElement $anchor, DOMElement $cluster): DOMElement
+    {
+        $parent = $anchor->parentNode;
+        return $parent instanceof DOMElement
+            && $parent->parentNode instanceof DOMElement
+            && $parent->parentNode->isSameNode($cluster)
+            && 'li' === strtolower($parent->tagName)
+                ? $parent
+                : $anchor;
+    }
+
+    private function hasIcon(DOMElement $anchor): bool
+    {
+        return 0 < $anchor->getElementsByTagName('img')->length
+            || 0 < $anchor->getElementsByTagName('svg')->length;
+    }
+
+    /** @param array<int,DOMElement> $anchors */
+    private function iconSize(array $anchors): ?string
+    {
+        $dimensions = array();
+        foreach ( $anchors as $anchor ) {
+            foreach ( array( 'img', 'svg' ) as $tagName ) {
+                $icon = $anchor->getElementsByTagName($tagName)->item(0);
+                if ( ! $icon instanceof DOMElement ) {
+                    continue;
+                }
+                $width = (float) $this->attr($icon, 'width');
+                $height = (float) $this->attr($icon, 'height');
+                if ( 0 < $width && 0 < $height ) {
+                    $dimensions[] = min($width, $height);
+                }
+                break;
+            }
+        }
+        if ( array() === $dimensions ) {
+            return null;
+        }
+
+        sort($dimensions, SORT_NUMERIC);
+        $sourceSize = $dimensions[(int) floor((count($dimensions) - 1) / 2)];
+        $presets = array( 'small' => 16.0, 'normal' => 24.0, 'large' => 36.0, 'huge' => 48.0 );
+        $closest = 'normal';
+        foreach ( $presets as $preset => $pixels ) {
+            if ( abs($sourceSize - $pixels) < abs($sourceSize - $presets[ $closest ]) ) {
+                $closest = $preset;
+            }
+        }
+        return $closest;
     }
 }

@@ -141,6 +141,16 @@ $assert(
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
+$staticVisualMediaWrapperResult = ( new HtmlTransformer() )->transform('<style>.visual-layer{position:absolute}</style><div class="media-shell"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
+$staticVisualMediaWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $staticVisualMediaWrapperResult['assets'] ?? array()));
+$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['className'] ?? '');
+preg_match('/(?:^|\s)(be-inline-geometry-[a-f0-9]+)(?:\s|$)/', $staticVisualMediaWrapperClass, $staticVisualMediaWrapperCarrier);
+$assert(
+    isset($staticVisualMediaWrapperCarrier[1])
+        && str_contains($staticVisualMediaWrapperCss, 'min-height:281px')
+        && ! preg_match('/\.' . preg_quote($staticVisualMediaWrapperCarrier[1], '/') . '\{[^}]*position:relative/', $staticVisualMediaWrapperCss),
+    'a source-static visual media wrapper reserves intrinsic height without changing the absolute child containing block'
+);
 $stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><media-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
 $stickyVisualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stickyVisualLayerImageResult['assets'] ?? array()));
 $assert(
@@ -511,13 +521,19 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
-$socialLinksResult = ( new HtmlTransformer() )->transform('<ul class="social-links"><li><a href="https://github.com/Automattic" aria-label="GitHub"><svg aria-hidden="true"></svg></a></li><li><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg aria-hidden="true"></svg></a></li></ul>')->toArray();
+$socialLinksResult = ( new HtmlTransformer() )->transform('<style>.social-links .social-item{display:inline-block;width:22px;height:22px;margin:0 11px 0 0}</style><ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>')->toArray();
 $socialLinksBlock = $socialLinksResult['blocks'][0] ?? array();
 $assert('core/social-links' === ($socialLinksBlock['blockName'] ?? null), 'explicit social profile clusters convert to core/social-links instead of generic navigation');
 $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ?? null) && 'instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['service'] ?? null), 'social profile hosts map to WordPress social-link service semantics');
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
-$assert(str_contains($socialLinksMarkup, '<ul class="wp-block-social-links social-links">') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the static social-links wrapper');
+$assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
+$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'normal has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
+$assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
+$assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
+$socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
+$assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
@@ -1224,6 +1240,11 @@ $fallbackAttributeFlexCss = implode("\n", array_map(static fn (array $asset): st
 $fallbackAttributeFlexHtml = implode("\n", array_map(static fn (array $fallback): string => (string) ($fallback['html'] ?? ''), $fallbackAttributeFlex['fallbacks'] ?? array()));
 $assert(str_contains($fallbackAttributeFlexHtml, 'data-hook="label-wrapper"') && str_contains($fallbackAttributeFlexHtml, 'blocks-engine-attribute-'), 'data-attribute projection markers survive inside bounded fallback islands');
 $assert(str_contains($fallbackAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($fallbackAttributeFlexCss, 'flex-grow:1') && 'pass' === ($fallbackAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded fallback attribute projection remains styled and Gutenberg-valid');
+
+$fallbackTagReset = ( new HtmlTransformer() )->transform('<style>p{margin:0}label[data-hook="checkbox-core"] div[data-hook="label-wrapper"]{flex-grow:1}</style><form><label data-hook="checkbox-core"><input type="checkbox"><div data-hook="label-wrapper"><p>Consent copy</p></div></label><button type="submit">Send</button></form>')->toArray();
+$fallbackTagResetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fallbackTagReset['assets'] ?? array()));
+$fallbackTagResetHtml = implode("\n", array_map(static fn (array $fallback): string => (string) ($fallback['html'] ?? ''), $fallbackTagReset['fallbacks'] ?? array()));
+$assert(str_contains($fallbackTagResetHtml, '<p class="blocks-engine-source-p-') && str_contains($fallbackTagResetCss, ':where(.blocks-engine-source-p-') && str_contains($fallbackTagResetCss, '{margin:0}'), 'source tag projection markers preserve authored resets on descendants inside bounded fallback islands');
 
 $settledAttributeState = ( new HtmlTransformer() )->transform('<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}@keyframes fade{from{opacity:0}to{opacity:1}}</style><main><div class="animated" data-state="done"><img src="hero.jpg" alt="Hero"></div><div class="animated"><p>Pending</p></div></main>')->toArray();
 $settledAttributeStateCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $settledAttributeState['assets'] ?? array()));

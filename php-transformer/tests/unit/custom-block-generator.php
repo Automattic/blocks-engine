@@ -123,6 +123,11 @@ $assert(1 === count($deepDefinitions), '6: one deep repeatable component produce
 $assert(str_contains($deepMarkup, '<!-- wp:custom/collection-') && str_contains((string) ($deepDefinitions[0]['render'] ?? ''), '<div class="story-collection">') && !str_contains((string) ($deepDefinitions[0]['render'] ?? ''), 'shell-15'), '6: capture starts at the cohesive component root rather than the surrounding page shell');
 $assert(20 >= ($deepResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), '6: generated component keeps the resulting List View depth within policy');
 
+$tagResetResult = ( new HtmlTransformer() )->transform('<style>p{margin:0}</style>' . $deepCollection)->toArray();
+$tagResetDefinitions = $tagResetResult['source_reports']['generated_blocks'] ?? array();
+$tagResetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $tagResetResult['assets'] ?? array()));
+$assert(str_contains((string) ($tagResetDefinitions[0]['render'] ?? ''), '<p class="blocks-engine-source-p-') && str_contains($tagResetCss, ':where(.blocks-engine-source-p-') && str_contains($tagResetCss, '{margin:0}'), '6: generated component descendants retain source tag projection markers');
+
 $shallowResult = ( new HtmlTransformer() )->transform('<div><div>' . $collection . '</div></div>')->toArray();
 $assert(array() === ($shallowResult['source_reports']['generated_blocks'] ?? array()), '6: shallow repeatable content remains native blocks');
 

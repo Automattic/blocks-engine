@@ -381,7 +381,11 @@ final class BlockFactory
         // Social Links persists its static list wrapper, but each provider-backed
         // social-link child renders dynamically and therefore saves no HTML.
         if ( 'core/social-links' === $name ) {
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, 'wp-block-social-links') . '>', 'closing' => '</ul>' );
+            $size = $this->safeSlug((string) ($attrs['size'] ?? ''));
+            $sizeClass = in_array($size, array( 'small', 'normal', 'large', 'huge' ), true)
+                ? $size . ' has-' . $size . '-icon-size'
+                : '';
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $sizeClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {

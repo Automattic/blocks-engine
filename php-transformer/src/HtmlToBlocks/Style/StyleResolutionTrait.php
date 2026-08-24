@@ -1033,7 +1033,7 @@ trait StyleResolutionTrait
     {
         $required = $this->inlineCustomPropertiesRequired(
             $declarations,
-            $this->inlineCustomPropertiesConsumedByAuthorStyles($element) + $this->customPropertiesReferencedByValues($geometryValues)
+            $this->inlineCustomPropertiesConsumedByAuthorStyles($element, $declarations) + $this->customPropertiesReferencedByValues($geometryValues)
         );
         $customProperties = array();
         foreach ($declarations as $property => $value) {
@@ -1047,16 +1047,30 @@ trait StyleResolutionTrait
     }
 
     /**
+     * @param array<string, string> $declarations
      * @return array<string, true>
      */
-    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element): array
+    private function inlineCustomPropertiesConsumedByAuthorStyles(DOMElement $element, array $declarations): array
     {
+        $declared = array_fill_keys(array_filter(array_keys($declarations), static fn (string $property): bool => str_starts_with($property, '--')), true);
+        if (array() === $declared) {
+            return array();
+        }
+
         $consumed = array();
-        foreach ($this->styleRuleCandidates($element, 'static-conditional-pseudo') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
-                continue;
+        $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
+            foreach ($this->styleRuleCandidates($target, 'static-conditional-pseudo') as $rule) {
+                if (! $this->matchesCssSelector($target, $rule['selector'])) {
+                    continue;
+                }
+                $consumed += array_intersect_key($this->customPropertiesReferencedByValues($rule['declarations']), $declared);
             }
-            $consumed += $this->customPropertiesReferencedByValues($rule['declarations']);
+        };
+        $inspect($element);
+        foreach ($element->getElementsByTagName('*') as $descendant) {
+            if ($descendant instanceof DOMElement) {
+                $inspect($descendant);
+            }
         }
 
         return $consumed;

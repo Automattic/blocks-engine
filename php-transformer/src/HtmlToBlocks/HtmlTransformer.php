@@ -699,7 +699,6 @@ final class HtmlTransformer
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->layoutGeometryProofReductions = is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array();
         $this->supersededRuntimeSelectors = array();
-        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -772,6 +771,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors, $this->sourceTagMarkers);
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
@@ -1437,6 +1437,9 @@ final class HtmlTransformer
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
+        }
+        if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
+            $afterAuthorCssParts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
         }
         foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
             $afterAuthorCssParts[] = $itemAnchorRule;
@@ -15103,11 +15106,6 @@ final class HtmlTransformer
     private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs): array
     {
         $geometry = array();
-        $structural = $this->structuralPresentationDeclarations($element);
-        $position = strtolower(trim((string) ($structural['position'] ?? '')));
-        if ( $this->hasPositionedVisualMediaChild($element) && ! in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
-            $geometry['position'] = 'relative';
-        }
         $presentation = $this->presentationDeclarations($element);
         $inline = $this->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
