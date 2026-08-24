@@ -15429,6 +15429,10 @@ final class HtmlTransformer
             return null;
         }
 
+        if ( ! $this->isStaticLayoutV1($element) ) {
+            return null;
+        }
+
         if ( ! $this->responsiveMediaBlockGenerated ) {
             $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
             $this->responsiveMediaBlockGenerated = true;
@@ -15440,6 +15444,59 @@ final class HtmlTransformer
             array(),
             $element
         );
+    }
+
+    /**
+     * The static-site-importer responsive-media renderer accepts this fixed
+     * static-layout-v1 subset. Keep admission narrower than fallback sanitizing
+     * so a captured layout never depends on stripped source semantics.
+     */
+    private function isStaticLayoutV1(DOMElement $element): bool
+    {
+        $tags = array(
+            'main', 'article', 'section', 'header', 'footer', 'nav', 'div', 'figure',
+            'figcaption', 'p', 'span', 'strong', 'em', 'b', 'i', 'small', 'br',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'picture', 'source', 'img',
+            'svg', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'rect',
+        );
+        $globalAttributes = array('class', 'id', 'role', 'title', 'aria-label', 'aria-labelledby', 'aria-describedby', 'aria-hidden');
+        $tagAttributes = array(
+            'a' => array('href', 'target', 'rel'),
+            'img' => array('src', 'alt', 'width', 'height', 'loading', 'decoding', 'srcset', 'sizes'),
+            'source' => array('srcset', 'sizes', 'media', 'type'),
+            'svg' => array('viewbox', 'width', 'height', 'focusable', 'preserveaspectratio', 'xmlns'),
+            'path' => array('d', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
+            'circle' => array('cx', 'cy', 'r', 'fill', 'stroke', 'stroke-width'),
+            'ellipse' => array('cx', 'cy', 'rx', 'ry', 'fill', 'stroke', 'stroke-width'),
+            'line' => array('x1', 'x2', 'y1', 'y2', 'stroke', 'stroke-width', 'stroke-linecap'),
+            'polyline' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
+            'polygon' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linejoin'),
+            'rect' => array('x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'stroke', 'stroke-width'),
+            'g' => array('fill', 'stroke', 'stroke-width', 'transform'),
+        );
+
+        foreach (array_merge(array($element), $this->descendantElements($element)) as $candidate) {
+            $tag = strtolower($candidate->tagName);
+            if ( ! in_array($tag, $tags, true) || $this->isDeclaredRuntimeDomTarget($candidate) || array() !== $this->eventMetadata($candidate) ) {
+                return false;
+            }
+            if ('svg' === $tag && ! $this->isSafeSvgContent($this->outerHtml($candidate))) {
+                return false;
+            }
+
+            $allowed = array_merge($globalAttributes, $tagAttributes[$tag] ?? array());
+            foreach ($this->htmlAttributes($candidate) as $attribute => $value) {
+                $attribute = strtolower($attribute);
+                if ( ! in_array($attribute, $allowed, true)
+                    || ('srcset' === $attribute && $this->safeFallbackSrcset($value) !== $value)
+                    || (in_array($attribute, array('href', 'src'), true) && ! $this->safeFallbackUrl($value, $attribute))
+                ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
@@ -15463,10 +15520,27 @@ final class HtmlTransformer
     private function hasRuntimeTargetInSubtree(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+            if ( $descendant instanceof DOMElement && $this->isDeclaredRuntimeDomTarget($descendant) ) {
                 return true;
             }
         }
+        return false;
+    }
+
+    private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
+    {
+        foreach (array_keys($this->runtimeDomSelectors) as $selector) {
+            if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === $this->attr($element, 'id')) {
+                return true;
+            }
+            if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), $this->classNames($element), true)) {
+                return true;
+            }
+            if ($this->elementMatchesRuntimeSelector($element, (string) $selector)) {
+                return true;
+            }
+        }
+
         return false;
     }
 

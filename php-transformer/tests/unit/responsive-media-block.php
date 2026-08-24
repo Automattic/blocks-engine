@@ -41,6 +41,7 @@ $editorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg(
 $assert(($definition['block_json']['attributes'] ?? null) === $editorAttributes, 'the editor registration attribute schema exactly matches generated block metadata');
 $assert('content' === ($editorAttributes['content']['role'] ?? null), 'the editor registration marks responsive media HTML as Gutenberg content');
 $assert('media' === ($editorAttributes['kind']['default'] ?? null), 'the editor registration carries the typed captured-boundary kind');
+$assert('string' === ($definition['block_json']['attributes']['kind']['type'] ?? null) && 'media' === ($definition['block_json']['attributes']['kind']['default'] ?? null), 'producer metadata declares the responsive-media boundary kind schema');
 
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();
@@ -67,26 +68,44 @@ $assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
 
-$layoutHtml = '<main class="story"><div class="shell">';
+$layoutHtml = '<main class="puffin-story"><div class="shell">';
 for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '<div class="layer-' . $depth . '">';
-$layoutHtml .= '<a href="/story" aria-label="Story"><img src="story.jpg" alt="Story"></a>';
+$layoutHtml .= '<h1>Deep story</h1><section><p><a href="/story" aria-label="Story">Read the story</a></p><img src="story.jpg" alt="Story"><svg viewBox="0 0 10 10" role="img" aria-label="Mark"><path d="M0 0L10 10" stroke="#000"></path></svg></section>';
 for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '</div>';
 $layoutHtml .= '</div></main>';
 $layout = ( new HtmlTransformer() )->transform($layoutHtml)->toArray();
 $layoutBlock = $layout['blocks'][0] ?? array();
-$assert('custom/responsive-media' === ($layoutBlock['blockName'] ?? null) && 'layout' === ($layoutBlock['attrs']['kind'] ?? null), 'A deep semantic media main uses the existing companion as a typed layout boundary.');
-$assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'href="/story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'aria-label="Story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'layer-20'), 'A captured layout boundary retains links, accessibility, and authored selector identity.');
+$assert('custom/responsive-media' === ($layoutBlock['blockName'] ?? null) && 'layout' === ($layoutBlock['attrs']['kind'] ?? null), 'A deep static layout uses the released responsive-media layout boundary.');
+$assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<h1>Deep story</h1>') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'href="/story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<svg viewbox="0 0 10 10" role="img" aria-label="Mark">') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'layer-20'), 'A captured Puffin-like layout retains static headings, groups, links, media, safe SVG, accessibility, and authored selector identity.');
 $assert('pass' === ($layout['source_reports']['wp_block_validity']['status'] ?? null), 'A captured layout boundary remains valid Gutenberg block markup.');
 $layoutPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), $layout['source_reports']['generated_blocks'] ?? array());
-$assert(array( 'content', 'kind' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveMediaBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the bounded typed layout schema and audited renderer only.');
+$assert(array( 'content', 'kind' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveMediaBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the released typed layout schema and audited renderer only.');
+$assert('string' === ($editorAttributes['kind']['type'] ?? null) && 'layout' === ($layoutBlock['attrs']['kind'] ?? null), 'the editor schema accepts the producer-emitted layout kind.');
 
 $shallow = ( new HtmlTransformer() )->transform('<main><div><img src="story.jpg" alt="Story"></div></main>')->toArray();
 $assert('custom/responsive-media' !== ($shallow['blocks'][0]['blockName'] ?? null), 'A shallow media main remains on native conversion paths.');
 
-$runtimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.story')))->toArray();
+$runtimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.puffin-story')))->toArray();
 $assert('custom/responsive-media' !== ($runtimeLayout['blocks'][0]['blockName'] ?? null), 'A declared runtime layout boundary remains addressable instead of being captured.');
 
 $nestedRuntimeLayout = ( new HtmlTransformer() )->transform($layoutHtml, array('runtime_dom_selectors' => array('.layer-20')))->toArray();
 $assert('custom/responsive-media' !== ($nestedRuntimeLayout['blocks'][0]['blockName'] ?? null), 'A declared runtime descendant remains addressable instead of being captured.');
+
+foreach (array(
+    'form' => array('<form action="/contact"><input name="email"><button>Send</button></form>', null),
+    'table' => array('<table><tr><td>Cell</td></tr></table>', '<!-- wp:table'),
+    'details' => array('<details><summary>More</summary><p>Details</p></details>', '<!-- wp:details'),
+    'control' => array('<button type="button">Read more</button>', '<!-- wp:button'),
+) as $name => $case) {
+    list($unsupported, $nativeMarker) = $case;
+    $unsupportedHtml = str_replace('</section>', $unsupported . '</section>', $layoutHtml);
+    $unsupportedResult = ( new HtmlTransformer() )->transform($unsupportedHtml)->toArray();
+    $assert('custom/responsive-media' !== ($unsupportedResult['blocks'][0]['blockName'] ?? null), 'A deep layout with unsupported ' . $name . ' semantics is not silently captured.');
+    if (is_string($nativeMarker)) {
+        $assert(str_contains((string) ($unsupportedResult['serialized_blocks'] ?? ''), $nativeMarker), 'An unsupported deep ' . $name . ' remains on its native conversion path.');
+    }
+}
+$formResult = ( new HtmlTransformer() )->transform(str_replace('</section>', '<form action="/contact"><input name="email"></form></section>', $layoutHtml))->toArray();
+$assert(array() !== ($formResult['fallbacks'] ?? array()), 'An unsupported deep form produces an observable conversion finding.');
 
 fwrite(STDOUT, "Responsive media companion tests passed\n");
