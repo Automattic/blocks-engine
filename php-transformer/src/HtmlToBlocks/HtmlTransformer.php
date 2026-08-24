@@ -15441,7 +15441,7 @@ final class HtmlTransformer
 
         return $this->createBlock(
             $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
-            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'layout' ),
+            array( 'content' => $this->staticLayoutHtml($element), 'kind' => 'layout' ),
             array(),
             $element
         );
@@ -15461,7 +15461,7 @@ final class HtmlTransformer
             'dl', 'dt', 'dd', 'picture', 'source', 'img', 'video', 'audio',
             'svg', 'defs', 'symbol', 'lineargradient', 'radialgradient', 'stop', 'clippath',
             'mask', 'use', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
-            'rect', 'text', 'tspan', 'title', 'desc',
+            'rect', 'text', 'tspan', 'title', 'desc', 'link',
         );
         $globalAttributes = array(
             'class', 'id', 'role', 'title', 'style', 'tabindex', 'dir', 'lang', 'hidden', 'xml:lang',
@@ -15471,7 +15471,7 @@ final class HtmlTransformer
         $tagAttributes = array(
             'a' => array('download', 'href', 'target', 'rel'),
             'button' => array('disabled', 'name', 'type', 'value'),
-            'img' => array('src', 'alt', 'width', 'height', 'loading', 'decoding', 'longdesc', 'srcset', 'sizes', 'usemap'),
+            'img' => array('src', 'alt', 'width', 'height', 'loading', 'decoding', 'fetchpriority', 'longdesc', 'srcset', 'sizes', 'usemap'),
             'source' => array('src', 'srcset', 'sizes', 'media', 'type'),
             'video' => array('autoplay', 'controls', 'height', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'src', 'width'),
             'audio' => array('autoplay', 'controls', 'loop', 'muted', 'preload', 'src'),
@@ -15491,6 +15491,7 @@ final class HtmlTransformer
             'rect' => array('x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'opacity', 'stroke', 'stroke-width'),
             'text' => array('fill', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'x', 'y'),
             'tspan' => array('dx', 'dy', 'fill', 'x', 'y'),
+            'link' => array('href', 'rel'),
         );
 
         foreach (array_merge(array($element), $this->descendantElements($element)) as $candidate) {
@@ -15500,6 +15501,9 @@ final class HtmlTransformer
                 return false;
             }
             if ('svg' === $tag && ! $this->isSafeSvgContent($this->outerHtml($candidate))) {
+                return false;
+            }
+            if ('link' === $tag && ('stylesheet' !== strtolower($this->attr($candidate, 'rel')) || ! $this->hasAncestorTag($candidate, array('defs')) || ! $this->hasAncestorTag($candidate, array('svg')) || ! $this->safeFallbackUrl($this->attr($candidate, 'href'), 'href'))) {
                 return false;
             }
 
@@ -15517,6 +15521,11 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    private function staticLayoutHtml(DOMElement $element): string
+    {
+        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', $this->safeFallbackHtml($element)) ?? '';
     }
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
