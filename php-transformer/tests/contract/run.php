@@ -2927,6 +2927,27 @@ $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simp
 $assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
 $assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
 $assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
+$failedPlanResult = $simple;
+$failedPlanResult['status'] = 'failed';
+unset($failedPlanResult['source_reports']['wordpress_site_plan'], $failedPlanResult['source_reports']['wordpress_site_plan_diagnostics']);
+$failedPlanResult['diagnostics'] = array(
+    array('code' => 'non_plan_warning', 'severity' => 'warning', 'message' => 'Not actionable for a failed handoff.'),
+    array('code' => 'non_plan_failure', 'severity' => 'error', 'message' => 'Canonical compiler failure.'),
+);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$assert(array('non_plan_failure') === array_column($failedPlanView['diagnostics'], 'code'), 'failed WordPress site plan view retains canonical compiler errors when no plan-specific diagnostic exists');
+$planSpecificDiagnostic = array('code' => 'wordpress_site_plan_invalid', 'severity' => 'error', 'message' => 'Plan-specific failure.');
+$failedPlanResult['source_reports']['wordpress_site_plan_diagnostics'] = array($planSpecificDiagnostic);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$assert(array($planSpecificDiagnostic) === $failedPlanView['diagnostics'], 'failed WordPress site plan view preserves existing plan-specific diagnostics exactly');
+unset($failedPlanResult['source_reports']['wordpress_site_plan_diagnostics']);
+$failedPlanResult['diagnostics'] = array_map(
+    static fn (int $index): array => array('code' => 'compiler_error_' . $index, 'severity' => 'error', 'message' => 'Compiler error.'),
+    range(1, WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS + 5)
+);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$truncationDiagnostic = $failedPlanView['diagnostics'][WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS - 1] ?? array();
+$assert(WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS === count($failedPlanView['diagnostics']) && 'compiler_error_1' === ($failedPlanView['diagnostics'][0]['code'] ?? '') && 'compiler_error_99' === ($failedPlanView['diagnostics'][98]['code'] ?? '') && 'wordpress_site_plan_view_diagnostics_truncated' === ($truncationDiagnostic['code'] ?? '') && 99 === ($truncationDiagnostic['retained_count'] ?? null) && 6 === ($truncationDiagnostic['omitted_count'] ?? null), 'failed WordPress site plan view deterministically bounds canonical compiler errors with explicit truncation evidence');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
