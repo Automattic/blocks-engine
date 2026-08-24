@@ -11,7 +11,7 @@
   },
   "scripts": {
     "install:browsers": "playwright install chromium",
-    "test": "node tests/smoke.mjs && node tests/blockquote-margin-reset.mjs"
+    "test": "node tests/smoke.mjs && node tests/blockquote-margin-reset.mjs && node tests/exact-fit-inline-flow.mjs"
   },
   "devDependencies": {
     "playwright": "^1.56.0"

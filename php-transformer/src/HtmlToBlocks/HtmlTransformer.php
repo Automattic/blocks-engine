@@ -453,6 +453,8 @@ final class HtmlTransformer
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
+    private const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
+
     /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
     private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
         'display',
@@ -1346,6 +1348,13 @@ final class HtmlTransformer
             // carried grid geometry (gap) owns the spacing between items. The
             // carrier rides groups and lists, so the reset is class-scoped.
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_INLINE_FLOW_CLASS) ) {
+            // Block delimiters may acquire whitespace when Gutenberg saves the
+            // post. Flex owns the source's atomic inline flow without counting
+            // those text nodes as width; later responsive display rules still win.
+            $beforeAuthorCssParts[] = ':where(.' . self::CSS_OWNED_INLINE_FLOW_CLASS . '){display:flex;flex-wrap:wrap;align-items:baseline;gap:0}'
+                . "\n" . ':where(.' . self::CSS_OWNED_INLINE_FLOW_CLASS . ')>*{flex:none}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_ITEM_CLASS) ) {
             // A semantic Group used as a direct grid/flex item contains native
@@ -5858,6 +5867,12 @@ final class HtmlTransformer
                     self::CSS_OWNED_LAYOUT_ITEM_CLASS
                 );
             }
+            if ( 'core/group' === $name && $this->isAtomicInlineChildFlow($sourceElement, $innerBlocks) ) {
+                $attrs['className'] = $this->mergeClassNames(
+                    (string) ($attrs['className'] ?? ''),
+                    self::CSS_OWNED_INLINE_FLOW_CLASS
+                );
+            }
             if ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') ) {
                 // Core Group's save() does not reproduce a blockGap declaration.
                 // Preserve an authored inline gap in a generated carrier instead
@@ -5950,6 +5965,34 @@ final class HtmlTransformer
         }
 
         return $block;
+    }
+
+    /** @param array<int, array<string, mixed>> $innerBlocks */
+    private function isAtomicInlineChildFlow(DOMElement $element, array $innerBlocks): bool
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $children[] = $child;
+                continue;
+            }
+            if ( '' !== trim((string) ($child->textContent ?? '')) ) {
+                return false;
+            }
+        }
+
+        if ( count($children) < 2 || count($children) !== count($innerBlocks) ) {
+            return false;
+        }
+
+        foreach ( $children as $child ) {
+            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->cssDeclarations($this->attr($child, 'style'))['display'] ?? ''))));
+            if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
