@@ -70,6 +70,7 @@ final class HtmlTransformer
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
+    private const MAX_NATIVE_LIST_VIEW_DEPTH = 20;
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -827,6 +828,9 @@ final class HtmlTransformer
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
         $blocks = $this->compressProjectedGroupChains($blocks);
+        if (array() !== $this->layoutGeometryProofReductions && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
+            $blocks = $this->compressProjectedGroupChains($blocks, true);
+        }
         $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
         if (!$this->fallbackReductionMode) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
@@ -7637,13 +7641,13 @@ final class HtmlTransformer
     }
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
-    private function compressProjectedGroupChains(array $blocks): array
+    private function compressProjectedGroupChains(array $blocks, bool $depthPressure = false): array
     {
-        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block), $blocks));
+        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block, $depthPressure), $blocks));
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */
-    private function compressProjectedGroupBlock(array $block): array
+    private function compressProjectedGroupBlock(array $block, bool $depthPressure = false): array
     {
         $chain = array();
         $cursor = $block;
@@ -7666,7 +7670,7 @@ final class HtmlTransformer
             && null !== ($branchDescriptor = $this->groupWrapperDescriptor($cursor))
         ) {
             $chain[] = array('block' => $cursor, 'descriptor' => $branchDescriptor);
-            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren);
+            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren, $depthPressure);
             $terminal = array();
             $terminalIsShell = false;
             $branchEndpoint = true;
@@ -7682,14 +7686,14 @@ final class HtmlTransformer
             $terminalIsShell = false;
             $emptyEndpoint = true;
         } else {
-            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
+            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor, $depthPressure) : $cursor;
             $terminalIsShell = $this->isLayoutShellBlock($terminal);
             $terminalBlocks = $terminalIsShell
                 ? $terminal['innerBlocks']
                 : array($terminal);
         }
         $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceProjectionClass($entry['block'])));
-        $minimumLength = $branchEndpoint ? 3 : ($emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3));
+        $minimumLength = $branchEndpoint ? ($depthPressure ? 2 : 3) : ($emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3));
         if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
             $wrappers = array_column($chain, 'descriptor');
             $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
@@ -7722,9 +7726,21 @@ final class HtmlTransformer
         }
 
         if (is_array($block['innerBlocks'] ?? null)) {
-            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
+            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $depthPressure);
         }
         return $block;
+    }
+
+    /** @param array<int,array<string,mixed>> $blocks */
+    private function blockTreeDepth(array $blocks): int
+    {
+        $maximum = 0;
+        foreach ($blocks as $block) {
+            if (!is_array($block)) continue;
+            $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $maximum = max($maximum, 1 + $this->blockTreeDepth($children));
+        }
+        return $maximum;
     }
 
     /** @param array<string, mixed> $block */
