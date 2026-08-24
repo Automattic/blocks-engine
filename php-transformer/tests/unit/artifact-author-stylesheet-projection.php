@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 
@@ -47,6 +48,33 @@ $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset
 $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
+
+$projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '@media (max-width:700px){:where(.data-liberation-mobile-document) #projected-mobile-pinned-layer{position:fixed;top:0}}' ),
+    ),
+) )->toArray();
+$projectedPinnedAssets = $projectedPinnedLayer['assets'] ?? array();
+$projectedPinnedAuthorIndex = array_search('site.css', array_column($projectedPinnedAssets, 'path'), true);
+$projectedPinnedSupportIndex = null;
+foreach ($projectedPinnedAssets as $index => $asset) {
+    if ('engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')) {
+        $projectedPinnedSupportIndex = $index;
+        break;
+    }
+}
+$projectedPinnedSupport = is_int($projectedPinnedSupportIndex) ? (string) ($projectedPinnedAssets[$projectedPinnedSupportIndex]['content'] ?? '') : '';
+$assert(is_int($projectedPinnedAuthorIndex) && is_int($projectedPinnedSupportIndex) && $projectedPinnedAuthorIndex < $projectedPinnedSupportIndex, 'projected linked stylesheet loads before its post-author admin-bar support asset');
+$assert(str_contains($projectedPinnedSupport, 'body.admin-bar #projected-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($projectedPinnedSupport, '@media (max-width:700px){body.admin-bar :where(.data-liberation-mobile-document) #projected-mobile-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}}'), 'projected inline fixed runtime selector and nested linked mobile selector receive admin-bar offsets');
+$projectedPinnedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $projectedPinnedAssets));
+$projectedPinnedDocument = new DOMDocument();
+$projectedPinnedDocument->loadHTML('<html><body class="admin-bar"><div id="projected-pinned-layer">Header</div></body></html>');
+$projectedPinnedElement = $projectedPinnedDocument->getElementById('projected-pinned-layer');
+$projectedPinnedTop = $projectedPinnedElement instanceof DOMElement
+    ? (new StaticCssCascade($projectedPinnedDocument, $projectedPinnedCss))->resolve($projectedPinnedElement, array('top'), array())['top'] ?? ''
+    : '';
+$assert('calc((0px) + 32px)' === $projectedPinnedTop, 'authenticated desktop cascade resolves the projected pinned layer top through post-author support CSS');
 
 $richText = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

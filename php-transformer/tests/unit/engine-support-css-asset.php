@@ -115,6 +115,10 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 $syntheticImageFigure = ( new HtmlTransformer() )->transform(
     '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
 )->toArray();
+$adminBar = ( new HtmlTransformer() )->transform(
+    '<style>.fixed-shell{position:fixed;top:0}.sticky-toc{position:sticky;top:calc(var(--header-h) + 1rem)}.ordinary{position:relative;top:1rem}</style>'
+        . '<header class="fixed-shell">Header</header><aside class="sticky-toc">Contents</aside><main class="ordinary">Content</main>'
+)->toArray();
 
 $results = array(
     $authorOrder,
@@ -255,6 +259,12 @@ $assert(
     'G6: richtext-marker mark defers neutral background and color to engine support CSS'
 );
 $assert(str_contains($beforeCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}'), 'G6: richTextMarkerResetCss remains in engine-support');
+
+$adminBarAuthorCss = $cssFor($adminBar, 'author-css');
+$adminBarSupportCss = $cssFor($adminBar, 'engine-support', 'after-author');
+$assert(str_contains($adminBarAuthorCss, '.fixed-shell{position:fixed;top:0}') && ! str_contains($adminBarAuthorCss, 'body.admin-bar'), 'G7: authored fixed CSS remains logged-out source CSS');
+$assert(str_contains($adminBarSupportCss, 'body.admin-bar .fixed-shell{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($adminBarSupportCss, 'body.admin-bar .sticky-toc{top:calc((calc(var(--header-h) + 1rem)) + var(--wp-admin--admin-bar--height, 32px))!important}'), 'G7: post-author support offsets fixed and sticky layers');
+$assert(! str_contains($adminBarSupportCss, '.ordinary'), 'G7: ordinary positioned rules do not receive admin-bar support CSS');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Engine support CSS asset contract: {$failures} failed, {$passes} passed\n");

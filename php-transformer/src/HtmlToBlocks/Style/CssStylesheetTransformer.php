@@ -48,6 +48,19 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * Visit every style rule with its enclosing safe-to-walk at-rules.
+     *
+     * @param callable(string, string, list<string>): void $visitStyleRule
+     */
+    public function visitStyleRules(string $stylesheet, callable $visitStyleRule): void
+    {
+        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
+            return;
+        }
+        $this->visitRules($stylesheet, $visitStyleRule, array());
+    }
+
+    /**
      * @return array{preamble: string, stylesheet: string}
      */
     public function splitLeadingAtRulePreamble(string $stylesheet): array
@@ -161,6 +174,34 @@ final class CssStylesheetTransformer
         }
 
         return $output;
+    }
+
+    /** @param callable(string, string, list<string>): void $visitStyleRule @param list<string> $ancestors */
+    private function visitRules(string $css, callable $visitStyleRule, array $ancestors): void
+    {
+        $offset = 0;
+        $length = strlen($css);
+        while ($offset < $length) {
+            $boundary = $this->nextRuleBoundary($css, $offset);
+            if (null === $boundary || ';' === $css[$boundary]) {
+                $offset = null === $boundary ? $length : $boundary + 1;
+                continue;
+            }
+            $blockEnd = $this->matchingBrace($css, $boundary);
+            if (null === $blockEnd) {
+                return;
+            }
+            $prelude = substr($css, $offset, $boundary - $offset);
+            $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
+            if ($this->isAtRule($prelude) && $this->walksNestedRules($prelude)) {
+                $nested = $ancestors;
+                $nested[] = trim($prelude);
+                $this->visitRules($body, $visitStyleRule, $nested);
+            } elseif ($this->isStylePrelude($prelude)) {
+                $visitStyleRule($prelude, $body, $ancestors);
+            }
+            $offset = $blockEnd + 1;
+        }
     }
 
     private function nextRuleBoundary(string $css, int $offset): ?int

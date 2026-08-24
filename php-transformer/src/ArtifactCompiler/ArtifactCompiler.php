@@ -13,6 +13,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
@@ -607,6 +608,10 @@ final class ArtifactCompiler
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
+        $projectedAdminBarAsset = $this->projectedAdminBarAccommodationAsset($normalized['files']);
+        if (null !== $projectedAdminBarAsset) {
+            $generatedAssets[] = $projectedAdminBarAsset;
+        }
         $beforeAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? '')));
         $afterAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'after-author' === ($asset['stylesheet_placement'] ?? '')));
         $otherGeneratedAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => ! in_array($asset, $beforeAuthorAssets, true) && ! in_array($asset, $afterAuthorAssets, true)));
@@ -3030,6 +3035,53 @@ final class ArtifactCompiler
             'binary'      => false,
             'content'     => $css,
             'hash'        => $hash,
+        );
+    }
+
+    /**
+     * Linked stylesheets are projected after HtmlTransformer has emitted its
+     * per-document support assets, so scan their final runtime selectors here.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<string, mixed>|null
+     */
+    private function projectedAdminBarAccommodationAsset(array $files): ?array
+    {
+        $css = array();
+        $accommodation = new AdminBarAccommodation();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) {
+                continue;
+            }
+            $supportCss = $accommodation->supportCss($file['content']);
+            if ('' !== $supportCss) {
+                $css[] = $supportCss;
+            }
+        }
+        $content = trim(implode("\n", $css));
+        if ('' === $content) {
+            return null;
+        }
+
+        $content .= "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/engine-support-after-author-' . substr($hash, 0, 16) . '.css';
+        return array(
+            'source' => 'engine-support',
+            'path' => $path,
+            'target_path' => $path,
+            'kind' => 'css',
+            'role' => 'stylesheet',
+            'stylesheet_placement' => 'after-author',
+            'stylesheet_target' => 'both',
+            'mime_type' => 'text/css',
+            'media_type' => 'text/css',
+            'bytes' => strlen($content),
+            'encoding' => 'utf-8',
+            'binary' => false,
+            'content' => $content,
+            'hash' => $hash,
+            'source_hash' => $hash,
         );
     }
 
