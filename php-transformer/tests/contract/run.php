@@ -1358,6 +1358,13 @@ $assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" na
 $assert(! str_contains($styledInputMarkup, '<!-- wp:html') || str_contains($styledInputMarkup, '<input class="js-filter"'), 'styled static input never uses core/html while runtime input remains compatible');
 $assert('pass' === ($styledInputs['source_reports']['wp_block_validity']['status'] ?? ''), 'compact input serialization passes canonical Gutenberg validity');
 
+$whitespaceInput = ( new HtmlTransformer() )->transform(
+    '<input class="authored-input" type="text" name="expected-# of people " placeholder=" ">',
+    array('static_css' => '.authored-input{border:1px solid;padding:1rem}')
+)->toArray();
+$whitespaceInputBlock = $whitespaceInput['blocks'][0] ?? array();
+$assert('expected-# of people ' === ($whitespaceInputBlock['attrs']['name'] ?? null) && ' ' === ($whitespaceInputBlock['attrs']['placeholder'] ?? null) && str_contains((string) ($whitespaceInput['serialized_blocks'] ?? ''), 'name="expected-# of people " placeholder=" "'), 'compact input PHP markup preserves the same safe whitespace-bearing attributes as its companion save function');
+
 $unstyledSelect = ( new HtmlTransformer() )->transform(
     '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
 )->toArray();
