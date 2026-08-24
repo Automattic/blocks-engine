@@ -219,16 +219,9 @@ final class HtmlTransformer
 
     private readonly LogoPattern $logoPattern;
 
-    private readonly MathPattern $mathPattern;
-
-
     private readonly TableClassificationPolicy $tableClassificationPolicy;
 
-    private readonly PlaceholderMediaPattern $placeholderMediaPattern;
-
     private readonly QuotePattern $quotePattern;
-
-    private readonly SpacerPattern $spacerPattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
@@ -591,24 +584,15 @@ final class HtmlTransformer
         $this->detailsPattern    = new DetailsPattern();
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
-        $this->mathPattern       = new MathPattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
-        $this->placeholderMediaPattern = new PlaceholderMediaPattern();
         $this->quotePattern      = new QuotePattern();
-        $this->spacerPattern     = new SpacerPattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
             $this->mediaTextPattern,
             $this->coverPattern,
             $this->columnsPattern,
-            new CallbackPatternRecognizer('math', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->mathPattern->match($element, fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement), fn (string $text): string => $this->runtime->escapeHtml($text), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new MathPattern(),
             new ParameterTablePattern(),
-            new CallbackPatternRecognizer('spacer', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->spacerPattern->match($element, fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className), $context->presentationAttributesCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new SpacerPattern(),
             new CallbackPatternRecognizer('code-window', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $block = $this->codeWindowPattern->match($element, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode), fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
@@ -617,10 +601,7 @@ final class HtmlTransformer
                 $block = $this->logoPattern->match($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
             }),
-            new CallbackPatternRecognizer('placeholder-media', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->placeholderMediaPattern->match($element, $context->presentationAttributesCallback(), fn (string $value): string => $this->runtime->escapeHtml($value), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new PlaceholderMediaPattern(),
             new CallbackPatternRecognizer('quote', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $fallbacks = array();
                 $block = $this->quotePattern->matchBlockquote($element, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName), $context->createBlockCallback());
@@ -4594,7 +4575,9 @@ final class HtmlTransformer
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement))
+            fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
+            fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+            fn (string $text): string => $this->runtime->escapeHtml($text)
         );
     }
 
@@ -4622,19 +4605,20 @@ final class HtmlTransformer
     private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
-            static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
+            presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            innerHtml: fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
+            createBlock: static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
                 'blockName'   => $name,
                 'attrs'       => $attrs,
                 'innerBlocks' => $innerBlocks,
             ),
-            null,
-            new NavigationPatternContext(
+            navigationContext: new NavigationPatternContext(
                 null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
-            )
+            ),
+            safeFallbackHtml: fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+            escapeHtml: fn (string $text): string => $this->runtime->escapeHtml($text)
         );
     }
 
@@ -4720,7 +4704,7 @@ final class HtmlTransformer
             return null;
         }
 
-        $mathBlock = $this->recognizePatterns($element, $fallbacks, array('math'));
+        $mathBlock = $this->recognizePatterns($element, $fallbacks, array(MathPattern::class));
         if ( null !== $mathBlock ) {
             return $mathBlock;
         }
@@ -5307,14 +5291,7 @@ final class HtmlTransformer
 
             $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
 
-            $spacer = $this->spacerPattern->match(
-                $element,
-                fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement),
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement)
-            );
+            $spacer = $this->recognizePatterns($element, $fallbacks, array(SpacerPattern::class));
             if ( null !== $spacer ) {
                 return $spacer;
             }
@@ -5386,11 +5363,6 @@ final class HtmlTransformer
             $logo = $this->recognizePatterns($element, $fallbacks, array('logo'));
             if ( null !== $logo ) {
                 return $logo;
-            }
-
-            $spacer = $this->recognizePatterns($element, $fallbacks, array('spacer'));
-            if ( null !== $spacer ) {
-                return $spacer;
             }
 
             $navigationSection = $this->navigationSectionBlockFromElement($element);
@@ -5673,7 +5645,7 @@ final class HtmlTransformer
      */
     private function convertMediaDispatchElement(DOMElement $element, string $tagName, array &$fallbacks): array
     {
-        $placeholderMedia = $this->recognizePatterns($element, $fallbacks, array('placeholder-media'));
+        $placeholderMedia = $this->recognizePatterns($element, $fallbacks, array(PlaceholderMediaPattern::class));
         if ( null !== $placeholderMedia ) {
             return array( 'handled' => true, 'block' => $placeholderMedia );
         }
@@ -8893,7 +8865,7 @@ final class HtmlTransformer
                 return null;
             }
 
-            $height = $this->spacerPattern->heightFromStyle($this->attr($flank, 'style'));
+            $height = SpacerPattern::heightFromStyle($this->attr($flank, 'style'));
             if ( '' === $height || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($height, $flank)) ) {
                 return null;
             }

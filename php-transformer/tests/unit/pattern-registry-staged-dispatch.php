@@ -24,6 +24,14 @@ $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" st
 $assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
 $assert('html_stylable_button_accessible_name_fallback' === ($button['fallbacks'][0]['diagnostic_code'] ?? null), 'Button fallback is committed by the staged registry dispatcher.');
 
+$mathOverPlaceholder = (new HtmlTransformer())->transform('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>')->toArray();
+$assert('core/math' === ($mathOverPlaceholder['blocks'][0]['blockName'] ?? null), 'Math remains ahead of the overlapping placeholder-media recognizer.');
+$assert('$x$' === ($mathOverPlaceholder['blocks'][0]['attrs']['content'] ?? null), 'The higher-precedence math recognizer preserves its exact content.');
+
+$declinedSpacer = (new HtmlTransformer())->transform('<div class="spacer" style="height: 24px">Visible content</div>')->toArray();
+$assert('core/paragraph' === ($declinedSpacer['blocks'][0]['blockName'] ?? null), 'A spacer candidate with visible content declines to normal element lowering.');
+$assert('Visible content' === ($declinedSpacer['blocks'][0]['attrs']['content'] ?? null), 'Declining spacer recognition preserves the lower-priority conversion output.');
+
 $quoteWithNavigation = (new HtmlTransformer())->transform('<blockquote><nav><a href="/one">One</a><a href="/two">Two</a></nav></blockquote>')->toArray();
 $assert('core/quote' === ($quoteWithNavigation['blocks'][0]['blockName'] ?? null), 'Quote child lowering does not re-enter unrelated registry recognizers through the navigation probe.');
 

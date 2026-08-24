@@ -19,6 +19,8 @@ final class PatternContext
      * @param callable(DOMElement, array<int, string>): array<string, mixed>|null $mediaTextPresentationAttributes
      * @param callable(DOMElement): string|null $mediaTextPresentationStyle
      * @param callable(DOMElement): string|null $structuralPresentationStyle
+     * @param callable(DOMElement): string|null $safeFallbackHtml
+     * @param callable(string): string|null $escapeHtml
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -31,7 +33,9 @@ final class PatternContext
         private readonly mixed $resolveAssetImageUrl = null,
         private readonly mixed $mediaTextPresentationAttributes = null,
         private readonly mixed $mediaTextPresentationStyle = null,
-        private readonly mixed $structuralPresentationStyle = null
+        private readonly mixed $structuralPresentationStyle = null,
+        private readonly mixed $safeFallbackHtml = null,
+        private readonly mixed $escapeHtml = null
     ) {
     }
 
@@ -67,4 +71,6 @@ final class PatternContext
     public function mediaTextPresentationAttributesCallback(): ?callable { return is_callable($this->mediaTextPresentationAttributes) ? $this->mediaTextPresentationAttributes : null; }
     public function mediaTextPresentationStyleCallback(): ?callable { return is_callable($this->mediaTextPresentationStyle) ? $this->mediaTextPresentationStyle : null; }
     public function structuralPresentationStyleCallback(): ?callable { return is_callable($this->structuralPresentationStyle) ? $this->structuralPresentationStyle : null; }
+    public function safeFallbackHtmlCallback(): ?callable { return is_callable($this->safeFallbackHtml) ? $this->safeFallbackHtml : null; }
+    public function escapeHtmlCallback(): ?callable { return is_callable($this->escapeHtml) ? $this->escapeHtml : null; }
 }
