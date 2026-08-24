@@ -214,7 +214,26 @@ trait DomHelpersTrait
 
     private function safeFallbackHtml(DOMElement $element): string
     {
+        $fallback = $element->cloneNode(true);
+        if ( $fallback instanceof DOMElement ) {
+            $this->materializeFallbackSourceTagMarker($fallback);
+            foreach ( $fallback->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement ) {
+                    $this->materializeFallbackSourceTagMarker($descendant);
+                }
+            }
+            return $this->safeFallbackHtmlString(trim($fallback->ownerDocument->saveHTML($fallback) ?: ''));
+        }
+
         return $this->safeFallbackHtmlString($this->outerHtml($element));
+    }
+
+    private function materializeFallbackSourceTagMarker(DOMElement $element): void
+    {
+        $marker = $this->sourceTagMarkers[strtolower($element->tagName)] ?? '';
+        if ( '' !== $marker ) {
+            $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+        }
     }
 
     private function safeFallbackHtmlString(string $html): string
