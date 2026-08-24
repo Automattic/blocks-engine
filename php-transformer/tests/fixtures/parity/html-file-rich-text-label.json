@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-file-rich-text-label",
+  "description": "Serializes document labels through core/file RichText semantics without changing plain labels or explicit download buttons.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-file-rich-text-label.json",
+    "notes": "Regression coverage for blocks-engine issue 1176."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream core/file validity fixture has no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"download-link\" href=\"/docs/privacy.pdf\"><span class=\"pdf-label\" data-blocks-engine-richtext-marker=\"label-1\"><strong>Privacy</strong> policy</span></a><a href=\"/docs/plain.pdf\">Plain PDF</a><a href=\"/docs/download.pdf\" download>Download PDF</a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/file", "attrs": { "className": "download-link", "href": "/docs/privacy.pdf", "fileName": "<mark class=\"pdf-label\" style=\"--blocks-engine-richtext-marker:label-1\"><strong>Privacy</strong> policy</mark>", "textLinkHref": "/docs/privacy.pdf", "showDownloadButton": false } },
+    { "path": "blocks.1", "name": "core/file", "attrs": { "href": "/docs/plain.pdf", "fileName": "Plain PDF", "textLinkHref": "/docs/plain.pdf", "showDownloadButton": false } },
+    { "path": "blocks.2", "name": "core/file", "attrs": { "href": "/docs/download.pdf", "fileName": "Download PDF", "textLinkHref": "/docs/download.pdf", "showDownloadButton": true } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "equals", "value": "<!-- wp:file {\"className\":\"download-link\",\"href\":\"/docs/privacy.pdf\",\"showDownloadButton\":false} --><div class=\"wp-block-file download-link\"><a href=\"/docs/privacy.pdf\"><mark class=\"pdf-label\" style=\"--blocks-engine-richtext-marker:label-1\"><strong>Privacy</strong> policy</mark></a></div><!-- /wp:file --><!-- wp:file {\"href\":\"/docs/plain.pdf\",\"showDownloadButton\":false} --><div class=\"wp-block-file\"><a href=\"/docs/plain.pdf\">Plain PDF</a></div><!-- /wp:file --><!-- wp:file {\"href\":\"/docs/download.pdf\",\"showDownloadButton\":true} --><div class=\"wp-block-file\"><a href=\"/docs/download.pdf\">Download PDF</a><a class=\"wp-block-file__button wp-element-button\" href=\"/docs/download.pdf\" download>Download</a></div><!-- /wp:file -->" }
+  ]
+}

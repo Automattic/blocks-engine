@@ -834,9 +834,10 @@ final class BlockFactory
     private function fileHtml(array $attrs): string
     {
         $href = (string) ($attrs['href'] ?? $attrs['url'] ?? '');
-        $text = (string) ($attrs['text'] ?? ($href !== '' ? basename(parse_url($href, PHP_URL_PATH) ?: $href) : ''));
+        $textLinkHref = (string) ($attrs['textLinkHref'] ?? $href);
+        $fileName = (string) ($attrs['fileName'] ?? ($href !== '' ? basename(parse_url($href, PHP_URL_PATH) ?: $href) : ''));
         $linkAttrs = array(
-            'href' => $href,
+            'href' => $textLinkHref,
         );
 
         $downloadButton = '';
@@ -844,7 +845,7 @@ final class BlockFactory
             $downloadButton = '<a class="wp-block-file__button wp-element-button" href="' . htmlspecialchars($href, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" download>Download</a>';
         }
 
-        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $this->preserveRichTextPunctuation($text) . '</a>' . $downloadButton . '</div>';
+        return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-file') . '><a' . $this->htmlAttrs($linkAttrs) . '>' . $this->preserveRichTextPunctuation($fileName) . '</a>' . $downloadButton . '</div>';
     }
 
     /**
