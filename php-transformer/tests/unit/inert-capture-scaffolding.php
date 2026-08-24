@@ -29,6 +29,10 @@ $assert(str_contains((string) ($referencedStore['serialized_blocks'] ?? ''), 'id
 $materializedSvg = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($referencedStore['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))));
 $assert(str_contains($materializedSvg, 'id="mark"') && str_contains($materializedSvg, 'href="#mark"'), 'referenced SVG symbols remain available to materialized images');
 
+$capturedCollection = $transform('<main><fluid-columns-repeater><div><svg viewBox="0 0 1 1"><defs><link rel="stylesheet" href="/assets/icon.css"></defs><path d="M0 0h1v1z"/></svg><p>One</p></div><div><p>Two</p></div></fluid-columns-repeater></main>');
+$generatedRender = implode("\n", array_map(static fn (array $block): string => (string) ($block['render'] ?? ''), $capturedCollection['source_reports']['generated_blocks'] ?? array()));
+$assert('' !== $generatedRender && ! str_contains($generatedRender, '<link'), 'generated custom blocks strip captured stylesheet links from nested SVG markup');
+
 $visibleIframe = $transform('<main><iframe title="HubSpot form" src="https://forms.hsforms.com/widget" width="600" height="400"></iframe></main>');
 $iframeFallbacks = array_values(array_filter($visibleIframe['fallbacks'] ?? array(), static fn (array $fallback): bool => 'iframe' === ($fallback['tag'] ?? '')));
 $assert(1 === count($iframeFallbacks), 'visible HubSpot iframe remains a bounded external embed');
