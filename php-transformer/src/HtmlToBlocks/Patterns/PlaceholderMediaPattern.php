@@ -5,23 +5,17 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
-final class PlaceholderMediaPattern
+final class PlaceholderMediaPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    /**
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(string): string $escapeHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $escapeHtml, callable $createBlock): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         if ( ! $this->isPlaceholderMediaElement($element) ) {
             return null;
         }
 
-        $attrs = $presentationAttributes($element);
+        $attrs = $context->presentationAttributesCallback()($element);
         // The aspect ratio rides on the preserved placeholder/ratio classNames and
         // companion-plugin CSS; a raw inline `style` string would invalidate the
         // core/group block, so it is intentionally not emitted here (#261).
@@ -29,9 +23,13 @@ final class PlaceholderMediaPattern
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $createBlock('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
+        $escapeHtml = $context->escapeHtmlCallback();
+        if ( null === $escapeHtml ) {
+            return null;
+        }
+        $children = '' !== $label ? array( $context->createBlockCallback()('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
 
-        return $createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
+        return new PatternRecognitionResult($context->createBlockCallback()('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
     }
 
     private function isPlaceholderMediaElement(DOMElement $element): bool
