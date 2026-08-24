@@ -43,6 +43,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTra
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
@@ -1423,6 +1424,10 @@ final class HtmlTransformer
         }
         if ( '' !== trim($authorCss) ) {
             $authorCssParts[] = $authorCss;
+            $adminBarAccommodation = (new AdminBarAccommodation())->supportCss($authorCss);
+            if ( '' !== $adminBarAccommodation ) {
+                $afterAuthorCssParts[] = $adminBarAccommodation;
+            }
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             // Keep only source-responsive navigation hosts visible. Ordinary
