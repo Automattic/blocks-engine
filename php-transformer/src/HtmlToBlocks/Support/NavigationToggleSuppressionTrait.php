@@ -37,23 +37,77 @@ trait NavigationToggleSuppressionTrait
             foreach ( preg_split('/\s+/', trim($this->attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 $navigation = $target instanceof DOMElement ? $this->hiddenNavigationInControlledTarget($target) : null;
-                if ( ! $navigation instanceof DOMElement || isset($this->projectedNavigationSuppressedPaths[$navigation->getNodePath()]) ) {
+                if ( ! $target instanceof DOMElement || ! $navigation instanceof DOMElement ) {
+                    continue;
+                }
+                $this->recordProjectedNavigationRelationship($control, $target, $navigation);
+                break;
+            }
+
+            if ( isset($this->projectedNavigationTargetsByControlPath[$control->getNodePath()])
+                || ! $this->hasDialogPopupSemantics($control) ) {
+                continue;
+            }
+
+            $relationship = $this->implicitHiddenNavigationRelationship($control);
+            if ( null !== $relationship ) {
+                $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
+            }
+        }
+    }
+
+    private function recordProjectedNavigationRelationship(DOMElement $control, DOMElement $target, DOMElement $navigation): void
+    {
+        if ( isset($this->projectedNavigationSuppressedPaths[$navigation->getNodePath()]) ) {
+            return;
+        }
+
+        $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] = $navigation;
+        $this->projectedNavigationSuppressedPaths[$target->getNodePath()] = true;
+        $this->projectedNavigationSuppressedPaths[$navigation->getNodePath()] = true;
+    }
+
+    private function hasDialogPopupSemantics(DOMElement $control): bool
+    {
+        return in_array('dialog', preg_split('/\s+/', strtolower(trim($this->attr($control, 'aria-haspopup')))) ?: array(), true)
+            && $control->hasAttribute('aria-expanded');
+    }
+
+    /**
+     * @return array{target: DOMElement, navigation: DOMElement}|null
+     */
+    private function implicitHiddenNavigationRelationship(DOMElement $control): ?array
+    {
+        $depth = 0;
+        for ( $scope = $this->menuToggleScope($control); $scope instanceof DOMElement && $depth < 12; $scope = $scope->parentNode, ++$depth ) {
+            $candidates = array();
+            foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) || ! $this->isSemanticDialog($candidate) ) {
                     continue;
                 }
 
-                $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] = $navigation;
-                $this->projectedNavigationSuppressedPaths[$target->getNodePath()] = true;
-                $this->projectedNavigationSuppressedPaths[$navigation->getNodePath()] = true;
-                break;
+                $navigation = $this->hiddenNavigationInControlledTarget($candidate);
+                if ( $navigation instanceof DOMElement ) {
+                    $candidates[] = array('target' => $candidate, 'navigation' => $navigation);
+                }
+            }
+
+            if ( 1 === count($candidates) ) {
+                return $candidates[0];
+            }
+            if ( 1 < count($candidates) ) {
+                return null;
             }
         }
+
+        return null;
     }
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
         $tagName = strtolower($target->tagName);
         $role = strtolower($this->attr($target, 'role'));
-        if ( ! $this->sourceElementStartsHidden($target)
+        if ( ! $this->sourceElementIsHidden($target)
             || ( ! in_array($tagName, array( 'dialog', 'nav' ), true)
                 && ! in_array($role, array( 'dialog', 'alertdialog', 'navigation' ), true) ) ) {
             return null;
@@ -74,6 +128,20 @@ trait NavigationToggleSuppressionTrait
         }
 
         return null;
+    }
+
+    private function isSemanticDialog(DOMElement $element): bool
+    {
+        return 'dialog' === strtolower($element->tagName)
+            || in_array(strtolower($this->attr($element, 'role')), array( 'dialog', 'alertdialog' ), true);
+    }
+
+    private function sourceElementIsHidden(DOMElement $element): bool
+    {
+        return $this->sourceElementStartsHidden($element)
+            || $element->hasAttribute('hidden')
+            || 'true' === strtolower($this->attr($element, 'aria-hidden'))
+            || 'false' === strtolower($this->attr($element, 'data-visible'));
     }
 
     private function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
