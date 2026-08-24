@@ -521,13 +521,16 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
-$socialLinksResult = ( new HtmlTransformer() )->transform('<ul class="social-links"><li><a href="https://github.com/Automattic" aria-label="GitHub"><svg aria-hidden="true"></svg></a></li><li><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg aria-hidden="true"></svg></a></li></ul>')->toArray();
+$socialLinksResult = ( new HtmlTransformer() )->transform('<style>.social-links .social-item{display:inline-block;width:22px;height:22px;margin:0 11px 0 0}</style><ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg aria-hidden="true"></svg></a></li></ul>')->toArray();
 $socialLinksBlock = $socialLinksResult['blocks'][0] ?? array();
 $assert('core/social-links' === ($socialLinksBlock['blockName'] ?? null), 'explicit social profile clusters convert to core/social-links instead of generic navigation');
 $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ?? null) && 'instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['service'] ?? null), 'social profile hosts map to WordPress social-link service semantics');
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
-$assert(str_contains($socialLinksMarkup, '<ul class="wp-block-social-links social-links">') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the static social-links wrapper');
+$assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
+$assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
+$assert('0px' === ($socialLinksBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'structural social items neutralize the core default gap so source item spacing remains authoritative');
+$assert(str_contains($socialLinksMarkup, 'style="gap:0px"') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the supported styled social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();

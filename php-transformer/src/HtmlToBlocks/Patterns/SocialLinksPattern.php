@@ -38,6 +38,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $links = array();
         $showLabels = false;
+        $iconOnly = true;
+        $structuralItems = true;
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             if ( '' === $url ) {
@@ -53,16 +55,28 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $label = $text;
             }
             $showLabels = $showLabels || '' !== $text;
-            $links[] = $context->createBlockCallback()('core/social-link', array_filter(array(
+            $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
+            $sourceElement = $this->structuralItem($anchor, $element);
+            $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
+            $links[] = $context->createBlockCallback()('core/social-link', array_merge(
+                $context->presentationAttributesCallback()($sourceElement),
+                array_filter(array(
                 'url' => $url,
                 'service' => $this->service($url) ?? 'chain',
                 'label' => $label,
-            ), static fn(string $value): bool => '' !== $value), array(), $anchor);
+                ), static fn(string $value): bool => '' !== $value)
+            ), array(), $sourceElement);
         }
 
         $attrs = $context->presentationAttributesCallback()($element);
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
+        }
+        if ( $iconOnly ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
+        }
+        if ( $structuralItems && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+            $attrs['style']['spacing']['blockGap'] = '0px';
         }
         return new PatternRecognitionResult(
             $context->createBlockCallback()('core/social-links', $attrs, $links, $element)
@@ -122,5 +136,22 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return null;
+    }
+
+    private function structuralItem(DOMElement $anchor, DOMElement $cluster): DOMElement
+    {
+        $parent = $anchor->parentNode;
+        return $parent instanceof DOMElement
+            && $parent->parentNode instanceof DOMElement
+            && $parent->parentNode->isSameNode($cluster)
+            && 'li' === strtolower($parent->tagName)
+                ? $parent
+                : $anchor;
+    }
+
+    private function hasIcon(DOMElement $anchor): bool
+    {
+        return 0 < $anchor->getElementsByTagName('img')->length
+            || 0 < $anchor->getElementsByTagName('svg')->length;
     }
 }
