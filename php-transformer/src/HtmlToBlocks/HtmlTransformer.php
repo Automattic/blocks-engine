@@ -1480,7 +1480,6 @@ final class HtmlTransformer
         if ( array() !== $this->fullWidthButtonStyleRules ) {
             $afterAuthorCssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
         }
-
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
@@ -2989,6 +2988,25 @@ final class HtmlTransformer
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
+
+            if ( $this->hasRightmostNegatedDataAttribute($parsed) ) {
+                $matches = $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed);
+                $marker = '';
+                foreach ( $this->matchingAuthorSourceElementsIgnoringNegation($parsed) as $element ) {
+                    if ( in_array($element, $matches, true) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($element);
+                    if ( '' !== $path ) {
+                        $marker = '' === $marker ? $this->allocateAuthorMarker('attribute-state') : $marker;
+                        $this->sourceAttributeStateMarkers[$path][] = $marker;
+                    }
+                }
+                if ( '' !== $marker ) {
+                    $this->sourceAttributeNegationMarkers[$authorSelector['selector']] = $marker;
+                }
+            }
+
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = $compounds[array_key_last($compounds)] ?? array();
             $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
@@ -3000,7 +3018,7 @@ final class HtmlTransformer
                 $hasBoxGeometry = array() !== array_intersect_key($declarations, array_flip(array(
                     'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
                     'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-                    'margin', 'padding', 'flex', 'flex-basis', 'grid', 'grid-area',
+                    'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
                 )));
                 if ( ! $hasBoxGeometry && 'img' !== strtolower($element->tagName) ) {
                     continue;
@@ -3659,6 +3677,7 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $selector = $this->projectSourceAttributeNegationStateSelector($selector);
             $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
             if ( ! $parsed['supported'] ) {
@@ -3836,6 +3855,19 @@ final class HtmlTransformer
         return array_values(array_unique($projected));
     }
 
+    private function projectSourceAttributeNegationStateSelector(string $selector): string
+    {
+        $marker = $this->sourceAttributeNegationMarkers[trim($selector)] ?? '';
+        if ( '' === $marker ) {
+            return $selector;
+        }
+        return preg_replace(
+            '/:not\(\s*\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\]\s*\)/i',
+            ':not(.' . $marker . ')',
+            $selector
+        ) ?? $selector;
+    }
+
     private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img', array $declarations = array()): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -3965,6 +3997,37 @@ final class HtmlTransformer
         }
         return $this->authorSourceSelectorMatches[$selector] = $matches;
     }
+
+	/** @param array<string, mixed> $parsed @return list<DOMElement> */
+	private function matchingAuthorSourceElementsIgnoringNegation(array $parsed): array
+	{
+		$positive = $parsed;
+		foreach ( $positive['compounds'] as $index => $compound ) {
+			$positive['compounds'][$index]['not'] = array();
+		}
+		$matches = array();
+		foreach ( $this->authorSelectorCandidates($positive) as $element ) {
+			if ( CssSelectorMatcher::matches($element, $positive, true, $this->authorSelectorMatchCache)['matches'] ) {
+				$matches[] = $element;
+			}
+		}
+		return $matches;
+	}
+
+	/** @param array<string, mixed> $parsed */
+	private function hasRightmostNegatedDataAttribute(array $parsed): bool
+	{
+		$compounds = $parsed['compounds'] ?? array();
+		$rightmost = $compounds[array_key_last($compounds)] ?? array();
+		foreach ( $rightmost['not'] ?? array() as $negated ) {
+			foreach ( $negated['attributes'] ?? array() as $attribute ) {
+				if ( str_starts_with($attribute['name'] ?? '', 'data-') ) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
 
 	/** @param array<string, mixed> $parsed @return list<DOMElement> */
 	private function authorSelectorCandidates(array $parsed): array
@@ -6276,6 +6339,9 @@ final class HtmlTransformer
         if ( isset($this->sourceAttributeMarkers[$path]) ) {
             $markers[] = $this->sourceAttributeMarkers[$path];
         }
+		foreach ( $this->sourceAttributeStateMarkers[$path] ?? array() as $marker ) {
+			$markers[] = $marker;
+		}
         if ( isset($this->sourceRootChildMarkers[$path]) ) {
             $markers[] = $this->sourceRootChildMarkers[$path];
         }

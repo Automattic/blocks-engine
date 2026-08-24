@@ -1205,6 +1205,16 @@ $dataAncestryCss = implode("\n", array_map(static fn (array $asset): string => '
 $assert(str_contains($dataAncestryCss, ':where(#hero)') && str_contains($dataAncestryCss, 'position:relative'), 'source-proven data-attribute ancestry projects onto a surviving matched element ID');
 $assert(str_contains($dataAncestryCss, ':where(.blocks-engine-attribute-') && ! str_contains($dataAncestryCss, '[data-layout="grid"]{') && str_contains((string) ($dataAncestryLayout['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'direct data-attribute layout selectors project through deterministic structural marker classes');
 
+$dataAttributeFlex = ( new HtmlTransformer() )->transform('<style>[data-label="copy"]{flex-grow:1}</style><main><div style="display:flex"><div data-label="copy"><p>A flexible label</p></div></div></main>')->toArray();
+$dataAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAttributeFlex['assets'] ?? array()));
+$assert(str_contains($dataAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($dataAttributeFlexCss, 'flex-grow:1') && ! str_contains($dataAttributeFlexCss, '[data-label="copy"]'), 'data-attribute selectors carrying flex growth project through deterministic structural marker classes');
+$assert(str_contains((string) ($dataAttributeFlex['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($dataAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'flex growth attribute projection survives valid Gutenberg serialization');
+
+$settledAttributeState = ( new HtmlTransformer() )->transform('<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}@keyframes fade{from{opacity:0}to{opacity:1}}</style><main><div class="animated" data-state="done"><img src="hero.jpg" alt="Hero"></div><div class="animated"><p>Pending</p></div></main>')->toArray();
+$settledAttributeStateCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $settledAttributeState['assets'] ?? array()));
+$assert(str_contains($settledAttributeStateCss, ':not(.blocks-engine-attribute-state-') && str_contains((string) ($settledAttributeState['serialized_blocks'] ?? ''), 'blocks-engine-attribute-state-'), 'negated data-attribute state selectors preserve source matching through specificity-equivalent marker classes');
+$assert('pass' === ($settledAttributeState['source_reports']['wp_block_validity']['status'] ?? ''), 'settled data-attribute state projection preserves valid Gutenberg serialization');
+
 $emptyDataLayoutCarrier = ( new HtmlTransformer() )->transform('<style>[data-mesh-id="header"]{height:auto;min-height:83px}</style><header id="site-header"><div><div data-mesh-id="header"></div></div></header>')->toArray();
 $emptyDataLayoutCarrierCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyDataLayoutCarrier['assets'] ?? array()));
 $assert(str_contains((string) ($emptyDataLayoutCarrier['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'empty data-addressed layout carriers survive as editable structural groups');

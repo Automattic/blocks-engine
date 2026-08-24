@@ -89,6 +89,23 @@ $attributeFallbacks = array_values(array_filter($attributes['fallbacks'] ?? arra
 $attributeFallback = $attributeFallbacks[0] ?? array();
 $assert(str_contains((string) ($attributes['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($attributeFallback['html'] ?? ''), 'aria-label="Start"'), 'a materially different anchor accessible name remains a diagnostic fallback rather than becoming an invalid native button');
 
+$attributeProjection = $transform('<style>.form-shell{display:flex}.form-shell [data-role="label"]{flex-grow:1}.animated:not([data-state="settled"]){animation:fade 1s backwards paused}</style><div class="form-shell"><div data-role="label">Label</div></div><div class="animated" data-state="settled">Visible</div>');
+$attributeProjectionMarkup = (string) ($attributeProjection['serialized_blocks'] ?? '');
+$attributeProjectionCss = $css($attributeProjection);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeMarkers);
+preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeStateMarker);
+$assert(
+    1 === count(array_unique($attributeMarkers[0] ?? array()))
+    && str_contains($attributeProjectionCss, ':where(.blocks-engine-attribute-')
+    && str_contains($attributeProjectionCss, 'flex-grow:1')
+    && isset($attributeStateMarker[0])
+    && str_contains($attributeProjectionCss, ':not(.' . $attributeStateMarker[0] . ')')
+    && ! str_contains($attributeProjectionMarkup, 'data-role=')
+    && ! str_contains($attributeProjectionMarkup, 'data-state=')
+    && 'pass' === ($attributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
+    'rightmost data-attribute flex-grow and settled negated state selectors project through valid synthetic markers without source attributes'
+);
+
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
