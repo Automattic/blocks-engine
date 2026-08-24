@@ -3863,6 +3863,23 @@ $directContract = $directFacePlan['webfont_contract'] ?? array();
 $assert('direct' === ($directContract['imports'][0]['provider'] ?? null) && 'font' === ($directContract['imports'][0]['source']['format'] ?? null) && 'https://cdn.example.test/fonts/festival-display.woff2' === ($directContract['faces'][0]['sources'][0]['url'] ?? null) && 'styles/typography.css' === ($directContract['imports'][0]['provenance']['source_path'] ?? null) && 'css:@font-face(1)' === ($directContract['imports'][0]['provenance']['selector'] ?? null), 'direct font faces retain typed source URL and source provenance in the materialization contract');
 $directMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array('theme' => array('static_css' => $directFaceCss, 'font_css_sources' => array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))))));
 $assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' . "\n" === ($directMaterializationPlan['theme']['font_materialization']['stylesheets'][0]['content'] ?? null), 'materialization plan carries the direct font declaration as its standalone stylesheet asset');
+$eligibleDirectFaceCss = '@font-face{font-family:Eligible Woff;src:url("https://cdn.example.test/fonts/eligible.woff?download=1")}@font-face{font-family:Eligible Woff2;src:url("https://cdn.example.test:443/fonts/eligible.WOFF2#face")}';
+$eligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $eligibleDirectFaceCss);
+$eligibleDirectFaceUrls = array_column(array_map(static fn (array $import): array => $import['source'] ?? array(), $eligibleDirectFacePlan['webfont_contract']['imports'] ?? array()), 'url');
+$expectedEligibleDirectFaceUrls = array('https://cdn.example.test/fonts/eligible.woff?download=1', 'https://cdn.example.test:443/fonts/eligible.WOFF2#face');
+sort($eligibleDirectFaceUrls, SORT_STRING); sort($expectedEligibleDirectFaceUrls, SORT_STRING);
+$assert($expectedEligibleDirectFaceUrls === $eligibleDirectFaceUrls && 2 === count($eligibleDirectFacePlan['webfont_contract']['faces'] ?? array()), 'HTTPS WOFF and WOFF2 direct faces with implicit or explicit port 443 retain the typed materialization contract');
+foreach (array(
+    'http://cdn.example.test/fonts/insecure.woff2',
+    'https://user:password@cdn.example.test/fonts/credentials.woff2',
+    'https://cdn.example.test:8443/fonts/nonstandard-port.woff2',
+    'https://cdn.example.test/fonts/not-a-font.ttf',
+    'https://',
+) as $ineligibleDirectFaceUrl) {
+    $ineligibleDirectFaceCss = '@font-face{font-family:Ineligible;src:url("' . $ineligibleDirectFaceUrl . '")}';
+    $ineligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $ineligibleDirectFaceCss);
+    $assert(array() === ($ineligibleDirectFacePlan['webfont_contract']['imports'] ?? null) && array() === ($ineligibleDirectFacePlan['webfont_contract']['faces'] ?? null), 'direct face eligibility rejects ' . $ineligibleDirectFaceUrl);
+}
 
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
