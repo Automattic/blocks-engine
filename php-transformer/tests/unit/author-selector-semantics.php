@@ -548,6 +548,16 @@ $pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";backgro
 $pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');
 $assert(! str_contains($pseudoCustomPropertyMarkup, '--accent:') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '--accent:#fc0 !important') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed custom properties in generated carrier CSS');
 
+$inheritedConditionalCustomProperty = $transform('<style>@media (prefers-reduced-motion:no-preference){.scene .visual{margin-bottom:calc(100lvh - max(100lvh,var(--motion-comp-height,100%)))}}</style><div class="scene" style="--motion-comp-height:742px;--unused:discard"><div class="visual">Visual</div></div>');
+$inheritedConditionalCustomPropertyMarkup = (string) ($inheritedConditionalCustomProperty['serialized_blocks'] ?? '');
+$inheritedConditionalCustomPropertyCss = $css($inheritedConditionalCustomProperty);
+$assert(
+    ! str_contains($inheritedConditionalCustomPropertyMarkup, '--motion-comp-height:')
+    && str_contains($inheritedConditionalCustomPropertyCss, '--motion-comp-height:742px !important')
+    && ! str_contains($inheritedConditionalCustomPropertyCss, '--unused:'),
+    'inherited inline custom properties consumed by conditional descendant rules retain a generated carrier'
+);
+
 $geometryCustomProperty = $transform('<div style="width:var(--card-width);height:430px;--card-width:344px;--unused:discard">Card</div>');
 $geometryCustomPropertyMarkup = (string) ($geometryCustomProperty['serialized_blocks'] ?? '');
 $assert(! str_contains($geometryCustomPropertyMarkup, '--card-width:') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard') && str_contains($css($geometryCustomProperty), '--card-width:344px !important'), 'inline geometry retains only its referenced custom property in generated carrier CSS');
