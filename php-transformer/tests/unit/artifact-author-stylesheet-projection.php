@@ -48,6 +48,25 @@ $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.ct
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
 
+$projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div></div></main>' ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '#projected-pinned-layer{position:fixed;top:0}@media (max-width:700px){:where(.data-liberation-mobile-document) #projected-pinned-layer{position:fixed;top:0}}' ),
+    ),
+) )->toArray();
+$projectedPinnedAssets = $projectedPinnedLayer['assets'] ?? array();
+$projectedPinnedAuthorIndex = array_search('site.css', array_column($projectedPinnedAssets, 'path'), true);
+$projectedPinnedSupportIndex = null;
+foreach ($projectedPinnedAssets as $index => $asset) {
+    if ('engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')) {
+        $projectedPinnedSupportIndex = $index;
+        break;
+    }
+}
+$projectedPinnedSupport = is_int($projectedPinnedSupportIndex) ? (string) ($projectedPinnedAssets[$projectedPinnedSupportIndex]['content'] ?? '') : '';
+$assert(is_int($projectedPinnedAuthorIndex) && is_int($projectedPinnedSupportIndex) && $projectedPinnedAuthorIndex < $projectedPinnedSupportIndex, 'projected linked stylesheet loads before its post-author admin-bar support asset');
+$assert(str_contains($projectedPinnedSupport, 'body.admin-bar #projected-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($projectedPinnedSupport, '@media (max-width:700px){body.admin-bar :where(.data-liberation-mobile-document) #projected-pinned-layer{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}}'), 'projected fixed runtime selector and nested mobile selector receive admin-bar offsets');
+
 $richText = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="a.css"><link rel="stylesheet" href="b.css"></head><body><p><span class="quote-mark">&quot;</span>Testimonial</p></body></html>' ),
