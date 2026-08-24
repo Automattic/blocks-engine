@@ -6,6 +6,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
@@ -41,9 +42,10 @@ $details = (new HtmlTransformer())->transform('<details><summary>More</summary><
 $assert('core/details' === ($details['blocks'][0]['blockName'] ?? null), 'Native details remains ahead of generic container lowering.');
 $assert('html_unsupported_element' === ($details['fallbacks'][0]['diagnostic_code'] ?? null), 'Details commits child fallback diagnostics through the registry result.');
 
-$overlappingDetails = (new HtmlTransformer())->transform('<details><summary><button aria-expanded="false" aria-controls="answer">Native question</button></summary><div id="answer"><p>Native answer.</p></div></details>')->toArray();
+$overlappingDetails = (new HtmlTransformer())->transform('<details open><summary><button aria-expanded="false" aria-controls="answer">Native question</button></summary><div id="answer"><p>Native answer.</p></div></details>')->toArray();
 $assert('core/details' === ($overlappingDetails['blocks'][0]['blockName'] ?? null), 'Native details wins before the overlapping ARIA disclosure shape.');
 $assert(str_contains((string) ($overlappingDetails['blocks'][0]['attrs']['summary'] ?? ''), 'Native question'), 'Native details keeps its original summary when the ARIA disclosure shape overlaps.');
+$assert(true === ($overlappingDetails['blocks'][0]['attrs']['showContent'] ?? null), 'Native details keeps its open-state attribute rather than taking the ARIA disclosure branch.');
 
 $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" style="display:inline-block;background:#000;color:#fff;padding:1rem">Go</a>')->toArray();
 $assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
@@ -71,6 +73,13 @@ $assert('html_unsupported_element' === ($disclosure['fallbacks'][0]['diagnostic_
 $declinedDisclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false">Question?</button><p>Ordinary content.</p></div>')->toArray();
 $assert('core/details' !== ($declinedDisclosure['blocks'][0]['blockName'] ?? null), 'An ARIA toggle without a bounded panel declines disclosure lowering.');
 $assert(array() === ($declinedDisclosure['fallbacks'] ?? array()), 'A declined disclosure commits no recursive fallback diagnostics.');
+$assert('Question?' === ($declinedDisclosure['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['text'] ?? null), 'A declined disclosure retains its toggle through lower-priority button lowering.');
+$assert('Ordinary content.' === ($declinedDisclosure['blocks'][0]['innerBlocks'][1]['attrs']['content'] ?? null), 'A declined disclosure retains ordinary sibling content through lower-priority conversion.');
+
+$detailsPattern = new DetailsPattern();
+$detailsMethod = new ReflectionMethod(DetailsPattern::class, 'match');
+$disclosureMethod = new ReflectionMethod(DetailsPattern::class, 'matchDisclosure');
+$assert($detailsMethod->isPublic() && $disclosureMethod->isPublic(), 'DetailsPattern retains its released public lowering methods.');
 
 $navigationDocument = new DOMDocument();
 $previous = libxml_use_internal_errors(true);
