@@ -67,7 +67,7 @@ JS;
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $markup = '<input';
         foreach ( array( 'type', 'id', 'name', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step' ) as $key ) {
-            $value = trim((string) ($attrs[$key] ?? ''));
+            $value = (string) ($attrs[$key] ?? '');
             if ( '' !== $value ) {
                 $markup .= ' ' . ( 'className' === $key ? 'class' : ( 'ariaLabel' === $key ? 'aria-label' : $key ) ) . '="' . $escape($value) . '"';
             }

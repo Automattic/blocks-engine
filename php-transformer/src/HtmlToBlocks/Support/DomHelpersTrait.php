@@ -534,6 +534,7 @@ trait DomHelpersTrait
         // lowercases the tag name when serializing parsed HTML).
         $html = preg_replace('@<foreignobject\b[^>]*>.*?</foreignobject>@si', '', $html) ?? $html;
         $html = preg_replace('@<foreignobject\b[^>]*/?>@si', '', $html) ?? $html;
+        $html = preg_replace('@<link\b[^>]*\/?>@si', '', $html) ?? $html;
 
         // Neutralize any residual javascript: carried in remaining attributes
         // (e.g. a style attribute), dropping the whole attribute so the shape

@@ -81,6 +81,8 @@ final class HtmlTransformerSession
     public array $sourceControlPaths = array();
     public array $sourceSemanticMarkers = array();
     public array $sourceAttributeMarkers = array();
+    public array $sourceAttributeNegationMarkers = array();
+    public array $sourceAttributeStateMarkers = array();
     public array $sourceRootChildMarkers = array();
     public array $sourceBodyProjectionClasses = array();
     public array $responsiveGeometryAmbiguities = array();

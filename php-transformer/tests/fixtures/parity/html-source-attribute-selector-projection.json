@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-source-attribute-selector-projection",
+  "description": "Projects generic data-attribute layout and settled-state selectors through valid core block classes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-source-attribute-selector-projection.json",
+    "notes": "Provider-neutral coverage for source attribute selector projection."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.form-shell{display:flex}.form-shell [data-role=\"label\"]{flex-grow:1}.animated:not([data-state=\"settled\"]){animation:fade 1s backwards paused}</style><div class=\"form-shell\"><div data-role=\"label\">Label</div></div><div class=\"animated\" data-state=\"settled\">Visible</div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Label" } },
+    { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "Visible" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "unsupported_element", "tag": "style", "severity": "info" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-attribute-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-attribute-state-" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data-role=" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "data-state=" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

@@ -1205,6 +1205,22 @@ $dataAncestryCss = implode("\n", array_map(static fn (array $asset): string => '
 $assert(str_contains($dataAncestryCss, ':where(#hero)') && str_contains($dataAncestryCss, 'position:relative'), 'source-proven data-attribute ancestry projects onto a surviving matched element ID');
 $assert(str_contains($dataAncestryCss, ':where(.blocks-engine-attribute-') && ! str_contains($dataAncestryCss, '[data-layout="grid"]{') && str_contains((string) ($dataAncestryLayout['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'direct data-attribute layout selectors project through deterministic structural marker classes');
 
+$dataAttributeFlex = ( new HtmlTransformer() )->transform('<style>[data-label="copy"]{flex-grow:1}</style><main><div style="display:flex"><div data-label="copy"><p>A flexible label</p></div></div></main>')->toArray();
+$dataAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAttributeFlex['assets'] ?? array()));
+$assert(str_contains($dataAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($dataAttributeFlexCss, 'flex-grow:1') && ! str_contains($dataAttributeFlexCss, '[data-label="copy"]'), 'data-attribute selectors carrying flex growth project through deterministic structural marker classes');
+$assert(str_contains((string) ($dataAttributeFlex['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($dataAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'flex growth attribute projection survives valid Gutenberg serialization');
+
+$fallbackAttributeFlex = ( new HtmlTransformer() )->transform('<style>label[data-hook="checkbox-core"] div[data-hook="label-wrapper"]{flex-grow:1}</style><form><label data-hook="checkbox-core"><input type="checkbox" name="consent"><div data-hook="label-wrapper">Consent copy</div></label><button type="submit">Send</button></form>')->toArray();
+$fallbackAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fallbackAttributeFlex['assets'] ?? array()));
+$fallbackAttributeFlexHtml = implode("\n", array_map(static fn (array $fallback): string => (string) ($fallback['html'] ?? ''), $fallbackAttributeFlex['fallbacks'] ?? array()));
+$assert(str_contains($fallbackAttributeFlexHtml, 'data-hook="label-wrapper"') && str_contains($fallbackAttributeFlexHtml, 'blocks-engine-attribute-'), 'data-attribute projection markers survive inside bounded fallback islands');
+$assert(str_contains($fallbackAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($fallbackAttributeFlexCss, 'flex-grow:1') && 'pass' === ($fallbackAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded fallback attribute projection remains styled and Gutenberg-valid');
+
+$settledAttributeState = ( new HtmlTransformer() )->transform('<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}@keyframes fade{from{opacity:0}to{opacity:1}}</style><main><div class="animated" data-state="done"><img src="hero.jpg" alt="Hero"></div><div class="animated"><p>Pending</p></div></main>')->toArray();
+$settledAttributeStateCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $settledAttributeState['assets'] ?? array()));
+$assert(str_contains($settledAttributeStateCss, ':not(.blocks-engine-attribute-state-') && str_contains((string) ($settledAttributeState['serialized_blocks'] ?? ''), 'blocks-engine-attribute-state-'), 'negated data-attribute state selectors preserve source matching through specificity-equivalent marker classes');
+$assert('pass' === ($settledAttributeState['source_reports']['wp_block_validity']['status'] ?? ''), 'settled data-attribute state projection preserves valid Gutenberg serialization');
+
 $emptyDataLayoutCarrier = ( new HtmlTransformer() )->transform('<style>[data-mesh-id="header"]{height:auto;min-height:83px}</style><header id="site-header"><div><div data-mesh-id="header"></div></div></header>')->toArray();
 $emptyDataLayoutCarrierCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyDataLayoutCarrier['assets'] ?? array()));
 $assert(str_contains((string) ($emptyDataLayoutCarrier['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'empty data-addressed layout carriers survive as editable structural groups');
@@ -1357,6 +1373,13 @@ $assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-tar
 $assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
 $assert(! str_contains($styledInputMarkup, '<!-- wp:html') || str_contains($styledInputMarkup, '<input class="js-filter"'), 'styled static input never uses core/html while runtime input remains compatible');
 $assert('pass' === ($styledInputs['source_reports']['wp_block_validity']['status'] ?? ''), 'compact input serialization passes canonical Gutenberg validity');
+
+$whitespaceInput = ( new HtmlTransformer() )->transform(
+    '<input class="authored-input" type="text" name="expected-# of people " placeholder=" ">',
+    array('static_css' => '.authored-input{border:1px solid;padding:1rem}')
+)->toArray();
+$whitespaceInputBlock = $whitespaceInput['blocks'][0] ?? array();
+$assert('expected-# of people ' === ($whitespaceInputBlock['attrs']['name'] ?? null) && ' ' === ($whitespaceInputBlock['attrs']['placeholder'] ?? null) && str_contains((string) ($whitespaceInput['serialized_blocks'] ?? ''), 'name="expected-# of people " placeholder=" "'), 'compact input PHP markup preserves the same safe whitespace-bearing attributes as its companion save function');
 
 $unstyledSelect = ( new HtmlTransformer() )->transform(
     '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
@@ -3854,6 +3877,32 @@ $assert(1 === count($deduplicatedWebFontPlan['webfont_contract']['imports'] ?? a
 $unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
 $assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
 $assert('unsupported' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['state'] ?? null) && 'webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['diagnostics'][0]['code'] ?? null) && array() === ($unsupportedWebFontPlan['webfont_contract']['faces'] ?? null), 'zero-face web-font contracts retain required import diagnostics');
+
+$directFaceCss = '@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2") format("woff2")}h1{font-family:"Festival Display",serif}body{font-family:"Unproven Sans",sans-serif}';
+$directFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $directFaceCss, array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))));
+$assert(array(array('family' => 'Festival Display', 'weights' => array(700))) === ($directFacePlan['fonts'] ?? null) && 'Festival Display' === ($directFacePlan['roles']['heading'] ?? null) && ! isset($directFacePlan['roles']['body']), 'source-proven direct font faces materialize their family and matching role without CSS-only families');
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' === ($directFacePlan['css'] ?? null), 'direct font materialization emits only the typed font-face declaration');
+$directContract = $directFacePlan['webfont_contract'] ?? array();
+$assert('direct' === ($directContract['imports'][0]['provider'] ?? null) && 'font' === ($directContract['imports'][0]['source']['format'] ?? null) && 'https://cdn.example.test/fonts/festival-display.woff2' === ($directContract['faces'][0]['sources'][0]['url'] ?? null) && 'styles/typography.css' === ($directContract['imports'][0]['provenance']['source_path'] ?? null) && 'css:@font-face(1)' === ($directContract['imports'][0]['provenance']['selector'] ?? null), 'direct font faces retain typed source URL and source provenance in the materialization contract');
+$directMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array('theme' => array('static_css' => $directFaceCss, 'font_css_sources' => array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))))));
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' . "\n" === ($directMaterializationPlan['theme']['font_materialization']['stylesheets'][0]['content'] ?? null), 'materialization plan carries the direct font declaration as its standalone stylesheet asset');
+$eligibleDirectFaceCss = '@font-face{font-family:Eligible Woff;src:url("https://cdn.example.test/fonts/eligible.woff?download=1")}@font-face{font-family:Eligible Woff2;src:url("https://cdn.example.test:443/fonts/eligible.WOFF2#face")}';
+$eligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $eligibleDirectFaceCss);
+$eligibleDirectFaceUrls = array_column(array_map(static fn (array $import): array => $import['source'] ?? array(), $eligibleDirectFacePlan['webfont_contract']['imports'] ?? array()), 'url');
+$expectedEligibleDirectFaceUrls = array('https://cdn.example.test/fonts/eligible.woff?download=1', 'https://cdn.example.test:443/fonts/eligible.WOFF2#face');
+sort($eligibleDirectFaceUrls, SORT_STRING); sort($expectedEligibleDirectFaceUrls, SORT_STRING);
+$assert($expectedEligibleDirectFaceUrls === $eligibleDirectFaceUrls && 2 === count($eligibleDirectFacePlan['webfont_contract']['faces'] ?? array()), 'HTTPS WOFF and WOFF2 direct faces with implicit or explicit port 443 retain the typed materialization contract');
+foreach (array(
+    'http://cdn.example.test/fonts/insecure.woff2',
+    'https://user:password@cdn.example.test/fonts/credentials.woff2',
+    'https://cdn.example.test:8443/fonts/nonstandard-port.woff2',
+    'https://cdn.example.test/fonts/not-a-font.ttf',
+    'https://',
+) as $ineligibleDirectFaceUrl) {
+    $ineligibleDirectFaceCss = '@font-face{font-family:Ineligible;src:url("' . $ineligibleDirectFaceUrl . '")}';
+    $ineligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $ineligibleDirectFaceCss);
+    $assert(array() === ($ineligibleDirectFacePlan['webfont_contract']['imports'] ?? null) && array() === ($ineligibleDirectFacePlan['webfont_contract']['faces'] ?? null), 'direct face eligibility rejects ' . $ineligibleDirectFaceUrl);
+}
 
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
