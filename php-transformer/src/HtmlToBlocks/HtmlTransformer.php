@@ -800,6 +800,7 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
+        $this->collectProjectedNavigationRelationships($body);
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
@@ -4673,7 +4674,22 @@ final class HtmlTransformer
             return $block;
         }
 
-        if ( $this->isRedundantMenuToggleControl($element) ) {
+        $projectedNavigation = $this->projectedNavigationTargetForControl($element);
+        if ( $projectedNavigation instanceof DOMElement ) {
+            $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
+            if ( null !== $block ) {
+                $controlAttrs = $this->presentationAttributes($element);
+                $block['attrs']['className'] = $this->mergeClassNames(
+                    'blocks-engine-list-navigation blocks-engine-native-responsive-navigation',
+                    (string) ($controlAttrs['className'] ?? ''),
+                    $this->sourceProjectionClassName($element)
+                );
+                $block['attrs']['overlayMenu'] = 'mobile';
+                return $block;
+            }
+        }
+
+        if ( $this->isProjectedNavigationSuppressed($element) || $this->isRedundantMenuToggleControl($element) ) {
             return null;
         }
 
