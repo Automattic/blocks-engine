@@ -963,7 +963,7 @@ trait SvgMaterializationTrait
             // SVG asset materialization. They cannot survive into the generated
             // image document, so they must not disqualify otherwise passive,
             // self-contained artwork from the native image path.
-            if ( 'style' === strtolower($child->tagName) ) {
+            if ( in_array(strtolower($child->tagName), array('style', 'link'), true) ) {
                 continue;
             }
             if ( ! $child instanceof DOMElement || ! $this->isPassiveSvgElement($child, $allowedTags, $allowedAttributes) ) {
