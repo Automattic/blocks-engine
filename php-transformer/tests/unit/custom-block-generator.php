@@ -182,6 +182,12 @@ $assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell
 $branchMarkup = (string) ($branchShell['serialized_blocks'] ?? '');
 $assert(str_contains($branchMarkup, '<section id="branch-section"') && 2 === substr_count($branchMarkup, '<!-- wp:paragraph') && strpos($branchMarkup, 'First branch') < strpos($branchMarkup, 'Second branch'), '6: branching layout-shell serialization preserves semantic wrappers and ordered native child blocks');
 
+$depthPressureTransformer = new HtmlTransformer();
+$twoWrapperBranch = $depthPressureTransformer->transform('<div id="depth-outer" class="blocks-engine-source-div-outer-3"><section id="depth-branch" class="blocks-engine-source-section-branch-3"><p>First branch</p><p>Second branch</p></section></div>')->toArray();
+$depthCompressor = new ReflectionMethod(HtmlTransformer::class, 'compressProjectedGroupChains');
+$depthCompressed = $depthCompressor->invoke($depthPressureTransformer, $twoWrapperBranch['blocks'] ?? array(), true);
+$assert('core/group' === ($twoWrapperBranch['blocks'][0]['blockName'] ?? null) && str_ends_with((string) ($depthCompressed[0]['blockName'] ?? ''), '/layout-shell') && 2 === count($depthCompressed[0]['attrs']['wrappers'] ?? array()) && 2 === count($depthCompressed[0]['innerBlocks'] ?? array()), '6: depth pressure admits an exact two-wrapper branch shell while the normal threshold remains conservative');
+
 $importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
 $assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
 
