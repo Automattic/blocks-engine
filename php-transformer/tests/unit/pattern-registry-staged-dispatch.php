@@ -41,6 +41,10 @@ $details = (new HtmlTransformer())->transform('<details><summary>More</summary><
 $assert('core/details' === ($details['blocks'][0]['blockName'] ?? null), 'Native details remains ahead of generic container lowering.');
 $assert('html_unsupported_element' === ($details['fallbacks'][0]['diagnostic_code'] ?? null), 'Details commits child fallback diagnostics through the registry result.');
 
+$overlappingDetails = (new HtmlTransformer())->transform('<details><summary><button aria-expanded="false" aria-controls="answer">Native question</button></summary><div id="answer"><p>Native answer.</p></div></details>')->toArray();
+$assert('core/details' === ($overlappingDetails['blocks'][0]['blockName'] ?? null), 'Native details wins before the overlapping ARIA disclosure shape.');
+$assert(str_contains((string) ($overlappingDetails['blocks'][0]['attrs']['summary'] ?? ''), 'Native question'), 'Native details keeps its original summary when the ARIA disclosure shape overlaps.');
+
 $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" style="display:inline-block;background:#000;color:#fff;padding:1rem">Go</a>')->toArray();
 $assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
 $assert('html_stylable_button_accessible_name_fallback' === ($button['fallbacks'][0]['diagnostic_code'] ?? null), 'Button fallback is committed by the staged registry dispatcher.');
@@ -63,6 +67,10 @@ $assert('html_unsupported_element' === ($accordion['fallbacks'][0]['diagnostic_c
 $disclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p><object data="/answer.pdf"></object></div></div>')->toArray();
 $assert('core/details' === ($disclosure['blocks'][0]['blockName'] ?? null), 'Disclosure recognition survives an unsupported panel child.');
 $assert('html_unsupported_element' === ($disclosure['fallbacks'][0]['diagnostic_code'] ?? null), 'Disclosure commits recursive panel diagnostics through its winning result.');
+
+$declinedDisclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false">Question?</button><p>Ordinary content.</p></div>')->toArray();
+$assert('core/details' !== ($declinedDisclosure['blocks'][0]['blockName'] ?? null), 'An ARIA toggle without a bounded panel declines disclosure lowering.');
+$assert(array() === ($declinedDisclosure['fallbacks'] ?? array()), 'A declined disclosure commits no recursive fallback diagnostics.');
 
 $navigationDocument = new DOMDocument();
 $previous = libxml_use_internal_errors(true);

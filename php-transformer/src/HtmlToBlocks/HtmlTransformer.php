@@ -214,7 +214,6 @@ final class HtmlTransformer
 
     private readonly MediaTextPattern $mediaTextPattern;
 
-    private readonly DetailsPattern $detailsPattern;
 
     private readonly GalleryPattern $galleryPattern;
 
@@ -582,7 +581,6 @@ final class HtmlTransformer
         $this->columnsPattern    = new ColumnsPattern();
         $this->coverPattern      = new CoverPattern();
         $this->mediaTextPattern  = new MediaTextPattern();
-        $this->detailsPattern    = new DetailsPattern();
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
@@ -615,22 +613,7 @@ final class HtmlTransformer
                 $block = $this->quotePattern->matchFigureBlockquote($element, $blockquote, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), $context->innerHtmlCallback(), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
             }),
-            new CallbackPatternRecognizer('details', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $fallbacks = array();
-                $block = $this->detailsPattern->match($element, $fallbacks, fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
-            }),
-            new CallbackPatternRecognizer('disclosure', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $converter = $context->recursiveConverter();
-                if ( null === $converter ) {
-                    return null;
-                }
-                $fallbacks = array();
-                $block = $this->detailsPattern->matchDisclosure($element, function (DOMElement $sourceElement) use ($converter, &$fallbacks): array {
-                    return $converter->children($sourceElement, $fallbacks, true);
-                }, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
-            }),
+            new DetailsPattern(),
             new CallbackPatternRecognizer('gallery', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
@@ -5159,7 +5142,7 @@ final class HtmlTransformer
         }
 
         if ( 'details' === $tagName ) {
-            return $this->recognizePatterns($element, $fallbacks, array('details'));
+            return $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
         }
 
         if ( 'a' === $tagName ) {
@@ -5404,7 +5387,7 @@ final class HtmlTransformer
                     return $metadataGrid;
                 }
 
-                $disclosure = $this->recognizePatterns($element, $fallbacks, array('disclosure'));
+                $disclosure = $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
                 if ( null !== $disclosure ) {
                     $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
 

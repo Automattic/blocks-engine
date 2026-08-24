@@ -5,30 +5,42 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
-final class DetailsPattern
+final class DetailsPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @param callable(DOMElement, array<int, array<string, mixed>>&, array<int, string>): array<int, array<string, mixed>> $convertChildrenWithoutTags
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        $converter = $context->recursiveConverter();
+        if ( ! $converter instanceof PatternRecursiveConverter ) {
+            return null;
+        }
+
+        $fallbacks = array();
+        if ( 'details' !== strtolower($element->tagName) ) {
+            $block = $this->matchDisclosure(
+                $element,
+                function (DOMElement $sourceElement) use ($converter, &$fallbacks): array {
+                    return $converter->children($sourceElement, $fallbacks, true);
+                },
+                $context->presentationAttributesCallback(),
+                $context->innerHtmlCallback(),
+                $context->createBlockCallback()
+            );
+
+            return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+        }
+
         $summary = $this->firstChildElement($element, 'summary');
-        $children = $convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
+        $children = $converter->childrenWithoutTags($element, $fallbacks, array( 'summary' ));
         if ( null === $summary && array() === $children ) {
             return null;
         }
 
-        return $createBlock('core/details', array_filter(array_merge($presentationAttributes($element), array(
-            'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+        return new PatternRecognitionResult($context->createBlockCallback()('core/details', array_filter(array_merge($context->presentationAttributesCallback()($element), array(
+            'summary'     => $summary instanceof DOMElement ? $context->innerHtmlCallback()($summary) : '',
             'showContent' => $element->hasAttribute('open') ? true : '',
-        )), static fn ($value): bool => '' !== $value), $children, $element);
+        )), static fn ($value): bool => '' !== $value), $children, $element), $fallbacks);
     }
 
     /**
@@ -52,7 +64,7 @@ final class DetailsPattern
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function matchDisclosure(DOMElement $element, callable $convertChildren, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    private function matchDisclosure(DOMElement $element, callable $convertChildren, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
     {
         if ( $this->hasRuntimeHeavyDescendant($element) ) {
             return null;
