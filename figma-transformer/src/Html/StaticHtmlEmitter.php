@@ -577,7 +577,7 @@ final class StaticHtmlEmitter
         $implicitRoutePagePlan = is_array($options['implicit_route_page_plan'] ?? null) ? $options['implicit_route_page_plan'] : $pagePlan;
         $implicitRouteData = $this->implicitRouteDataFromPagePlan($implicitRoutePagePlan, $scenegraph);
         $this->linkState->resetForSite(
-            $this->linkTargetPathsFromPagePlan($pagePlan, $options),
+            $this->siteLinkTargetPaths($pagePlan, $scenegraph, $options),
             $this->entrypointPathFromPagePlan($implicitRoutePagePlan),
             $implicitRouteData['paths'],
             $implicitRouteData['targets']
@@ -3532,6 +3532,79 @@ final class StaticHtmlEmitter
         }
 
         return $map;
+    }
+
+    /**
+     * Build the complete site route map alongside the page-emission lifecycle.
+     * Prototype links can target descendants, while static HTML routes target
+     * the page containing that descendant.
+     *
+     * @param array<string, mixed> $pagePlan
+     * @param array<string, mixed> $scenegraph
+     * @param array<string, mixed> $options
+     * @return array<string, string>
+     */
+    private function siteLinkTargetPaths(array $pagePlan, array $scenegraph, array $options): array
+    {
+        $map = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
+        $nodeMap = $this->nodeMap($scenegraph);
+        foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
+            if ( ! is_array($page) ) {
+                continue;
+            }
+
+            $path = $this->pagePath($page, (string) ($page['name'] ?? 'Page'), is_int($index) ? $index : 0);
+            $frameIds = array((string) ($page['frame_id'] ?? ''));
+            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+                if ( is_array($variant) ) {
+                    $frameIds[] = (string) ($variant['frame_id'] ?? '');
+                }
+            }
+            foreach ( array_values(array_unique(array_filter($frameIds))) as $frameId ) {
+                $map[$frameId] = $path;
+                if ( isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ) {
+                    $this->mapDescendantLinkTargets($nodeMap[$frameId], $path, $map, array($frameId => true));
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, string> $map
+     * @param array<string, bool> $visited
+     */
+    private function mapDescendantLinkTargets(array $node, string $path, array &$map, array $visited): void
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $id = (string) ($child['id'] ?? '');
+            if ( '' === $id || isset($visited[$id]) ) {
+                continue;
+            }
+            $visited[$id] = true;
+            $map[$id] = $this->descendantLinkTargetPath($path, $child);
+            $this->mapDescendantLinkTargets($child, $path, $map, $visited);
+        }
+    }
+
+    /** @param array<string, mixed> $node */
+    private function descendantLinkTargetPath(string $path, array $node): string
+    {
+        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
+            return $path;
+        }
+        $name = strtolower((string) ($node['name'] ?? ''));
+        $fontSize = isset($node['fontSize']) && is_numeric($node['fontSize']) ? (float) $node['fontSize'] : null;
+        if ( (null !== $fontSize && $fontSize < 24.0) || (null === $fontSize && ! str_contains($name, 'heading') && ! str_contains($name, 'title')) ) {
+            return $path;
+        }
+        $text = trim((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
+        return '' === $text ? $path : $path . '#' . $this->slug($text);
     }
 
     /** @param array<string, mixed> $pagePlan */

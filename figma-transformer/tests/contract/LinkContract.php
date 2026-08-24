@@ -89,6 +89,15 @@ function blocks_engine_figma_transformer_run_link_contract(callable $assert, cal
     $navHomeHtml = $fileContent($navResult, 'index.html');
     $assert(str_contains($navHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'node-hyperlink-resolves-to-slug');
     $assert(2 === substr_count($navHomeHtml, 'href="about.html"'), 'node-and-prototype-links-both-resolve');
+    $navPagePaths = array_values(array_map(
+        static fn (array $page): string => (string) ($page['path'] ?? ''),
+        array_filter($navResult['source_reports']['figma']['html']['pages'] ?? array(), 'is_array')
+    ));
+    $navHtmlPaths = array_values(array_map(
+        static fn (array $file): string => (string) ($file['path'] ?? ''),
+        array_filter($navResult['files'] ?? array(), static fn (array $file): bool => 'text/html' === ($file['mime_type'] ?? null))
+    ));
+    $assert($navHtmlPaths === $navPagePaths, 'multi-page-routes-and-source-reports-remain-in-emission-order');
     
     // Prototype links may target a descendant inside a planned page frame rather than the frame itself.
     $descendantTargetScenegraph = array(
