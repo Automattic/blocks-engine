@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
+/** @internal Pattern recognizers are implementation details of HtmlTransformer. */
 final class PlaceholderMediaPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
@@ -12,6 +13,11 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         if ( ! $this->isPlaceholderMediaElement($element) ) {
+            return null;
+        }
+
+        $escapeHtml = $context->escapeHtmlCallback();
+        if ( null === $escapeHtml ) {
             return null;
         }
 
@@ -23,10 +29,6 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $escapeHtml = $context->escapeHtmlCallback();
-        if ( null === $escapeHtml ) {
-            return null;
-        }
         $children = '' !== $label ? array( $context->createBlockCallback()('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
 
         return new PatternRecognitionResult($context->createBlockCallback()('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));

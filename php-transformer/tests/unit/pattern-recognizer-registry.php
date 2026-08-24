@@ -127,7 +127,24 @@ $missingSafeFallback = new PatternContext(static fn (DOMElement $source): array 
 $missingEscapeHtml = new PatternContext(static fn (DOMElement $source): array => array(), $innerHtml, $createBlock, safeFallbackHtml: static fn (DOMElement $source): string => 'safe');
 $assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingSafeFallback), 'Math declines without its safe-fallback context dependency.');
 $assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingEscapeHtml), 'Math declines without its HTML-escaping context dependency.');
-$assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingEscapeHtml), 'Placeholder media declines without its HTML-escaping context dependency.');
+$placeholderState = new ArrayObject();
+$missingPlaceholderEscapeHtml = new PatternContext(
+    static function (DOMElement $source) use ($placeholderState): array {
+        $placeholderState[] = 'presentation';
+        return array();
+    },
+    static function (DOMElement $source) use ($placeholderState): string {
+        $placeholderState[] = 'inner-html';
+        return '';
+    },
+    static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
+        $placeholderState[] = 'create-block';
+        return array();
+    },
+    safeFallbackHtml: static fn (DOMElement $source): string => 'safe'
+);
+$assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderEscapeHtml), 'Placeholder media declines without its HTML-escaping context dependency.');
+$assertSame(array(), $placeholderState->getArrayCopy(), 'Placeholder media validates missing dependencies before invoking stateful context callbacks.');
 
 echo "pattern recognizer registry ok\n";
 exit(0 === $failures ? 0 : 1);

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
+/** @internal Pattern recognizers are implementation details of HtmlTransformer. */
 final class MathPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
