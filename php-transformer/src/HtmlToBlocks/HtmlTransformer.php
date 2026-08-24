@@ -1438,6 +1438,9 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
+            $afterAuthorCssParts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
+        }
         foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
             $afterAuthorCssParts[] = $itemAnchorRule;
         }

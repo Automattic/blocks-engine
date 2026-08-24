@@ -383,7 +383,7 @@ final class BlockFactory
         if ( 'core/social-links' === $name ) {
             $size = $this->safeSlug((string) ($attrs['size'] ?? ''));
             $sizeClass = in_array($size, array( 'small', 'normal', 'large', 'huge' ), true)
-                ? 'has-' . $size . '-icon-size'
+                ? $size . ' has-' . $size . '-icon-size'
                 : '';
             return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $sizeClass)) . '>', 'closing' => '</ul>' );
         }

@@ -79,8 +79,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $attrs['size'] = $size;
             }
         }
-        if ( $structuralItems && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
-            $attrs['style']['spacing']['blockGap'] = '0px';
+        if ( $structuralItems ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
         }
         return new PatternRecognitionResult(
             $context->createBlockCallback()('core/social-links', $attrs, $links, $element)

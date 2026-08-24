@@ -528,10 +528,12 @@ $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ??
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
 $assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
-$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
+$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'normal has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
 $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
-$assert('0px' === ($socialLinksBlock['attrs']['style']['spacing']['blockGap'] ?? ''), 'structural social items neutralize the core default gap so source item spacing remains authoritative');
-$assert(str_contains($socialLinksMarkup, 'style="gap:0px"') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the supported styled social-links wrapper');
+$assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
+$socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
+$assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
