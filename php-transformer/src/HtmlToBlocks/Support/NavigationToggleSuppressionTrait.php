@@ -9,6 +9,83 @@ use DOMNode;
 
 trait NavigationToggleSuppressionTrait
 {
+    /** @var array<string, DOMElement> */
+    private array $projectedNavigationTargetsByControlPath = array();
+
+    /** @var array<string, true> */
+    private array $projectedNavigationSuppressedPaths = array();
+
+    /**
+     * Bind a hidden dialog/menu to its source hamburger before recursive
+     * conversion. The responsive core/navigation must occupy the control's
+     * layout slot, not the hidden overlay's document position.
+     */
+    private function collectProjectedNavigationRelationships(DOMElement $root): void
+    {
+        $elementsById = array();
+        foreach ( $root->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && '' !== trim($this->attr($element, 'id')) ) {
+                $elementsById[trim($this->attr($element, 'id'))] = $element;
+            }
+        }
+
+        foreach ( $root->getElementsByTagName('*') as $control ) {
+            if ( ! $control instanceof DOMElement || ! $this->isHamburgerMenuToggleControl($control) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim($this->attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+                $target = $elementsById[ltrim($controlledId, '#')] ?? null;
+                $navigation = $target instanceof DOMElement ? $this->hiddenNavigationInControlledTarget($target) : null;
+                if ( ! $navigation instanceof DOMElement || isset($this->projectedNavigationSuppressedPaths[$navigation->getNodePath()]) ) {
+                    continue;
+                }
+
+                $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] = $navigation;
+                $this->projectedNavigationSuppressedPaths[$target->getNodePath()] = true;
+                $this->projectedNavigationSuppressedPaths[$navigation->getNodePath()] = true;
+                break;
+            }
+        }
+    }
+
+    private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
+    {
+        $tagName = strtolower($target->tagName);
+        $role = strtolower($this->attr($target, 'role'));
+        if ( ! $this->sourceElementStartsHidden($target)
+            || ( ! in_array($tagName, array( 'dialog', 'nav' ), true)
+                && ! in_array($role, array( 'dialog', 'alertdialog', 'navigation' ), true) ) ) {
+            return null;
+        }
+
+        $candidates = array($target);
+        foreach ( $target->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $candidates[] = $candidate;
+            }
+        }
+        foreach ( $candidates as $candidate ) {
+            if ( $this->isAssociatedNavigationTarget($candidate)
+                && '' !== $this->sourceNavigationSignature($candidate)
+                && $this->convertsToCoreNavigation($candidate) ) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
+    {
+        return $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] ?? null;
+    }
+
+    private function isProjectedNavigationSuppressed(DOMElement $element): bool
+    {
+        return isset($this->projectedNavigationSuppressedPaths[$element->getNodePath()]);
+    }
+
     /**
      * A JS-only hamburger menu-toggle that is redundant chrome whenever it is
      * associated with a source navigation menu — whether or not that menu
@@ -438,6 +515,14 @@ trait NavigationToggleSuppressionTrait
                 continue;
             }
 
+            $projectedTarget = $this->projectedNavigationTargetForControl($toggle);
+            if ( $projectedTarget instanceof DOMElement ) {
+                if ( $projectedTarget->isSameNode($navigation) ) {
+                    return 'mobile';
+                }
+                continue;
+            }
+
             if ( $this->elementContains($navigation, $toggle) ) {
                 return 'mobile';
             }
@@ -482,6 +567,7 @@ trait NavigationToggleSuppressionTrait
         foreach ( $document->getElementsByTagName('nav') as $candidate ) {
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
+                || $this->isProjectedNavigationSuppressed($candidate)
                 || $this->elementContains($navigationRoot, $candidate)
                 || $this->elementContains($candidate, $navigationRoot)
             ) {
