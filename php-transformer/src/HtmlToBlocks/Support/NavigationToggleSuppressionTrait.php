@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use DOMDocument;
 use DOMElement;
+use DOMNode;
 
 trait NavigationToggleSuppressionTrait
 {
@@ -334,15 +335,44 @@ trait NavigationToggleSuppressionTrait
 
     /**
      * Visible text label of a control with decorative chrome (icons, empty
-     * hamburger bars) stripped. Empty means the control shows no text label.
+     * hamburger bars) and source-hidden descendants stripped. Empty means the
+     * control shows no text label; accessible names remain separate semantics.
      */
     private function visibleMenuToggleLabel(DOMElement $element): string
     {
-        $html = $this->innerHtml($element);
-        $html = preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $html) ?? $html;
-        $html = preg_replace('/<([a-z][a-z0-9]*)\b[^>]*\baria-hidden\s*=\s*(["\'])?true\2[^>]*>.*?<\/\1>/is', '', $html) ?? $html;
+        $label = '';
+        foreach ( $element->childNodes as $child ) {
+            $label .= $this->visibleMenuToggleText($child);
+        }
 
-        return trim($this->runtime->stripAllTags($html));
+        return trim($label);
+    }
+
+    private function visibleMenuToggleText(DOMNode $node): string
+    {
+        if ( XML_TEXT_NODE === $node->nodeType ) {
+            return $node->textContent ?? '';
+        }
+
+        if ( ! $node instanceof DOMElement
+            || 'svg' === strtolower($node->tagName)
+            || 'true' === strtolower($this->attr($node, 'aria-hidden'))
+            || $this->hasHiddenDisplay($node) ) {
+            return '';
+        }
+
+        $text = '';
+        foreach ( $node->childNodes as $child ) {
+            $text .= $this->visibleMenuToggleText($child);
+        }
+
+        return $text;
+    }
+
+    private function hasHiddenDisplay(DOMElement $element): bool
+    {
+        $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        return 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($declarations['display'] ?? '')));
     }
 
     /**
