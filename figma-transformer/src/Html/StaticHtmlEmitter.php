@@ -3546,6 +3546,7 @@ final class StaticHtmlEmitter
      */
     private function siteLinkTargetPaths(array $pagePlan, array $scenegraph, array $options): array
     {
+        $explicitPaths = $this->normalizeLinkTargetPaths($options);
         $map = $this->linkTargetPathsFromPagePlan($pagePlan, $options);
         $nodeMap = $this->nodeMap($scenegraph);
         foreach ( $this->plannedPages($pagePlan) as $index => $page ) {
@@ -3561,9 +3562,11 @@ final class StaticHtmlEmitter
                 }
             }
             foreach ( array_values(array_unique(array_filter($frameIds))) as $frameId ) {
-                $map[$frameId] = $path;
+                if ( ! isset($explicitPaths[$frameId]) ) {
+                    $map[$frameId] = $path;
+                }
                 if ( isset($nodeMap[$frameId]) && is_array($nodeMap[$frameId]) ) {
-                    $this->mapDescendantLinkTargets($nodeMap[$frameId], $path, $map, array($frameId => true));
+                    $this->mapDescendantLinkTargets($nodeMap[$frameId], $path, $map, $explicitPaths);
                 }
             }
         }
@@ -3574,11 +3577,17 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      * @param array<string, string> $map
-     * @param array<string, bool> $visited
+     * @param array<string, string> $explicitPaths
      */
-    private function mapDescendantLinkTargets(array $node, string $path, array &$map, array $visited): void
+    private function mapDescendantLinkTargets(array $node, string $path, array &$map, array $explicitPaths): void
     {
-        foreach ( $this->nodeList($node) as $child ) {
+        $rootId = (string) ($node['id'] ?? '');
+        $stack = $this->nodeList($node);
+        $visited = '' === $rootId ? array() : array($rootId => true);
+        $guard = 0;
+        while ( array() !== $stack && $guard < 200000 ) {
+            ++$guard;
+            $child = array_pop($stack);
             if ( ! is_array($child) ) {
                 continue;
             }
@@ -3587,8 +3596,14 @@ final class StaticHtmlEmitter
                 continue;
             }
             $visited[$id] = true;
-            $map[$id] = $this->descendantLinkTargetPath($path, $child);
-            $this->mapDescendantLinkTargets($child, $path, $map, $visited);
+            if ( ! isset($explicitPaths[$id]) ) {
+                $map[$id] = $this->descendantLinkTargetPath($path, $child);
+            }
+            foreach ( $this->nodeList($child) as $grandchild ) {
+                if ( is_array($grandchild) ) {
+                    $stack[] = $grandchild;
+                }
+            }
         }
     }
 
@@ -3604,7 +3619,7 @@ final class StaticHtmlEmitter
             return $path;
         }
         $text = trim((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
-        return '' === $text ? $path : $path . '#' . $this->slug($text);
+        return '' === $text ? $path : $this->linkHrefWithHash($path, $this->slug($text));
     }
 
     /** @param array<string, mixed> $pagePlan */

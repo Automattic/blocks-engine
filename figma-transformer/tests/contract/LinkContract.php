@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigKiwiDecoder;
+use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 
 /**
@@ -89,6 +90,12 @@ function blocks_engine_figma_transformer_run_link_contract(callable $assert, cal
     $navHomeHtml = $fileContent($navResult, 'index.html');
     $assert(str_contains($navHomeHtml, '<a class="figma-link" href="about.html" data-figma-link-type="node">'), 'node-hyperlink-resolves-to-slug');
     $assert(2 === substr_count($navHomeHtml, 'href="about.html"'), 'node-and-prototype-links-both-resolve');
+    $navOverrideResult = blocks_engine_figma_transformer_transform_scenegraph($navScenegraph, array(
+        'include_all_pages' => true,
+        'entry_frame_id' => 'nav:home',
+        'link_target_paths' => array('nav:about' => 'custom-root.html'),
+    ));
+    $assert(str_contains($fileContent($navOverrideResult, 'index.html'), 'href="custom-root.html" data-figma-link-type="node"'), 'explicit-root-link-target-path-is-preserved');
     $navPagePaths = array_values(array_map(
         static fn (array $page): string => (string) ($page['path'] ?? ''),
         array_filter($navResult['source_reports']['figma']['html']['pages'] ?? array(), 'is_array')
@@ -130,7 +137,7 @@ function blocks_engine_figma_transformer_run_link_contract(callable $assert, cal
                 'width'    => 1280,
                 'height'   => 900,
                 'children' => array(
-                    array('id' => 'desc:about:title', 'type' => 'TEXT', 'name' => 'About title', 'characters' => 'About us'),
+                    array('id' => 'desc:about:title', 'type' => 'TEXT', 'name' => 'About title', 'characters' => 'About us', 'fontSize' => 32),
                 ),
             ),
         ),
@@ -140,6 +147,25 @@ function blocks_engine_figma_transformer_run_link_contract(callable $assert, cal
     $descendantTargetLinks = $descendantTargetResult['source_reports']['figma']['html']['transform_diagnostics']['links'] ?? array();
     $assert(str_contains($descendantTargetHomeHtml, '<a class="figma-link" href="about.html#about-us" data-figma-link-type="node">'), 'descendant-prototype-target-resolves-to-containing-page');
     $assert(0 === ($descendantTargetLinks['unresolved'] ?? null) && ($descendantTargetLinks['node_links'] ?? 0) >= 1, 'descendant-prototype-target-link-coverage-resolved');
+    $descendantOverrideResult = blocks_engine_figma_transformer_transform_scenegraph($descendantTargetScenegraph, array(
+        'include_all_pages' => true,
+        'entry_frame_id' => 'desc:home',
+        'link_target_paths' => array('desc:about:title' => 'custom-descendant.html#provided'),
+    ));
+    $descendantOverrideHtml = $fileContent($descendantOverrideResult, 'index.html');
+    $assert(str_contains($descendantOverrideHtml, 'href="custom-descendant.html#provided" data-figma-link-type="node"'), 'explicit-descendant-link-target-path-is-preserved');
+    $preFragmentScenegraph = (new ScenegraphNormalizer())->normalize($descendantTargetScenegraph, array(
+        'render_document' => true,
+        'document_frame_ids' => array('desc:home', 'desc:about'),
+    ));
+    $preFragmentResult = (new StaticHtmlEmitter())->emitSite($preFragmentScenegraph, array(
+        'pages' => array(
+            array('frame_id' => 'desc:home', 'name' => 'Home', 'path' => 'index.html', 'entrypoint' => true),
+            array('frame_id' => 'desc:about', 'name' => 'About', 'path' => 'about.html#provided', 'entrypoint' => false),
+        ),
+    ));
+    $preFragmentHomeHtml = $fileContent($preFragmentResult, 'index.html');
+    $assert(str_contains($preFragmentHomeHtml, 'href="about.html#about-us" data-figma-link-type="node"') && ! str_contains($preFragmentHomeHtml, 'about.html#provided#'), 'pre-fragmented-page-path-emits-one-generated-fragment');
     
     // Real anchor tags: an unresolved NODE link is counted in the diagnostic without inventing href="#".
     $unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(
