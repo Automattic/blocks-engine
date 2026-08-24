@@ -3050,7 +3050,7 @@ final class ArtifactCompiler
         $css = array();
         $accommodation = new AdminBarAccommodation();
         foreach ($files as $file) {
-            if ('css' !== ($file['kind'] ?? '') || 'inline-style' === ($file['source'] ?? '') || !is_string($file['content'] ?? null)) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) {
                 continue;
             }
             $supportCss = $accommodation->supportCss($file['content']);
