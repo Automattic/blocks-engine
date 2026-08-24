@@ -7657,6 +7657,7 @@ final class HtmlTransformer
         }
 
         $branchEndpoint = false;
+        $emptyEndpoint = false;
         $cursorChildren = is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array();
         if ('core/group' === ($cursor['blockName'] ?? null)
             && 1 < count($cursorChildren)
@@ -7669,6 +7670,17 @@ final class HtmlTransformer
             $terminal = array();
             $terminalIsShell = false;
             $branchEndpoint = true;
+        } elseif ('core/group' === ($cursor['blockName'] ?? null)
+            && array() === $cursorChildren
+            && !isset($cursor['_binding_token'])
+            && !in_array(strtolower((string) ($cursor['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
+            && null !== ($emptyDescriptor = $this->groupWrapperDescriptor($cursor))
+        ) {
+            $chain[] = array('block' => $cursor, 'descriptor' => $emptyDescriptor);
+            $terminalBlocks = array();
+            $terminal = array();
+            $terminalIsShell = false;
+            $emptyEndpoint = true;
         } else {
             $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
             $terminalIsShell = $this->isLayoutShellBlock($terminal);
@@ -7677,7 +7689,7 @@ final class HtmlTransformer
                 : array($terminal);
         }
         $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceProjectionClass($entry['block'])));
-        $minimumLength = $branchEndpoint ? 3 : ($projectedCount === count($chain) ? 2 : 3);
+        $minimumLength = $branchEndpoint ? 3 : ($emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3));
         if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
             $wrappers = array_column($chain, 'descriptor');
             $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);

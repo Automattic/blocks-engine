@@ -171,6 +171,11 @@ $assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell'
 $assert(1 === count($shellDefinitions) && str_contains((string) ($shellDefinitions[0]['assets']['index.js'] ?? ''), 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
 $assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 8 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
 
+$emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();
+$emptyShellBlock = $emptyShellResult['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($emptyShellBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($emptyShellBlock['attrs']['wrappers'] ?? array()) && empty($emptyShellBlock['innerBlocks']), '6: layout-shell absorbs a projected empty Group endpoint without adding List View depth');
+$assert(1 === ($emptyShellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-outer"') && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-inner"'), '6: empty layout-shell serialization preserves both source wrappers exactly');
+
 $branchShell = ( new HtmlTransformer() )->transform('<div id="branch-outer" class="blocks-engine-source-div-outer-3"><div id="branch-inner" class="blocks-engine-source-div-fixture-3"><section id="branch-section" class="blocks-engine-source-section-fixture-3"><p>First branch</p><p>Second branch</p></section></div></div>')->toArray();
 $branchBlock = $branchShell['blocks'][0] ?? array();
 $assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell') && 3 === count($branchBlock['attrs']['wrappers'] ?? array()) && 2 === count($branchBlock['innerBlocks'] ?? array()), '6: layout-shell absorbs a final branching Group and exposes all ordered native children through InnerBlocks');
