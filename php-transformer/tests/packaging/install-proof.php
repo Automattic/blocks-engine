@@ -74,6 +74,38 @@ if (array('width' => '2px', 'style' => 'solid', 'color' => 'red') !== $quoteBord
     fwrite(STDERR, "php-transformer install proof failed WordPress 7.1 Quote border support\n");
     exit(1);
 }
+$previous = libxml_use_internal_errors(true);
+$document = new DOMDocument();
+$document->loadHTML('<details open><summary>More</summary><p>Answer.</p></details>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$details = $document->documentElement;
+$pattern = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern();
+$fallbacks = array();
+$block = $pattern->match(
+    $details,
+    $fallbacks,
+    static fn (DOMElement $element, array &$sourceFallbacks, array $excludedTags): array => array(array('blockName' => 'core/paragraph')),
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => $element->textContent ?? '',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)
+);
+if ('core/details' !== ($block['blockName'] ?? null) || true !== ($block['attrs']['showContent'] ?? null) || array() !== $fallbacks) {
+    fwrite(STDERR, "php-transformer install proof failed DetailsPattern public match API\n");
+    exit(1);
+}
+$document->loadHTML('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p></div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$disclosure = $pattern->matchDisclosure(
+    $document->documentElement,
+    static fn (DOMElement $element): array => array(array('blockName' => 'core/paragraph')),
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => $element->textContent ?? '',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)
+);
+libxml_clear_errors();
+libxml_use_internal_errors($previous);
+if ('core/details' !== ($disclosure['blockName'] ?? null) || 'Question?' !== ($disclosure['attrs']['summary'] ?? null)) {
+    fwrite(STDERR, "php-transformer install proof failed DetailsPattern public disclosure API\n");
+    exit(1);
+}
 PHP;
 
     run($proofRoot, array(PHP_BINARY, '-r', $smoke));
