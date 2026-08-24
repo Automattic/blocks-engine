@@ -596,6 +596,15 @@ $headingDisclosureResult = ( new HtmlTransformer() )->transform('<div class="ite
 $assert('core/details' === (($headingDisclosureResult['blocks'][0] ?? array())['blockName'] ?? null), 'a heading-wrapped disclosure toggle converts to core/details');
 $assert('Shipping times?' === (($headingDisclosureResult['blocks'][0] ?? array())['attrs']['summary'] ?? null), 'heading-wrapped disclosure toggle text maps to the details summary');
 
+// A nested navigation toggle cannot consume its page-container ancestor as a
+// disclosure header and discard the sibling page content.
+$pageShellDisclosureResult = ( new HtmlTransformer() )->transform('<div id="master-page"><div id="site-pages"><header><button aria-expanded="false">Open site navigation</button></header><main><h1>Portfolio heading</h1><p>Substantive page content.</p><img src="portrait.jpg" alt="Portrait"></main></div><div class="navigation-overlay"><nav><a href="/about">About</a></nav></div></div>')->toArray();
+$pageShellDisclosureMarkup = (string) ($pageShellDisclosureResult['serialized_blocks'] ?? '');
+$assert(! str_contains($pageShellDisclosureMarkup, '<!-- wp:details'), 'a page shell with a nested navigation toggle is not converted to core/details');
+$assert(str_contains($pageShellDisclosureMarkup, 'Portfolio heading'), 'a false disclosure preserves the substantive page heading');
+$assert(str_contains($pageShellDisclosureMarkup, 'Substantive page content.'), 'a false disclosure preserves the substantive page paragraph');
+$assert(str_contains($pageShellDisclosureMarkup, '<!-- wp:image'), 'a false disclosure preserves the substantive page image');
+
 // Negative guard: a plain heading followed by text is NOT a disclosure (no
 // toggle control, aria-expanded, or aria-controls) and must stay as a heading +
 // paragraph rather than being forced into core/details.
