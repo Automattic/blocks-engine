@@ -5365,11 +5365,6 @@ final class HtmlTransformer
                 return $logo;
             }
 
-            $spacer = $this->recognizePatterns($element, $fallbacks, array(SpacerPattern::class));
-            if ( null !== $spacer ) {
-                return $spacer;
-            }
-
             $navigationSection = $this->navigationSectionBlockFromElement($element);
             if ( null !== $navigationSection ) {
                 return $navigationSection;
