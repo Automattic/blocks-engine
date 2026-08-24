@@ -8,13 +8,34 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
     ++$assertions;
     if (! $condition) throw new RuntimeException($message);
 };
+
+$spacerDocument = new DOMDocument();
+$spacerDocument->loadHTML('<div class="spacer" style="height:3rem"></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$spacerElement = $spacerDocument->documentElement;
+if ( ! $spacerElement instanceof DOMElement ) {
+    throw new RuntimeException('Spacer fixture did not produce a DOM element.');
+}
+$spacerContext = new PatternContext(
+    static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) ),
+    static fn (DOMElement $source): string => '',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children )
+);
+$spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern() )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
+$assert('core/spacer' === ($spacerResult?->block()['blockName'] ?? null), 'Spacer is dispatched directly by class through the pattern registry.');
+$assert('3rem' === ($spacerResult?->block()['attrs']['height'] ?? null), 'Direct spacer dispatch preserves its native height attribute.');
+$assert(! isset($spacerResult?->block()['attrs']['style']), 'Direct spacer dispatch preserves spacer ownership of serialized height.');
+
+$layoutSpacer = (new HtmlTransformer())->transform('<div class="spacer" style="display:flex;height:3rem"></div>')->toArray();
+$assert('core/spacer' === ($layoutSpacer['blocks'][0]['blockName'] ?? null), 'Spacer registry recognition remains ahead of generic authored layout lowering.');
 
 $details = (new HtmlTransformer())->transform('<details><summary>More</summary><object data="/more.pdf"></object></details>')->toArray();
 $assert('core/details' === ($details['blocks'][0]['blockName'] ?? null), 'Native details remains ahead of generic container lowering.');
