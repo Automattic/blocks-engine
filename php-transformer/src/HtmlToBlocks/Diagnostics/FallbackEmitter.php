@@ -66,6 +66,9 @@ final class FallbackEmitter
      */
     private array $runtimeCanvasSelectors = array();
 
+    /** @var array<string, string> */
+    private array $sourceTagMarkers = array();
+
     /**
      * DOM identity for each emitted runtime island, kept aligned by index with
      * the transformer's accumulator so nested findings can be compared without
@@ -153,7 +156,12 @@ final class FallbackEmitter
 
         // Sanitize the subtree markup that becomes the editable, server-rendered
         // content. Nothing to carry => keep the existing fallback behavior.
-        $content = $this->sanitizeHtmlString($preserveRoot ? $this->outerHtml($element) : $this->innerHtml($element));
+        $projected = $this->sourceTagProjectedClone($element);
+        $content = $this->sanitizeHtmlString(
+            $projected instanceof DOMElement
+                ? ($preserveRoot ? $this->outerHtml($projected) : $this->innerHtml($projected))
+                : ($preserveRoot ? $this->outerHtml($element) : $this->innerHtml($element))
+        );
         if ( '' === trim($content) ) {
             return null;
         }
@@ -363,12 +371,14 @@ final class FallbackEmitter
      * @param array<string, string>             $fallbackProvenance
      * @param array<int, array<string, mixed>>  $runtimeScriptMetadata
      * @param array<string, bool>               $runtimeCanvasSelectors
+     * @param array<string, string>             $sourceTagMarkers
      */
-    public function configure(array $fallbackProvenance, array $runtimeScriptMetadata, array $runtimeCanvasSelectors): void
+    public function configure(array $fallbackProvenance, array $runtimeScriptMetadata, array $runtimeCanvasSelectors, array $sourceTagMarkers = array()): void
     {
         $this->fallbackProvenance     = $fallbackProvenance;
         $this->runtimeScriptMetadata  = $runtimeScriptMetadata;
         $this->runtimeCanvasSelectors = $runtimeCanvasSelectors;
+        $this->sourceTagMarkers       = $sourceTagMarkers;
         $this->runtimeIslandOrigins   = array();
     }
 

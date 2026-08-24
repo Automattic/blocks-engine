@@ -699,7 +699,6 @@ final class HtmlTransformer
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
         $this->layoutGeometryProofReductions = is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array();
         $this->supersededRuntimeSelectors = array();
-        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors);
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -772,6 +771,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors, $this->sourceTagMarkers);
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
