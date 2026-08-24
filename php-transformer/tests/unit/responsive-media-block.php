@@ -70,13 +70,13 @@ $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName']
 
 $layoutHtml = '<main class="puffin-story"><div class="shell">';
 for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '<div class="layer-' . $depth . '">';
-$layoutHtml .= '<h1>Deep story</h1><section><p><a href="/story" aria-label="Story">Read the story</a></p><img src="story.jpg" alt="Story"><svg viewBox="0 0 10 10" role="img" aria-label="Mark"><path d="M0 0L10 10" stroke="#000"></path></svg></section>';
+$layoutHtml .= '<h1>Deep story</h1><section data-hook="post-list" style="padding:20px"><ol><li><button type="button">Read more</button><a href="/story" aria-label="Story">Read the story</a></li></ol><wow-image data-hook="image"><img src="story.jpg" alt="Story"></wow-image><svg viewBox="0 0 10 10" role="img" aria-label="Mark"><defs><path id="mark" d="M0 0L10 10"></path></defs><use href="#mark"></use></svg></section>';
 for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '</div>';
 $layoutHtml .= '</div></main>';
 $layout = ( new HtmlTransformer() )->transform($layoutHtml)->toArray();
 $layoutBlock = $layout['blocks'][0] ?? array();
 $assert('custom/responsive-media' === ($layoutBlock['blockName'] ?? null) && 'layout' === ($layoutBlock['attrs']['kind'] ?? null), 'A deep static layout uses the released responsive-media layout boundary.');
-$assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<h1>Deep story</h1>') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'href="/story"') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<svg viewbox="0 0 10 10" role="img" aria-label="Mark">') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'layer-20'), 'A captured Puffin-like layout retains static headings, groups, links, media, safe SVG, accessibility, and authored selector identity.');
+$assert(str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<h1>Deep story</h1>') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<button type="button">Read more</button>') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<wow-image data-hook="image">') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), '<svg viewbox="0 0 10 10" role="img" aria-label="Mark">') && str_contains((string) ($layoutBlock['attrs']['content'] ?? ''), 'layer-20'), 'A captured Puffin-like layout retains static lists, controls, inert custom elements, media, safe SVG, accessibility, and authored selector identity.');
 $assert('pass' === ($layout['source_reports']['wp_block_validity']['status'] ?? null), 'A captured layout boundary remains valid Gutenberg block markup.');
 $layoutPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), $layout['source_reports']['generated_blocks'] ?? array());
 $assert(array( 'content', 'kind' ) === array_keys($layoutPayload['blocks'][0]['block_json']['attributes'] ?? array()) && ResponsiveMediaBlockGenerator::RENDERER === ($layoutPayload['blocks'][0]['renderer'] ?? null) && ! isset($layoutPayload['blocks'][0]['render']), 'The companion payload preserves the released typed layout schema and audited renderer only.');
@@ -95,7 +95,6 @@ foreach (array(
     'form' => array('<form action="/contact"><input name="email"><button>Send</button></form>', null),
     'table' => array('<table><tr><td>Cell</td></tr></table>', '<!-- wp:table'),
     'details' => array('<details><summary>More</summary><p>Details</p></details>', '<!-- wp:details'),
-    'control' => array('<button type="button">Read more</button>', '<!-- wp:button'),
 ) as $name => $case) {
     list($unsupported, $nativeMarker) = $case;
     $unsupportedHtml = str_replace('</section>', $unsupported . '</section>', $layoutHtml);
