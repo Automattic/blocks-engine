@@ -703,6 +703,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationBlocks(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?callable $isRuntimeDomTarget = null, bool $allowsDescriptiveChrome = false, ?callable $navigationUnderlineColor = null, bool $itemsAreVouched = false, ?callable $resolvedStyle = null, ?callable $navigationColorInteractionStates = null): array
     {
         $blocks = array();
+        $hasListBackedMenu = false;
         $allowsDescriptiveChrome = $allowsDescriptiveChrome || $this->hasSubmenuSignal($element);
         // A caller that has already established structurally that this element IS
         // the nav's link cluster vouches for its direct anchors. The class
@@ -720,6 +721,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && $hasListBackedMenu && $this->isInertNavigationSupportChild($child, $isRuntimeDomTarget, $resolvedStyle) ) {
                 continue;
             }
 
@@ -748,6 +753,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     return array();
                 }
                 $blocks = array_merge($blocks, $listBlocks);
+                $hasListBackedMenu = true;
                 continue;
             }
 
@@ -779,6 +785,35 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $blocks;
+    }
+
+    /**
+     * A list-backed menu can carry direct support nodes that cannot render.
+     * Attribute-only accessibility and interaction state is insufficient:
+     * authors can keep aria-hidden or inert content visible. Limit this
+     * exception to a recognized list and structural or presentation proof.
+     */
+    private function isInertNavigationSupportChild(DOMElement $element, ?callable $isRuntimeDomTarget, ?callable $resolvedStyle): bool
+    {
+        if ( null !== $isRuntimeDomTarget
+            && $isRuntimeDomTarget($element)
+            && '' === trim($element->textContent ?? '')
+            && 0 === $element->childElementCount
+        ) {
+            return true;
+        }
+
+        if ( null === $resolvedStyle ) {
+            return false;
+        }
+
+        $style = strtolower((string) $resolvedStyle($element));
+        return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style)
+            || (
+                1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!important)?\s*(?:;|$)/', $style)
+                && 1 === preg_match('/(?:^|;)\s*overflow\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
+                && 1 === preg_match('/(?:^|;)\s*clip(?:-path)?\s*:/', $style)
+            );
     }
 
     /**

@@ -21,6 +21,7 @@ use DOMElement;
 final class HtmlTransformerSession
 {
     public array $reusableComponentFingerprints = array();
+    public array $generatedComponentCandidates = array();
     public array $formControlEchoTexts = array();
     public array $responsiveImageFallbacks = array();
     public array $responsiveImageFallbackSelectors = array();
@@ -45,6 +46,7 @@ final class HtmlTransformerSession
     public bool $authoredMarqueeBlockGenerated = false;
     public bool $emptyRuntimeTargetGenerated = false;
     public bool $capturedDialogBlockGenerated = false;
+    public bool $layoutShellBlockGenerated = false;
     public string $generatedBlockNamespace = 'custom';
     public string $generatedAssetRoot = '';
     public array $runtimeScriptMetadata = array();

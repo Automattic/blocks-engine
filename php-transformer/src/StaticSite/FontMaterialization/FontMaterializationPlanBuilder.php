@@ -42,9 +42,9 @@ final class FontMaterializationPlanBuilder
      * Build a materialization plan from raw web-font sources.
      *
      * Detects web-font stylesheets (e.g. Google Fonts `css2`/`css` `<link>` and
-     * CSS `@import` sources) plus `font-family` declarations, preserving the
-     * discovered typefaces and their heading/body roles so that materialized
-     * output keeps the source typography.
+     * CSS `@import` sources), preserving their requested typefaces. CSS
+     * `font-family` declarations select heading/body roles but cannot introduce
+     * families that are not backed by a supported provider source.
      *
      * @return array<string,mixed>
      */
@@ -83,9 +83,11 @@ final class FontMaterializationPlanBuilder
         // Materialize only families backed by a Google import/link or a direct face.
         $plan = $this->googleFonts($googleFontUsage, $roles);
         $directFontUsage = array_column(array_filter($imports, static fn (array $import): bool => 'direct' === $import['provider']), 'font_usage');
-        $plan['fonts'] = $this->normalizeFontUsage(array_merge($googleFontUsage, ...$directFontUsage));
-        $plan['roles'] = $this->filterRoles($roles, $plan['fonts']);
-        if ( array() !== $directFontUsage ) $plan['provider'] = array() === $googleFontUsage ? 'direct' : 'mixed';
+        if ( array() !== $directFontUsage ) {
+            $plan['fonts'] = $this->normalizeFontUsage(array_merge($googleFontUsage, ...$directFontUsage));
+            $plan['roles'] = $this->filterRoles($roles, $plan['fonts']);
+            $plan['provider'] = array() === $googleFontUsage ? 'direct' : 'mixed';
+        }
         $faces = array();
         $diagnostics = array();
         foreach ( $imports as $import ) {
@@ -215,18 +217,6 @@ final class FontMaterializationPlanBuilder
             $css[] = '@font-face{font-family:"' . str_replace('"', '\\"', $face['family']) . '";font-style:' . $face['style'] . ';font-weight:' . $weight . ';src:url("' . str_replace('"', '\\"', $face['source_url']) . '");}';
         }
         return implode("\n", $css);
-    }
-
-    /**
-     * Concatenate the CSS inside every `<style>` block of an HTML document.
-     */
-    private function styleBlockCss(string $html): string
-    {
-        if ( '' === trim($html) || ! preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
-            return '';
-        }
-
-        return implode("\n", $matches[1]);
     }
 
     /**

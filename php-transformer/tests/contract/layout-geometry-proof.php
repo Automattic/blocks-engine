@@ -66,4 +66,29 @@ $deepProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
 $deep = (new ArtifactCompiler())->compile(array('entrypoint' => 'deep.html', 'files' => array('deep.html' => $deepHtml), 'layout_geometry_proof' => $deepProof))->toArray();
 $assert(1 === count($deep['source_reports']['layout_geometry_proof'] ?? array()) && !str_contains((string) ($deep['serialized_blocks'] ?? ''), '"kind":"layout"'), 'Explicit measured reductions take precedence over a coarse captured-media layout boundary.');
 
+$providerChain = '<main>' . str_repeat('<provider-frame>', 24) . '<img src="hero.jpg" alt="Copy">' . str_repeat('</provider-frame>', 24) . '</main>';
+$providerHash = hash('sha256', $providerChain);
+$providerSelectors = array();
+$providerSelector = 'main:nth-of-type(1)';
+for ($depth = 0; $depth < 24; ++$depth) {
+    $providerSelector .= ' > provider-frame:nth-of-type(1)';
+    $providerSelectors[] = $providerSelector;
+}
+$providerNodes = array();
+$providerReductions = array();
+foreach ($providerSelectors as $depth => $selector) {
+    $providerNodes[] = array('id' => 'provider-' . $depth, 'source_path' => 'provider.html', 'source_hash' => $providerHash, 'selector' => $selector, 'boxes' => $boxes());
+    $target = $providerSelectors[$depth + 1] ?? ($selector . ' > img:nth-of-type(1)');
+    $targetId = 'provider-target-' . $depth;
+    $providerNodes[] = array('id' => $targetId, 'source_path' => 'provider.html', 'source_hash' => $providerHash, 'selector' => $target, 'boxes' => $boxes());
+    $providerReductions[] = array('wrapper' => 'provider-' . $depth, 'target' => $targetId, 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array()));
+}
+$provider = (new ArtifactCompiler())->compile(array('entrypoint' => 'provider.html', 'files' => array('provider.html' => $providerChain), 'layout_geometry_proof' => array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => $providerNodes, 'reductions' => $providerReductions)))->toArray();
+$providerDepth = static function (array $blocks, int $depth = 0) use (&$providerDepth): int {
+    $maximum = $depth;
+    foreach ($blocks as $block) $maximum = max($maximum, $providerDepth($block['innerBlocks'] ?? array(), $depth + 1));
+    return $maximum;
+};
+$assert('core/image' === ($provider['blocks'][0]['blockName'] ?? null) && $providerDepth($provider['blocks'] ?? array()) <= 20 && array() === ($provider['fallbacks'] ?? null) && 'pass' === ((new BlockValidityValidator())->validateBlocks($provider['blocks'] ?? array())['status'] ?? ''), 'Geometry-proven provider wrapper chains reduce below the unchanged editability depth limit with valid native blocks and no fallback.');
+
 fwrite(STDOUT, "Layout geometry proof contract passed\n");

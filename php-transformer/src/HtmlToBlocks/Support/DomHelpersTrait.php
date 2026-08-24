@@ -214,7 +214,12 @@ trait DomHelpersTrait
 
     private function safeFallbackHtml(DOMElement $element): string
     {
-        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $this->outerHtml($element)) ?? '';
+        return $this->safeFallbackHtmlString($this->outerHtml($element));
+    }
+
+    private function safeFallbackHtmlString(string $html): string
+    {
+        $html = preg_replace('@<(script|style)[^>]*?>.*?</\\1>@si', '', $html) ?? '';
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace_callback(
             '/\s+([a-zA-Z_:][\w:.-]*)\s*=\s*("([^"]*)"|\'([^\']*)\'|([^\s>]+))/i',

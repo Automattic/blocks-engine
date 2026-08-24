@@ -1075,7 +1075,7 @@ final class StaticHtmlEmitter
             array_push($styles, ...$buttonLayerComposition['styles']);
         }
         $styles = $this->stickyLayoutCoordinator()->stickyAwareStyleDeclarations($node, $styles);
-        if ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        if ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $styles = array_values(array_filter($styles, static fn (string $style): bool => 'text-transform:uppercase' !== $style));
         }
         if ( ! empty($styles) ) {
@@ -1088,10 +1088,10 @@ final class StaticHtmlEmitter
             }
             $this->staticHtmlCssRuleSet()->rememberNodeReadableName($className, $name, $type);
         }
-        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textContainsLowercase($this->rawDecodedText($node)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleDeclarationResolver()->containsLowercase($this->rawDecodedText($node)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $parentClassName = 'figma-node-' . $this->slug((string) ($parentNode['id'] ?? '') . '-' . (string) ($parentNode['name'] ?? 'Node'));
             $cssRules[] = '.' . $parentClassName . '>.' . $className . '{text-transform:none}';
-        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->hasExplicitUppercaseTextCase($node) ) {
+        } elseif ( 'p' === $tag && $this->hasBodyTextNameIntent(strtolower($name)) && ! $this->textStyleDeclarationResolver()->hasExplicitUppercaseTextCase($node) ) {
             $cssRules[] = 'ol .' . $className . ',ul .' . $className . '{text-transform:none}';
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
@@ -6510,7 +6510,7 @@ final class StaticHtmlEmitter
             }
         }
 
-        $absoluteChildReserveHeightDecision = $this->absoluteChildReserveHeightDecision($node);
+        $absoluteChildReserveHeightDecision = $this->visualGeometryResolver()->absoluteChildReserveHeightDecision($node);
         $absoluteChildReserveHeight = is_array($absoluteChildReserveHeightDecision) && isset($absoluteChildReserveHeightDecision['height']) && is_numeric($absoluteChildReserveHeightDecision['height']) ? (float) $absoluteChildReserveHeightDecision['height'] : null;
         if ( null !== $absoluteChildReserveHeight && ! $this->stylesDeclareProperty($styles, 'min-height') ) {
             $layoutMinHeight = isset($layout['min_height']) && is_numeric($layout['min_height']) ? (float) $layout['min_height'] : null;
@@ -6572,7 +6572,15 @@ final class StaticHtmlEmitter
                 $styles[] = $style;
             }
             if ( $this->textShouldUseFluidFlowBox($node, $parentNode) || $this->textShouldUseIntrinsicFlowHeight($node, $parentNode) ) {
-                foreach ( $this->textWrappingStyles($node, $parentNode, $grandParentNode) as $style ) {
+                $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+                $tag = $this->semanticTag($node, $type, strtolower((string) ($node['name'] ?? '')), 1, $parentNode, $grandParentNode);
+                foreach ( $this->emissionSession->textWrappingResolver()->declarations(
+                    $node,
+                    $tag,
+                    $this->textIsAtomicSingleLineLabel($node, $text),
+                    $this->textIsLongFallbackWrappingHeading($node),
+                    $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode),
+                ) as $style ) {
                     $styles[] = $style;
                 }
             }
@@ -7335,78 +7343,6 @@ final class StaticHtmlEmitter
     /**
      * @param array<string, mixed> $node
      */
-    private function absoluteChildReserveHeightDecision(array $node): ?array
-    {
-        $children = $this->nodeList($node);
-        if ( empty($children) || (! $this->isFreeformContainer($node) && ! $this->hasAbsoluteChild($node) && ! $this->hasDecorativeFlexUnderlayChild($node)) ) {
-            return null;
-        }
-
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
-        $parentHeight = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $maxBottom = null;
-        $contributingChildren = 0;
-        $childEvidence = array();
-        foreach ( $children as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-
-            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( ! $this->isFreeformContainer($node) && 'absolute' !== ($layout['positioning'] ?? null) && ! $this->isDecorativeFlexUnderlay($child, $node) ) {
-                continue;
-            }
-
-            $childBox = is_array($child['box'] ?? null) ? $child['box'] : array();
-            if ( ! isset($childBox['height']) || ! is_numeric($childBox['height']) ) {
-                continue;
-            }
-
-            $top = $this->positionOffset($childBox, $box, 'y');
-            if ( null === $top ) {
-                continue;
-            }
-            if ( $top < -0.5 ) {
-                return null;
-            }
-
-            $visualBoundsEvidence = $this->visualGeometryResolver()->childVisualBoundsEvidenceInParent($child, $node);
-            $visualBounds = is_array($visualBoundsEvidence['transformed_visual_box'] ?? null) ? $visualBoundsEvidence['transformed_visual_box'] : array();
-            if ( isset($visualBounds['y'], $visualBounds['height']) && is_numeric($visualBounds['y']) && is_numeric($visualBounds['height']) ) {
-                $top = (float) $visualBounds['y'];
-                $bottom = $top + (float) $visualBounds['height'];
-            } else {
-                $bottom = $top + (float) $childBox['height'];
-            }
-            if ( $top < -0.5 ) {
-                return null;
-            }
-            if ( null !== $parentHeight && $bottom > $parentHeight + 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
-                return null;
-            }
-            $maxBottom = null === $maxBottom ? $bottom : max($maxBottom, $bottom);
-            $contributingChildren++;
-            $visualBoundsEvidence['reserve_top'] = $top;
-            $visualBoundsEvidence['reserve_bottom'] = $bottom;
-            $childEvidence[] = $visualBoundsEvidence;
-        }
-
-        if ( $contributingChildren <= 1 || null === $maxBottom || $maxBottom <= 0.0 ) {
-            return null;
-        }
-        if ( null !== $parentHeight && abs($parentHeight - $maxBottom) > 0.5 && ! $this->isFooterChromeNode($node, null, 1) ) {
-            return null;
-        }
-
-        return array(
-            'height' => $maxBottom,
-            'children' => $childEvidence,
-        );
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
     private function isNearZeroHeightContainer(array $node, string $type): bool
     {
         if ( ! in_array($type, array('FRAME', 'GROUP', 'COMPONENT', 'INSTANCE'), true) || empty($this->nodeList($node)) ) {
@@ -7433,14 +7369,6 @@ final class StaticHtmlEmitter
     private function positionOffset(array $box, array $parentBox, string $dimension, ?array $parentNode = null): ?float
     {
         return $this->layoutIntentClassifier()->positionOffset($box, $parentBox, $dimension, $parentNode);
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function hasAbsoluteChild(array $node): bool
-    {
-        return $this->layoutIntentClassifier()->hasAbsoluteChild($node);
     }
 
     /**
@@ -7798,31 +7726,6 @@ final class StaticHtmlEmitter
         }
 
         return $px;
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed>|null $parentNode
-     * @param array<string, mixed>|null $grandParentNode
-     * @return array<int, string>
-     */
-    private function textWrappingStyles(array $node, ?array $parentNode, ?array $grandParentNode): array
-    {
-        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
-        if ( ($this->textIsAtomicSingleLineLabel($node, $text) && ! $this->textIsLongFallbackWrappingHeading($node)) || $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
-            return array();
-        }
-
-        $styles = array('overflow-wrap:break-word');
-        $tag = $this->semanticTag($node, strtoupper((string) ($node['type'] ?? '')), strtolower((string) ($node['name'] ?? '')), 1, $parentNode, $grandParentNode);
-        if ( in_array($tag, array('h1', 'h2', 'h3', 'h4', 'h5', 'h6'), true) ) {
-            $styles[] = 'text-wrap:balance';
-        } elseif ( 'p' === $tag || $this->hasBodyTextNameIntent(strtolower((string) ($node['name'] ?? ''))) ) {
-            $styles[] = 'hyphens:auto';
-            $styles[] = 'text-wrap:pretty';
-        }
-
-        return $styles;
     }
 
     /**
@@ -8600,7 +8503,7 @@ final class StaticHtmlEmitter
             return true;
         }
 
-        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
+        $derivedLineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
         return null !== $derivedLineHeight && 36 <= $derivedLineHeight;
     }
 
@@ -8652,35 +8555,20 @@ final class StaticHtmlEmitter
     {
         $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
         $style = is_array($text['style'] ?? null) ? $text['style'] : array();
-        if ( $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode) && $this->textStyleHasUnprovenUppercaseTransform($node, $style) ) {
-            unset($style['text_transform']);
-        }
+        $fallbackColor = null;
         if ( ! isset($style['color']) ) {
             $paints = is_array($node['figma_paints']['fills'] ?? null) ? $node['figma_paints']['fills'] : array();
-            $color = $this->firstSolidPaint($paints);
-            if ( null !== $color ) {
-                $style['css_color'] = $color;
-            }
+            $fallbackColor = $this->firstSolidPaint($paints);
         }
 
-        $styles = $this->textStyleDeclarations($style);
-        $derivedLineHeight = $this->textDerivedBaselineLineHeight($text);
-        if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
-            $styles = array_values(array_filter(
-                $styles,
-                static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
-            ));
-            $styles[] = 'line-height:' . $this->number($derivedLineHeight) . 'px';
-        }
-        if ( $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode) ) {
-            $styles[] = 'white-space:pre-wrap';
-        } elseif ( $this->textHasLineBreaks($node) && ! $this->shouldSplitParagraphs($node) ) {
-            $styles[] = 'white-space:pre-line';
-        } elseif ( $this->textIsAtomicSingleLineLabel($node, $text) ) {
-            $styles[] = 'white-space:nowrap';
-        }
-
-        return $styles;
+        return $this->textStyleDeclarationResolver()->nodeDeclarations(
+            $node,
+            $fallbackColor,
+            $this->isSemanticListItemBodyText($node, $parentNode, $grandParentNode),
+            $this->textShouldPreserveChromeSpacing($node, $parentNode, $grandParentNode),
+            $this->shouldSplitParagraphs($node),
+            $this->textIsAtomicSingleLineLabel($node, $text),
+        );
     }
 
     /**
@@ -8711,23 +8599,6 @@ final class StaticHtmlEmitter
         return isset($node['characters']) && is_scalar($node['characters']) && '' !== trim((string) $node['characters']);
     }
 
-    /**
-     * @param array<string, mixed> $node
-     * @param array<string, mixed> $style
-     */
-    private function textStyleHasUnprovenUppercaseTransform(array $node, array $style): bool
-    {
-        if ( 'uppercase' !== strtolower((string) ($style['text_transform'] ?? '')) ) {
-            return false;
-        }
-
-        if ( ! $this->textContainsLowercase($this->rawDecodedText($node)) ) {
-            return false;
-        }
-
-        return ! $this->hasExplicitUppercaseTextCase($node);
-    }
-
     private function hasBodyTextNameIntent(string $lowerName): bool
     {
         foreach ( array('paragraph', 'body', 'supporting text', 'caption', 'description', 'excerpt', 'copy') as $needle ) {
@@ -8737,29 +8608,6 @@ final class StaticHtmlEmitter
         }
 
         return false;
-    }
-
-    /** @param array<string, mixed> $source */
-    private function hasExplicitUppercaseTextCase(array $source): bool
-    {
-        foreach ( array('textCase', 'text_case') as $key ) {
-            if ( isset($source[$key]) && is_scalar($source[$key]) && 'UPPER' === strtoupper((string) $source[$key]) ) {
-                return true;
-            }
-        }
-
-        foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
-            if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function textContainsLowercase(string $text): bool
-    {
-        return 1 === preg_match('/\p{Ll}/u', $text);
     }
 
     /**
@@ -8908,73 +8756,12 @@ final class StaticHtmlEmitter
 
         $box = is_array($node['box'] ?? null) ? $node['box'] : array();
         $height = isset($box['height']) && is_numeric($box['height']) ? (float) $box['height'] : null;
-        $lineHeight = $this->textDerivedBaselineLineHeight($text);
+        $lineHeight = $this->emissionSession->textSizingResolver()->derivedBaselineLineHeight($text);
         if ( null === $height || null === $lineHeight || $lineHeight <= 0.0 ) {
             return false;
         }
 
         return $height <= ( $lineHeight * 1.25 );
-    }
-
-    /**
-     * @param array<string, mixed> $text
-     */
-    private function textDerivedBaselineLineHeight(array $text): ?float
-    {
-        $derivedLayout = is_array($text['derived_layout'] ?? null) ? $text['derived_layout'] : array();
-        $baselines = is_array($derivedLayout['baselines'] ?? null) ? $derivedLayout['baselines'] : array();
-        if ( empty($baselines) ) {
-            return null;
-        }
-
-        $baselineDeltaLineHeight = $this->textMedianPositiveBaselinePositionDelta($baselines);
-        if ( null !== $baselineDeltaLineHeight ) {
-            return $baselineDeltaLineHeight;
-        }
-
-        $lineHeights = array();
-        foreach ( $baselines as $baseline ) {
-            if ( is_array($baseline) && isset($baseline['lineHeight']) && is_numeric($baseline['lineHeight']) && 0.0 < (float) $baseline['lineHeight'] ) {
-                $lineHeights[] = (float) $baseline['lineHeight'];
-            }
-        }
-        if ( ! empty($lineHeights) ) {
-            sort($lineHeights);
-            return $lineHeights[(int) floor(( count($lineHeights) - 1 ) / 2)];
-        }
-
-        return null;
-    }
-
-    /**
-     * @param array<int, mixed> $baselines
-     */
-    private function textMedianPositiveBaselinePositionDelta(array $baselines): ?float
-    {
-        $positions = array();
-        foreach ( $baselines as $baseline ) {
-            if ( is_array($baseline) && isset($baseline['position_y']) && is_numeric($baseline['position_y']) ) {
-                $positions[] = (float) $baseline['position_y'];
-            }
-        }
-        if ( 2 > count($positions) ) {
-            return null;
-        }
-        sort($positions);
-
-        $deltas = array();
-        for ( $i = 1; $i < count($positions); $i++ ) {
-            $delta = $positions[$i] - $positions[$i - 1];
-            if ( 0.001 < $delta && 10000.0 > $delta ) {
-                $deltas[] = $delta;
-            }
-        }
-        if ( empty($deltas) ) {
-            return null;
-        }
-
-        sort($deltas);
-        return $deltas[(int) floor(( count($deltas) - 1 ) / 2)];
     }
 
     /**
