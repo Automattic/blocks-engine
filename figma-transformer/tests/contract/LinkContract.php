@@ -165,7 +165,7 @@ function blocks_engine_figma_transformer_run_link_contract(callable $assert, cal
         ),
     ));
     $preFragmentHomeHtml = $fileContent($preFragmentResult, 'index.html');
-    $assert(str_contains($preFragmentHomeHtml, 'href="about.html#about-us" data-figma-link-type="node"') && ! str_contains($preFragmentHomeHtml, 'about.html#provided#'), 'pre-fragmented-page-path-emits-one-generated-fragment');
+    $assert(str_contains($preFragmentHomeHtml, 'href="about.html#provided" data-figma-link-type="node"') && ! str_contains($preFragmentHomeHtml, 'about.html#provided#'), 'pre-fragmented-page-path-retains-supplied-fragment');
     
     // Real anchor tags: an unresolved NODE link is counted in the diagnostic without inventing href="#".
     $unresolvedResult = blocks_engine_figma_transformer_transform_scenegraph(array(

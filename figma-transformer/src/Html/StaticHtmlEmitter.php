@@ -3619,7 +3619,7 @@ final class StaticHtmlEmitter
             return $path;
         }
         $text = trim((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
-        return '' === $text ? $path : $this->linkHrefWithHash($path, $this->slug($text));
+        return '' === $text || str_contains($path, '#') ? $path : $this->linkHrefWithHash($path, $this->slug($text));
     }
 
     /** @param array<string, mixed> $pagePlan */
