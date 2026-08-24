@@ -91,10 +91,12 @@ final class AssetReferenceCanonicalizer
         if (str_contains($content, '\\"')) {
             $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
             $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\bstyle\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::css($match[2], $replace) . $match[3], $content) ?? $content;
         }
         if (str_contains($content, '\\u0022')) {
             $content = self::replaceWhenChanged('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3]);
             $content = self::replaceWhenChanged('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3]);
+            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::css($match[2], $replace) . $match[3]);
         }
         if (false !== stripos($content, '<style')) {
             $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
