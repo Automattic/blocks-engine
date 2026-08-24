@@ -74,6 +74,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
+            $size = $this->iconSize($anchors);
+            if ( null !== $size ) {
+                $attrs['size'] = $size;
+            }
         }
         if ( $structuralItems && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             $attrs['style']['spacing']['blockGap'] = '0px';
@@ -153,5 +157,39 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     {
         return 0 < $anchor->getElementsByTagName('img')->length
             || 0 < $anchor->getElementsByTagName('svg')->length;
+    }
+
+    /** @param array<int,DOMElement> $anchors */
+    private function iconSize(array $anchors): ?string
+    {
+        $dimensions = array();
+        foreach ( $anchors as $anchor ) {
+            foreach ( array( 'img', 'svg' ) as $tagName ) {
+                $icon = $anchor->getElementsByTagName($tagName)->item(0);
+                if ( ! $icon instanceof DOMElement ) {
+                    continue;
+                }
+                $width = (float) $this->attr($icon, 'width');
+                $height = (float) $this->attr($icon, 'height');
+                if ( 0 < $width && 0 < $height ) {
+                    $dimensions[] = min($width, $height);
+                }
+                break;
+            }
+        }
+        if ( array() === $dimensions ) {
+            return null;
+        }
+
+        sort($dimensions, SORT_NUMERIC);
+        $sourceSize = $dimensions[(int) floor((count($dimensions) - 1) / 2)];
+        $presets = array( 'small' => 16.0, 'normal' => 24.0, 'large' => 36.0, 'huge' => 48.0 );
+        $closest = 'normal';
+        foreach ( $presets as $preset => $pixels ) {
+            if ( abs($sourceSize - $pixels) < abs($sourceSize - $presets[ $closest ]) ) {
+                $closest = $preset;
+            }
+        }
+        return $closest;
     }
 }
