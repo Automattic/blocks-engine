@@ -5,18 +5,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
-final class ParameterTablePattern
+final class ParameterTablePattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    /**
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        $innerHtml = $context->innerHtmlCallback();
+
         if ( ! $this->hasClass($element, 'param-table') ) {
             return null;
         }
@@ -49,14 +45,14 @@ final class ParameterTablePattern
             return null;
         }
 
-        return $createBlock('core/table', array_merge($presentationAttributes($element), array(
+        return new PatternRecognitionResult($context->createBlockCallback()('core/table', array_merge($context->presentationAttributesCallback()($element), array(
             'head' => array( array( 'cells' => array(
                 array( 'content' => 'Parameter', 'tag' => 'th' ),
                 array( 'content' => 'Type', 'tag' => 'th' ),
                 array( 'content' => 'Description', 'tag' => 'th' ),
             ) ) ),
             'body' => $rows,
-        )), array(), $element);
+        )), array(), $element));
     }
 
     private function firstDirectChildWithClass(DOMElement $element, string $className): ?DOMElement

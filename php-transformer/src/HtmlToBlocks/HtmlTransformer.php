@@ -220,7 +220,6 @@ final class HtmlTransformer
 
     private readonly MathPattern $mathPattern;
 
-    private readonly ParameterTablePattern $parameterTablePattern;
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
 
@@ -592,7 +591,6 @@ final class HtmlTransformer
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
         $this->mathPattern       = new MathPattern();
-        $this->parameterTablePattern = new ParameterTablePattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->placeholderMediaPattern = new PlaceholderMediaPattern();
         $this->quotePattern      = new QuotePattern();
@@ -605,10 +603,7 @@ final class HtmlTransformer
                 $block = $this->mathPattern->match($element, fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement), fn (string $text): string => $this->runtime->escapeHtml($text), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
             }),
-            new CallbackPatternRecognizer('parameter-table', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->parameterTablePattern->match($element, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new ParameterTablePattern(),
             new CallbackPatternRecognizer('spacer', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $block = $this->spacerPattern->match($element, fn (DOMElement $sourceElement): int => $this->childElementCount($sourceElement), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), fn (DOMElement $sourceElement, string $className): bool => $this->hasClass($sourceElement, $className), $context->presentationAttributesCallback(), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
@@ -5076,7 +5071,7 @@ final class HtmlTransformer
             return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
         }
 
-        $parameterTable = $this->recognizePatterns($element, $fallbacks, array('parameter-table'));
+        $parameterTable = $this->recognizePatterns($element, $fallbacks, array(ParameterTablePattern::class));
         if ( null !== $parameterTable ) {
             return $parameterTable;
         }
