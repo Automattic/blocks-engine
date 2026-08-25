@@ -2170,6 +2170,17 @@ $assert('pass' === ($listGapNavigation['source_reports']['semantic_parity']['sta
 $assert('pass' === ($listGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'direct navigation list gap serializes to a valid WordPress block');
 $assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation ') && str_contains($listGapNavigationSerialized, '"blockGap":"0"'), 'direct navigation list gap uses canonical dynamic navigation serialization');
 
+$wrappedListGapNavigation = ( new HtmlTransformer() )->transform(
+    '<style>.wsite-menu-default{display:flex;gap:20px}</style><nav aria-label="Primary"><div class="nav-wrap"><ul class="wsite-menu-default"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$wrappedListGapNavigationAttrs = $wrappedListGapNavigation['blocks'][0]['attrs'] ?? array();
+$wrappedListGapNavigationSerialized = (string) ($wrappedListGapNavigation['serialized_blocks'] ?? '');
+$assert('20px' === ($wrappedListGapNavigationAttrs['style']['spacing']['blockGap'] ?? ''), '#748 wrapper-originated navigation preserves the authored list gap');
+$assert(str_contains((string) ($wrappedListGapNavigationAttrs['className'] ?? ''), 'wsite-menu-default'), '#748 wrapper-originated navigation keeps the logical source-list class');
+$assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), '#748 wrapper-originated navigation serializes native block spacing');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
+
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
 )->toArray();
