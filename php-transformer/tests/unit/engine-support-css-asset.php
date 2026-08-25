@@ -167,6 +167,7 @@ $afterFamilies = array(
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
+    'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',
     'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',
     'fullWidthButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}',
 );
@@ -186,6 +187,10 @@ foreach ( $afterFamilies as $family => $needle ) {
     $assert(str_contains($afterCss, $needle), 'G3: ' . $family . ' lives in after-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
 }
+$assert(
+    ! str_contains($cssFor($fullWidthButton, 'engine-support', 'after-author'), 'width:max-content'),
+    'G3: an authored button width remains authoritative over intrinsic wrapper support'
+);
 
 $orderedCssAssets = $cssAssets($authorOrder);
 $beforeIndex = null;
