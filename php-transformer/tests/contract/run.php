@@ -103,6 +103,32 @@ $assert(
     'ambiguous custom media hosts remain typed gaps rather than raw HTML'
 );
 
+$runtimeMediaMaskFixture = file_get_contents(dirname(__DIR__) . '/fixtures/unsupported-runtime-media-mask.html');
+$runtimeMediaMaskResult = ( new HtmlTransformer() )->transform((string) $runtimeMediaMaskFixture)->toArray();
+$runtimeMediaMaskMarkup = (string) ($runtimeMediaMaskResult['serialized_blocks'] ?? '');
+$runtimeMediaMaskFallback = $runtimeMediaMaskResult['fallbacks'][0] ?? array();
+$runtimeMediaMaskReportFallback = $runtimeMediaMaskResult['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assert(
+    'runtime-slideshow' === ($runtimeMediaMaskFallback['tag'] ?? null)
+        && 'runtime_media_mask' === ($runtimeMediaMaskFallback['dependent_losses'][0]['relationship'] ?? null)
+        && 'omitted' === ($runtimeMediaMaskFallback['dependent_losses'][0]['disposition'] ?? null)
+        && ($runtimeMediaMaskFallback['dependent_losses'] ?? null) === ($runtimeMediaMaskReportFallback['dependent_losses'] ?? null),
+    'unsupported runtime media records its adjacent decorative mask as an explicit dependent loss'
+);
+$assert(
+    ! str_contains($runtimeMediaMaskMarkup, '334.611')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality one')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality two')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality three'),
+    'a dependent mask is omitted without discarding independent sibling labels'
+);
+$assert(
+    1 === count(array_filter($runtimeMediaMaskResult['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)))
+        && str_contains($runtimeMediaMaskMarkup, '<img src="assets/materialized-svg/')
+        && str_contains(implode("\n", array_column($runtimeMediaMaskResult['assets'] ?? array(), 'content')), 'Independent mark'),
+    'an independent labeled SVG still follows the normal native image materialization path'
+);
+
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
     'core/image' === ($responsiveImageResult['blocks'][0]['blockName'] ?? null)

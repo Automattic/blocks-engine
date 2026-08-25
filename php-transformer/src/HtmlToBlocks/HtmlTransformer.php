@@ -4483,6 +4483,8 @@ final class HtmlTransformer
     private function convertChildren(DOMNode $parent, array &$fallbacks, bool $captureUnsupported = false): array
     {
         $blocks = array();
+        $unsupportedRuntimeMediaOwner = null;
+        $ownerFallbackIndex = null;
 
         foreach ( $parent->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
@@ -4497,13 +4499,97 @@ final class HtmlTransformer
                 continue;
             }
 
+            if ( $unsupportedRuntimeMediaOwner instanceof DOMElement
+                && 'svg' === strtolower($child->tagName)
+                && $this->isDependentRuntimeMediaMask($child)
+                && is_int($ownerFallbackIndex)
+            ) {
+                $this->recordDependentRuntimeMediaMaskLoss($unsupportedRuntimeMediaOwner, $child, $fallbacks, $ownerFallbackIndex);
+                $unsupportedRuntimeMediaOwner = null;
+                $ownerFallbackIndex = null;
+                continue;
+            }
+
+            // Pairing is deliberately bounded to adjacent element siblings.
+            $unsupportedRuntimeMediaOwner = null;
+            $ownerFallbackIndex = null;
+            $fallbackOffset = count($fallbacks);
             $block = $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 $blocks[] = $block;
+            } elseif ( $this->isRuntimeMediaSurfaceElement($child) ) {
+                $ownerSelector = $this->elementSelector($child);
+                for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
+                    if ( $ownerSelector === ($fallbacks[$index]['selector'] ?? null)
+                        && in_array((string) ($fallbacks[$index]['diagnostic_code'] ?? ''), array( 'html_iframe_embed_fallback', 'html_unsupported_element' ), true)
+                    ) {
+                        $unsupportedRuntimeMediaOwner = $child;
+                        $ownerFallbackIndex = $index;
+                        break;
+                    }
+                }
             }
         }
 
         return $blocks;
+    }
+
+    private function isRuntimeMediaSurfaceElement(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
+            return true;
+        }
+
+        return str_contains($tagName, '-')
+            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
+    }
+
+    private function isDependentRuntimeMediaMask(DOMElement $element): bool
+    {
+        if ( '' !== trim($this->attr($element, 'aria-label'))
+            || in_array(strtolower(trim($this->attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
+            || 0 < $element->getElementsByTagName('title')->length
+            || 0 < $element->getElementsByTagName('desc')->length
+        ) {
+            return false;
+        }
+
+        $identity = strtolower(implode(' ', array(
+            $this->attr($element, 'id'),
+            $this->attr($element, 'class'),
+            $this->attr($element, 'data-role'),
+        )));
+        if ( 1 === preg_match('/\b(?:clip|mask|overlay)\b/', $identity) ) {
+            return true;
+        }
+
+        $paths = $element->getElementsByTagName('path');
+        $path = 1 === $paths->length ? $paths->item(0) : null;
+        return $path instanceof DOMElement
+            && 1 === $element->getElementsByTagName('*')->length
+            && '' !== trim($this->attr($path, 'd'))
+            && '' === trim($this->attr($element, 'fill'))
+            && '' === trim($this->attr($element, 'stroke'))
+            && '' === trim($this->attr($path, 'fill'))
+            && '' === trim($this->attr($path, 'stroke'));
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function recordDependentRuntimeMediaMaskLoss(DOMElement $owner, DOMElement $mask, array &$fallbacks, int $fallbackIndex): void
+    {
+        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($mask));
+        $fallbacks[$fallbackIndex]['dependent_losses'][] = array(
+            'relationship' => 'runtime_media_mask',
+            'disposition' => 'omitted',
+            'reason' => 'owner_surface_unsupported',
+            'owner_selector' => $this->elementSelector($owner),
+            'selector' => $this->elementSelector($mask),
+            'tag' => 'svg',
+            'html' => $boundedHtml['html'],
+            'html_bytes' => $boundedHtml['bytes'],
+            'html_truncated' => $boundedHtml['truncated'],
+        );
     }
 
     private function patternContext(bool $includeRuntimeDomTarget = true): PatternContext
