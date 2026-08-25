@@ -70,6 +70,15 @@ $assert('Visible content' === ($declinedSpacer['blocks'][0]['attrs']['content'] 
 $quoteWithNavigation = (new HtmlTransformer())->transform('<blockquote><nav><a href="/one">One</a><a href="/two">Two</a></nav></blockquote>')->toArray();
 $assert('core/quote' === ($quoteWithNavigation['blocks'][0]['blockName'] ?? null), 'Quote child lowering does not re-enter unrelated registry recognizers through the navigation probe.');
 
+$figureQuote = (new HtmlTransformer())->transform('<figure><blockquote><p>Quoted.</p><object data="/quote.pdf"></object></blockquote><figcaption class="credit">Ada</figcaption></figure>')->toArray();
+$assert('core/quote' === ($figureQuote['blocks'][0]['blockName'] ?? null), 'A figure quote wins before generic figure lowering.');
+$assert('<span class="credit">Ada</span>' === ($figureQuote['blocks'][0]['attrs']['citation'] ?? null), 'The direct figure-quote recognizer preserves caption citation markup.');
+$assert('html_unsupported_element' === ($figureQuote['fallbacks'][0]['diagnostic_code'] ?? null), 'A winning figure quote commits recursive child fallback diagnostics.');
+
+$declinedQuote = (new HtmlTransformer())->transform('<blockquote><cite>Ada</cite></blockquote>')->toArray();
+$assert(array() === ($declinedQuote['blocks'] ?? array()), 'A quote without visible quoted content declines normal lowering.');
+$assert(array() === ($declinedQuote['fallbacks'] ?? array()), 'A declined quote commits no recursive fallback diagnostics.');
+
 $accordion = (new HtmlTransformer())->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">A?</button><div id="a"><p>A.</p><object data="/a.pdf"></object></div></div><div class="faq-item"><button aria-controls="b">B?</button><div id="b"><p>B.</p></div></div></section>')->toArray();
 $assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? null), 'Accordion recognition survives an unsupported panel child.');
 $assert('html_unsupported_element' === ($accordion['fallbacks'][0]['diagnostic_code'] ?? null), 'Accordion commits recursive panel diagnostics through its winning result.');
