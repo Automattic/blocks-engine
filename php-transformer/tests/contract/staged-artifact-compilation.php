@@ -31,6 +31,7 @@ $artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', '
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
+$assert(array('diagnostics', 'projected_count') === array_keys($shared['analysis']['captured_dialogs']), 'Shared preparation persists bounded captured-dialog evidence without duplicating projected artifact files.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.

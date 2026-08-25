@@ -555,7 +555,10 @@ final class ArtifactCompiler
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
-            'captured_dialogs' => $capturedDialogs,
+            'captured_dialogs' => array(
+                'diagnostics' => $capturedDialogs['diagnostics'],
+                'projected_count' => $capturedDialogs['projected_count'],
+            ),
         ));
     }
 
@@ -1036,7 +1039,10 @@ final class ArtifactCompiler
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => $capturedDialogs,
+            'captured_dialogs' => array(
+                'diagnostics' => $capturedDialogs['diagnostics'],
+                'projected_count' => $capturedDialogs['projected_count'],
+            ),
         );
     }
 
