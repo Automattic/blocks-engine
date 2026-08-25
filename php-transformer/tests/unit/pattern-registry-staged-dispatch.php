@@ -51,6 +51,14 @@ $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" st
 $assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
 $assert('html_stylable_button_accessible_name_fallback' === ($button['fallbacks'][0]['diagnostic_code'] ?? null), 'Button fallback is committed by the staged registry dispatcher.');
 
+$buttonContainer = (new HtmlTransformer())->transform('<div><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/one">One</a><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/two">Two</a></div>')->toArray();
+$assert('core/buttons' === ($buttonContainer['blocks'][0]['blockName'] ?? null), 'A multi-button container wins before generic inline-wrapper lowering.');
+$assert(2 === count($buttonContainer['blocks'][0]['innerBlocks'] ?? array()), 'The direct container recognizer preserves both button children.');
+
+$declinedButtonAnchor = (new HtmlTransformer())->transform('<a href="/ordinary">Ordinary link</a>')->toArray();
+$assert('core/paragraph' === ($declinedButtonAnchor['blocks'][0]['blockName'] ?? null), 'An anchor without a button signal declines to ordinary link lowering.');
+$assert(array() === ($declinedButtonAnchor['fallbacks'] ?? array()), 'A declined button anchor commits no accessible-name fallback diagnostics.');
+
 $mathOverPlaceholder = (new HtmlTransformer())->transform('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>')->toArray();
 $assert('core/math' === ($mathOverPlaceholder['blocks'][0]['blockName'] ?? null), 'Math remains ahead of the overlapping placeholder-media recognizer.');
 $assert('$x$' === ($mathOverPlaceholder['blocks'][0]['attrs']['content'] ?? null), 'The higher-precedence math recognizer preserves its exact content.');
