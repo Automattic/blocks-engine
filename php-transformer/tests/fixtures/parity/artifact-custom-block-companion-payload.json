@@ -28,7 +28,7 @@
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "source_reports.companion_plugin_payload.schema", "assert": "equals", "value": "static-site-importer/companion-plugin/v1" },
+    { "path": "source_reports.companion_plugin_payload.schema", "assert": "equals", "value": "blocks-engine/wordpress-companion-plugin/v1" },
     { "path": "source_reports.companion_plugin_payload.site_slug", "assert": "equals", "value": "acme-co" },
     { "path": "source_reports.companion_plugin_payload.blocks", "assert": "count", "count": 1 },
     { "path": "source_reports.companion_plugin_payload.blocks.0.name", "assert": "equals", "value": "collection-42ba83f51ffea3a7df69ca6f8c29d50848fd6a809917172303a2c79f3802c9bd" },

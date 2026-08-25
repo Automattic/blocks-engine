@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
-/** Builds the bounded companion block for responsive and linked image markup. */
-final class ResponsiveMediaBlockGenerator
+/** Builds the bounded companion block for captured static layout markup. */
+final class ResponsiveLayoutBlockGenerator
 {
-    public const LOCAL_NAME = 'responsive-media';
-    public const RENDERER = 'blocks-engine/responsive-media/v1';
+    public const LOCAL_NAME = 'responsive-layout';
+    public const RENDERER = 'blocks-engine/responsive-layout/v1';
 
     /** @return array<string, mixed> */
     public function blockJson(string $namespace): array
@@ -15,13 +15,12 @@ final class ResponsiveMediaBlockGenerator
         return array(
             'apiVersion' => 3,
             'name' => $namespace . '/' . self::LOCAL_NAME,
-            'title' => 'Responsive Media',
-            'category' => 'media',
-            'description' => 'An editable captured media or layout boundary.',
+            'title' => 'Responsive Layout',
+            'category' => 'design',
+            'description' => 'An editable captured static layout boundary.',
             'editorScript' => 'file:./index.js',
             'attributes' => array(
                 'content' => array( 'type' => 'string', 'default' => '', 'role' => 'content' ),
-                'kind' => array( 'type' => 'string', 'default' => 'media' ),
             ),
             'supports' => array( 'html' => false ),
         );
@@ -35,13 +34,13 @@ final class ResponsiveMediaBlockGenerator
     var createElement = element.createElement;
     function edit( props ) {
         return createElement( 'div', blockEditor.useBlockProps(), createElement( components.TextareaControl, {
-            label: 'Captured media or layout HTML',
+            label: 'Captured layout HTML',
             value: props.attributes.content || '',
             onChange: function( content ) { props.setAttributes( { content: content } ); }
         } ) );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
-        attributes: { content: { type: 'string', default: '', role: 'content' }, kind: { type: 'string', default: 'media' } },
+        attributes: { content: { type: 'string', default: '', role: 'content' } },
         supports: { html: false },
         edit: edit,
         save: function() { return null; }
