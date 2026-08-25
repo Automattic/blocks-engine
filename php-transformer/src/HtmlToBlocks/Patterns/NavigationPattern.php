@@ -1166,19 +1166,16 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationContainerAttributes(DOMElement $element, callable $presentationAttributes): array
     {
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
-        if ( $this->isListNavigationSource($element) ) {
+        $list = $this->navigationListSource($element);
+        if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
         }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             return $attrs;
         }
 
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                continue;
-            }
-
-            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($child));
+        if ( $list instanceof DOMElement && ! $list->isSameNode($element) ) {
+            $listAttrs = $this->withoutCoreNavigationClasses($presentationAttributes($list));
             $listClasses = trim((string) ($listAttrs['className'] ?? ''));
             if ( '' !== $listClasses ) {
                 $attrs['className'] = implode(' ', array_values(array_unique(array_filter(preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $listClasses)) ?: array()))));
@@ -1188,10 +1185,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' !== $listGap ) {
                 $attrs['style']['spacing']['blockGap'] = $listGap;
             }
-            break;
         }
 
-        if ( $this->isListNavigationSource($element) && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
+        if ( $list instanceof DOMElement && '' === (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             // Core navigation adds its own default gap; source lists do not.
             $attrs['style']['spacing']['blockGap'] = '0px';
         }
@@ -1201,17 +1197,29 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function isListNavigationSource(DOMElement $element): bool
     {
+        return $this->navigationListSource($element) instanceof DOMElement;
+    }
+
+    private function navigationListSource(DOMElement $element): ?DOMElement
+    {
         if ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true) ) {
-            return true;
+            return $element;
         }
 
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
-                return true;
+                return $child;
+            }
+
+            if ( $child instanceof DOMElement && $this->isNavigationWrapperElement($child) ) {
+                $list = $this->navigationListSource($child);
+                if ( $list instanceof DOMElement ) {
+                    return $list;
+                }
             }
         }
 
-        return false;
+        return null;
     }
 
     /**
