@@ -6295,6 +6295,8 @@ final class HtmlTransformer
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $declarations = array();
         $wrapperDeclarations = array();
+        $outerWrapperDeclarations = array();
+        $intrinsicWrapperDeclarations = array();
         foreach ( array(
             'background-color' => $style['color']['background'] ?? '',
             'color'            => $style['color']['text'] ?? '',
@@ -6320,6 +6322,20 @@ final class HtmlTransformer
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($sourceControl));
             $sourceStructuralDeclarations = $this->structuralPresentationDeclarations($sourceControl);
+            $inlineDeclarations = $this->cssDeclarations($this->attr($sourceControl, 'style'));
+            $hasAuthoredWidth = isset($inlineDeclarations['width'])
+                || array() !== $this->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
+            if ( ! $hasAuthoredWidth && in_array($this->cssComparableValue((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+                // Preserve the source flex CTA's content-plus-padding contribution
+                // through the synthetic wrappers of its native button topology.
+                $outerWrapperDeclarations[] = 'width:max-content';
+                $outerWrapperDeclarations[] = 'max-width:100%';
+                $intrinsicWrapperDeclarations[] = 'width:max-content';
+                $intrinsicWrapperDeclarations[] = 'max-width:100%';
+                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'width:max-content';
+                $declarations[] = 'max-width:100%';
+            }
             $background = $this->cssComparableValue((string) ($sourceDeclarations['background'] ?? ''));
             if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
                 $declarations[] = 'background-color:transparent!important';
@@ -6355,10 +6371,16 @@ final class HtmlTransformer
             return;
         }
 
+        $outerWrapperRule = array() === $outerWrapperDeclarations
+            ? ''
+            : '.' . $marker . '.' . $marker . '.wp-block-buttons{' . implode(';', $outerWrapperDeclarations) . '}';
         $wrapperRule = array() === $wrapperDeclarations
             ? ''
             : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $wrapperDeclarations) . '}';
-        $this->nativeButtonStyleRules[$marker] = $wrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
+        $intrinsicWrapperRule = array() === $intrinsicWrapperDeclarations
+            ? ''
+            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
+        $this->nativeButtonStyleRules[$marker] = $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool

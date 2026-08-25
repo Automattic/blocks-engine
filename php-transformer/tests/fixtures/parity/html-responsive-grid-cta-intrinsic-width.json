@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-responsive-grid-cta-intrinsic-width",
+  "description": "Preserves a flex CTA's content-plus-padding width through native button wrappers in a responsive source grid.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-responsive-grid-cta-intrinsic-width.json",
+    "notes": "Generic deterministic regression coverage for Automattic/blocks-engine#1186. The mobile and desktop variants remain independently responsive while each promoted CTA receives intrinsic wrapper geometry."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Native wrapper geometry support has no legacy converter equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.quote-grid{display:grid;grid-template-columns:max-content}.quote-cta{display:flex;align-items:center;justify-content:center;margin:8px 0;padding:12px 24px;border-radius:50px;background:#135e96;color:#fff}.desktop-variant{display:none}@media(min-width:601px){.mobile-variant{display:none}.desktop-variant{display:grid}}</style></head><body><main><div class=\"quote-grid mobile-variant\"><a class=\"quote-cta\" href=\"/get-a-quote/\">GET A QUOTE</a></div><div class=\"quote-grid desktop-variant\"><a class=\"quote-cta\" href=\"/desktop-quote/\">REQUEST A DESKTOP QUOTE</a></div></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "GET A QUOTE", "url": "/get-a-quote/" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/buttons" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"margin-top:8px;margin-bottom:8px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/get-a-quote/\">GET A QUOTE</a>" },
+    { "path": "assets.2.source", "assert": "equals", "value": "engine-support" },
+    { "path": "assets.2.stylesheet_placement", "assert": "equals", "value": "after-author" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-buttons{width:max-content;max-width:100%}" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-button{width:max-content;max-width:100%}" },
+    { "path": "assets.2.content", "assert": "contains", "value": "box-sizing:border-box;width:max-content;max-width:100%" },
+    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px;border-radius:50px" },
+    { "path": "assets.1.content", "assert": "contains", "value": "@media(min-width:601px){.mobile-variant{display:none}.desktop-variant{display:grid}}" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
