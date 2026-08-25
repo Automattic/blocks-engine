@@ -32,7 +32,7 @@
   "require": {
     "league/commonmark": "^2.5",
     "league/html-to-markdown": "^5.1",
-    "php": ">=8.1"
+    "php": ">=8.2"
   },
   "scripts": {
     "parity": "@test:parity",
@@ -63,6 +63,7 @@
     ],
     "test:unit": [
       "php tests/unit/runtime-declarations-streaming-hash.php",
+      "php tests/unit/font-family-declaration-memory.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
        "php tests/unit/responsive-media-block.php",
@@ -101,6 +102,7 @@
       "php tests/unit/navigation-underline-color-resolver.php",
       "php tests/unit/navigation-brand-anchor-hoist.php",
       "php tests/unit/navigation-brand-cue-carrier.php",
+      "php tests/unit/navigation-author-rule-memory.php",
       "php tests/unit/navigation-direct-cluster-parity.php",
       "php tests/unit/navigation-block-normalizer.php",
       "php tests/unit/navigation-inline-margin-carry.php",
@@ -141,7 +143,7 @@
   "config": {
     "cache-dir": "var/cache/composer",
     "platform": {
-      "php": "8.1.0"
+      "php": "8.2.0"
     },
     "sort-packages": true
   },

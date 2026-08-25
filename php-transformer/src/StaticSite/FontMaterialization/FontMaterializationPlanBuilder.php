@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use InvalidArgumentException;
 
 final class FontMaterializationPlanBuilder
@@ -56,8 +57,6 @@ final class FontMaterializationPlanBuilder
         // their concrete typefaces before parsing so the plan captures the real
         // family — never a literal `var(--font-body)` token, which would corrupt
         // the materialized Google Fonts request and the body role.
-        $resolvedCss = $this->resolveCssVariables($css);
-
         $imports = $this->webFontImports($css, $cssSources);
         $directFaces = $this->directFontFaces($css, $cssSources);
         foreach ( $directFaces as $directFace ) {
@@ -77,7 +76,7 @@ final class FontMaterializationPlanBuilder
             $this->fontUsageFromLinkedStylesheets($html),
             ...array_column(array_filter($imports, static fn (array $import): bool => 'google_fonts' === $import['provider']), 'font_usage')
         );
-        $roles = $this->fontRolesFromCss($resolvedCss);
+        $roles = $this->fontRolesFromCss($css);
 
         // A CSS family name alone does not prove that Google hosts the font.
         // Materialize only families backed by a Google import/link or a direct face.
@@ -495,31 +494,16 @@ final class FontMaterializationPlanBuilder
      */
     public function fontRolesFromCss(string $css): array
     {
-        if ( '' === $css || ! preg_match('/\S/', $css) ) {
-            return array();
-        }
-
         $heading = '';
         $body = '';
-        $offset = 0;
-        while ( preg_match('/([^{}]+)\{([^{}]*)\}/s', $css, $rule, PREG_OFFSET_CAPTURE, $offset) ) {
-            $offset = $rule[0][1] + strlen($rule[0][0]);
-            if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2][0], $declaration) ) {
-                continue;
+        foreach ( $this->fontFamilyDeclarationsFromCssSources(array($css)) as $declaration ) {
+            $selector = $declaration['selector'];
+            $family = $declaration['family'];
+            if ( '' === $heading && preg_match('/(^|[\s>+~])h[1-6]\b/i', $selector) ) {
+                $heading = $family;
             }
-            $family = $this->primaryFamily((string) $declaration[1]);
-            if ( '' === $family ) {
-                continue;
-            }
-
-            $selectors = array_map('trim', explode(',', (string) $rule[1][0]));
-            foreach ( $selectors as $selector ) {
-                if ( '' === $heading && preg_match('/(^|[\s>+~])h[1-6]\b/i', $selector) ) {
-                    $heading = $family;
-                }
-                if ( '' === $body && preg_match('/(^|[\s>+~])(body|html|:root|\*)\b/i', $selector) ) {
-                    $body = $family;
-                }
+            if ( '' === $body && preg_match('/(^|[\s>+~])(body|html|:root|\*)\b/i', $selector) ) {
+                $body = $family;
             }
             if ( '' !== $heading && '' !== $body ) {
                 break;
@@ -527,6 +511,58 @@ final class FontMaterializationPlanBuilder
         }
 
         return array_filter(array('heading' => $heading, 'body' => $body), static fn (string $value): bool => '' !== $value);
+    }
+
+    /**
+     * @param list<string> $stylesheets
+     * @return list<array{family:string,selector:string,source_snippet:string}>
+     */
+    public function fontFamilyDeclarationsFromCssSources(array $stylesheets): array
+    {
+        $variables = $this->cssVariableValues($stylesheets);
+        $visitor = new CssStylesheetTransformer();
+        $declarations = array();
+        foreach ( $stylesheets as $css ) {
+            $visitor->visitStyleRules($css, function (string $prelude, string $body) use (&$declarations, $variables): void {
+                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match('/font-family\s*:\s*([^;{}]+)/i', $body, $match) ) {
+                    return;
+                }
+                $value = $this->resolveCssVariableValue((string) $match[1], $variables);
+                $family = $this->primaryFamily($value);
+                if ( '' === $family ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( '' !== $selector ) {
+                        $declarations[] = array(
+                            'family' => $family,
+                            'selector' => $selector,
+                            'source_snippet' => trim($prelude) . '{font-family:' . trim((string) $match[1]) . '}',
+                        );
+                    }
+                }
+            });
+        }
+        return $declarations;
+    }
+
+    /** @param list<string> $stylesheets @return array<string,string> */
+    public function cssVariableValues(array $stylesheets): array
+    {
+        $variables = array();
+        $visitor = new CssStylesheetTransformer();
+        foreach ( $stylesheets as $css ) {
+            $visitor->visitStyleRules($css, static function (string $prelude, string $body) use (&$variables): void {
+                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                    return;
+                }
+                foreach ( $matches as $match ) {
+                    $variables[(string) $match[1]] = trim((string) $match[2]);
+                }
+            });
+        }
+        return $variables;
     }
 
     /**
@@ -641,6 +677,29 @@ final class FontMaterializationPlanBuilder
         }
 
         return $css;
+    }
+
+    /** @param array<string,string> $variables */
+    public function resolveCssVariableValue(string $value, array $variables): string
+    {
+        for ( $pass = 0; $pass < 5; $pass++ ) {
+            $expanded = preg_replace_callback(
+                '/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/',
+                static function (array $match) use ($variables): string {
+                    $name = (string) $match[1];
+                    if ( isset($variables[$name]) && '' !== $variables[$name] ) {
+                        return $variables[$name];
+                    }
+                    return isset($match[2]) && '' !== trim((string) $match[2]) ? trim((string) $match[2]) : (string) $match[0];
+                },
+                $value
+            );
+            if ( ! is_string($expanded) || $expanded === $value ) {
+                break;
+            }
+            $value = $expanded;
+        }
+        return $value;
     }
 
     /**

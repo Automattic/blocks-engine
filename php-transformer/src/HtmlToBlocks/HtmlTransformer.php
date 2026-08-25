@@ -1401,6 +1401,22 @@ final class HtmlTransformer
             if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
+            if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
+                $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
+                $fallbackTextColor = '';
+                if ( '' === $mobileOverlayBackground ) {
+                    $mobileOverlayBackground = '#fff';
+                    $fallbackTextColor = 'color:#111!important;';
+                }
+                $projectedOpenMenu = '.wp-block-navigation.blocks-engine-projected-dialog-navigation .wp-block-navigation__responsive-container.is-menu-open';
+                $afterAuthorCssParts[] = $projectedOpenMenu . '{background:' . $mobileOverlayBackground . '!important;' . $fallbackTextColor . 'position:fixed!important;inset:0!important;padding:clamp(4rem,12vh,7rem) clamp(1.5rem,6vw,4rem) 2rem!important;overflow-y:auto!important;z-index:99998!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-content{align-items:flex-start!important;justify-content:flex-start!important;gap:1rem!important;width:100%!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__container{align-items:flex-start!important;gap:.75rem!important;width:100%!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation-item__content{' . $fallbackTextColor . 'font-size:clamp(1.125rem,4vw,1.5rem)!important;line-height:1.4!important;padding:.5rem 0!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-close{background:#fff!important;color:#111!important;position:fixed!important;top:1rem!important;right:1rem!important;padding:.75rem!important;z-index:1!important}'
+                    . "\n" . 'body.admin-bar ' . $projectedOpenMenu . '{top:var(--wp-admin--admin-bar--height,32px)!important}'
+                    . "\n" . 'body.admin-bar ' . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-close{top:calc(1rem + var(--wp-admin--admin-bar--height,32px))!important}';
+            }
             // Size a carried menu to its content when it sits inside a brand
             // carrier. The carrier renders <nav> and core/navigation renders
             // another <nav> inside it, so an authored `header nav` rule matches
@@ -2045,8 +2061,12 @@ final class HtmlTransformer
 
         $rules = array();
         $order = 0;
-        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
-        $this->collectNavigationAuthorStyleRules($css, array(), $rules, $order);
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $this->combinedAuthorCss,
+            function (string $prelude, string $body, array $conditions) use (&$rules, &$order): void {
+                $this->collectNavigationAuthorStyleRule($prelude, $body, $conditions, $rules, $order);
+            }
+        );
         return $rules;
     }
 
@@ -2054,83 +2074,40 @@ final class HtmlTransformer
      * @param list<string> $conditions
      * @param array<int, array<string, mixed>> $rules
      */
-    private function collectNavigationAuthorStyleRules(string $css, array $conditions, array &$rules, int &$order): void
+    private function collectNavigationAuthorStyleRule(string $prelude, string $body, array $conditions, array &$rules, int &$order): void
     {
-        $directCss = $css;
-        $events = array();
-        for ( $offset = 0, $length = strlen($css); $offset < $length; ++$offset ) {
-            if ( '@' !== $css[$offset] ) {
-                continue;
-            }
-            $blockStart = $this->findCssToken($css, '{', $offset);
-            $statementEnd = $this->findCssToken($css, ';', $offset);
-            if ( null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart) ) {
-                continue;
-            }
-            $end = $this->findMatchingCssBrace($css, $blockStart);
-            if ( null === $end ) {
-                continue;
-            }
-            $prelude = trim(substr($css, $offset, $blockStart - $offset));
-            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
-            if ( preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude) ) {
-                $events[] = array(
-                    'offset' => $offset,
-                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
-                    'conditions' => array_merge($conditions, array( $prelude )),
-                );
-            }
-            $offset = $end;
+        if ( str_starts_with(ltrim($prelude), '@') ) {
+            return;
         }
-
-        if ( preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
-            foreach ( $matches as $match ) {
-                $events[] = array(
-                    'offset' => $match[0][1],
-                    'prelude' => $match[1][0],
-                    'body' => $match[2][0],
-                    'conditions' => $conditions,
-                );
-            }
+        $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
+        if ( array() === $declarations ) {
+            return;
         }
-
-        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        foreach ( $events as $event ) {
-            if ( isset($event['css']) ) {
-                $this->collectNavigationAuthorStyleRules($event['css'], $event['conditions'], $rules, $order);
+        $ruleId = $order++;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = trim($selector);
+            if ( '' === $selector || str_starts_with($selector, '@') ) {
                 continue;
             }
-
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $event['body']));
-            if ( array() === $declarations ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! ($parsed['supported'] ?? false) ) {
                 continue;
             }
-            $ruleId = $order++;
-            foreach ( CssStylesheetTransformer::splitSelectorList((string) $event['prelude']) ?? array() as $selector ) {
-                $selector = trim($selector);
-                if ( '' === $selector || str_starts_with($selector, '@') ) {
-                    continue;
-                }
-                $parsed = $this->parsedCssSelector($selector);
-                if ( ! ($parsed['supported'] ?? false) ) {
-                    continue;
-                }
-                $pseudo = '';
-                $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
-                if ( is_array($pseudoSpan) ) {
-                    $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
-                }
-                $rules[] = array(
-                    'id' => $ruleId,
-                    'selector' => $selector,
-                    'parsed' => $parsed,
-                    'declarations' => $declarations,
-                    'conditions' => $event['conditions'],
-                    'pseudo' => $pseudo,
-                    'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
-                    'order' => $ruleId,
-                );
+            $pseudo = '';
+            $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
+            if ( is_array($pseudoSpan) ) {
+                $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
             }
+            $rules[] = array(
+                'id' => $ruleId,
+                'selector' => $selector,
+                'parsed' => $parsed,
+                'declarations' => $declarations,
+                'conditions' => $conditions,
+                'pseudo' => $pseudo,
+                'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
+                'order' => $ruleId,
+            );
         }
     }
 
@@ -4665,8 +4642,12 @@ final class HtmlTransformer
             $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
                 $controlAttrs = $this->presentationAttributes($element);
+                $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
+                if ( $this->isImplicitDialogNavigationControl($element) ) {
+                    $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
+                }
                 $block['attrs']['className'] = $this->mergeClassNames(
-                    'blocks-engine-list-navigation blocks-engine-native-responsive-navigation',
+                    $nativeClassNames,
                     (string) ($controlAttrs['className'] ?? ''),
                     $this->sourceProjectionClassName($element)
                 );
@@ -16336,7 +16317,7 @@ final class HtmlTransformer
         }
 
         if ( isset($asset['url']) && is_string($asset['url']) ) {
-            $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+            $resolvedUrl = $this->resolvedAssetImageUrl($url);
             if ( '' !== $resolvedUrl ) {
                 $attrs['url'] = $resolvedUrl;
             }
@@ -16357,6 +16338,12 @@ final class HtmlTransformer
         }
 
         $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+        if ( '' === $resolvedUrl ) {
+            return $url;
+        }
+
+        preg_match('/^[^?#]*(.*)$/s', $url, $parts);
+        $resolvedUrl = $this->safeResolvedAssetImageUrl($resolvedUrl . ($parts[1] ?? ''));
         return '' !== $resolvedUrl ? $resolvedUrl : $url;
     }
 

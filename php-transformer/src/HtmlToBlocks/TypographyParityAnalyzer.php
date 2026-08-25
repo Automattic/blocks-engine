@@ -63,9 +63,8 @@ final class TypographyParityAnalyzer
             );
         }
 
-        $typographyCss = $this->planBuilder->resolveCssVariables(trim($this->styleBlockCss($html) . "\n" . $css));
         $headingDeclarations = array_merge(
-            $this->headingFamiliesFromCss($typographyCss),
+            $this->headingFamiliesFromCssSources(array($this->styleBlockCss($html), $css)),
             $this->normalizeInlineHeadingDeclarations($inlineHeadingDeclarations)
         );
 
@@ -158,26 +157,23 @@ final class TypographyParityAnalyzer
      *
      * @return array<int,array{family:string,role:string,selector:string,source_snippet:string}>
      */
-    private function headingFamiliesFromCss(string $css): array
+    private function headingFamiliesFromCssSources(array $stylesheets): array
     {
-        if ( '' === trim($css) || ! preg_match_all('/([^{}]+)\{([^{}]*)\}/s', $css, $rules, PREG_SET_ORDER) ) {
-            return array();
-        }
-
         $declarations = array();
-        foreach ( $rules as $rule ) {
-            if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2], $declaration) ) {
-                continue;
-            }
-            $family = $this->primaryFamily((string) $declaration[1]);
-            if ( '' === $family ) {
-                continue;
-            }
-
-            foreach ( array_map('trim', explode(',', (string) $rule[1])) as $selector ) {
-                if ( '' === $selector ) {
+        $variables = $this->planBuilder->cssVariableValues($stylesheets);
+        foreach ( $stylesheets as $css ) {
+            $offset = 0;
+            while ( preg_match('/([^{}]+)\{([^{}]*)\}/s', $css, $rule, PREG_OFFSET_CAPTURE, $offset) ) {
+                $offset = $rule[0][1] + strlen($rule[0][0]);
+                if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2][0], $fontFamily) ) {
                     continue;
                 }
+                $value = $this->planBuilder->resolveCssVariableValue((string) $fontFamily[1], $variables);
+                $family = $this->primaryFamily($value);
+                if ( '' === $family ) {
+                    continue;
+                }
+                foreach ( array_map('trim', explode(',', (string) $rule[1][0])) as $selector ) {
                 $role = $this->roleForSelector($selector);
                 if ( '' === $role ) {
                     continue;
@@ -186,8 +182,9 @@ final class TypographyParityAnalyzer
                     'family'         => $family,
                     'role'           => $role,
                     'selector'       => $selector,
-                    'source_snippet' => $this->boundSnippet(trim((string) $rule[0])),
+                    'source_snippet' => $this->boundSnippet(trim((string) $rule[0][0])),
                 );
+                }
             }
         }
 

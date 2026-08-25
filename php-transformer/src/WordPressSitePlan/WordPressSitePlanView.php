@@ -49,6 +49,7 @@ final class WordPressSitePlanView
             'gutenberg_gaps' => $this->arrayValue($sourceReports, 'gutenberg_gaps'),
             'companion_plugin_payload' => $this->arrayValue($sourceReports, 'companion_plugin_payload'),
             'font_materialization' => $this->arrayValue($theme, 'font_materialization'),
+            'editability_report' => $this->arrayValue($sourceReports, 'editability_report'),
             'diagnostics' => $diagnostics,
         );
     }

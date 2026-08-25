@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
@@ -2904,6 +2905,13 @@ $assetMetadataOptions = array(
                 'id'  => 42,
                 'url' => 'https://example.test/wp-content/uploads/hero.jpg',
             ),
+            'media/root-hero.jpg' => array(
+                'id'  => 43,
+                'url' => 'https://example.test/wp-content/uploads/root-hero.jpg',
+            ),
+            'media/root-background.jpg' => array(
+                'url' => 'https://example.test/wp-content/uploads/root-background.jpg',
+            ),
         ),
     ),
 );
@@ -2914,6 +2922,17 @@ $assert('https://example.test/wp-content/uploads/hero.jpg' === ($resolvedImageAt
 $assert('Hero alt' === ($resolvedImageAttrs['alt'] ?? ''), 'HTML image transform preserves original alt text while resolving asset metadata');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'src="https://example.test/wp-content/uploads/hero.jpg"'), 'HTML image transform serializes resolved asset URL');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'class="wp-image-42"'), 'HTML image transform serializes resolved image id class');
+
+$resolvedRootImage = ( new HtmlTransformer() )->transform('<main><img src="/media/root-hero.jpg?size=large#hero" srcset="/media/root-hero.jpg?size=small 480w, /media/root-hero.jpg?size=large 960w" alt="Root hero"></main>', $assetMetadataOptions)->toArray();
+$resolvedRootImageAttrs = $resolvedRootImage['blocks'][0]['attrs'] ?? array();
+$assert('core/image' === ($resolvedRootImage['blocks'][0]['blockName'] ?? null), 'metadata-backed standalone responsive image remains core/image');
+$assert('https://example.test/wp-content/uploads/root-hero.jpg?size=large#hero' === ($resolvedRootImageAttrs['url'] ?? ''), 'metadata-backed root-relative image preserves its authored query and fragment suffix');
+$assert(! isset($resolvedRootImageAttrs['srcset'], $resolvedRootImageAttrs['sizes']) && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'srcset=') && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'sizes='), 'metadata-backed standalone responsive image does not add srcset or sizes to core/image');
+
+$resolvedRootBackground = ( new HtmlTransformer() )->transform('<main><div style="width:640px;height:320px;background-image:url(/media/root-background.jpg?crop=wide#panel)"></div></main>', $assetMetadataOptions)->toArray();
+$resolvedRootBackgroundMarkup = (string) ($resolvedRootBackground['serialized_blocks'] ?? '');
+$assert(str_contains($resolvedRootBackgroundMarkup, 'src="https://example.test/wp-content/uploads/root-background.jpg?crop=wide#panel"'), 'metadata-backed extracted root-relative background preserves its authored query and fragment suffix');
+$assert(str_contains($resolvedRootBackgroundMarkup, 'blocks-engine-background-image'), 'metadata-backed root-relative background remains an extracted editable image reference');
 
 $linkedRuntimeImage = ( new HtmlTransformer() )->transform(
     '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
@@ -2946,7 +2965,14 @@ $assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'Wo
 $assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
 $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
 $assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
-$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
+$assert(($simple['source_reports']['editability_report'] ?? null) === ($simplePlanView['editability_report'] ?? null), 'WordPress site plan view preserves the producer-owned editability report exactly');
+$assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
+$boundedEditabilityReport = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')))));
+$boundedPlanResult = $simple;
+$boundedPlanResult['source_reports']['editability_report'] = $boundedEditabilityReport;
+$boundedPlanView = (new WordPressSitePlanView())->fromResult($boundedPlanResult);
+$assert($boundedEditabilityReport === ($boundedPlanView['editability_report'] ?? null) && 101 === ($boundedPlanView['editability_report']['signal_totals']['observed'] ?? null) && 100 === ($boundedPlanView['editability_report']['signal_totals']['reported'] ?? null) && 1 === ($boundedPlanView['editability_report']['signal_totals']['omitted'] ?? null) && true === ($boundedPlanView['editability_report']['signal_totals']['truncated'] ?? null) && 100 === count($boundedPlanView['editability_report']['signals'] ?? array()), 'WordPress site plan view preserves bounded editability evidence without reprojecting it');
+$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'editability_report', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
 $assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
 $failedPlanResult = $simple;
 $failedPlanResult['status'] = 'failed';

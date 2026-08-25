@@ -397,7 +397,7 @@ final class ArtifactNormalizer
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<style\b([^>]*)>(.*?)</style>@is', $content, $matches, PREG_SET_ORDER) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<style\b([^>]*)>(.*?)</style>@is', $content, $matches, PREG_SET_ORDER) ) {
                 continue;
             }
 
@@ -566,7 +566,7 @@ final class ArtifactNormalizer
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( '' === trim($content) || ! $this->isHtmlLikeFile($file) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<script\b([^>]*)>(.*?)</script>@is', $content, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
                 continue;
             }
 
@@ -823,6 +823,9 @@ final class ArtifactNormalizer
     private function normalizeContent(mixed $content): string
     {
         if ( is_string($content) ) {
+            if ( ! str_contains($content, "\r") ) {
+                return $content;
+            }
             return str_replace("\r\n", "\n", str_replace("\r", "\n", $content));
         }
         if ( is_scalar($content) ) {
