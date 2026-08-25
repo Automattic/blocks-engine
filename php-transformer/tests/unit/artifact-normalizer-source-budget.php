@@ -67,6 +67,17 @@ $assert('warning' === ($duplicateImpact['completeness'] ?? null), 'A truncated d
 $assert('assets/logo-2.svg' === ($duplicateImpact['omitted_path_samples'][0]['path'] ?? null), 'Truncated duplicate paths use the canonical deduplicated artifact namespace.');
 $assert(0 === ($duplicateImpact['reference_reachability']['referenced_omitted_count'] ?? null), 'References resolve against the admitted canonical asset, not the omitted duplicate.');
 
+$largeJson = '{"payload":"' . str_repeat('x', 9 * 1024 * 1024) . '"}' . "\n";
+memory_reset_peak_usage();
+$memoryBefore = memory_get_usage(true);
+$largeJsonResult = $normalizer->normalize(array(
+    'compiler_limits' => array('max_file_bytes' => 10 * 1024 * 1024, 'max_total_bytes' => 20 * 1024 * 1024),
+    'files' => array(array('path' => 'capture.json', 'content' => $largeJson, 'mime_type' => 'application/json')),
+));
+$largeJsonPeakDelta = memory_get_peak_usage(true) - $memoryBefore;
+$assert(1 === count($largeJsonResult['files']) && $largeJsonPeakDelta < 16 * 1024 * 1024, 'Large non-HTML payloads bypass inline-style inspection without artifact-sized normalization copies.');
+unset($largeJson, $largeJsonResult);
+
 $qualityResult = (new ArtifactCompiler())->compile(array(
     'compiler_limits' => array('max_files' => 2),
     'files' => array(
