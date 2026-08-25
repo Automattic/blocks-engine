@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
@@ -2946,7 +2947,14 @@ $assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'Wo
 $assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
 $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
 $assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
-$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
+$assert(($simple['source_reports']['editability_report'] ?? null) === ($simplePlanView['editability_report'] ?? null), 'WordPress site plan view preserves the producer-owned editability report exactly');
+$assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
+$boundedEditabilityReport = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')))));
+$boundedPlanResult = $simple;
+$boundedPlanResult['source_reports']['editability_report'] = $boundedEditabilityReport;
+$boundedPlanView = (new WordPressSitePlanView())->fromResult($boundedPlanResult);
+$assert($boundedEditabilityReport === ($boundedPlanView['editability_report'] ?? null) && 101 === ($boundedPlanView['editability_report']['signal_totals']['observed'] ?? null) && 100 === ($boundedPlanView['editability_report']['signal_totals']['reported'] ?? null) && 1 === ($boundedPlanView['editability_report']['signal_totals']['omitted'] ?? null) && true === ($boundedPlanView['editability_report']['signal_totals']['truncated'] ?? null) && 100 === count($boundedPlanView['editability_report']['signals'] ?? array()), 'WordPress site plan view preserves bounded editability evidence without reprojecting it');
+$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'editability_report', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
 $assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
 $failedPlanResult = $simple;
 $failedPlanResult['status'] = 'failed';
