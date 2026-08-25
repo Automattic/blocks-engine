@@ -7095,13 +7095,12 @@ final class HtmlTransformer
     }
 
     /**
-     * Lift class/style styling hooks out of a paragraph/heading/list-item's
-     * RichText `content` so the stored block round-trips through RichText
-     * unchanged.
+     * Lift class/style styling hooks out of a block's RichText source so the
+     * stored block round-trips through RichText unchanged.
      *
-     * core/paragraph, core/heading, and core/list-item store `content` as
-     * RichText, which only preserves a fixed set of inline formats (a, strong,
-     * em, br, …). A `<span class="…">` / `<span style="…">` is not a format, so
+     * Core text blocks store `content`, and core/file stores `fileName`, as
+     * RichText. RichText only preserves a fixed set of inline formats (a,
+     * strong, em, br, …). A `<span class="…">` / `<span style="…">` is not a format, so
      * RichText drops its attributes on parse: the saved markup no longer matches
      * the re-serialized block ("unexpected or invalid content"), and the class —
      * a styling hook the materialized CSS targets — would be silently lost.
@@ -7130,11 +7129,12 @@ final class HtmlTransformer
      */
     private function hoistContentWrappingSpans(string $name, array $attrs): array
     {
-        if ( ! in_array($name, array( 'core/paragraph', 'core/heading', 'core/list-item' ), true) ) {
+        $richTextAttribute = 'core/file' === $name ? 'fileName' : 'content';
+        if ( ! in_array($name, array( 'core/file', 'core/paragraph', 'core/heading', 'core/list-item' ), true) ) {
             return $attrs;
         }
 
-        $content = (string) ($attrs['content'] ?? '');
+        $content = (string) ($attrs[$richTextAttribute] ?? '');
         if ( '' === $content || ! preg_match('/<(?:span|font|a|em|i|strong|b|mark|small|sub|sup)\b/i', $content) ) {
             return $attrs;
         }
@@ -7195,7 +7195,7 @@ final class HtmlTransformer
             return $attrs;
         }
 
-        $attrs['content'] = $newContent;
+        $attrs[$richTextAttribute] = $newContent;
 
         if ( '' !== $hoistedClasses ) {
             $promoted = $this->promotedClassName($hoistedClasses);
@@ -14927,10 +14927,10 @@ final class HtmlTransformer
 
         $attrs = array_filter(array_merge($this->presentationAttributes($anchor), array(
             'href'               => $href,
-            'url'                => $href,
-            'text'               => $this->innerHtml($anchor),
+            'fileName'           => $this->richTextContentWithMaterializedInlineStyles($anchor),
+            'textLinkHref'       => $href,
             'showDownloadButton' => $anchor->hasAttribute('download'),
-        )), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        )), static fn (mixed $value): bool => is_bool($value) ? true : '' !== $value);
 
         return $this->createBlock('core/file', $attrs, array(), $anchor);
     }
