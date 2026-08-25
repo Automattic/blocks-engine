@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
@@ -41,6 +42,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecogniz
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
@@ -222,8 +224,6 @@ final class HtmlTransformer
     private readonly LogoPattern $logoPattern;
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
-
-    private readonly QuotePattern $quotePattern;
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
@@ -588,7 +588,7 @@ final class HtmlTransformer
         $this->galleryPattern    = new GalleryPattern();
         $this->logoPattern       = new LogoPattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
-        $this->quotePattern      = new QuotePattern();
+        $quotePattern            = new QuotePattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
             $this->mediaTextPattern,
             $this->coverPattern,
@@ -605,18 +605,8 @@ final class HtmlTransformer
                 return null === $block ? null : new PatternRecognitionResult($block);
             }),
             new PlaceholderMediaPattern(),
-            new CallbackPatternRecognizer('quote', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $fallbacks = array();
-                $block = $this->quotePattern->matchBlockquote($element, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
-            }),
-            new CallbackPatternRecognizer('figure-quote', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $blockquote = $this->firstChildElement($element, 'blockquote');
-                if (! $blockquote instanceof DOMElement) return null;
-                $fallbacks = array();
-                $block = $this->quotePattern->matchFigureBlockquote($element, $blockquote, $fallbacks, fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement), $context->innerHtmlCallback(), fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags), fn (string $html): string => $this->runtime->stripAllTags($html), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags): array => $this->convertChildrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
-            }),
+            $quotePattern,
+            new FigureQuotePattern($quotePattern),
             new DetailsPattern(),
             new CallbackPatternRecognizer('gallery', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
                 $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
@@ -4642,6 +4632,12 @@ final class HtmlTransformer
                     $this->htmlPreservationBlock($anchor),
                     array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->fallbackProvenance))
                 )
+            ),
+            new QuotePatternContext(
+                fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
+                fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
+                fn (string $html): string => $this->runtime->stripAllTags($html),
+                fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName)
             )
         );
     }
@@ -5075,7 +5071,7 @@ final class HtmlTransformer
         }
 
         if ( 'blockquote' === $tagName ) {
-            return $this->recognizePatterns($element, $fallbacks, array('quote'));
+            return $this->recognizePatterns($element, $fallbacks, array(QuotePattern::class));
         }
 
         if ( 'figure' === $tagName ) {
@@ -5114,7 +5110,7 @@ final class HtmlTransformer
 
             $blockquote = $this->firstChildElement($element, 'blockquote');
             if ( $blockquote instanceof DOMElement ) {
-                return $this->recognizePatterns($element, $fallbacks, array('figure-quote'));
+                return $this->recognizePatterns($element, $fallbacks, array(FigureQuotePattern::class));
             }
 
             return $this->convertFigureGeneric($element, $fallbacks);
