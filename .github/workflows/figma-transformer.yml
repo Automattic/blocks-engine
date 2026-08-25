@@ -14,8 +14,12 @@ on:
 
 jobs:
   validate:
-    name: Composer validate and test
+    name: Composer validate and test (PHP ${{ matrix.php-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ["8.2", "8.3", "8.4", "8.5"]
 
     defaults:
       run:
@@ -28,7 +32,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240  # 2.37.2
         with:
-          php-version: "8.1"
+          php-version: ${{ matrix.php-version }}
           coverage: none
           tools: composer:v2
 
