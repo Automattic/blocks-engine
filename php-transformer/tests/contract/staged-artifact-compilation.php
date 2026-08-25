@@ -445,7 +445,7 @@ $layoutWhole = $layoutCompiler->compile($layoutArtifact)->toArray();
 $layoutShared = $layoutCompiler->prepareShared($layoutArtifact);
 $layoutStaged = $layoutCompiler->compose($layoutShared, array($layoutCompiler->compilePage($layoutArtifact, $layoutShared, 'index.html')))->toArray();
 $layoutPage = $layoutWhole['source_reports']['compiled_site']['pages'][0] ?? array();
-$assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '<!-- wp:custom/responsive-media {"content":') && str_contains((string) ($layoutPage['block_markup'] ?? ''), '"kind":"layout"'), 'A deep semantic media main compiles as one typed layout boundary under the unchanged editability policy.');
+$assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '<!-- wp:custom/responsive-layout {"content":'), 'A deep semantic media main compiles as one dedicated typed layout boundary under the unchanged editability policy.');
 $assert($canonical($layoutWhole) === $canonical($layoutStaged), 'Typed captured layout boundaries preserve direct and staged canonical equivalence.');
 
 fwrite(STDOUT, "Staged artifact compilation contract passed\n");

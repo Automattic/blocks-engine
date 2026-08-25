@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-deep-semantic-responsive-layout",
-  "description": "Captures a deeply nested static semantic main through the released typed responsive-media layout boundary.",
+  "description": "Captures a deeply nested static semantic main through a dedicated typed responsive-layout boundary.",
   "source_reference": {
     "repo": "blocks-engine",
     "path": "php-transformer/tests/fixtures/parity/html-deep-semantic-responsive-layout.json",
@@ -16,7 +16,7 @@
     "content": "<main class=\"puffin-story\"><div class=\"layer-0\"><div class=\"layer-1\"><div class=\"layer-2\"><div class=\"layer-3\"><div class=\"layer-4\"><div class=\"layer-5\"><div class=\"layer-6\"><div class=\"layer-7\"><div class=\"layer-8\"><div class=\"layer-9\"><div class=\"layer-10\"><div class=\"layer-11\"><div class=\"layer-12\"><div class=\"layer-13\"><div class=\"layer-14\"><div class=\"layer-15\"><div class=\"layer-16\"><div class=\"layer-17\"><div class=\"layer-18\"><div class=\"layer-19\"><div class=\"layer-20\"><header><nav aria-label=\"Primary\"><a href=\"/about\">About</a></nav></header><section><h1>Deep story</h1><p>Readable <strong>copy</strong>.</p><img src=\"hero.jpg\" alt=\"Hero\"><svg viewBox=\"0 0 10 10\" role=\"img\" aria-label=\"Mark\"><path d=\"M0 0L10 10\" stroke=\"#000\"></path></svg></section></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></div></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "custom/responsive-media", "attrs": { "kind": "layout" } }
+    { "path": "blocks.0", "name": "custom/responsive-layout" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -26,6 +26,6 @@
     { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<h1>Deep story</h1>" },
     { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<svg viewbox=\"0 0 10 10\" role=\"img\" aria-label=\"Mark\">" },
     { "path": "blocks.0.attrs.content", "assert": "contains", "value": "layer-20" },
-    { "path": "source_reports.generated_blocks.0.renderer", "assert": "equals", "value": "static-site-importer/responsive-media/v1" }
+    { "path": "source_reports.generated_blocks.0.renderer", "assert": "equals", "value": "blocks-engine/responsive-layout/v1" }
   ]
 }

@@ -15434,22 +15434,22 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->responsiveMediaBlockGenerated ) {
-            $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
-            $this->responsiveMediaBlockGenerated = true;
+        if ( ! $this->responsiveLayoutBlockGenerated ) {
+            $this->generatedBlocks[] = ( new ResponsiveLayoutBlockGenerator() )->definition($this->generatedBlockNamespace);
+            $this->responsiveLayoutBlockGenerated = true;
         }
 
         return $this->createBlock(
-            $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
-            array( 'content' => $this->staticLayoutHtml($element), 'kind' => 'layout' ),
+            $this->generatedBlockNamespace . '/' . ResponsiveLayoutBlockGenerator::LOCAL_NAME,
+            array( 'content' => $this->staticLayoutHtml($element) ),
             array(),
             $element
         );
     }
 
     /**
-     * The static-site-importer responsive-media renderer accepts this fixed
-     * static-layout-v1 subset. Keep admission narrower than fallback sanitizing
+     * The responsive-layout renderer accepts this fixed static-layout-v1
+     * subset. Keep admission narrower than fallback sanitizing
      * so a captured layout never depends on stripped source semantics.
      */
     private function isStaticLayoutV1(DOMElement $element): bool
