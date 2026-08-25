@@ -43,6 +43,7 @@ final class HtmlTransformerSession
     public bool $formSelectBlockGenerated = false;
     public bool $formInputBlockGenerated = false;
     public bool $responsiveMediaBlockGenerated = false;
+    public bool $responsiveLayoutBlockGenerated = false;
     public bool $authoredMarqueeBlockGenerated = false;
     public bool $emptyRuntimeTargetGenerated = false;
     public bool $capturedDialogBlockGenerated = false;

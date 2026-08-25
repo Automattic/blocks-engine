@@ -4305,7 +4305,7 @@ $companion = $compiler->compile(
 )->toArray();
 $companionPayload = $companion['source_reports']['companion_plugin_payload'] ?? null;
 $assert(is_array($companionPayload), 'companion_plugin_payload is emitted when a generated block is present');
-$assert('static-site-importer/companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the shared consumer schema');
+$assert('blocks-engine/wordpress-companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the producer-owned WordPress contract');
 $assert('acme' === ($companionPayload['site_slug'] ?? ''), 'companion payload derives site_slug from the artifact');
 $assert('Acme Co' === ($companionPayload['site_name'] ?? ''), 'companion payload derives site_name from the artifact');
 $assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload exposes an empty preserved_js slot');

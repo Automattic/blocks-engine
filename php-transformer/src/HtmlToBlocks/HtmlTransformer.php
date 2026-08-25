@@ -15529,27 +15529,113 @@ final class HtmlTransformer
     /** @return array<string, mixed>|null */
     private function capturedMediaLayoutBoundaryBlock(DOMElement $element): ?array
     {
-        if ( 'main' !== strtolower($element->tagName)
+        if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure'), true)
             || $this->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
             || ! $this->hasCapturedMediaContent($element)
+            || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
         ) {
             return null;
         }
 
-        if ( ! $this->responsiveMediaBlockGenerated ) {
-            $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
-            $this->responsiveMediaBlockGenerated = true;
+        if ( ! $this->isStaticLayoutV1($element) ) {
+            return null;
+        }
+
+        if ( ! $this->responsiveLayoutBlockGenerated ) {
+            $this->generatedBlocks[] = ( new ResponsiveLayoutBlockGenerator() )->definition($this->generatedBlockNamespace);
+            $this->responsiveLayoutBlockGenerated = true;
         }
 
         return $this->createBlock(
-            $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
-            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'layout' ),
+            $this->generatedBlockNamespace . '/' . ResponsiveLayoutBlockGenerator::LOCAL_NAME,
+            array( 'content' => $this->staticLayoutHtml($element) ),
             array(),
             $element
         );
+    }
+
+    /**
+     * The responsive-layout renderer accepts this fixed static-layout-v1
+     * subset. Keep admission narrower than fallback sanitizing
+     * so a captured layout never depends on stripped source semantics.
+     */
+    private function isStaticLayoutV1(DOMElement $element): bool
+    {
+        $tags = array(
+            'main', 'article', 'aside', 'section', 'header', 'footer', 'nav', 'div', 'figure',
+            'figcaption', 'p', 'span', 'strong', 'em', 'b', 'i', 'small', 'br',
+            'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'button', 'ul', 'ol', 'li',
+            'dl', 'dt', 'dd', 'picture', 'source', 'img', 'video', 'audio',
+            'svg', 'defs', 'symbol', 'lineargradient', 'radialgradient', 'stop', 'clippath',
+            'mask', 'use', 'g', 'path', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+            'rect', 'text', 'tspan', 'title', 'desc', 'link',
+        );
+        $globalAttributes = array(
+            'class', 'id', 'role', 'title', 'style', 'tabindex', 'dir', 'lang', 'hidden', 'xml:lang',
+            'aria-controls', 'aria-current', 'aria-describedby', 'aria-details', 'aria-expanded',
+            'aria-hidden', 'aria-label', 'aria-labelledby', 'aria-live',
+        );
+        $tagAttributes = array(
+            'a' => array('download', 'href', 'target', 'rel'),
+            'button' => array('disabled', 'name', 'type', 'value'),
+            'img' => array('src', 'alt', 'width', 'height', 'loading', 'decoding', 'fetchpriority', 'longdesc', 'srcset', 'sizes', 'usemap'),
+            'source' => array('src', 'srcset', 'sizes', 'media', 'type'),
+            'video' => array('autoplay', 'controls', 'height', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'src', 'width'),
+            'audio' => array('autoplay', 'controls', 'loop', 'muted', 'preload', 'src'),
+            'svg' => array('fill', 'stroke', 'viewbox', 'width', 'height', 'focusable', 'preserveaspectratio', 'xmlns', 'xmlns:xlink'),
+            'symbol' => array('viewbox'),
+            'lineargradient' => array('gradientunits', 'x1', 'x2', 'y1', 'y2'),
+            'radialgradient' => array('cx', 'cy', 'r'),
+            'stop' => array('offset', 'stop-color', 'stop-opacity'),
+            'use' => array('href', 'xlink:href'),
+            'g' => array('clip-path', 'fill', 'fill-opacity', 'opacity', 'stroke', 'stroke-width', 'transform'),
+            'path' => array('d', 'fill', 'fill-rule', 'opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'transform'),
+            'circle' => array('cx', 'cy', 'r', 'fill', 'opacity', 'stroke', 'stroke-width'),
+            'ellipse' => array('cx', 'cy', 'rx', 'ry', 'fill', 'opacity', 'stroke', 'stroke-width'),
+            'line' => array('x1', 'x2', 'y1', 'y2', 'fill', 'stroke', 'stroke-width', 'stroke-linecap'),
+            'polyline' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
+            'polygon' => array('points', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin'),
+            'rect' => array('x', 'y', 'width', 'height', 'rx', 'ry', 'fill', 'opacity', 'stroke', 'stroke-width'),
+            'text' => array('fill', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'x', 'y'),
+            'tspan' => array('dx', 'dy', 'fill', 'x', 'y'),
+            'link' => array('href', 'rel'),
+        );
+
+        foreach (array_merge(array($element), $this->descendantElements($element)) as $candidate) {
+            $tag = strtolower($candidate->tagName);
+            $customElement = (bool) preg_match('/^[a-z][a-z0-9]*-[a-z0-9-]+$/D', $tag);
+            if ( (! $customElement && ! in_array($tag, $tags, true)) || $this->isDeclaredRuntimeDomTarget($candidate) || array() !== $this->eventMetadata($candidate) ) {
+                return false;
+            }
+            if ('svg' === $tag && ! $this->isSafeSvgContent($this->outerHtml($candidate))) {
+                return false;
+            }
+            if ('link' === $tag && ('stylesheet' !== strtolower($this->attr($candidate, 'rel')) || ! $this->hasAncestorTag($candidate, array('defs')) || ! $this->hasAncestorTag($candidate, array('svg')) || ! $this->safeFallbackUrl($this->attr($candidate, 'href'), 'href'))) {
+                return false;
+            }
+
+            $allowed = array_merge($globalAttributes, $tagAttributes[$tag] ?? array());
+            foreach ($this->htmlAttributes($candidate) as $attribute => $value) {
+                $attribute = strtolower($attribute);
+                if ( (! str_starts_with($attribute, 'data-') && ! str_starts_with($attribute, 'aria-') && ! in_array($attribute, $allowed, true))
+                    || str_starts_with($attribute, 'data-wp-')
+                    || ('srcset' === $attribute && $this->safeFallbackSrcset($value) !== $value)
+                    || (in_array($attribute, array('href', 'src'), true) && ! $this->safeFallbackUrl($value, $attribute))
+                ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private function staticLayoutHtml(DOMElement $element): string
+    {
+        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', $this->safeFallbackHtml($element)) ?? '';
     }
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
@@ -15573,10 +15659,27 @@ final class HtmlTransformer
     private function hasRuntimeTargetInSubtree(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+            if ( $descendant instanceof DOMElement && $this->isDeclaredRuntimeDomTarget($descendant) ) {
                 return true;
             }
         }
+        return false;
+    }
+
+    private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
+    {
+        foreach (array_keys($this->runtimeDomSelectors) as $selector) {
+            if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === $this->attr($element, 'id')) {
+                return true;
+            }
+            if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), $this->classNames($element), true)) {
+                return true;
+            }
+            if ($this->elementMatchesRuntimeSelector($element, (string) $selector)) {
+                return true;
+            }
+        }
+
         return false;
     }
 
