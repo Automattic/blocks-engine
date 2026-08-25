@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use DOMElement;
 
 trait ButtonLinkDispatchTrait
@@ -22,7 +24,7 @@ trait ButtonLinkDispatchTrait
             return $linkedLogo;
         }
 
-        $button = $this->recognizePatterns($element, $fallbacks, array('button-anchor'));
+        $button = $this->recognizePatterns($element, $fallbacks, array(ButtonAnchorPattern::class));
         if ( null !== $button ) {
             return $button;
         }
@@ -111,6 +113,6 @@ trait ButtonLinkDispatchTrait
         }
 
         $fallbacks = array();
-        return $this->recognizePatterns($element, $fallbacks, array('button'));
+        return $this->recognizePatterns($element, $fallbacks, array(ButtonPattern::class));
     }
 }

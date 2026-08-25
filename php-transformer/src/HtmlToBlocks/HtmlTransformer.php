@@ -16,6 +16,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CallbackPatternRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
@@ -203,8 +207,6 @@ final class HtmlTransformer
     private readonly BlockFactory $blockFactory;
 
     private readonly BackgroundImageExtractor $backgroundImageExtractor;
-
-    private readonly ButtonsPattern $buttonsPattern;
 
     private readonly CodeWindowPattern $codeWindowPattern;
 
@@ -578,7 +580,7 @@ final class HtmlTransformer
         );
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
-        $this->buttonsPattern    = new ButtonsPattern();
+        $buttonsPattern         = new ButtonsPattern();
         $this->codeWindowPattern = new CodeWindowPattern();
         $this->columnsPattern    = new ColumnsPattern();
         $this->coverPattern      = new CoverPattern();
@@ -620,22 +622,9 @@ final class HtmlTransformer
                 $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
                 return null === $block ? null : new PatternRecognitionResult($block);
             }),
-            new CallbackPatternRecognizer('buttons-container', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->buttonsPattern->matchContainer($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), $context->innerHtmlCallback(), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
-            new CallbackPatternRecognizer('button-anchor', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $fallbacks = array();
-                $block = $this->buttonsPattern->matchAnchor($element, fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor), $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name), $context->createBlockCallback(), function (DOMElement $anchor) use (&$fallbacks): array {
-                    $fallbacks[] = FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->fallbackProvenance);
-                    return $this->htmlPreservationBlock($anchor);
-                });
-                return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
-            }),
-            new CallbackPatternRecognizer('button', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->buttonsPattern->matchButton($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true), $context->createBlockCallback());
-                return new PatternRecognitionResult($block);
-            }),
+            new ButtonsContainerPattern($buttonsPattern),
+            new ButtonAnchorPattern($buttonsPattern),
+            new ButtonPattern($buttonsPattern),
             new AccordionPattern(),
             new SocialLinksPattern(),
             new NavigationPattern(),
@@ -4641,7 +4630,19 @@ final class HtmlTransformer
             fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
             fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
             fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-            fn (string $text): string => $this->runtime->escapeHtml($text)
+            fn (string $text): string => $this->runtime->escapeHtml($text),
+            new ButtonPatternContext(
+                fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
+                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
+                fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
+                fn (DOMElement $anchor): PatternRecognitionResult => new PatternRecognitionResult(
+                    $this->htmlPreservationBlock($anchor),
+                    array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->fallbackProvenance))
+                )
+            )
         );
     }
 
@@ -5523,7 +5524,7 @@ final class HtmlTransformer
                 return $standaloneSearch;
             }
 
-            $buttons = $this->recognizePatterns($element, $fallbacks, array('buttons-container'));
+            $buttons = $this->recognizePatterns($element, $fallbacks, array(ButtonsContainerPattern::class));
             if ( null !== $buttons ) {
                 return $buttons;
             }

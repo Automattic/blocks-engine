@@ -21,6 +21,7 @@ final class PatternContext
      * @param callable(DOMElement): string|null $structuralPresentationStyle
      * @param callable(DOMElement): string|null $safeFallbackHtml
      * @param callable(string): string|null $escapeHtml
+     * @param ButtonPatternContext|null $buttonContext
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -35,7 +36,8 @@ final class PatternContext
         private readonly mixed $mediaTextPresentationStyle = null,
         private readonly mixed $structuralPresentationStyle = null,
         private readonly mixed $safeFallbackHtml = null,
-        private readonly mixed $escapeHtml = null
+        private readonly mixed $escapeHtml = null,
+        private readonly ?ButtonPatternContext $buttonContext = null
     ) {
     }
 
@@ -73,4 +75,5 @@ final class PatternContext
     public function structuralPresentationStyleCallback(): ?callable { return is_callable($this->structuralPresentationStyle) ? $this->structuralPresentationStyle : null; }
     public function safeFallbackHtmlCallback(): ?callable { return is_callable($this->safeFallbackHtml) ? $this->safeFallbackHtml : null; }
     public function escapeHtmlCallback(): ?callable { return is_callable($this->escapeHtml) ? $this->escapeHtml : null; }
+    public function buttonContext(): ?ButtonPatternContext { return $this->buttonContext; }
 }
