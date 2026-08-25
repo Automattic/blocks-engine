@@ -25,17 +25,17 @@ final class CssUrlRewriter
             $valid = false;
             while (isset($content[$cursor])) {
                 $character = $content[$cursor];
-                if ('\\' === $character && isset($content[$cursor + 1])) {
-                    $value .= $character . $content[++$cursor];
-                    ++$cursor;
-                    continue;
-                }
                 $closingQuote = $quoted ? self::quoteAt($content, $cursor) : null;
                 if (null !== $closingQuote && $closingQuote[0] === $quote[0]) {
                     $cursor += $closingQuote[1];
                     while (isset($content[$cursor]) && str_contains(" \t\r\n\f", $content[$cursor])) ++$cursor;
                     $valid = ')' === ($content[$cursor] ?? '');
                     break;
+                }
+                if ('\\' === $character && isset($content[$cursor + 1])) {
+                    $value .= $character . $content[++$cursor];
+                    ++$cursor;
+                    continue;
                 }
                 if (!$quoted && ')' === $character) {
                     $valid = true;
@@ -76,6 +76,7 @@ final class CssUrlRewriter
     {
         $character = $content[$offset] ?? '';
         if ('"' === $character || "'" === $character) return array($character, 1);
+        if (preg_match('/\A\\\\u(?:0022|0026quot;)/i', substr($content, $offset, 12), $match)) return array('"', strlen($match[0]));
         if (!preg_match('/\A&(?:[A-Za-z][A-Za-z0-9]{0,30}|#[0-9]{1,8}|#x[0-9A-Fa-f]{1,8});/', substr($content, $offset, 40), $match)) return null;
         $character = html_entity_decode($match[0], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         return '"' === $character || "'" === $character ? array($character, strlen($match[0])) : null;
