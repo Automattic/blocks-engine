@@ -15,6 +15,9 @@ trait NavigationToggleSuppressionTrait
     /** @var array<string, true> */
     private array $projectedNavigationSuppressedPaths = array();
 
+    /** @var array<string, true> */
+    private array $implicitDialogNavigationControlPaths = array();
+
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
      * conversion. The responsive core/navigation must occupy the control's
@@ -51,6 +54,7 @@ trait NavigationToggleSuppressionTrait
 
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
+                $this->implicitDialogNavigationControlPaths[$control->getNodePath()] = true;
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
         }
@@ -147,6 +151,11 @@ trait NavigationToggleSuppressionTrait
     private function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
     {
         return $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] ?? null;
+    }
+
+    private function isImplicitDialogNavigationControl(DOMElement $control): bool
+    {
+        return isset($this->implicitDialogNavigationControlPaths[$control->getNodePath()]);
     }
 
     private function isProjectedNavigationSuppressed(DOMElement $element): bool

@@ -1401,6 +1401,22 @@ final class HtmlTransformer
             if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
+            if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
+                $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
+                $fallbackTextColor = '';
+                if ( '' === $mobileOverlayBackground ) {
+                    $mobileOverlayBackground = '#fff';
+                    $fallbackTextColor = 'color:#111!important;';
+                }
+                $projectedOpenMenu = '.wp-block-navigation.blocks-engine-projected-dialog-navigation .wp-block-navigation__responsive-container.is-menu-open';
+                $afterAuthorCssParts[] = $projectedOpenMenu . '{background:' . $mobileOverlayBackground . '!important;' . $fallbackTextColor . 'position:fixed!important;inset:0!important;padding:clamp(4rem,12vh,7rem) clamp(1.5rem,6vw,4rem) 2rem!important;overflow-y:auto!important;z-index:99998!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-content{align-items:flex-start!important;justify-content:flex-start!important;gap:1rem!important;width:100%!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__container{align-items:flex-start!important;gap:.75rem!important;width:100%!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation-item__content{' . $fallbackTextColor . 'font-size:clamp(1.125rem,4vw,1.5rem)!important;line-height:1.4!important;padding:.5rem 0!important}'
+                    . "\n" . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-close{background:#fff!important;color:#111!important;position:fixed!important;top:1rem!important;right:1rem!important;padding:.75rem!important;z-index:1!important}'
+                    . "\n" . 'body.admin-bar ' . $projectedOpenMenu . '{top:var(--wp-admin--admin-bar--height,32px)!important}'
+                    . "\n" . 'body.admin-bar ' . $projectedOpenMenu . ' .wp-block-navigation__responsive-container-close{top:calc(1rem + var(--wp-admin--admin-bar--height,32px))!important}';
+            }
             // Size a carried menu to its content when it sits inside a brand
             // carrier. The carrier renders <nav> and core/navigation renders
             // another <nav> inside it, so an authored `header nav` rule matches
@@ -4665,8 +4681,12 @@ final class HtmlTransformer
             $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
                 $controlAttrs = $this->presentationAttributes($element);
+                $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
+                if ( $this->isImplicitDialogNavigationControl($element) ) {
+                    $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
+                }
                 $block['attrs']['className'] = $this->mergeClassNames(
-                    'blocks-engine-list-navigation blocks-engine-native-responsive-navigation',
+                    $nativeClassNames,
                     (string) ($controlAttrs['className'] ?? ''),
                     $this->sourceProjectionClassName($element)
                 );
