@@ -16233,7 +16233,7 @@ final class HtmlTransformer
         }
 
         if ( isset($asset['url']) && is_string($asset['url']) ) {
-            $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+            $resolvedUrl = $this->resolvedAssetImageUrl($url);
             if ( '' !== $resolvedUrl ) {
                 $attrs['url'] = $resolvedUrl;
             }
@@ -16254,6 +16254,12 @@ final class HtmlTransformer
         }
 
         $resolvedUrl = $this->safeResolvedAssetImageUrl(trim($asset['url']));
+        if ( '' === $resolvedUrl ) {
+            return $url;
+        }
+
+        preg_match('/^[^?#]*(.*)$/s', $url, $parts);
+        $resolvedUrl = $this->safeResolvedAssetImageUrl($resolvedUrl . ($parts[1] ?? ''));
         return '' !== $resolvedUrl ? $resolvedUrl : $url;
     }
 
