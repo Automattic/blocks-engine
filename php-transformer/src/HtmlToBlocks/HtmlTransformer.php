@@ -2061,8 +2061,12 @@ final class HtmlTransformer
 
         $rules = array();
         $order = 0;
-        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
-        $this->collectNavigationAuthorStyleRules($css, array(), $rules, $order);
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $this->combinedAuthorCss,
+            function (string $prelude, string $body, array $conditions) use (&$rules, &$order): void {
+                $this->collectNavigationAuthorStyleRule($prelude, $body, $conditions, $rules, $order);
+            }
+        );
         return $rules;
     }
 
@@ -2070,83 +2074,40 @@ final class HtmlTransformer
      * @param list<string> $conditions
      * @param array<int, array<string, mixed>> $rules
      */
-    private function collectNavigationAuthorStyleRules(string $css, array $conditions, array &$rules, int &$order): void
+    private function collectNavigationAuthorStyleRule(string $prelude, string $body, array $conditions, array &$rules, int &$order): void
     {
-        $directCss = $css;
-        $events = array();
-        for ( $offset = 0, $length = strlen($css); $offset < $length; ++$offset ) {
-            if ( '@' !== $css[$offset] ) {
-                continue;
-            }
-            $blockStart = $this->findCssToken($css, '{', $offset);
-            $statementEnd = $this->findCssToken($css, ';', $offset);
-            if ( null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart) ) {
-                continue;
-            }
-            $end = $this->findMatchingCssBrace($css, $blockStart);
-            if ( null === $end ) {
-                continue;
-            }
-            $prelude = trim(substr($css, $offset, $blockStart - $offset));
-            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
-            if ( preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude) ) {
-                $events[] = array(
-                    'offset' => $offset,
-                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
-                    'conditions' => array_merge($conditions, array( $prelude )),
-                );
-            }
-            $offset = $end;
+        if ( str_starts_with(ltrim($prelude), '@') ) {
+            return;
         }
-
-        if ( preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE) ) {
-            foreach ( $matches as $match ) {
-                $events[] = array(
-                    'offset' => $match[0][1],
-                    'prelude' => $match[1][0],
-                    'body' => $match[2][0],
-                    'conditions' => $conditions,
-                );
-            }
+        $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
+        if ( array() === $declarations ) {
+            return;
         }
-
-        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        foreach ( $events as $event ) {
-            if ( isset($event['css']) ) {
-                $this->collectNavigationAuthorStyleRules($event['css'], $event['conditions'], $rules, $order);
+        $ruleId = $order++;
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $selector = trim($selector);
+            if ( '' === $selector || str_starts_with($selector, '@') ) {
                 continue;
             }
-
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $event['body']));
-            if ( array() === $declarations ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! ($parsed['supported'] ?? false) ) {
                 continue;
             }
-            $ruleId = $order++;
-            foreach ( CssStylesheetTransformer::splitSelectorList((string) $event['prelude']) ?? array() as $selector ) {
-                $selector = trim($selector);
-                if ( '' === $selector || str_starts_with($selector, '@') ) {
-                    continue;
-                }
-                $parsed = $this->parsedCssSelector($selector);
-                if ( ! ($parsed['supported'] ?? false) ) {
-                    continue;
-                }
-                $pseudo = '';
-                $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
-                if ( is_array($pseudoSpan) ) {
-                    $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
-                }
-                $rules[] = array(
-                    'id' => $ruleId,
-                    'selector' => $selector,
-                    'parsed' => $parsed,
-                    'declarations' => $declarations,
-                    'conditions' => $event['conditions'],
-                    'pseudo' => $pseudo,
-                    'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
-                    'order' => $ruleId,
-                );
+            $pseudo = '';
+            $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
+            if ( is_array($pseudoSpan) ) {
+                $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
             }
+            $rules[] = array(
+                'id' => $ruleId,
+                'selector' => $selector,
+                'parsed' => $parsed,
+                'declarations' => $declarations,
+                'conditions' => $conditions,
+                'pseudo' => $pseudo,
+                'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
+                'order' => $ruleId,
+            );
         }
     }
 
