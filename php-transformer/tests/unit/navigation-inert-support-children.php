@@ -50,6 +50,13 @@ $visibleInert = ( new HtmlTransformer() )->transform(
 $visibleInertMarkup = (string) ($visibleInert['serialized_blocks'] ?? '');
 $assert(! str_contains($visibleInertMarkup, '<!-- wp:navigation '), 'visible inert siblings still reject navigation promotion', $visibleInertMarkup);
 
+$leadingRuntime = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Primary"><div id="navigation-runtime"></div>' . $menu . '</nav>',
+    array( 'runtime_dom_selectors' => array( '#navigation-runtime' ) )
+)->toArray();
+$leadingRuntimeMarkup = (string) ($leadingRuntime['serialized_blocks'] ?? '');
+$assert(! str_contains($leadingRuntimeMarkup, '<!-- wp:navigation '), 'inert support children before a recognized list still reject navigation promotion', $leadingRuntimeMarkup);
+
 $presentationHidden = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Primary">' . $menu . '<span aria-hidden="true" style="display:none">Primary navigation</span><span inert style="visibility:hidden">Menu support</span></nav>'
 )->toArray();
