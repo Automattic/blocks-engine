@@ -952,7 +952,7 @@ $sessionProperty = new ReflectionProperty(HtmlTransformer::class, 'session');
 $firstMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
 $memoizedElement->setAttribute('style', 'display:grid');
 $secondMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
-$mediaStyleCache = $sessionProperty->getValue($memoizedTransformer)->presentationResolutionCache->mediaTextStyles;
+$mediaStyleCache = $sessionProperty->getValue($memoizedTransformer)->presentationResolutionCache()->mediaTextStyles;
 $presentationKey = $presentationKeyMethod->invoke($memoizedTransformer, $memoizedElement);
 $assertSame('display:flex', $firstMediaStyle, 'Media-text presentation style resolves initial authored style.');
 $assertSame($firstMediaStyle, $secondMediaStyle, 'Media-text presentation style reuses cached value for same DOM node.');

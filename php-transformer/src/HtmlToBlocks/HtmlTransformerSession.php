@@ -23,27 +23,22 @@ use DOMElement;
 final class HtmlTransformerSession
 {
     private readonly TransformationEvidenceState $transformationEvidenceState;
-    public array $responsiveImageFallbacks = array();
-    public array $responsiveImageFallbackSelectors = array();
     private readonly TransformationProvenanceState $transformationProvenanceState;
-    public array $scriptMetadata = array();
+    private readonly RuntimeBehaviorState $runtimeBehaviorState;
     private readonly RuntimeDomState $runtimeDomState;
     private readonly ReusableComponentState $reusableComponentState;
-    public array $nativeDisclosureRootIds = array();
     private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
-    public bool $emptyRuntimeTargetGenerated = false;
-    public array $runtimeScriptMetadata = array();
     private ?AssetMaterializationState $assetMaterializationState = null;
     private RuntimeSelectorState $runtimeSelectorState;
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     private readonly AuthorSelectorProjectionState $authorSelectorProjectionState;
     private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
-    public bool $preserveShellLandmarks = false;
-    public bool $fallbackReductionMode = false;
-    public readonly PresentationResolutionCache $presentationResolutionCache;
+    private bool $preserveShellLandmarks = false;
+    private bool $fallbackReductionMode = false;
+    private readonly PresentationResolutionCache $presentationResolutionCache;
     private readonly SourceStyleResolutionState $sourceStyleResolutionState;
     private ?LayoutGeometryState $layoutGeometryState = null;
-    public readonly FallbackEmitter $fallbackEmitter;
+    private readonly FallbackEmitter $fallbackEmitter;
 
     /** @param Closure(DOMElement): array<string, mixed> $sourceContextResolver */
     public function __construct(Runtime $runtime, Closure $sourceContextResolver)
@@ -57,6 +52,7 @@ final class HtmlTransformerSession
         $this->generatedSupportStylesheetState = new GeneratedSupportStylesheetState();
         $this->transformationProvenanceState = new TransformationProvenanceState();
         $this->transformationEvidenceState = new TransformationEvidenceState();
+        $this->runtimeBehaviorState = new RuntimeBehaviorState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -144,5 +140,36 @@ final class HtmlTransformerSession
     public function transformationEvidenceState(): TransformationEvidenceState
     {
         return $this->transformationEvidenceState;
+    }
+
+    public function runtimeBehaviorState(): RuntimeBehaviorState
+    {
+        return $this->runtimeBehaviorState;
+    }
+
+    public function configurePolicy(bool $preserveShellLandmarks, bool $fallbackReductionMode): void
+    {
+        $this->preserveShellLandmarks = $preserveShellLandmarks;
+        $this->fallbackReductionMode = $fallbackReductionMode;
+    }
+
+    public function preservesShellLandmarks(): bool
+    {
+        return $this->preserveShellLandmarks;
+    }
+
+    public function usesFallbackReductionMode(): bool
+    {
+        return $this->fallbackReductionMode;
+    }
+
+    public function presentationResolutionCache(): PresentationResolutionCache
+    {
+        return $this->presentationResolutionCache;
+    }
+
+    public function fallbackEmitter(): FallbackEmitter
+    {
+        return $this->fallbackEmitter;
     }
 }

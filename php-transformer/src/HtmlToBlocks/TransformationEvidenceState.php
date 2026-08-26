@@ -23,6 +23,12 @@ final class TransformationEvidenceState
     /** @var list<array{selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
     private array $authorLayoutTopologies = array();
 
+    /** @var list<array<string, mixed>> */
+    private array $responsiveImageFallbacks = array();
+
+    /** @var array<string, true> */
+    private array $responsiveImageFallbackSelectors = array();
+
     public function recordFormControlEcho(string $text): void
     {
         $text = trim($text);
@@ -123,5 +129,27 @@ final class TransformationEvidenceState
         }
 
         return array_slice($findings, 0, 20);
+    }
+
+    /** @param array<string, mixed> $fallback */
+    public function recordResponsiveImageFallback(string $selector, array $fallback): void
+    {
+        if ( isset($this->responsiveImageFallbackSelectors[$selector]) ) {
+            return;
+        }
+
+        $this->responsiveImageFallbackSelectors[$selector] = true;
+        $this->responsiveImageFallbacks[] = $fallback;
+    }
+
+    public function hasResponsiveImageFallback(string $selector): bool
+    {
+        return isset($this->responsiveImageFallbackSelectors[$selector]);
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function responsiveImageFallbacks(): array
+    {
+        return $this->responsiveImageFallbacks;
     }
 }

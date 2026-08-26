@@ -241,7 +241,7 @@ trait StyleResolutionTrait
             . ':' . implode(',', $excludedGeometryProperties)
             . ':' . implode(',', $forcedGeometryProperties)
             . ':' . ($carrierOwnsInlineGeometry ? 'carrier' : 'inline');
-        $cache = $this->session->presentationResolutionCache;
+        $cache = $this->presentationResolutionCache();
         if ( isset($cache->attributes[$cacheKey]) ) {
             return $cache->attributes[$cacheKey];
         }
@@ -1180,7 +1180,7 @@ trait StyleResolutionTrait
     private function presentationDeclarations(DOMElement $element): array
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->session->presentationResolutionCache;
+        $cache = $this->presentationResolutionCache();
         if ( isset($cache->declarations[$cacheKey]) ) {
             return $cache->declarations[$cacheKey];
         }
@@ -1549,7 +1549,7 @@ trait StyleResolutionTrait
     private function mediaTextPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->session->presentationResolutionCache;
+        $cache = $this->presentationResolutionCache();
         if ( isset($cache->mediaTextStyles[$cacheKey]) ) {
             return $cache->mediaTextStyles[$cacheKey];
         }
@@ -1704,7 +1704,7 @@ trait StyleResolutionTrait
     private function mergedPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->session->presentationResolutionCache;
+        $cache = $this->presentationResolutionCache();
         if ( isset($cache->mergedStyles[$cacheKey]) ) {
             return $cache->mergedStyles[$cacheKey];
         }
