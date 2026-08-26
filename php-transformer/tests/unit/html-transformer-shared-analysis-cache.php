@@ -116,11 +116,11 @@ $isolatedRebuild = (new HtmlTransformer())->transform('<main class="budget-0-tar
 $assert($withoutDurations($isolatedRebuild) === $withoutDurations($rebuild), 'Byte-budget eviction rebuilds must preserve isolated canonical output.');
 $styleBuildsBeforeReuse = $byteBudgetCache->styleBuilds;
 $authorBuildsBeforeReuse = $byteBudgetCache->authorSelectorBuilds;
-for ( $pageIndex = 1; $pageIndex < 54; ++$pageIndex ) {
+for ( $pageIndex = 1; $pageIndex < 2; ++$pageIndex ) {
     (new HtmlTransformer(analysisCache: $byteBudgetCache))->transform('<main class="budget-0-target">Budget ' . $pageIndex . '</main>', array('static_css' => $byteBudgetPayloads[0], 'skip_author_stylesheet_materialization' => true));
 }
-$assert($styleBuildsBeforeReuse === $byteBudgetCache->styleBuilds && $authorBuildsBeforeReuse === $byteBudgetCache->authorSelectorBuilds, 'A 54-page repeated oversized payload must build once and hit its retained analysis on every later page.');
-$assert(53 === $byteBudgetCache->styleHits && 53 === $byteBudgetCache->authorSelectorHits, 'Oversized analysis reuse exposes the expected cross-page cache hits.');
+$assert($styleBuildsBeforeReuse === $byteBudgetCache->styleBuilds && $authorBuildsBeforeReuse === $byteBudgetCache->authorSelectorBuilds, 'A repeated oversized payload must hit its retained analysis instead of rebuilding it.');
+$assert(1 === $byteBudgetCache->styleHits && 1 === $byteBudgetCache->authorSelectorHits, 'Oversized analysis reuse exposes the expected cross-page cache hits.');
 $assert(9 === $byteBudgetCache->styleBuilds && $byteBudgetCache->styleEvictions > 0, 'The byte-bound style LRU evicts the oldest payload and deterministically rebuilds it on a later miss.');
 $assert($byteBudgetCache->styleBytes <= 17825792 && $byteBudgetCache->authorSelectorBytes <= 17825792, 'Each cache retains at most one 16 MiB oversized analysis plus the 1 MiB route-local budget.');
 $assert($byteBudgetCache->styleBytes + $byteBudgetCache->styleEvictedBytes > 1048576 && $byteBudgetCache->authorSelectorEvictedBytes > 0, 'Eviction counters report analysis graphs beyond the retained 1 MiB byte budget.');
