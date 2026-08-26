@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
@@ -50,24 +51,12 @@ final class HtmlTransformerSession
     public array $navigationSpacingFallbacks = array();
     public array $buttonWrapperSpacingFallbacks = array();
     private RuntimeSelectorState $runtimeSelectorState;
-    public array $sourceTagMarkers = array();
-    public array $sourceControlMarkers = array();
     public array $directFlexButtonStyleRules = array();
     public array $fullWidthButtonStyleRules = array();
-    public array $sourceButtonPresentationMarkers = array();
-    public array $sourceControlPaths = array();
-    public array $sourceSemanticMarkers = array();
-    public array $sourceAttributeMarkers = array();
-    public array $sourceAttributeNegationMarkers = array();
-    public array $sourceAttributeStateMarkers = array();
-    public array $sourceRootChildMarkers = array();
     public array $responsiveGeometryAmbiguities = array();
-    public array $sourceTableMarkers = array();
-    public array $sourceTableRepresentability = array();
-    public array $sourceTableDescendantPaths = array();
-    public array $sourceRichTextSemanticMarkers = array();
     public array $authorLayoutTopologies = array();
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
+    private readonly AuthorSelectorProjectionState $authorSelectorProjectionState;
     public int $nextSourceProvenanceId = 1;
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
@@ -84,12 +73,14 @@ final class HtmlTransformerSession
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
         $this->runtimeDomState = new RuntimeDomState();
         $this->reusableComponentState = new ReusableComponentState();
+        $this->authorSelectorProjectionState = new AuthorSelectorProjectionState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
     public function installAuthorStyleAnalysis(AuthorStyleAnalysis $analysis): void
     {
         $this->authorStyleAnalysis = $analysis;
+        $this->authorSelectorProjectionState->installAuthorStyles($analysis);
     }
 
     public function authorStyleAnalysis(): ?AuthorStyleAnalysis
@@ -150,5 +141,10 @@ final class HtmlTransformerSession
     public function reusableComponentState(): ReusableComponentState
     {
         return $this->reusableComponentState;
+    }
+
+    public function authorSelectorProjectionState(): AuthorSelectorProjectionState
+    {
+        return $this->authorSelectorProjectionState;
     }
 }
