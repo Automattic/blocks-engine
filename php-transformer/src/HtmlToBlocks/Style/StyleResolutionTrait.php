@@ -1991,11 +1991,10 @@ trait StyleResolutionTrait
     private function topLevelStyleAnalysis(string $css): array
     {
         $analysis = array('static' => array(), 'navigation_state' => array(), 'pseudo' => array());
-        if ( '' === trim($css) ) {
+        if ( '' === $css ) {
             return $analysis;
         }
 
-        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
         $css = $this->topLevelCssRules($css);
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return $analysis;
@@ -2076,14 +2075,8 @@ trait StyleResolutionTrait
     private function structuredStyleAnalysis(string $css): array
     {
         $analysis = array('conditional' => array(), 'image_shape' => array());
-        $css = trim($css);
         $order = 0;
-        $this->collectStructuredStyleAnalysis(
-            preg_replace('@/\*.*?\*/@s', '', $css) ?? $css,
-            array(),
-            $analysis,
-            $order
-        );
+        $this->collectStructuredStyleAnalysis($css, array(), $analysis, $order);
 
         return $analysis;
     }
