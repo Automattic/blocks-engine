@@ -108,8 +108,8 @@ $directContext = new PatternContext(
         static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
     )
 );
-$overlap = ( new PatternRecognizerRegistry( array( new MathPattern(), new PlaceholderMediaPattern() ) ) )->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
-$assertSame('core/math', $overlap?->block()['blockName'] ?? null, 'Math wins direct ordered-registry competition with placeholder media.');
+$overlap = PatternRecognizerRegistry::createDefault()->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
+$assertSame('core/math', $overlap?->block()['blockName'] ?? null, 'Math wins the default ordered-registry competition with placeholder media.');
 $assertSame('$x$', $overlap?->block()['attrs']['content'] ?? null, 'Direct ordered-registry winner preserves math content.');
 
 $state = new ArrayObject();
