@@ -174,7 +174,7 @@ final class ArtifactCompiler
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         $plan['shared_reduction'] = array(
-            'files' => $sharedArtifact['files'],
+            'files_source' => 'artifact',
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
@@ -318,7 +318,7 @@ final class ArtifactCompiler
         $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $sharedArtifact = isset($sharedPlan['shared_reduction'])
-            ? array_merge($sharedPlan['artifact'], array('files' => $sharedPlan['shared_reduction']['files']))
+            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
@@ -473,7 +473,7 @@ final class ArtifactCompiler
         $hasReceipts = false;
         foreach ($pagePlans as $candidate) if ($this->isTerminalReceiptSchema($candidate['receipt_schema'] ?? null)) { $hasReceipts = true; break; }
         $sharedArtifact = $hasReceipts
-            ? array_merge($sharedPlan['artifact'], array('files' => array()))
+            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $files = $sharedArtifact['files'];
         $seen = array();
@@ -867,7 +867,7 @@ final class ArtifactCompiler
     private function reduceCompiledReceipts(array $sharedPlan, array $sharedArtifact, array $reductions, array $compiledDocuments): array
     {
         $sharedReduction = $sharedPlan['shared_reduction'];
-        $files = $sharedReduction['files'];
+        $files = $sharedArtifact['files'];
         $sharedArtifact['files'] = $files;
         $documents = array('documents' => array(), 'components' => array(), 'diagnostics' => array());
         $componentFacts = array($sharedReduction['component_facts']);
@@ -1503,6 +1503,15 @@ final class ArtifactCompiler
         return $artifact;
     }
 
+    /** @return array<int,array<string,mixed>> */
+    private function sharedReductionFiles(array $sharedPlan, ?PayloadReader $payloadReader): array
+    {
+        if (is_array($sharedPlan['shared_reduction']['files'] ?? null)) {
+            return $sharedPlan['shared_reduction']['files'];
+        }
+        return $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader)['files'];
+    }
+
     /** @param array<string,mixed> $file */
     private function isReferenceBackedBinary(array $file): bool
     {
@@ -1529,7 +1538,9 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
         if (isset($sharedPlan['shared_reduction'])) {
-            if (!is_array($sharedPlan['shared_reduction']['files'] ?? null) || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
+            $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
+            if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
                 throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
             }
         }
