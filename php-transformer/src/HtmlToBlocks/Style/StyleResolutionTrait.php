@@ -543,7 +543,7 @@ trait StyleResolutionTrait
             $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
-        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $signature);
+        $className = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $signature);
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $rules[] = ':root .' . $className . '{' . implode(';', $normalPriorityDeclarations) . '}';
@@ -551,7 +551,7 @@ trait StyleResolutionTrait
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
         }
-        $this->generatedGeometryRules[$className] = implode("\n", $rules);
+        $this->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
     }
@@ -973,8 +973,8 @@ trait StyleResolutionTrait
         }
 
         $rule = 'height:100% !important';
-        $className = ($this->geometryCarrierClassAllocator ??= new GeometryCarrierClassAllocator())->allocate('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
-        $this->generatedGeometryRules[$className] = '.' . $className . '{' . $rule . '}';
+        $className = $this->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
+        $this->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
 
         return $className;
     }
@@ -1172,14 +1172,7 @@ trait StyleResolutionTrait
 
     private function generatedGeometryCss(string $serializedBlocks): string
     {
-        $rules = array();
-        foreach ($this->generatedGeometryRules as $className => $rule) {
-            if (preg_match('/(?:^|[^a-zA-Z0-9_-])' . preg_quote($className, '/') . '(?:$|[^a-zA-Z0-9_-])/', $serializedBlocks)) {
-                $rules[] = $rule;
-            }
-        }
-
-        return implode("\n", $rules);
+        return $this->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
     }
 
     /**
