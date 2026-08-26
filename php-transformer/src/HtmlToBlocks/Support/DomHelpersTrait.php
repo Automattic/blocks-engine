@@ -239,13 +239,18 @@ trait DomHelpersTrait
 
     private function materializeFallbackSourceTagMarker(DOMElement $element): void
     {
-        $markers = isset($this->sourceTagMarkers) && is_array($this->sourceTagMarkers)
-            ? $this->sourceTagMarkers
-            : array();
-        $marker = $markers[strtolower($element->tagName)] ?? '';
+        $marker = $this->fallbackSourceTagMarker(strtolower($element->tagName));
         if ( '' !== $marker ) {
             $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
         }
+    }
+
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        $markers = isset($this->sourceTagMarkers) && is_array($this->sourceTagMarkers)
+            ? $this->sourceTagMarkers
+            : array();
+        return $markers[$tagName] ?? '';
     }
 
     private function safeFallbackHtmlString(string $html): string

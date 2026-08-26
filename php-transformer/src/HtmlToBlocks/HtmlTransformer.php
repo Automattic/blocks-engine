@@ -48,6 +48,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
@@ -389,6 +390,16 @@ final class HtmlTransformer
         return $this->session->reusableComponentState();
     }
 
+    private function authorSelectorProjections(): AuthorSelectorProjectionState
+    {
+        return $this->session->authorSelectorProjectionState();
+    }
+
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        return $this->authorSelectorProjections()->tagMarker($tagName);
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -494,7 +505,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
-        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->sourceTagMarkers);
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
@@ -2494,7 +2505,7 @@ final class HtmlTransformer
 
     private function richTextMarkerResetCss(): string
     {
-        if ( array() === $this->sourceRichTextSemanticMarkers ) {
+        if ( ! $this->authorSelectorProjections()->hasRichTextMarkers() ) {
             return '';
         }
 
@@ -2520,7 +2531,7 @@ final class HtmlTransformer
         $authorSelectors = $authorAnalysis['selectors'];
         $authorStyleRules = $authorAnalysis['rules'];
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
-            $this->sourceTagMarkers[ $tagName ] = $this->allocateAuthorMarker('source-' . $tagName);
+            $this->authorSelectorProjections()->ensureTagMarker($tagName);
         }
 		$this->discoverAuthorControlPaths($authorSelectors);
 		$this->authorStyles()->installStyleRules($authorStyleRules);
@@ -2561,7 +2572,7 @@ final class HtmlTransformer
                 foreach ( $controls as $control ) {
                     $path = $control->getNodePath() ?? '';
                     if ( '' !== $path ) {
-                        $this->sourceControlPaths[$path] = true;
+                        $this->authorSelectorProjections()->markControlPath($path);
                     }
                 }
 		}
@@ -2592,17 +2603,17 @@ final class HtmlTransformer
                     // Normal list-item content serializes through RichText. A
                     // structural item receives native child blocks instead.
                     if ( $listItem instanceof DOMElement && ! $structuralListItem && $this->richTextSelectorNeedsHook($parsed) ) {
-                        $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
+                        $marker = $this->authorSelectorProjections()->ensureRichTextMarker($path);
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
                     } elseif ( $directAuthorLayoutItem
                         || ($structuralListItem && $this->richTextSelectorNeedsHook($parsed))
                         || $this->requiresIndependentSemanticWrapper($element)
                     ) {
                         if ( '' !== $path ) {
-                            $this->sourceSemanticMarkers[$path] ??= $this->allocateAuthorMarker('semantic');
+                            $this->authorSelectorProjections()->ensureSemanticMarker($path);
                         }
                     } elseif ( $this->richTextSelectorNeedsHook($parsed) ) {
-                        $marker = $this->sourceRichTextSemanticMarkers[$path] ??= $this->allocateAuthorMarker('richtext');
+                        $marker = $this->authorSelectorProjections()->ensureRichTextMarker($path);
                         // Carry the generated identity through intermediate
                         // wrapper conversions before RichText normalizes spans.
                         $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
@@ -2630,12 +2641,12 @@ final class HtmlTransformer
                     $path = $this->sourceElementIdentity($element);
                     if ( '' !== $path ) {
                         $marker = '' === $marker ? $this->allocateAuthorMarker('attribute-state') : $marker;
-                        $this->sourceAttributeStateMarkers[$path][] = $marker;
+                        $this->authorSelectorProjections()->addAttributeStateMarker($path, $marker);
                         $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
                     }
                 }
                 if ( '' !== $marker ) {
-                    $this->sourceAttributeNegationMarkers[$authorSelector['selector']] = $marker;
+                    $this->authorSelectorProjections()->installAttributeNegationMarker($authorSelector['selector'], $marker);
                 }
             }
 
@@ -2657,7 +2668,7 @@ final class HtmlTransformer
                 }
                 $path = $this->sourceElementIdentity($element);
                 if ( '' !== $path ) {
-                    $marker = $this->sourceAttributeMarkers[$path] ??= $this->allocateAuthorMarker('attribute');
+                    $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
                     $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
                 }
             }
@@ -2679,7 +2690,7 @@ final class HtmlTransformer
                     }
                     $path = $this->sourceElementIdentity($element);
                     if ( '' !== $path ) {
-                        $this->sourceRootChildMarkers[$path] ??= $this->allocateAuthorMarker('root-child');
+                        $this->authorSelectorProjections()->ensureRootChildMarker($path);
                     }
                 }
 		}
@@ -2707,7 +2718,7 @@ final class HtmlTransformer
                     }
                     $path = $this->sourceElementIdentity($table);
                     if ( '' !== $path ) {
-                        $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+                        $this->authorSelectorProjections()->ensureTableMarker($path);
                     }
                 }
 		}
@@ -3196,8 +3207,11 @@ final class HtmlTransformer
             }
             $markers = array();
             foreach ( $matches as $element ) {
-                $marker = $this->sourceButtonPresentationMarkers[$element->getNodePath() ?? ''] ?? null;
-                if ( ! is_string($marker) ) {
+                $path = $element->getNodePath() ?? '';
+                $marker = $this->authorSelectorProjections()->isButtonPresentationPath($path)
+                    ? $this->authorSelectorProjections()->controlMarker($path)
+                    : '';
+                if ( '' === $marker ) {
                     continue 2;
                 }
                 $markers[] = $marker;
@@ -3230,8 +3244,8 @@ final class HtmlTransformer
             }
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                $marker = $this->sourceControlMarkers[$path] ?? null;
-                if ( ! is_string($marker) || isset($this->sourceButtonPresentationMarkers[$path]) ) {
+                $marker = $this->authorSelectorProjections()->controlMarker($path);
+                if ( '' === $marker || $this->authorSelectorProjections()->isButtonPresentationPath($path) ) {
                     continue 2;
                 }
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, true);
@@ -3357,7 +3371,7 @@ final class HtmlTransformer
                     function (DOMElement $element) use ($shellTags): string {
                         return in_array(strtolower($element->tagName), $shellTags, true)
                             ? ''
-                            : ($this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '');
+                            : $this->authorSelectorProjections()->rootChildMarker($this->sourceElementIdentity($element));
                     },
                     $matches
                 ))));
@@ -3401,12 +3415,12 @@ final class HtmlTransformer
                 $path = $element->getNodePath() ?? '';
                 if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
                     $inlineLayoutCarriers = true;
-                } elseif ( isset($this->sourceControlMarkers[$path]) ) {
-                    $controls[] = $this->sourceControlMarkers[$path];
-                } elseif ( isset($this->sourceSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
-                    $semanticLeaves[] = $this->sourceSemanticMarkers[$this->sourceElementIdentity($element)];
-                } elseif ( isset($this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)]) ) {
-                    $richTextLeaves[] = $this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)];
+                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->controlMarker($path)) ) {
+                    $controls[] = $marker;
+                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->semanticMarker($this->sourceElementIdentity($element))) ) {
+                    $semanticLeaves[] = $marker;
+                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->richTextMarker($this->sourceElementIdentity($element))) ) {
+                    $richTextLeaves[] = $marker;
                 } else {
                     $hasNonProjected = true;
                 }
@@ -3479,8 +3493,8 @@ final class HtmlTransformer
 
         $projected = array();
         foreach ( $matches as $element ) {
-            $marker = $this->sourceAttributeMarkers[$this->sourceElementIdentity($element)] ?? null;
-            if ( ! is_string($marker) ) {
+            $marker = $this->authorSelectorProjections()->attributeMarker($this->sourceElementIdentity($element));
+            if ( '' === $marker ) {
                 return null;
             }
             $projected[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed);
@@ -3491,7 +3505,7 @@ final class HtmlTransformer
 
     private function projectSourceAttributeNegationStateSelector(string $selector): string
     {
-        $marker = $this->sourceAttributeNegationMarkers[trim($selector)] ?? '';
+        $marker = $this->authorSelectorProjections()->attributeNegationMarker(trim($selector));
         if ( '' === $marker ) {
             return $selector;
         }
@@ -3523,7 +3537,7 @@ final class HtmlTransformer
 
             if ( $this->isRootChildSelector($parsed) ) {
                 foreach ( $imageMatches as $element ) {
-                    $marker = $this->sourceRootChildMarkers[$this->sourceElementIdentity($element)] ?? '';
+                    $marker = $this->authorSelectorProjections()->rootChildMarker($this->sourceElementIdentity($element));
                     if ( '' !== $marker ) {
                         $projected[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker) . '.wp-block-image > img';
                     }
@@ -3668,8 +3682,9 @@ final class HtmlTransformer
     {
         $replacements = array();
         foreach ( $parsed['type_spans'] as $typeSpan ) {
-            if ( isset($this->sourceTagMarkers[strtolower($typeSpan['name'])]) ) {
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $this->sourceTagMarkers[strtolower($typeSpan['name'])] . ')' . $this->typeSpecificityShim() );
+            $marker = $this->authorSelectorProjections()->tagMarker((string) $typeSpan['name']);
+            if ( '' !== $marker ) {
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim() );
             }
         }
         if ( '' !== $rightmostInsertion ) {
@@ -3725,7 +3740,7 @@ final class HtmlTransformer
             return null;
         }
         $table = $this->ancestorTable($element);
-        $marker = $table instanceof DOMElement ? ($this->sourceTableMarkers[$this->sourceElementIdentity($table)] ?? '') : '';
+        $marker = $table instanceof DOMElement ? $this->authorSelectorProjections()->tableMarker($this->sourceElementIdentity($table)) : '';
         $path = $table instanceof DOMElement ? $this->serializedTableDescendantPath($table, $element) : '';
         if ( '' === $marker || '' === $path ) {
             return null;
@@ -3790,7 +3805,7 @@ final class HtmlTransformer
     private function serializedTableDescendantPath(DOMElement $table, DOMElement $element): string
     {
         $tableId = spl_object_id($table);
-        if ( ! isset($this->sourceTableDescendantPaths[$tableId]) ) {
+        return $this->authorSelectorProjections()->tableDescendantPath($tableId, spl_object_id($element), function () use ($table): array {
             $paths = array();
             foreach ( array( 'thead', 'tbody', 'tfoot' ) as $section ) {
                 $rowIndex = 0;
@@ -3816,15 +3831,17 @@ final class HtmlTransformer
                     }
                 }
             }
-            $this->sourceTableDescendantPaths[$tableId] = $paths;
-        }
-        return $this->sourceTableDescendantPaths[$tableId][spl_object_id($element)] ?? '';
+            return $paths;
+        });
     }
 
     private function isRepresentableTable(DOMElement $table): bool
     {
         $id = spl_object_id($table);
-        return $this->sourceTableRepresentability[$id] ??= (bool) $this->tableClassificationPolicy->classify($table)['representable'];
+        return $this->authorSelectorProjections()->tableRepresentable(
+            $id,
+            fn (): bool => (bool) $this->tableClassificationPolicy->classify($table)['representable']
+        );
     }
 
     /** Convert invalid block wrappers inside a heading into valid RichText breaks. */
@@ -5631,8 +5648,9 @@ final class HtmlTransformer
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
                 }
             }
-            if ( 'core/table' === $name && isset($this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]) ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceTableMarkers[$this->sourceElementIdentity($sourceElement)]);
+            $tableMarker = $this->authorSelectorProjections()->tableMarker($this->sourceElementIdentity($sourceElement));
+            if ( 'core/table' === $name && '' !== $tableMarker ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
@@ -5645,29 +5663,28 @@ final class HtmlTransformer
                 $hasNativeButtonColor = $existingTextColor !== (string) ($attrs['style']['color']['text'] ?? '');
                 $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
             }
-            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( isset($this->sourceControlPaths[$logicalControlPath]) || ( '' !== $this->authorStyles()->combinedCss() && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
-                if ( '' !== $logicalControlPath && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
-                    $this->sourceControlMarkers[$logicalControlPath] = $this->allocateAuthorMarker('control');
-                }
-                if ( isset($this->sourceControlMarkers[$logicalControlPath]) ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->sourceControlMarkers[$logicalControlPath]);
+            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( $this->authorSelectorProjections()->isControlPath($logicalControlPath) || ( '' !== $this->authorStyles()->combinedCss() && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
+                $controlMarker = '' !== $logicalControlPath
+                    ? $this->authorSelectorProjections()->ensureControlMarker($logicalControlPath)
+                    : '';
+                if ( '' !== $controlMarker ) {
+                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                     if ( 'core/button' === $name ) {
-                        $this->registerNativeButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $attrs, $nativeButtonTextAlignment, $logicalControl);
+                        $this->registerNativeButtonStyleRule($controlMarker, $attrs, $nativeButtonTextAlignment, $logicalControl);
                         if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
-                            $this->directFlexButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->directFlexButtonStyleRule($this->sourceControlMarkers[$logicalControlPath], $logicalControl);
+                            $this->directFlexButtonStyleRules[$controlMarker] = $this->directFlexButtonStyleRule($controlMarker, $logicalControl);
                         }
                         if ( 100 === (int) ($attrs['width'] ?? 0) ) {
-                            $this->fullWidthButtonStyleRules[$this->sourceControlMarkers[$logicalControlPath]] = $this->fullWidthButtonStyleRule($this->sourceControlMarkers[$logicalControlPath]);
+                            $this->fullWidthButtonStyleRules[$controlMarker] = $this->fullWidthButtonStyleRule($controlMarker);
                         }
                     }
                 }
                 $presentationPath = $sourceElement->getNodePath() ?? '';
-                if ( '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
-                    $this->sourceControlMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
-                    $this->sourceButtonPresentationMarkers[$presentationPath] = $this->sourceControlMarkers[$logicalControlPath];
+                if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
+                    $this->authorSelectorProjections()->installButtonPresentationMarker($presentationPath, $controlMarker);
                 }
             }
-            if ( 'core/button' === $name && $hasNativeButtonStyle && ! isset($this->sourceControlMarkers[$logicalControlPath]) ) {
+            if ( 'core/button' === $name && $hasNativeButtonStyle && '' === $this->authorSelectorProjections()->controlMarker($logicalControlPath) ) {
                 $nativeButtonMarker = $hasNativeButtonColor
                     ? $this->allocateAuthorMarker('native-button')
                     : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
@@ -6070,8 +6087,9 @@ final class HtmlTransformer
     private function sourceProjectionClassName(DOMElement $element, string $className = ''): string
     {
         $sourceTagName = strtolower($element->tagName);
-        if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
-            $className = $this->mergeClassNames($className, $this->sourceTagMarkers[$sourceTagName]);
+        $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
+        if ( '' !== $sourceTagMarker ) {
+            $className = $this->mergeClassNames($className, $sourceTagMarker);
         }
         if ( $element->parentNode instanceof DOMElement
             && 'body' === strtolower($element->parentNode->tagName)
@@ -6111,21 +6129,8 @@ final class HtmlTransformer
     /** @return list<string> */
     private function authorSemanticMarkersForElement(DOMElement $element): array
     {
-        $markers = array();
         $path = $this->sourceElementIdentity($element);
-        if ( isset($this->sourceSemanticMarkers[$path]) ) {
-            $markers[] = $this->sourceSemanticMarkers[$path];
-        }
-        if ( isset($this->sourceAttributeMarkers[$path]) ) {
-            $markers[] = $this->sourceAttributeMarkers[$path];
-        }
-		foreach ( $this->sourceAttributeStateMarkers[$path] ?? array() as $marker ) {
-			$markers[] = $marker;
-		}
-        if ( isset($this->sourceRootChildMarkers[$path]) ) {
-            $markers[] = $this->sourceRootChildMarkers[$path];
-        }
-        return $markers;
+        return $this->authorSelectorProjections()->semanticMarkersForPath($path);
     }
 
     private function requiresIndependentSemanticWrapper(DOMElement $element): bool
@@ -6462,7 +6467,7 @@ final class HtmlTransformer
     private function isDirectChildOfLoweredAuthorControl(DOMElement $element): bool
     {
         return $element->parentNode instanceof DOMElement
-            && isset($this->sourceControlPaths[$element->parentNode->getNodePath() ?? '']);
+            && $this->authorSelectorProjections()->isControlPath($element->parentNode->getNodePath() ?? '');
     }
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
@@ -6882,7 +6887,7 @@ final class HtmlTransformer
             if ( in_array(strtolower($parent->tagName), array( 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li' ), true) ) {
                 return true;
             }
-            if ( '' !== trim($element->textContent ?? '') && in_array(strtolower($parent->tagName), array( 'a', 'button' ), true) && isset($this->sourceControlPaths[$parent->getNodePath() ?? '']) ) {
+            if ( '' !== trim($element->textContent ?? '') && in_array(strtolower($parent->tagName), array( 'a', 'button' ), true) && $this->authorSelectorProjections()->isControlPath($parent->getNodePath() ?? '') ) {
                 return true;
             }
         }
@@ -6902,7 +6907,7 @@ final class HtmlTransformer
             return $marker;
         }
 
-        return $this->sourceRichTextSemanticMarkers[$this->sourceElementIdentity($element)] ?? '';
+        return $this->authorSelectorProjections()->richTextMarker($this->sourceElementIdentity($element));
     }
 
     /**
@@ -10938,7 +10943,7 @@ final class HtmlTransformer
     private function registerTablePresentationNormalization(DOMElement $table): void
     {
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
         $tableDeclarations = $this->structuralPresentationDeclarations($table);
         // A single marker class ties core's .wp-block-table margin while later
         // source classes promoted onto the figure retain their authored margins.
@@ -11009,7 +11014,7 @@ final class HtmlTransformer
         }
 
         $path = $this->sourceElementIdentity($table);
-        $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
+        $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
         $this->layoutGeometry()->appendRule($marker, implode("\n", $scopedRules));
     }
@@ -11094,8 +11099,9 @@ final class HtmlTransformer
                     continue;
                 }
                 $sourceTagName = strtolower($descendant->tagName);
-                if ( isset($this->sourceTagMarkers[$sourceTagName]) ) {
-                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $this->sourceTagMarkers[$sourceTagName]));
+                $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
+                if ( '' !== $sourceTagMarker ) {
+                    $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $sourceTagMarker));
                 }
             }
             $cells[] = array(
@@ -11684,7 +11690,7 @@ final class HtmlTransformer
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
             }
-            $marker = $this->sourceTagMarkers[strtolower($descendant->tagName)] ?? '';
+            $marker = $this->authorSelectorProjections()->tagMarker($descendant->tagName);
             if ( '' !== $marker ) {
                 $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $marker));
             }
