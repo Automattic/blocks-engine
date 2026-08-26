@@ -356,6 +356,12 @@ final class HtmlTransformer
             ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
     }
 
+    private function generatedBlocks(): GeneratedBlockRegistry
+    {
+        return $this->session->generatedBlockRegistry()
+            ?? throw new \LogicException('Generated block registry has not been prepared for this transform.');
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -368,7 +374,7 @@ final class HtmlTransformer
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
-        $this->generatedBlockNamespace = $this->generatedBlockNamespaceFromOptions($options);
+        $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry($this->generatedBlockNamespaceFromOptions($options)));
         $this->generatedAssetRoot = trim((string) ($options['generated_asset_root'] ?? ''), '/');
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
@@ -551,7 +557,7 @@ final class HtmlTransformer
                 'block_child_count' => $finding['block_child_count'],
             );
         }
-        if ( $this->descriptionListBlockGenerated ) {
+        if ( $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ) {
             $diagnostics[] = array(
                 'code' => 'semantic_description_list_gutenberg_gap',
                 'message' => 'A semantic description list was materialized with the Blocks Engine companion block because Gutenberg has no core description-list block.',
@@ -580,8 +586,8 @@ final class HtmlTransformer
             'runtime_islands' => $this->runtimeIslands,
             'runtime_dom_contracts' => array_values($this->runtimeDomPreservations),
             'runtime_dom_fallbacks' => array_values($this->runtimeDomFallbacks),
-            'generated_blocks' => $this->generatedBlocks,
-            'gutenberg_gaps' => $this->descriptionListBlockGenerated ? array(
+            'generated_blocks' => $this->generatedBlocks()->definitions(),
+            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(
                 array(
                     'id' => 'semantic-description-list',
                     'block_name' => DescriptionListBlockGenerator::NAME,
@@ -5192,7 +5198,7 @@ final class HtmlTransformer
             }
 
             if ( $this->isGeneratedComponentCandidate($element) ) {
-                $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace, true, true);
+                $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
                 if ( null !== $generated ) {
                     return $this->generatedComponentBlock($generated, $element);
                 }
@@ -5230,7 +5236,7 @@ final class HtmlTransformer
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace, true, true);
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
             if ( null !== $generated ) {
                 return $this->generatedComponentBlock($generated, $element);
             }
@@ -5256,7 +5262,7 @@ final class HtmlTransformer
             // classifier identifies it as a high-confidence custom_block, generate
             // a static-render block and emit a self-closing reference instead of raw
             // core/html. Otherwise keep the existing fallback diagnostic.
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks, $this->generatedBlockNamespace);
+            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks());
             if ( null !== $generated ) {
                 return $this->generatedComponentBlock($generated, $element);
             }
@@ -5502,11 +5508,8 @@ final class HtmlTransformer
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     private function capturedDialogBlock(DOMElement $element, array &$fallbacks): array
     {
-        $blockName = $this->generatedBlockNamespace . '/' . CapturedDialogBlockGenerator::LOCAL_NAME;
-        if (! $this->capturedDialogBlockGenerated) {
-            $this->generatedBlocks[] = (new CapturedDialogBlockGenerator())->definition($blockName);
-            $this->capturedDialogBlockGenerated = true;
-        }
+        $blockName = $this->generatedBlocks()->blockName(CapturedDialogBlockGenerator::LOCAL_NAME);
+        $this->generatedBlocks()->register(CapturedDialogBlockGenerator::class, (new CapturedDialogBlockGenerator())->definition($blockName));
 
         $attrs = array_filter(array(
             'dialogId' => trim($this->attr($element, 'id')),
@@ -6763,10 +6766,7 @@ final class HtmlTransformer
 
     private function authorLayoutLeafBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->authorLayoutBlockGenerated ) {
-            $this->generatedBlocks[] = ( new AuthorLayoutBlockGenerator() )->definition();
-            $this->authorLayoutBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(AuthorLayoutBlockGenerator::class, ( new AuthorLayoutBlockGenerator() )->definition());
         $content = $this->richTextContentWithMaterializedInlineStyles($element);
         $content = $this->richTextContentWithMaterializedSvgImages($element, $content);
         if ( null === $content ) {
@@ -7535,11 +7535,8 @@ final class HtmlTransformer
             if ($terminalIsShell) {
                 $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
             }
-            $blockName = $this->generatedBlockNamespace . '/layout-shell';
-            if (! $this->layoutShellBlockGenerated) {
-                $this->generatedBlocks[] = (new LayoutShellBlockGenerator())->definition($blockName);
-                $this->layoutShellBlockGenerated = true;
-            }
+            $blockName = $this->generatedBlocks()->blockName('layout-shell');
+            $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
             return array_filter(array(
                 'blockName' => $blockName,
                 'attrs' => array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
@@ -11207,10 +11204,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->descriptionListBlockGenerated ) {
-            $this->generatedBlocks[] = ( new DescriptionListBlockGenerator() )->definition();
-            $this->descriptionListBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(DescriptionListBlockGenerator::class, ( new DescriptionListBlockGenerator() )->definition());
 
         $markup = $this->descriptionListMarkup($list, $groups);
         return array(
@@ -13363,10 +13357,7 @@ final class HtmlTransformer
                 $this->createBlock('core/list', array(), $optionBlocks, $select),
             ), $select);
         }
-        if ( ! $this->formSelectBlockGenerated ) {
-            $this->generatedBlocks[] = ( new AuthoredSelectBlockGenerator() )->definition();
-            $this->formSelectBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(AuthoredSelectBlockGenerator::class, ( new AuthoredSelectBlockGenerator() )->definition());
         $attrs = array_filter(array(
             'id' => $this->attr($select, 'id'),
             'name' => $this->attr($select, 'name'),
@@ -13407,10 +13398,7 @@ final class HtmlTransformer
         if ( array() === $this->structuralPresentationDeclarations($input) ) {
             return null;
         }
-        if ( ! $this->formInputBlockGenerated ) {
-            $this->generatedBlocks[] = ( new AuthoredInputBlockGenerator() )->definition();
-            $this->formInputBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(AuthoredInputBlockGenerator::class, ( new AuthoredInputBlockGenerator() )->definition());
         $attrs = array_filter(array(
             'type' => $this->formControlType($input),
             'id' => $this->attr($input, 'id'),
@@ -15139,13 +15127,10 @@ final class HtmlTransformer
             return $this->responsiveImageFallbackBlock($element);
         }
 
-        if ( ! $this->responsiveMediaBlockGenerated ) {
-            $this->generatedBlocks[] = ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlockNamespace);
-            $this->responsiveMediaBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(ResponsiveMediaBlockGenerator::class, ( new ResponsiveMediaBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         return $this->createBlock(
-            $this->generatedBlockNamespace . '/' . ResponsiveMediaBlockGenerator::LOCAL_NAME,
+            $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
             array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
             array(),
             $element
@@ -15170,13 +15155,10 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->responsiveLayoutBlockGenerated ) {
-            $this->generatedBlocks[] = ( new ResponsiveLayoutBlockGenerator() )->definition($this->generatedBlockNamespace);
-            $this->responsiveLayoutBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(ResponsiveLayoutBlockGenerator::class, ( new ResponsiveLayoutBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         return $this->createBlock(
-            $this->generatedBlockNamespace . '/' . ResponsiveLayoutBlockGenerator::LOCAL_NAME,
+            $this->generatedBlocks()->blockName(ResponsiveLayoutBlockGenerator::LOCAL_NAME),
             array( 'content' => $this->staticLayoutHtml($element) ),
             array(),
             $element
@@ -15349,10 +15331,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->authoredMarqueeBlockGenerated ) {
-            $this->generatedBlocks[] = ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlockNamespace);
-            $this->authoredMarqueeBlockGenerated = true;
-        }
+        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
         $durationCandidates = array( $this->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
@@ -15374,7 +15353,7 @@ final class HtmlTransformer
         $markup = ( new AuthoredMarqueeBlockGenerator() )->markup($attributes);
 
         return array(
-            'blockName' => $this->generatedBlockNamespace . '/' . AuthoredMarqueeBlockGenerator::LOCAL_NAME,
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
             'attrs' => $attributes,
             'innerBlocks' => array(),
             'innerHTML' => $markup,
@@ -15393,8 +15372,7 @@ final class HtmlTransformer
         if ( ! $this->hasUnsafeResponsiveImageSources($element) ) {
             $generated = $this->fallbackEmitter->maybeGenerateCustomBlock(
                 $element,
-                $this->generatedBlocks,
-                $this->generatedBlockNamespace,
+                $this->generatedBlocks(),
                 true
             );
             if ( null !== $generated ) {
