@@ -20,6 +20,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use DOMDocument;
@@ -2467,37 +2468,44 @@ final class ArtifactCompiler
         $seenPaths = array();
         $inlineIndex = 0;
         $linkOccurrences = array();
-        if ( preg_match_all('/<style\b[^>]*>.*?<\/style>|<link\b[^>]*>/is', $html, $matches) ) {
-            foreach ( $matches[0] as $tag ) {
-                if ( preg_match('/^<style\b/i', $tag) ) {
-                    $attributes = '';
-                    preg_match('/^<style\b([^>]*)>/i', $tag, $styleMatch);
-                    $attributes = (string) ($styleMatch[1] ?? '');
-                    if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
-                        continue;
-                    }
-                    if ( '' === trim((string) preg_replace('@^<style\b[^>]*>|</style>$@is', '', $tag)) ) {
-                        continue;
-                    }
-                    ++$inlineIndex;
-                    $file = $inline[$inlineIndex] ?? null;
-                    if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
-                        $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
-                        $seenPaths[$file['path']] = true;
-                    }
+        $tags = array_map(
+            static fn (array $style): array => array('kind' => 'style', 'offset' => $style['offset'], 'attributes' => $style['attributes'], 'content' => $style['content']),
+            StyleTagScanner::scan($html)
+        );
+        if ( preg_match_all('/<link\b[^>]*>/i', $html, $linkMatches, PREG_OFFSET_CAPTURE) ) {
+            foreach ($linkMatches[0] as $linkMatch) {
+                $tags[] = array('kind' => 'link', 'offset' => $linkMatch[1], 'tag' => $linkMatch[0]);
+            }
+        }
+        usort($tags, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ( $tags as $tagRecord ) {
+            if ( 'style' === $tagRecord['kind'] ) {
+                $attributes = $tagRecord['attributes'];
+                if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
-                if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                if ( '' === trim($tagRecord['content']) ) {
                     continue;
                 }
-                $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
-                $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
-                $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
-                $file = $byPath[$path] ?? null;
-                if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                    $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
-                    $seenPaths[$path] = true;
+                ++$inlineIndex;
+                $file = $inline[$inlineIndex] ?? null;
+                if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
+                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                    $seenPaths[$file['path']] = true;
                 }
+                continue;
+            }
+            $tag = $tagRecord['tag'];
+            if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                continue;
+            }
+            $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
+            $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
+            $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
+            $file = $byPath[$path] ?? null;
+            if ( is_array($file) && ! isset($seenPaths[$path]) ) {
+                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $seenPaths[$path] = true;
             }
         }
         return $assets;
