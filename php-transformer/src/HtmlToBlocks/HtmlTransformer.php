@@ -2881,11 +2881,12 @@ final class HtmlTransformer
             if ( null === $analysis ) {
                 ++$this->analysisCache->styleBuilds;
                 $topLevel = $this->topLevelStyleAnalysis($payload);
+                $structured = $this->structuredStyleAnalysis($payload);
                 $analysis = array(
                     'static' => $topLevel['static'],
-                    'conditional' => $this->conditionalStyleRules('', $payload),
+                    'conditional' => $structured['conditional'],
                     'navigation_state' => $topLevel['navigation_state'],
-                    'image_shape' => $this->imageShapeStyleRules('', $payload),
+                    'image_shape' => $structured['image_shape'],
                     'pseudo' => $topLevel['pseudo'],
                     'custom_properties' => $this->cssCustomPropertyAnalysis($payload),
                 );
