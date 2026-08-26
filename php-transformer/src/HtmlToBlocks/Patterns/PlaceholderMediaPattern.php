@@ -16,8 +16,8 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $escapeHtml = $context->escapeHtmlCallback();
-        if ( null === $escapeHtml ) {
+        $markup = $context->markupContext();
+        if ( null === $markup ) {
             return null;
         }
 
@@ -29,7 +29,7 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $context->createBlock('core/paragraph', array( 'content' => $escapeHtml($label) )) ) : array();
+        $children = '' !== $label ? array( $context->createBlock('core/paragraph', array( 'content' => $markup->escapeHtml($label) )) ) : array();
 
         return new PatternRecognitionResult($context->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
     }

@@ -14,14 +14,9 @@ final class PatternContext
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @param PatternRecursiveConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
-     * @param Closure(DOMElement): string|null $mergedPresentationStyle
-     * @param Closure(DOMElement): array<string, string>|null $htmlAttributes
-     * @param Closure(string): string|null $resolveAssetImageUrl
-     * @param Closure(DOMElement, array<int, string>): array<string, mixed>|null $mediaTextPresentationAttributes
-     * @param Closure(DOMElement): string|null $mediaTextPresentationStyle
-     * @param Closure(DOMElement): string|null $structuralPresentationStyle
-     * @param Closure(DOMElement): string|null $safeFallbackHtml
-     * @param Closure(string): string|null $escapeHtml
+     * @param MediaPatternContext|null $mediaContext
+     * @param ColumnsPatternContext|null $columnsContext
+     * @param MarkupPatternContext|null $markupContext
      * @param ButtonPatternContext|null $buttonContext
      * @param QuotePatternContext|null $quoteContext
      * @param CodeWindowPatternContext|null $codeWindowContext
@@ -34,14 +29,9 @@ final class PatternContext
         private readonly Closure $createBlock,
         private readonly ?PatternRecursiveConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
-        private readonly ?Closure $mergedPresentationStyle = null,
-        private readonly ?Closure $htmlAttributes = null,
-        private readonly ?Closure $resolveAssetImageUrl = null,
-        private readonly ?Closure $mediaTextPresentationAttributes = null,
-        private readonly ?Closure $mediaTextPresentationStyle = null,
-        private readonly ?Closure $structuralPresentationStyle = null,
-        private readonly ?Closure $safeFallbackHtml = null,
-        private readonly ?Closure $escapeHtml = null,
+        private readonly ?MediaPatternContext $mediaContext = null,
+        private readonly ?ColumnsPatternContext $columnsContext = null,
+        private readonly ?MarkupPatternContext $markupContext = null,
         private readonly ?ButtonPatternContext $buttonContext = null,
         private readonly ?QuotePatternContext $quoteContext = null,
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
@@ -76,14 +66,9 @@ final class PatternContext
 
     public function recursiveConverter(): ?PatternRecursiveConverter { return $this->recursiveConverter; }
     public function navigationContext(): ?NavigationPatternContext { return $this->navigationContext; }
-    public function mergedPresentationStyleCallback(): ?Closure { return $this->mergedPresentationStyle; }
-    public function htmlAttributesCallback(): ?Closure { return $this->htmlAttributes; }
-    public function resolveAssetImageUrlCallback(): ?Closure { return $this->resolveAssetImageUrl; }
-    public function mediaTextPresentationAttributesCallback(): ?Closure { return $this->mediaTextPresentationAttributes; }
-    public function mediaTextPresentationStyleCallback(): ?Closure { return $this->mediaTextPresentationStyle; }
-    public function structuralPresentationStyleCallback(): ?Closure { return $this->structuralPresentationStyle; }
-    public function safeFallbackHtmlCallback(): ?Closure { return $this->safeFallbackHtml; }
-    public function escapeHtmlCallback(): ?Closure { return $this->escapeHtml; }
+    public function mediaContext(): ?MediaPatternContext { return $this->mediaContext; }
+    public function columnsContext(): ?ColumnsPatternContext { return $this->columnsContext; }
+    public function markupContext(): ?MarkupPatternContext { return $this->markupContext; }
     public function buttonContext(): ?ButtonPatternContext { return $this->buttonContext; }
     public function quoteContext(): ?QuotePatternContext { return $this->quoteContext; }
     public function codeWindowContext(): ?CodeWindowPatternContext { return $this->codeWindowContext; }

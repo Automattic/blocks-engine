@@ -12,14 +12,13 @@ final class MathPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $safeFallbackHtml = $context->safeFallbackHtmlCallback();
-        $escapeHtml = $context->escapeHtmlCallback();
-        if ( null === $safeFallbackHtml || null === $escapeHtml || ! $this->isMathElement($element) ) {
+        $markup = $context->markupContext();
+        if ( null === $markup || ! $this->isMathElement($element) ) {
             return null;
         }
 
         $tagName = strtolower($element->tagName);
-        $content = 'math' === $tagName ? $safeFallbackHtml($element) : $this->mathExpressionContent($element, $context->innerHtml(...), $escapeHtml);
+        $content = 'math' === $tagName ? $markup->safeFallbackHtml($element) : $this->mathExpressionContent($element, $context->innerHtml(...), $markup->escapeHtml(...));
         if ( '' === trim($content) ) {
             return null;
         }
