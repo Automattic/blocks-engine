@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\Classific
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -134,17 +135,16 @@ final class FallbackEmitter
      * At a `core/html` fallback decision (a subtree that mapped to nothing
      * native/Automattic), consult the structural classifier. When it returns
      * `custom_block` with high confidence, generate a static-render block
-     * definition, register it on the passed-by-reference `$generatedBlocks`
-     * accumulator (deduped by structure and sanitized content), and return a self-closing
+     * definition, register it on the generated block registry (deduped by
+     * structure and sanitized content), and return a self-closing
      * block REFERENCE (block name + per-instance attrs, no innerHTML) for the
      * caller to emit instead of raw `core/html`. Returns null to keep the
      * existing fallback behavior whenever the conservative gate is not met.
      *
-     * @param array<int, array<string, mixed>> $generatedBlocks Accumulator of generated block-type definitions.
      * @param bool                             $preserveRoot    Include the source root when it carries required semantics or styling.
      * @return array{blockName: string, attrs: array<string, mixed>}|null
      */
-    public function maybeGenerateCustomBlock(DOMElement $element, array &$generatedBlocks, string $namespace, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
+    public function maybeGenerateCustomBlock(DOMElement $element, GeneratedBlockRegistry $registry, bool $preserveRoot = false, bool $confirmedComponent = false): ?array
     {
         $result = $this->classifier->classify($element, $this->classificationContext($element));
         if ( ! $confirmedComponent && ! $result->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK) ) {
@@ -166,7 +166,7 @@ final class FallbackEmitter
             return null;
         }
 
-        $namespace = $this->sanitizeNameSegment($namespace);
+        $namespace = $this->sanitizeNameSegment($registry->namespace());
         if ( '' === $namespace ) {
             $namespace = 'custom';
         }
@@ -179,7 +179,7 @@ final class FallbackEmitter
             $localName = $this->generatedBlockLocalName($result->signals(), $identity);
             $this->generatedBlockNames[$identity] = $localName;
             $blockName = $namespace . '/' . $localName;
-            $generatedBlocks[] = array(
+            $registry->append(array(
                 'name'       => $localName,
                 'block_json' => $this->blockGenerator->blockJson($blockName, $this->generatedBlockTitle($result->signals())),
                 'render'     => $this->blockGenerator->render($content),
@@ -189,7 +189,7 @@ final class FallbackEmitter
                 ),
                 // Diagnostic-only; stripped before the payload reaches SSI.
                 'signature'  => $signature,
-            );
+            ));
         }
 
         return array(

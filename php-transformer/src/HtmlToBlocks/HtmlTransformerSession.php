@@ -38,17 +38,8 @@ final class HtmlTransformerSession
     public array $runtimeDomPreservations = array();
     public array $runtimeDomFallbacks = array();
     public array $nativeDisclosureRootIds = array();
-    public array $generatedBlocks = array();
-    public bool $descriptionListBlockGenerated = false;
-    public bool $formSelectBlockGenerated = false;
-    public bool $formInputBlockGenerated = false;
-    public bool $responsiveMediaBlockGenerated = false;
-    public bool $responsiveLayoutBlockGenerated = false;
-    public bool $authoredMarqueeBlockGenerated = false;
+    private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
     public bool $emptyRuntimeTargetGenerated = false;
-    public bool $capturedDialogBlockGenerated = false;
-    public bool $layoutShellBlockGenerated = false;
-    public string $generatedBlockNamespace = 'custom';
     public string $generatedAssetRoot = '';
     public array $runtimeScriptMetadata = array();
     public array $assetMetadata = array();
@@ -91,7 +82,6 @@ final class HtmlTransformerSession
     public array $sourceTableDescendantPaths = array();
     public array $sourceRichTextSemanticMarkers = array();
     public array $authorLayoutTopologies = array();
-    public bool $authorLayoutBlockGenerated = false;
     public array $parsedCssSelectors = array();
     public string $formLayoutCss = '';
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
@@ -129,5 +119,15 @@ final class HtmlTransformerSession
     public function layoutGeometryState(): ?LayoutGeometryState
     {
         return $this->layoutGeometryState;
+    }
+
+    public function installGeneratedBlockRegistry(GeneratedBlockRegistry $registry): void
+    {
+        $this->generatedBlockRegistry = $registry;
+    }
+
+    public function generatedBlockRegistry(): ?GeneratedBlockRegistry
+    {
+        return $this->generatedBlockRegistry;
     }
 }
