@@ -489,13 +489,11 @@ final class FallbackEmitter
         ), $this->fallbackProvenance);
     }
 
-    /**
-     * @param array<int, array<string, mixed>> $scriptMetadata
-     */
-    public function captureStaticScriptMetadata(DOMElement $element, array &$scriptMetadata): bool
+    /** @return array<string, mixed>|null */
+    public function staticScriptMetadata(DOMElement $element): ?array
     {
         if ( '' !== trim($this->attr($element, 'src')) ) {
-            return false;
+            return null;
         }
 
         $scriptRole = $this->scriptRole($element);
@@ -503,11 +501,11 @@ final class FallbackEmitter
             $scriptRole = $this->staticScriptMetadataRole($element);
         }
         if ( null === $scriptRole ) {
-            return false;
+            return null;
         }
 
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
-        $scriptMetadata[] = array(
+        return array(
             'type'               => 'script_metadata',
             'reason'             => 'script_static_metadata',
             'source_format'      => 'html',
@@ -521,8 +519,6 @@ final class FallbackEmitter
             'body_bytes'         => $boundedBody['bytes'],
             'body_truncated'     => $boundedBody['truncated'],
         );
-
-        return true;
     }
 
     /**

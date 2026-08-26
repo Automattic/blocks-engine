@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerSession;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -79,6 +80,13 @@ foreach ( $families as $name => $family ) {
         $withoutDurations($freshResult) === $withoutDurations($reusedResult),
         $name . ' must produce identical fresh and reused-instance output.'
     );
+}
+
+$sessionReflection = new ReflectionClass(HtmlTransformerSession::class);
+$transformerReflection = new ReflectionClass(HtmlTransformer::class);
+$assert(array() === $sessionReflection->getProperties(ReflectionProperty::IS_PUBLIC), 'Transform session state must remain encapsulated behind typed lifecycle APIs.');
+foreach ( array('__get', '__set', '__isset') as $magicAccessor ) {
+    $assert(! $transformerReflection->hasMethod($magicAccessor), 'HtmlTransformer must not delegate state through ' . $magicAccessor . '.');
 }
 
 fwrite(STDOUT, "HTML transformer session state passed\n");

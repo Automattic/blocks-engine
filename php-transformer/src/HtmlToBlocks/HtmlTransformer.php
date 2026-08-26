@@ -51,6 +51,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTra
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
@@ -330,23 +331,6 @@ final class HtmlTransformer
         $this->patternProbeContext = $this->createProbePatternContext();
     }
 
-    public function &__get(string $name): mixed
-    {
-        $value =& $this->session->{$name};
-
-        return $value;
-    }
-
-    public function __set(string $name, mixed $value): void
-    {
-        $this->session->{$name} = $value;
-    }
-
-    public function __isset(string $name): bool
-    {
-        return isset($this->session->{$name});
-    }
-
     private function authorStyles(): AuthorStyleAnalysis
     {
         return $this->session->authorStyleAnalysis()
@@ -367,6 +351,21 @@ final class HtmlTransformer
     private function transformationEvidence(): TransformationEvidenceState
     {
         return $this->session->transformationEvidenceState();
+    }
+
+    private function runtimeBehavior(): RuntimeBehaviorState
+    {
+        return $this->session->runtimeBehaviorState();
+    }
+
+    private function fallbackEmitter(): FallbackEmitter
+    {
+        return $this->session->fallbackEmitter();
+    }
+
+    private function presentationResolutionCache(): PresentationResolutionCache
+    {
+        return $this->session->presentationResolutionCache();
     }
 
     private function generatedBlocks(): GeneratedBlockRegistry
@@ -433,9 +432,8 @@ final class HtmlTransformer
             trim((string) ($options['generated_asset_root'] ?? ''), '/'),
             $this->assetMetadataFromOptions($options)
         ));
-        $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
-        $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
-        $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
+        $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
+        $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeScriptMetadataFromOptions($options));
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
@@ -520,7 +518,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
-        $this->fallbackEmitter->configure($this->transformationProvenance()->fallback(), $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
+        $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
@@ -538,8 +536,8 @@ final class HtmlTransformer
         if ($this->layoutGeometry()->hasProofReductions() && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
             $blocks = $this->compressProjectedGroupChains($blocks, true);
         }
-        $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
-        if (!$this->fallbackReductionMode) {
+        $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
+        if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
         }
         $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
@@ -564,7 +562,7 @@ final class HtmlTransformer
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
         $diagnostics = $this->diagnosticsCollector->collect(
             self::class,
-            $this->scriptMetadata,
+            $this->runtimeBehavior()->scriptMetadata(),
             $fallbacks,
             $this->runtimeDom()->islands(),
             $this->runtimeDom()->preservations(),
@@ -662,7 +660,7 @@ final class HtmlTransformer
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
                 'structure_signals'    => $this->transformationProvenance()->structureSignals(),
                 'reusable_components' => $reusableComponentRecognition,
-                'script_metadata'      => $this->scriptMetadata,
+                'script_metadata'      => $this->runtimeBehavior()->scriptMetadata(),
                 'runtime_islands'      => $this->runtimeDom()->islands(),
                 'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
             ),
@@ -917,7 +915,7 @@ final class HtmlTransformer
         if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
             && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
             && ($this->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->fallbackEmitter->isRepeatableContentComponent($element) || $this->fallbackEmitter->isSafeCustomElementHost($element))
+            && ($this->fallbackEmitter()->isRepeatableContentComponent($element) || $this->fallbackEmitter()->isSafeCustomElementHost($element))
         ) {
             $this->reusableComponents()->markGeneratedCandidate((string) $element->getNodePath());
             return;
@@ -1273,7 +1271,7 @@ final class HtmlTransformer
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->authorStyles()->combinedCss()) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
         }
-        if ( $this->emptyRuntimeTargetGenerated ) {
+        if ( $this->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . self::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
             $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
@@ -4516,7 +4514,7 @@ final class HtmlTransformer
             return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
         }
 
-        if ( $this->preserveShellLandmarks && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
+        if ( $this->session->preservesShellLandmarks() && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
@@ -4550,7 +4548,7 @@ final class HtmlTransformer
             return $mediaDispatch['block'];
         }
 
-        if ($this->fallbackReductionMode && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
+        if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
                 $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));
@@ -5137,7 +5135,7 @@ final class HtmlTransformer
 
                 $disclosure = $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
                 if ( null !== $disclosure ) {
-                    $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+                    $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
 
                     return $disclosure;
                 }
@@ -5207,7 +5205,7 @@ final class HtmlTransformer
             }
 
             if ( $this->isGeneratedComponentCandidate($element) ) {
-                $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
                 if ( null !== $generated ) {
                     return $this->generatedComponentBlock($generated, $element);
                 }
@@ -5245,7 +5243,7 @@ final class HtmlTransformer
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
             if ( null !== $generated ) {
                 return $this->generatedComponentBlock($generated, $element);
             }
@@ -5271,7 +5269,7 @@ final class HtmlTransformer
             // classifier identifies it as a high-confidence custom_block, generate
             // a static-render block and emit a self-closing reference instead of raw
             // core/html. Otherwise keep the existing fallback diagnostic.
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock($element, $this->generatedBlocks());
+            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks());
             if ( null !== $generated ) {
                 return $this->generatedComponentBlock($generated, $element);
             }
@@ -5285,7 +5283,7 @@ final class HtmlTransformer
                 'selector'        => $this->elementSelector($element),
                 'attributes'      => $this->htmlAttributes($element),
                 'context'         => $this->sourceContext($element),
-                'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+                'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
                 'events'          => $this->eventMetadata($element),
                 'text_length'     => strlen(trim($element->textContent ?? '')),
                 'child_count'     => $this->childElementCount($element),
@@ -8472,7 +8470,7 @@ final class HtmlTransformer
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
         if ( $this->isRuntimeDomTarget($element) ) {
             $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
-            $this->emptyRuntimeTargetGenerated = true;
+            $this->runtimeBehavior()->markEmptyRuntimeTargetGenerated();
         }
         return $attrs;
     }
@@ -9667,7 +9665,7 @@ final class HtmlTransformer
             // not executable behavior. Report loss only when source code actually
             // supplies a handler or an available script targets the control.
             if ( array() === $this->eventMetadata($element)
-                && array() === $this->runtimeScriptMetadata ) {
+                && ! $this->runtimeBehavior()->hasRuntimeScriptMetadata() ) {
                 continue;
             }
             if ( array() === $signals || ! $this->isInteractiveControlBehaviorLoss($element) ) {
@@ -10503,7 +10501,7 @@ final class HtmlTransformer
     private function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array
     {
         if ( 'core/accordion' === ( $block['blockName'] ?? '' ) ) {
-            $this->nativeDisclosureRootIds[ $element->getNodePath() ?? '' ] = true;
+            $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? '');
         }
 
         return $block;
@@ -10523,7 +10521,7 @@ final class HtmlTransformer
      */
     private function isFoldedIntoNativeDisclosure(DOMElement $element): bool
     {
-        if ( array() === $this->nativeDisclosureRootIds ) {
+        if ( ! $this->runtimeBehavior()->hasNativeDisclosureRoots() ) {
             return false;
         }
 
@@ -10534,7 +10532,7 @@ final class HtmlTransformer
         }
 
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( isset($this->nativeDisclosureRootIds[ $node->getNodePath() ?? '' ]) ) {
+            if ( $this->runtimeBehavior()->isNativeDisclosureRoot($node->getNodePath() ?? '') ) {
                 return true;
             }
         }
@@ -11905,7 +11903,7 @@ final class HtmlTransformer
      */
     private function captureInlineSvgFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureInlineSvgFallback($element, $fallbacks);
+        $this->fallbackEmitter()->captureInlineSvgFallback($element, $fallbacks);
     }
 
     /**
@@ -11913,12 +11911,12 @@ final class HtmlTransformer
      */
     private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureCanvasFallback($element, $fallbacks, $this->runtimeDom());
+        $this->fallbackEmitter()->captureCanvasFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     private function isRuntimeCanvasTarget(DOMElement $element): bool
     {
-        return $this->fallbackEmitter->isRuntimeCanvasTarget($element);
+        return $this->fallbackEmitter()->isRuntimeCanvasTarget($element);
     }
 
     /**
@@ -12285,7 +12283,7 @@ final class HtmlTransformer
      */
     private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
-        $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeDom());
+        $this->fallbackEmitter()->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeDom());
     }
 
     private function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName, bool $includeRichTextDescendants = false): void
@@ -12342,7 +12340,7 @@ final class HtmlTransformer
      */
     private function requiredScriptsForElement(DOMElement $element): array
     {
-        return $this->fallbackEmitter->requiredScriptsForElement($element);
+        return $this->fallbackEmitter()->requiredScriptsForElement($element);
     }
 
     /**
@@ -12410,12 +12408,19 @@ final class HtmlTransformer
      */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureScriptFallback($element, $fallbacks, $this->runtimeDom());
+        $this->fallbackEmitter()->captureScriptFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     private function captureStaticScriptMetadata(DOMElement $element): bool
     {
-        return $this->fallbackEmitter->captureStaticScriptMetadata($element, $this->scriptMetadata);
+        $metadata = $this->fallbackEmitter()->staticScriptMetadata($element);
+        if ( null === $metadata ) {
+            return false;
+        }
+
+        $this->runtimeBehavior()->recordScriptMetadata($metadata);
+
+        return true;
     }
 
     /**
@@ -12431,8 +12436,8 @@ final class HtmlTransformer
             return false;
         }
 
-        $metadata = end($this->scriptMetadata);
-        if ( ! is_array($metadata) || ! empty($metadata['body_truncated']) ) {
+        $metadata = $this->runtimeBehavior()->latestScriptMetadata();
+        if ( null === $metadata || ! empty($metadata['body_truncated']) ) {
             return false;
         }
 
@@ -12441,7 +12446,7 @@ final class HtmlTransformer
 
     private function staticJsonTargetBlock(DOMElement $element): array
     {
-        $metadata = end($this->scriptMetadata);
+        $metadata = $this->runtimeBehavior()->latestScriptMetadata() ?? array();
         $attributes = is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : array();
         ksort($attributes, SORT_STRING);
         $attributeHtml = '';
@@ -12461,7 +12466,7 @@ final class HtmlTransformer
      */
     private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureTemplateFallback($element, $fallbacks, $this->runtimeDom());
+        $this->fallbackEmitter()->captureTemplateFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     /**
@@ -13479,7 +13484,7 @@ final class HtmlTransformer
             'form'            => $this->formMetadata($element),
             'success_panel'   => $this->formSuccessPanelMetadata($element),
             'context'         => $this->sourceContext($element),
-            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
             'readable_blocks' => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
             'binding'         => null !== $bindingBlock ? $this->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array(),
@@ -15276,7 +15281,7 @@ final class HtmlTransformer
     private function responsiveImageFallbackBlock(DOMElement $element): array
     {
         if ( ! $this->hasUnsafeResponsiveImageSources($element) ) {
-            $generated = $this->fallbackEmitter->maybeGenerateCustomBlock(
+            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock(
                 $element,
                 $this->generatedBlocks(),
                 true
@@ -15288,9 +15293,8 @@ final class HtmlTransformer
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $selector = $this->elementSelector($element);
-        if ( ! isset($this->responsiveImageFallbackSelectors[$selector]) ) {
-            $this->responsiveImageFallbackSelectors[$selector] = true;
-            $this->responsiveImageFallbacks[] = FallbackDiagnostic::build(array(
+        if ( ! $this->transformationEvidence()->hasResponsiveImageFallback($selector) ) {
+            $this->transformationEvidence()->recordResponsiveImageFallback($selector, FallbackDiagnostic::build(array(
                 'type'            => 'html',
                 'reason'          => 'responsive_image_fallback',
                 'diagnostic_code' => 'html_responsive_image_fallback',
@@ -15300,11 +15304,11 @@ final class HtmlTransformer
                 'selector'        => $selector,
                 'attributes'      => $this->htmlAttributes($element),
                 'context'         => $this->sourceContext($element),
-                'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($element),
+                'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
                 'html'            => $boundedHtml['html'],
                 'html_bytes'      => $boundedHtml['bytes'],
                 'html_truncated'  => $boundedHtml['truncated'],
-            ), $this->transformationProvenance()->fallback());
+            ), $this->transformationProvenance()->fallback()));
         }
 
         return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
@@ -15885,7 +15889,7 @@ final class HtmlTransformer
             'selector'        => $this->elementSelector($iframe),
             'attributes'      => $this->safeEmbedAttributes($iframe),
             'context'         => $this->sourceContext($iframe),
-            'classification'  => $this->fallbackEmitter->classifyFallbackSubtree($iframe),
+            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($iframe),
             'events'          => $this->eventMetadata($iframe),
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
