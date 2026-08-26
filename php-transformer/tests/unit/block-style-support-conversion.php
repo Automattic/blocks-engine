@@ -362,8 +362,8 @@ $assert('pricing-card' === ($paintAttrs['className'] ?? ''), '39: high-value car
 $assert(! isset($paintAttrs['style']['box-shadow']), '40: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
 $assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '41: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
-$rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
-$paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
+$rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'topLevelStyleAnalysis');
+$paintRules = $rulesMethod->invoke(new HtmlTransformer(), $paintCss)['static'];
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
 $assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));

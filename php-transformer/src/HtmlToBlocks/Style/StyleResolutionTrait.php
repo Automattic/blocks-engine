@@ -1980,30 +1980,33 @@ trait StyleResolutionTrait
     }
 
     /**
-     * @return array<int, array{selector: string, declarations: array<string, string>, mediaTextDeclarations: list<array{property: string, value: string, important: bool}>, mediaTextSpecificity: array{int, int, int}}>
+     * Build immutable resting, interaction, and pseudo-element rule streams
+     * together so each payload is scanned and parsed once.
+     *
+     * @return array{
+     *     static: list<array{selector: string, declarations: array<string, string>, mediaTextDeclarations: list<array{property: string, value: string, important: bool}>, mediaTextSpecificity: array{int, int, int}}>,
+     *     navigation_state: list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>,
+     *     pseudo: list<array{selector: string, pseudo: string, declarations: array<string, string>}>
+     * }
      */
-    private function staticStyleRules(string $html, string $linkedCss): array
+    private function topLevelStyleAnalysis(string $css): array
     {
-        $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
-        }
-
+        $analysis = array('static' => array(), 'navigation_state' => array(), 'pseudo' => array());
         if ( '' === trim($css) ) {
-            return array();
+            return $analysis;
         }
 
         $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
         $css = $this->topLevelCssRules($css);
-        $rules = array();
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
+            return $analysis;
         }
 
         foreach ( $matches as $match ) {
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
+            $body = (string) $match[2];
+            $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
             $mediaTextDeclarations = array_values(array_filter(
-                $this->mediaTextInlineDeclarationEntries((string) $match[2]),
+                $this->mediaTextInlineDeclarationEntries($body),
                 static fn (array $entry): bool => in_array($entry['property'], array(
                     'align-items',
                     'direction',
@@ -2017,83 +2020,49 @@ trait StyleResolutionTrait
                     'width',
                 ), true)
             ));
-            if ( array() === $declarations && array() === $mediaTextDeclarations ) {
-                continue;
-            }
             foreach ( explode(',', (string) $match[1]) as $selector ) {
                 $selector = trim($selector);
-                if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
-                    $rules[] = array(
+                if ( ( array() !== $declarations || array() !== $mediaTextDeclarations )
+                    && '' !== $selector
+                    && ! $this->selectorCarriesPseudoState($selector)
+                    && $this->isSupportedCssSelector($selector)
+                ) {
+                    $analysis['static'][] = array(
                         'selector' => $selector,
                         'declarations' => $declarations,
                         'mediaTextDeclarations' => $mediaTextDeclarations,
                         'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                     );
                 }
-            }
-        }
-
-        return $rules;
-    }
-
-    /**
-     * Keep top-level interaction rules separate from resting-style resolution.
-     * Navigation conversion uses these to yield a resting colour only for
-     * states where an authored colour replacement exists, and to re-point
-     * anchor-class selectors after core moves that class onto the item.
-     *
-     * Multi-state selectors fail closed. Treating `:hover:focus` as either
-     * independent state would remove the resting colour too broadly.
-     *
-     * @return list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>
-     */
-    private function navigationStateStyleRules(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
-        }
-        if ( '' === trim($css) ) {
-            return array();
-        }
-
-        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $css = $this->topLevelCssRules($css);
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $rules = array();
-        foreach ( $matches as $match ) {
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
-            if ( array() === $declarations ) {
-                continue;
-            }
-            foreach ( explode(',', (string) $match[1]) as $selector ) {
-                $selector = trim($selector);
-                if ( '' === $selector
-                    || 1 !== preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
+                if ( array() !== $declarations
+                    && 1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
                 ) {
-                    continue;
+                    $state = strtolower((string) $stateMatches[1][0][0]);
+                    $offset = (int) $stateMatches[0][0][1];
+                    $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                    if ( '' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector) ) {
+                        $analysis['navigation_state'][] = array(
+                            'selector' => $selector,
+                            'base_selector' => $baseSelector,
+                            'state' => $state,
+                            'declarations' => $declarations,
+                        );
+                    }
                 }
-
-                $state = strtolower((string) $stateMatches[1][0][0]);
-                $offset = (int) $stateMatches[0][0][1];
-                $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
-                if ( '' === $baseSelector || $this->selectorCarriesPseudoState($baseSelector) || ! $this->isSupportedCssSelector($baseSelector) ) {
-                    continue;
+                if ( array() !== $declarations && preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch) ) {
+                    $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
+                    if ( '' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector) ) {
+                        $analysis['pseudo'][] = array(
+                            'selector' => $baseSelector,
+                            'pseudo' => strtolower($pseudoMatch[1]),
+                            'declarations' => $declarations,
+                        );
+                    }
                 }
-
-                $rules[] = array(
-                    'selector' => $selector,
-                    'base_selector' => $baseSelector,
-                    'state' => $state,
-                    'declarations' => $declarations,
-                );
             }
         }
 
-        return $rules;
+        return $analysis;
     }
 
     /**
@@ -2301,53 +2270,6 @@ trait StyleResolutionTrait
         }
 
         return null;
-    }
-
-    /**
-     * @return array<int, array{selector: string, pseudo: string, declarations: array<string, string>}>
-     */
-    private function staticPseudoElementStyleRules(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
-        }
-
-        if ( '' === trim($css) ) {
-            return array();
-        }
-
-        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $css = $this->topLevelCssRules($css);
-        $rules = array();
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $matches as $match ) {
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $match[2]));
-            if ( array() === $declarations ) {
-                continue;
-            }
-
-            foreach ( explode(',', (string) $match[1]) as $selector ) {
-                $selector = trim($selector);
-                if ( ! preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch) ) {
-                    continue;
-                }
-
-                $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                if ( '' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector) ) {
-                    $rules[] = array(
-                        'selector'     => $baseSelector,
-                        'pseudo'       => strtolower($pseudoMatch[1]),
-                        'declarations' => $declarations,
-                    );
-                }
-            }
-        }
-
-        return $rules;
     }
 
     private function topLevelCssRules(string $css): string
