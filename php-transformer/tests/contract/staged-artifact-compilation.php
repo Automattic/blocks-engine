@@ -50,7 +50,8 @@ $assert(array('about.html', 'contact.html', 'index.html') === array_keys($batchP
 
 $compiledPages = array();
 foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($artifact, $shared, $pageId);
-$assert(1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+$assert(ArtifactCompiler::COMPACT_RECEIPT_SCHEMA === ($compiledPages['about.html']['receipt_schema'] ?? null) && 1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+$assert(!array_key_exists('files', $compiledPages['about.html']['terminal_reduction']) && !array_key_exists('entry_blocks', $compiledPages['index.html']['terminal_reduction']), 'Compact receipts reference canonical page files and compiled entry output instead of serializing duplicate terminal payloads.');
 $compiledBatch = $compiler->compilePreparedPages($shared, $pages);
 foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms']);
 unset($compiledBatchPage);
@@ -93,6 +94,15 @@ unset($initialWorker, $manyArtifact, $preparedPages);
 $resumedWorker = new ArtifactCompiler();
 $manyReceipts = array_merge($manyReceipts, array_values($resumedWorker->compilePreparedPages($serializedShared, array_slice($serializedPages, 25, null, true))));
 $serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$expandedReceipts = $serializedReceipts;
+foreach ($expandedReceipts as &$expandedReceipt) {
+    $expandedReceipt['terminal_reduction']['files'] = $expandedReceipt['artifact']['files'];
+    $expandedReceipt['terminal_reduction']['entry_blocks'] = $expandedReceipt['compiled_documents']['index.html'] ?? null;
+}
+unset($expandedReceipt);
+$compactReceiptBytes = strlen(json_encode($serializedReceipts, JSON_THROW_ON_ERROR));
+$expandedReceiptBytes = strlen(json_encode($expandedReceipts, JSON_THROW_ON_ERROR));
+$assert($compactReceiptBytes < $expandedReceiptBytes, sprintf('Fifty compact receipts serialize fewer bytes than equivalent duplicate terminal payloads (%d compact bytes versus %d expanded bytes).', $compactReceiptBytes, $expandedReceiptBytes));
 $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
@@ -108,6 +118,15 @@ $assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array
 $assert($canonical($manyInline) === $canonical($manyStaged), 'Fifty-page arbitrary-order resume preserves the complete canonical transformer result after observational fields are excluded.');
 $manyPageComponent = current(array_filter($manyStaged['components'], static fn(array $component): bool => 'page' === ($component['name'] ?? null)));
 $assert(50 === ($manyPageComponent['occurrences'] ?? null), 'A class occurring once per page is qualified from the globally summed uncapped component facts.');
+$largeReceiptArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => '<main><p>' . str_repeat('receipt-payload ', 32768) . '</p></main>')));
+$largeReceiptShared = $compiler->prepareShared($largeReceiptArtifact);
+$largeReceipt = $compiler->compilePage($largeReceiptArtifact, $largeReceiptShared, 'index.html');
+$largeExpandedReceipt = $largeReceipt;
+$largeExpandedReceipt['terminal_reduction']['files'] = $largeExpandedReceipt['artifact']['files'];
+$largeExpandedReceipt['terminal_reduction']['entry_blocks'] = $largeExpandedReceipt['compiled_documents']['index.html'];
+$largeCompactBytes = strlen(json_encode($largeReceipt, JSON_THROW_ON_ERROR));
+$largeExpandedBytes = strlen(json_encode($largeExpandedReceipt, JSON_THROW_ON_ERROR));
+$assert($largeCompactBytes < (int) ($largeExpandedBytes * 0.7), sprintf('A large compiled page receipt is at least thirty percent smaller without duplicate source and entry output (%d compact bytes versus %d expanded bytes).', $largeCompactBytes, $largeExpandedBytes));
 $pageScopedScriptArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main id="home-target"><script src="js/home.js"></script><h1>Home</h1></main>'),
     array('path' => 'about.html', 'content' => '<main id="about-target"><script src="js/about.js"></script><h1>About</h1></main>'),
@@ -212,6 +231,19 @@ $reductionMismatch['shared_reduction']['component_facts']['classes']['corrupt'] 
 $throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composition rejects a shared reduction whose immutable digest no longer matches.');
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
+
+$v2Shared = $shared;
+$v2Shared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
+$v2Shared['digest'] = RuntimeDeclarations::hash(array('artifact' => $v2Shared['artifact'], 'analysis' => $v2Shared['analysis'], 'shared_reduction' => $v2Shared['shared_reduction'], 'shared_reduction_digest' => $v2Shared['shared_reduction_digest'], 'compiler_options' => $v2Shared['compiler_options']));
+$v2Receipts = array();
+foreach ($pageIds as $pageId) {
+    $v2Page = $compiler->preparePage($artifact, $v2Shared, $pageId);
+    $v2Page['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
+    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
+    $v2Receipts[] = $compiler->compilePreparedPage($v2Shared, $v2Page);
+}
+$v2Result = $compiler->compose($v2Shared, array_reverse($v2Receipts))->toArray();
+$assert(array_key_exists('files', $v2Receipts[0]['terminal_reduction']) && array_key_exists('entry_blocks', $v2Receipts[0]['terminal_reduction']) && $whole['blocks'] === $v2Result['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($v2Result['source_reports']['wordpress_site_plan'] ?? array()), 'Persisted v2 duplicate-payload receipts retain canonical composition compatibility.');
 
 $legacyShared = $shared;
 unset($legacyShared['shared_reduction'], $legacyShared['shared_reduction_digest']);
@@ -449,4 +481,4 @@ $layoutPage = $layoutWhole['source_reports']['compiled_site']['pages'][0] ?? arr
 $assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '<!-- wp:custom/responsive-layout {"content":'), 'A deep semantic media main compiles as one dedicated typed layout boundary under the unchanged editability policy.');
 $assert($canonical($layoutWhole) === $canonical($layoutStaged), 'Typed captured layout boundaries preserve direct and staged canonical equivalence.');
 
-fwrite(STDOUT, "Staged artifact compilation contract passed\n");
+fwrite(STDOUT, sprintf("Staged artifact compilation contract passed (50-page receipts: %d compact / %d expanded bytes; large receipt: %d compact / %d expanded bytes)\n", $compactReceiptBytes, $expandedReceiptBytes, $largeCompactBytes, $largeExpandedBytes));
