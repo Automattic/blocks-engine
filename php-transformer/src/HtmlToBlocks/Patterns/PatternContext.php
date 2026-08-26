@@ -23,6 +23,9 @@ final class PatternContext
      * @param callable(string): string|null $escapeHtml
      * @param ButtonPatternContext|null $buttonContext
      * @param QuotePatternContext|null $quoteContext
+     * @param CodeWindowPatternContext|null $codeWindowContext
+     * @param LogoPatternContext|null $logoContext
+     * @param GalleryPatternContext|null $galleryContext
      */
     public function __construct(
         private readonly mixed $presentationAttributes,
@@ -39,7 +42,10 @@ final class PatternContext
         private readonly mixed $safeFallbackHtml = null,
         private readonly mixed $escapeHtml = null,
         private readonly ?ButtonPatternContext $buttonContext = null,
-        private readonly ?QuotePatternContext $quoteContext = null
+        private readonly ?QuotePatternContext $quoteContext = null,
+        private readonly ?CodeWindowPatternContext $codeWindowContext = null,
+        private readonly ?LogoPatternContext $logoContext = null,
+        private readonly ?GalleryPatternContext $galleryContext = null
     ) {
     }
 
@@ -79,4 +85,7 @@ final class PatternContext
     public function escapeHtmlCallback(): ?callable { return is_callable($this->escapeHtml) ? $this->escapeHtml : null; }
     public function buttonContext(): ?ButtonPatternContext { return $this->buttonContext; }
     public function quoteContext(): ?QuotePatternContext { return $this->quoteContext; }
+    public function codeWindowContext(): ?CodeWindowPatternContext { return $this->codeWindowContext; }
+    public function logoContext(): ?LogoPatternContext { return $this->logoContext; }
+    public function galleryContext(): ?GalleryPatternContext { return $this->galleryContext; }
 }

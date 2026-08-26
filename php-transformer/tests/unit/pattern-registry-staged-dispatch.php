@@ -79,6 +79,26 @@ $declinedQuote = (new HtmlTransformer())->transform('<blockquote><cite>Ada</cite
 $assert(array() === ($declinedQuote['blocks'] ?? array()), 'A quote without visible quoted content declines normal lowering.');
 $assert(array() === ($declinedQuote['fallbacks'] ?? array()), 'A declined quote commits no recursive fallback diagnostics.');
 
+$codeWindow = (new HtmlTransformer())->transform('<div class="code-window"><pre><code>echo 1;</code></pre></div>')->toArray();
+$assert('core/group' === ($codeWindow['blocks'][0]['blockName'] ?? null), 'A code-window recognizer wins before generic container lowering.');
+$assert('core/code' === ($codeWindow['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'The direct code-window recognizer preserves its nested code block.');
+
+$declinedCodeWindow = (new HtmlTransformer())->transform('<div class="code-window"><pre>Plain text</pre></div>')->toArray();
+$assert('core/preformatted' === ($declinedCodeWindow['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'A code window without a code child declines to ordinary preformatted lowering.');
+
+$logo = (new HtmlTransformer())->transform('<a class="site-logo" href="/">Mara Vale</a>')->toArray();
+$assert('site-logo blocks-engine-synthetic-paragraph' === ($logo['blocks'][0]['attrs']['className'] ?? null), 'The direct logo recognizer preserves the logo signal on its synthetic paragraph.');
+
+$declinedLogo = (new HtmlTransformer())->transform('<a href="/">Mara Vale</a>')->toArray();
+$assert('blocks-engine-synthetic-paragraph' === ($declinedLogo['blocks'][0]['attrs']['className'] ?? null), 'An ordinary anchor without a logo signal declines to normal anchor lowering.');
+
+$gallery = (new HtmlTransformer())->transform('<div class="media-grid" data-layout="grid"><figure><img src="c.jpg" alt="C"></figure><figure><img src="d.jpg" alt="D"></figure></div>')->toArray();
+$assert('core/gallery' === ($gallery['blocks'][0]['blockName'] ?? null), 'A multi-image gallery wins before generic grid lowering.');
+$assert(2 === count($gallery['blocks'][0]['innerBlocks'] ?? array()), 'The direct gallery recognizer preserves both converted images.');
+
+$declinedGallery = (new HtmlTransformer())->transform('<div class="media-grid" data-layout="grid"><figure><img src="c.jpg" alt="C"></figure></div>')->toArray();
+$assert('core/group' === ($declinedGallery['blocks'][0]['blockName'] ?? null), 'A single-image gallery candidate declines to generic grid lowering.');
+
 $accordion = (new HtmlTransformer())->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">A?</button><div id="a"><p>A.</p><object data="/a.pdf"></object></div></div><div class="faq-item"><button aria-controls="b">B?</button><div id="b"><p>B.</p></div></div></section>')->toArray();
 $assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? null), 'Accordion recognition survives an unsupported panel child.');
 $assert('html_unsupported_element' === ($accordion['fallbacks'][0]['diagnostic_code'] ?? null), 'Accordion commits recursive panel diagnostics through its winning result.');

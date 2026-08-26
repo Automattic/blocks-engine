@@ -20,15 +20,17 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CallbackPatternRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -210,18 +212,12 @@ final class HtmlTransformer
 
     private readonly BackgroundImageExtractor $backgroundImageExtractor;
 
-    private readonly CodeWindowPattern $codeWindowPattern;
-
     private readonly ColumnsPattern $columnsPattern;
 
     private readonly CoverPattern $coverPattern;
 
     private readonly MediaTextPattern $mediaTextPattern;
 
-
-    private readonly GalleryPattern $galleryPattern;
-
-    private readonly LogoPattern $logoPattern;
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
 
@@ -581,12 +577,9 @@ final class HtmlTransformer
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
         $buttonsPattern         = new ButtonsPattern();
-        $this->codeWindowPattern = new CodeWindowPattern();
         $this->columnsPattern    = new ColumnsPattern();
         $this->coverPattern      = new CoverPattern();
         $this->mediaTextPattern  = new MediaTextPattern();
-        $this->galleryPattern    = new GalleryPattern();
-        $this->logoPattern       = new LogoPattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $quotePattern            = new QuotePattern();
         $this->patternRecognizers = new PatternRecognizerRegistry(array(
@@ -596,22 +589,13 @@ final class HtmlTransformer
             new MathPattern(),
             new ParameterTablePattern(),
             new SpacerPattern(),
-            new CallbackPatternRecognizer('code-window', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->codeWindowPattern->match($element, $context->presentationAttributesCallback(), $context->innerHtmlCallback(), fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode), fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
-            new CallbackPatternRecognizer('logo', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->logoPattern->match($element, $context->presentationAttributesCallback(), fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement), fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)), fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new CodeWindowPattern(),
+            new LogoPattern(),
             new PlaceholderMediaPattern(),
             $quotePattern,
             new FigureQuotePattern($quotePattern),
             new DetailsPattern(),
-            new CallbackPatternRecognizer('gallery', function (DOMElement $element, PatternContext $context): ?PatternRecognitionResult {
-                $block = $this->galleryPattern->match($element, fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link), fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link), fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure), $context->presentationAttributesCallback(), $context->innerHtmlCallback(), $context->createBlockCallback());
-                return null === $block ? null : new PatternRecognitionResult($block);
-            }),
+            new GalleryPattern(),
             new ButtonsContainerPattern($buttonsPattern),
             new ButtonAnchorPattern($buttonsPattern),
             new ButtonPattern($buttonsPattern),
@@ -4638,6 +4622,20 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
                 fn (string $html): string => $this->runtime->stripAllTags($html),
                 fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName)
+            ),
+            new CodeWindowPatternContext(
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
+            ),
+            new LogoPatternContext(
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
+            ),
+            new GalleryPatternContext(
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure)
             )
         );
     }
@@ -4679,7 +4677,21 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
             ),
             safeFallbackHtml: fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-            escapeHtml: fn (string $text): string => $this->runtime->escapeHtml($text)
+            escapeHtml: fn (string $text): string => $this->runtime->escapeHtml($text),
+            codeWindowContext: new CodeWindowPatternContext(
+                fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
+                fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
+            ),
+            logoContext: new LogoPatternContext(
+                fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
+            ),
+            galleryContext: new GalleryPatternContext(
+                fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+                fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+                fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure)
+            )
         );
     }
 
@@ -5080,7 +5092,7 @@ final class HtmlTransformer
                 return $gallery;
             }
 
-            $codeWindow = $this->recognizePatterns($element, $fallbacks, array('code-window'));
+            $codeWindow = $this->recognizePatterns($element, $fallbacks, array(CodeWindowPattern::class));
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -5440,7 +5452,7 @@ final class HtmlTransformer
                 return $this->authorLayoutBlockFromElement($element, $fallbacks);
             }
 
-            $logo = $this->recognizePatterns($element, $fallbacks, array('logo'));
+            $logo = $this->recognizePatterns($element, $fallbacks, array(LogoPattern::class));
             if ( null !== $logo ) {
                 return $logo;
             }
@@ -5490,7 +5502,7 @@ final class HtmlTransformer
                 return $gallery;
             }
 
-            $codeWindow = $this->recognizePatterns($element, $fallbacks, array('code-window'));
+            $codeWindow = $this->recognizePatterns($element, $fallbacks, array(CodeWindowPattern::class));
             if ( null !== $codeWindow ) {
                 return $codeWindow;
             }
@@ -5771,7 +5783,7 @@ final class HtmlTransformer
             return $this->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
         }
 
-        return $this->recognizePatterns($element, $fallbacks, array('gallery'));
+        return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
     }
 
     private function isGalleryCompatibleMediaLayout(DOMElement $element): bool
