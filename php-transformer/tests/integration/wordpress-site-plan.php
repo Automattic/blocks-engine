@@ -155,7 +155,7 @@ $editorCss = static function (WP_Post $post): string { $settings = apply_filters
 $frontEditorCss = $editorCss($frontPage);
 $nestedAbout = get_post($pagesBySource['nested/about.html']); if (!$nestedAbout) throw new RuntimeException('Could not load nested about page.');
 $aboutEditorCss = $editorCss($nestedAbout);
-$editorRootReset = 'html :where(.block-editor-block-list__layout.is-root-container > .wp-block){margin-bottom:0;margin-top:0;max-width:none}';
+$editorRootReset = 'html :where(.block-editor-block-list__layout > .wp-block){margin-bottom:0;margin-top:0;max-width:none}';
 $assert(str_contains($frontEditorCss, $editorRootReset) && 1 === substr_count($frontEditorCss, $editorRootReset) && str_contains($frontEditorCss, '.global-presentation{display:block}') && str_contains($frontEditorCss, '.home-owned{color:#123456}') && !str_contains($frontEditorCss, '.about-owned{color:#654321}') && str_contains($frontEditorCss, 'blocks-engine-presentation:'), 'Front-page editor receives one root-wrapper reset plus global and front-page presentation assets with content-addressed evidence.');
 $assert(str_contains($aboutEditorCss, $editorRootReset) && 1 === substr_count($aboutEditorCss, $editorRootReset) && str_contains($aboutEditorCss, '.global-presentation{display:block}') && str_contains($aboutEditorCss, '.about-owned{color:#654321}') && !str_contains($aboutEditorCss, '.home-owned{color:#123456}') && str_contains($aboutEditorCss, 'blocks-engine-presentation:'), 'Nested-page editor receives one root-wrapper reset plus global and route-owned presentation assets while excluding unrelated route CSS.');
 global $wp_query;
