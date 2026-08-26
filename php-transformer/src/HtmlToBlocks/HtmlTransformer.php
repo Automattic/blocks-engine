@@ -368,6 +368,11 @@ final class HtmlTransformer
             ?? throw new \LogicException('Asset materialization state has not been prepared for this transform.');
     }
 
+    private function runtimeDom(): RuntimeDomState
+    {
+        return $this->session->runtimeDomState();
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -526,9 +531,9 @@ final class HtmlTransformer
             self::class,
             $this->scriptMetadata,
             $fallbacks,
-            $this->runtimeIslands,
-            array_values($this->runtimeDomPreservations),
-            array_values($this->runtimeDomFallbacks),
+            $this->runtimeDom()->islands(),
+            $this->runtimeDom()->preservations(),
+            $this->runtimeDom()->fallbacks(),
             $blockValidityReport,
             $semanticParityReport,
             $contentRoundTripReport
@@ -591,9 +596,9 @@ final class HtmlTransformer
             'available_core_blocks' => $nativeTargetBlocks,
             'core_block_capabilities' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
-            'runtime_islands' => $this->runtimeIslands,
-            'runtime_dom_contracts' => array_values($this->runtimeDomPreservations),
-            'runtime_dom_fallbacks' => array_values($this->runtimeDomFallbacks),
+            'runtime_islands' => $this->runtimeDom()->islands(),
+            'runtime_dom_contracts' => $this->runtimeDom()->preservations(),
+            'runtime_dom_fallbacks' => $this->runtimeDom()->fallbacks(),
             'generated_blocks' => $this->generatedBlocks()->definitions(),
             'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(
                 array(
@@ -623,7 +628,7 @@ final class HtmlTransformer
                 'structure_signals'    => $this->structureProvenance,
                 'reusable_components' => $reusableComponentRecognition,
                 'script_metadata'      => $this->scriptMetadata,
-                'runtime_islands'      => $this->runtimeIslands,
+                'runtime_islands'      => $this->runtimeDom()->islands(),
                 'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
             ),
         );
@@ -10620,13 +10625,7 @@ final class HtmlTransformer
     private function isPreservedRuntimeIslandElement(DOMElement $element): bool
     {
         $selector = $this->runtimeIslandSelector($element);
-        foreach ( $this->runtimeIslands as $island ) {
-            if ( is_array($island) && ($island['selector'] ?? null) === $selector ) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->runtimeDom()->hasIslandSelector($selector);
     }
 
     /**
@@ -11993,7 +11992,7 @@ final class HtmlTransformer
      */
     private function captureCanvasFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureCanvasFallback($element, $fallbacks, $this->runtimeIslands);
+        $this->fallbackEmitter->captureCanvasFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     private function isRuntimeCanvasTarget(DOMElement $element): bool
@@ -12365,7 +12364,7 @@ final class HtmlTransformer
      */
     private function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata = array()): void
     {
-        $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeIslands);
+        $this->fallbackEmitter->recordRuntimeIsland($element, $kind, $reason, $runtimeRequirement, $metadata, $this->runtimeDom());
     }
 
     private function recordNativeRuntimeDomPreservation(DOMElement $element, string $blockName, bool $includeRichTextDescendants = false): void
@@ -12380,15 +12379,7 @@ final class HtmlTransformer
         }
         foreach ($elements as $target) {
             foreach ($this->runtimeDomSelectorsForElement($target) as $selector) {
-                $key = $blockName . "\n" . $selector;
-                if (isset($this->runtimeDomPreservations[$key])) {
-                    continue;
-                }
-                $this->runtimeDomPreservations[$key] = array(
-                    'block_name' => $blockName,
-                    'tag' => strtolower($target->tagName),
-                    'selector' => $selector,
-                );
+                $this->runtimeDom()->recordPreservation($blockName, strtolower($target->tagName), $selector);
             }
         }
     }
@@ -12396,15 +12387,7 @@ final class HtmlTransformer
     private function recordRuntimeDomFallback(DOMElement $element, string $blockName): void
     {
         foreach ($this->runtimeDomSelectorsForElement($element) as $selector) {
-            $key = $blockName . "\n" . $selector;
-            if (isset($this->runtimeDomFallbacks[$key])) {
-                continue;
-            }
-            $this->runtimeDomFallbacks[$key] = array(
-                'block_name' => $blockName,
-                'tag' => strtolower($element->tagName),
-                'selector' => $selector,
-            );
+            $this->runtimeDom()->recordFallback($blockName, strtolower($element->tagName), $selector);
         }
     }
 
@@ -12506,7 +12489,7 @@ final class HtmlTransformer
      */
     private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureScriptFallback($element, $fallbacks, $this->runtimeIslands);
+        $this->fallbackEmitter->captureScriptFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     private function captureStaticScriptMetadata(DOMElement $element): bool
@@ -12557,7 +12540,7 @@ final class HtmlTransformer
      */
     private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
     {
-        $this->fallbackEmitter->captureTemplateFallback($element, $fallbacks, $this->runtimeIslands);
+        $this->fallbackEmitter->captureTemplateFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     /**

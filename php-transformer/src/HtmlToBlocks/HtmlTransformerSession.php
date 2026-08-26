@@ -34,9 +34,7 @@ final class HtmlTransformerSession
     public array $formControlSlotPaths = array();
     public array $structureProvenance = array();
     public array $scriptMetadata = array();
-    public array $runtimeIslands = array();
-    public array $runtimeDomPreservations = array();
-    public array $runtimeDomFallbacks = array();
+    private readonly RuntimeDomState $runtimeDomState;
     public array $nativeDisclosureRootIds = array();
     private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
     public bool $emptyRuntimeTargetGenerated = false;
@@ -97,6 +95,7 @@ final class HtmlTransformerSession
         $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceContextResolver);
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
+        $this->runtimeDomState = new RuntimeDomState();
     }
 
     public function installAuthorStyleAnalysis(AuthorStyleAnalysis $analysis): void
@@ -137,5 +136,10 @@ final class HtmlTransformerSession
     public function assetMaterializationState(): ?AssetMaterializationState
     {
         return $this->assetMaterializationState;
+    }
+
+    public function runtimeDomState(): RuntimeDomState
+    {
+        return $this->runtimeDomState;
     }
 }
