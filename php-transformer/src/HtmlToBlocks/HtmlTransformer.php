@@ -57,6 +57,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -378,6 +379,11 @@ final class HtmlTransformer
         return $this->session->runtimeSelectorState();
     }
 
+    private function sourceStyles(): SourceStyleResolutionState
+    {
+        return $this->session->sourceStyleResolutionState();
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -398,15 +404,9 @@ final class HtmlTransformer
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
-        $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
-        $this->staticStyleRules = $styleAnalysis['static'];
-        $this->conditionalStyleRules = $styleAnalysis['conditional'];
-        $this->navigationStateStyleRules = $styleAnalysis['navigation_state'];
-        $this->imageShapeStyleRules = $styleAnalysis['image_shape'];
-        $this->staticPseudoElementStyleRules = $styleAnalysis['pseudo'];
-        $this->cssCustomProperties = $styleAnalysis['custom_properties'];
+        $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
         $this->resetPresentationResolutionCache();
         $runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
@@ -859,7 +859,7 @@ final class HtmlTransformer
      */
     private function metrics(string $input, array $blocks, string $output, array $fallbacks, array $diagnostics, int $startedAt): array
     {
-        $selectorCache = $this->session->sourceStyleResolutionState->selectorMatchCache;
+        $selectorCache = $this->sourceStyles()->selectorMatchCache;
         return array(
             'input_bytes'           => strlen($input),
             'block_count'           => $this->countBlocks($blocks),
@@ -1402,7 +1402,7 @@ final class HtmlTransformer
         }
 
         $rules = array();
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()) as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
             if ( 1 !== preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
                 continue;
@@ -2197,7 +2197,7 @@ final class HtmlTransformer
     private function navigationColorInteractionStates(DOMElement $element): array
     {
         $matched = array();
-        foreach ( $this->navigationStateStyleRules as $rule ) {
+        foreach ( $this->sourceStyles()->navigationStateRules() as $rule ) {
             if ( ! isset($rule['declarations']['color'])
                 || ! $this->matchesCssSelector($element, $rule['base_selector'])
             ) {
@@ -2494,7 +2494,7 @@ final class HtmlTransformer
     private function sourceMobileNavigationOverlayBackground(): string
     {
         $background = '';
-        foreach ( array_merge($this->staticStyleRules, $this->conditionalStyleRules) as $rule ) {
+        foreach ( array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()) as $rule ) {
             $selector = strtolower((string) ($rule['selector'] ?? ''));
             if ( ! str_contains($selector, 'nav') || ! preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $selector) ) {
                 continue;
@@ -2527,7 +2527,7 @@ final class HtmlTransformer
             ? $this->combinedAuthorStylesheet($html, $staticCss)
             : implode("\n\n", array_column($stylesheetAssets, 'content'));
         $this->session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody));
-        $this->formLayoutCss = $combinedAuthorCss;
+        $this->sourceStyles()->setFormLayoutCss($combinedAuthorCss);
 
         if ( '' === $combinedAuthorCss ) {
             return;
@@ -3625,7 +3625,7 @@ final class HtmlTransformer
     /** @return array<string, mixed> */
     private function parsedCssSelector(string $selector): array
     {
-        return $this->parsedCssSelectors[$selector] ??= CssSelectorMatcher::parse($selector);
+        return $this->sourceStyles()->parsedSelector($selector);
     }
 
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
@@ -4374,7 +4374,7 @@ final class HtmlTransformer
             $item,
             $anchor,
             fn (DOMElement $element): array => $this->presentationDeclarations($element),
-            $this->staticPseudoElementStyleRules,
+            $this->sourceStyles()->pseudoElementRules(),
             fn (DOMElement $element, string $selector): bool => $this->matchesCssSelector($element, $selector)
         );
     }
@@ -6304,7 +6304,7 @@ final class HtmlTransformer
                 $parsed = $selector['direct_child_parsed'];
                 $last = count($parsed['compounds'] ?? array()) - 1;
                 if ( $parsed['supported'] && $last >= 1 && '>' === ($parsed['combinators'][$last - 1] ?? '')
-                    && ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
+                    && ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
                     return true;
                 }
             }
@@ -7826,13 +7826,13 @@ final class HtmlTransformer
 
     private function promotedClassName(string $className): string
     {
-        if ( '' === trim($className) || array() === $this->staticClassPromotions ) {
+        if ( '' === trim($className) || ! $this->sourceStyles()->hasClassPromotions() ) {
             return $this->presentationClassName($className);
         }
 
         $classes = preg_split('/\s+/', trim($className)) ?: array();
         foreach ( $classes as $class ) {
-            foreach ( $this->staticClassPromotions[$class] ?? array() as $terminalClass ) {
+            foreach ( $this->sourceStyles()->classPromotions($class) as $terminalClass ) {
                 if ( ! in_array($terminalClass, $classes, true) ) {
                     $classes[] = $terminalClass;
                 }
@@ -8118,7 +8118,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder])
                 || ! ($candidate['parsed']['supported'] ?? false)
                 || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
-                || ! ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+                || ! ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
             ) {
                 continue;
             }
@@ -8250,7 +8250,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
                 continue;
             }
-            if ( ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
+            if ( ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $selector['declarations']);
             }
@@ -8262,7 +8262,7 @@ final class HtmlTransformer
     private function authorStyleRuleCandidates(DOMElement $element): array
     {
         $index = $this->authorStyles()->styleRuleCandidateIndex();
-        return ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
+        return ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
     }
 
     private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
@@ -8294,7 +8294,7 @@ final class HtmlTransformer
         foreach ( $beforeCandidates as $selector ) {
             $matchesBefore[$selector['key']] = $selector['parsed']['supported'] && (bool) array_filter(
                 $chain,
-                fn (DOMElement $node): bool => ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
+                fn (DOMElement $node): bool => ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
         }
 
@@ -8315,7 +8315,7 @@ final class HtmlTransformer
         }
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
-                && ($this->session->sourceStyleResolutionState->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
+                && ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
@@ -8426,7 +8426,7 @@ final class HtmlTransformer
 
     private function hasStaticPseudoElementRule(DOMElement $element): bool
     {
-        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
             }
@@ -8552,7 +8552,7 @@ final class HtmlTransformer
                 return $attrs;
             }
         }
-        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
                 return $attrs;
             }
@@ -10858,7 +10858,7 @@ final class HtmlTransformer
             return true;
         }
 
-        foreach ( $this->staticPseudoElementStyleRules as $rule ) {
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
             if ( $this->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
                 return true;
             }
@@ -13549,7 +13549,7 @@ final class HtmlTransformer
     {
         $controls = $this->formControls($element);
         $controlTopology = $this->formControlTopology($element);
-        $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStyles()->stylesheetAssets(), $this->formLayoutCss);
+        $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStyles()->stylesheetAssets(), $this->sourceStyles()->formLayoutCss());
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
@@ -14832,7 +14832,7 @@ final class HtmlTransformer
         $inline = $this->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
             $family = $this->responsivePropertyFamily($property);
-            if ( array() !== $this->conditionalStyleRules
+            if ( array() !== $this->sourceStyles()->conditionalRules()
                 && $this->hasConditionalStyleFamily($element, $family)
                 && ! $this->inlineOwnsResponsiveProperty($property, $family, $inline)
             ) {
@@ -16164,7 +16164,7 @@ final class HtmlTransformer
     private function imageShapeDeclaration(DOMElement $element, string $property): string
     {
         $winner = null;
-        foreach ($this->imageShapeStyleRules as $rule) {
+        foreach ($this->sourceStyles()->imageShapeRules() as $rule) {
             if ($property !== $rule['property'] || ! $this->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }

@@ -512,7 +512,7 @@ trait SvgMaterializationTrait
             return $value;
         }
 
-        $customProperties = $this->cssCustomProperties;
+        $customProperties = $this->sourceStyles()->customProperties();
         if ( $element instanceof DOMElement ) {
             $ancestors = array();
             for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {

@@ -45,18 +45,11 @@ final class HtmlTransformerSession
     public array $syntheticHeaderAnchorStyleRules = array();
     public array $headerRichTextStyleRules = array();
     public array $gutenbergIncompatibilities = array();
-    public array $cssCustomProperties = array();
-    public array $staticClassPromotions = array();
-    public array $staticStyleRules = array();
-    public array $conditionalStyleRules = array();
-    public array $navigationStateStyleRules = array();
     public array $listNavigationPaddingFallbacks = array();
     public array $navigationLinkColorFallbacks = array();
     public array $navigationSubmenuBackgroundFallbacks = array();
     public array $navigationSpacingFallbacks = array();
     public array $buttonWrapperSpacingFallbacks = array();
-    public array $imageShapeStyleRules = array();
-    public array $staticPseudoElementStyleRules = array();
     private RuntimeSelectorState $runtimeSelectorState;
     public array $sourceTagMarkers = array();
     public array $sourceControlMarkers = array();
@@ -75,14 +68,12 @@ final class HtmlTransformerSession
     public array $sourceTableDescendantPaths = array();
     public array $sourceRichTextSemanticMarkers = array();
     public array $authorLayoutTopologies = array();
-    public array $parsedCssSelectors = array();
-    public string $formLayoutCss = '';
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     public int $nextSourceProvenanceId = 1;
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
     public readonly PresentationResolutionCache $presentationResolutionCache;
-    public readonly SourceStyleResolutionState $sourceStyleResolutionState;
+    private readonly SourceStyleResolutionState $sourceStyleResolutionState;
     private ?LayoutGeometryState $layoutGeometryState = null;
     public readonly FallbackEmitter $fallbackEmitter;
 
@@ -149,5 +140,10 @@ final class HtmlTransformerSession
     public function runtimeSelectorState(): RuntimeSelectorState
     {
         return $this->runtimeSelectorState;
+    }
+
+    public function sourceStyleResolutionState(): SourceStyleResolutionState
+    {
+        return $this->sourceStyleResolutionState;
     }
 }
