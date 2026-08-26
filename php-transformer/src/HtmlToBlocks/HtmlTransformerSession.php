@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
@@ -85,7 +85,6 @@ final class HtmlTransformerSession
     public array $sourceAttributeNegationMarkers = array();
     public array $sourceAttributeStateMarkers = array();
     public array $sourceRootChildMarkers = array();
-    public array $sourceBodyProjectionClasses = array();
     public array $responsiveGeometryAmbiguities = array();
     public array $sourceTableMarkers = array();
     public array $sourceTableRepresentability = array();
@@ -93,29 +92,9 @@ final class HtmlTransformerSession
     public array $sourceRichTextSemanticMarkers = array();
     public array $authorLayoutTopologies = array();
     public bool $authorLayoutBlockGenerated = false;
-    public string $combinedAuthorCss = '';
-    public ?DOMElement $authorStyleSourceBody = null;
-    public array $authorStyleSourceElements = array();
-    public array $authorStyleSourceElementsByTag = array();
-    public array $authorStyleSourceElementsById = array();
-    public array $authorStyleSourceElementsByClass = array();
-    public array $authorStyleSourceTags = array();
-    public array $authorStyleSourceIds = array();
-    public array $authorStyleSourceClasses = array();
-    public array $authorSourceSelectorMatches = array();
     public array $parsedCssSelectors = array();
-    public ?CssSelectorMatchCache $authorSelectorMatchCache = null;
-    public array $authorSelectors = array();
-    public array $authorStyleRules = array();
-    public array $authorStyleRuleCandidateIndexes = array();
-    public string $authorMarkerSeed = '';
-    public int $authorMarkerCounter = 0;
-    public string $authorMarkerCollisionText = '';
-    public array $authorStylesheetAssets = array();
     public string $formLayoutCss = '';
-    public string $authorSpecificityShim = '';
-    public string $authorClassSpecificityShim = '';
-    public string $authorIdSpecificityShim = '';
+    private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     public int $nextSourceProvenanceId = 1;
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
@@ -134,5 +113,15 @@ final class HtmlTransformerSession
         $this->fallbackEmitter = new FallbackEmitter($runtime, $sourceContextResolver);
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
+    }
+
+    public function installAuthorStyleAnalysis(AuthorStyleAnalysis $analysis): void
+    {
+        $this->authorStyleAnalysis = $analysis;
+    }
+
+    public function authorStyleAnalysis(): ?AuthorStyleAnalysis
+    {
+        return $this->authorStyleAnalysis;
     }
 }
