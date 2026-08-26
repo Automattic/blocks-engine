@@ -230,7 +230,7 @@ trait NavigationToggleSuppressionTrait
                 continue;
             }
 
-            $this->supersededRuntimeSelectors['#' . $controlledId] = true;
+            $this->runtimeSelectors()->supersede('#' . $controlledId);
 
             $target = $this->elementWithId($toggle, $controlledId);
             if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
@@ -303,12 +303,12 @@ trait NavigationToggleSuppressionTrait
     {
         $id = trim($this->attr($element, 'id'));
         if ( '' !== $id ) {
-            $this->supersededRuntimeSelectors['#' . $id] = true;
+            $this->runtimeSelectors()->supersede('#' . $id);
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
             if ( '' !== $class ) {
-                $this->supersededRuntimeSelectors['.' . $class] = true;
+                $this->runtimeSelectors()->supersede('.' . $class);
             }
         }
     }

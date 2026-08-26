@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeDomState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -33,7 +34,7 @@ use DOMElement;
  *  - Fallback and script accumulators stay owned by HtmlTransformer. Runtime
  *    island evidence is recorded through the per-transform RuntimeDomState.
  *  - Per-document configuration (`fallbackProvenance`, `runtimeScriptMetadata`,
- *    `runtimeCanvasSelectors`) is injected via {@see configure()} once per
+ *    `RuntimeSelectorState`) is injected via {@see configure()} once per
  *    transform.
  *  - `sourceContext()` enrichment is deeply entangled with the transformer's
  *    DOM-classification subsystem (structure signals, interactive attributes,
@@ -61,10 +62,7 @@ final class FallbackEmitter
      */
     private array $runtimeScriptMetadata = array();
 
-    /**
-     * @var array<string, bool>
-     */
-    private array $runtimeCanvasSelectors = array();
+    private RuntimeSelectorState $runtimeSelectors;
 
     /** @var array<string, string> */
     private array $sourceTagMarkers = array();
@@ -107,6 +105,7 @@ final class FallbackEmitter
     ) {
         $this->classifier     = new SubtreeClassifier();
         $this->blockGenerator = new CustomBlockGenerator();
+        $this->runtimeSelectors = new RuntimeSelectorState(array(), array(), array());
     }
 
     /**
@@ -360,14 +359,13 @@ final class FallbackEmitter
      *
      * @param array<string, string>             $fallbackProvenance
      * @param array<int, array<string, mixed>>  $runtimeScriptMetadata
-     * @param array<string, bool>               $runtimeCanvasSelectors
      * @param array<string, string>             $sourceTagMarkers
      */
-    public function configure(array $fallbackProvenance, array $runtimeScriptMetadata, array $runtimeCanvasSelectors, array $sourceTagMarkers = array()): void
+    public function configure(array $fallbackProvenance, array $runtimeScriptMetadata, RuntimeSelectorState $runtimeSelectors, array $sourceTagMarkers = array()): void
     {
         $this->fallbackProvenance     = $fallbackProvenance;
         $this->runtimeScriptMetadata  = $runtimeScriptMetadata;
-        $this->runtimeCanvasSelectors = $runtimeCanvasSelectors;
+        $this->runtimeSelectors       = $runtimeSelectors;
         $this->sourceTagMarkers       = $sourceTagMarkers;
     }
 
@@ -636,23 +634,28 @@ final class FallbackEmitter
     public function isRuntimeCanvasTarget(DOMElement $element): bool
     {
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeCanvasSelectors['#' . $id]) ) {
+        if ( '' !== $id && $this->runtimeSelectors()->hasCanvas('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeCanvasSelectors['.' . $class]) ) {
+            if ( '' !== $class && $this->runtimeSelectors()->hasCanvas('.' . $class) ) {
                 return true;
             }
         }
 
-        foreach ( array_keys($this->runtimeCanvasSelectors) as $selector ) {
+        foreach ( array_keys($this->runtimeSelectors()->canvasSelectors()) as $selector ) {
             if ( $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function runtimeSelectors(): RuntimeSelectorState
+    {
+        return $this->runtimeSelectors;
     }
 
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
