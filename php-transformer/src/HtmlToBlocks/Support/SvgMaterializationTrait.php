@@ -552,8 +552,9 @@ trait SvgMaterializationTrait
     private function cssCustomProperties(string $html, string $linkedCss): array
     {
         $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
+        $styles = StyleTagScanner::scan($html);
+        if ( array() !== $styles ) {
+            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map(static fn (array $style): string => trim($style['content']), $styles));
         }
         if ( '' === trim($css) ) {
             return array();

@@ -69,6 +69,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrai
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
 use DOMElement;
@@ -1416,12 +1417,10 @@ final class HtmlTransformer
     private function combinedAuthorStylesheet(string $html, string $staticCss): string
     {
         $cssParts = array();
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            foreach ( $matches[1] as $styleBlock ) {
-                $styleBlock = trim(html_entity_decode((string) $styleBlock, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                if ( '' !== $styleBlock ) {
-                    $cssParts[] = $styleBlock;
-                }
+        foreach ( StyleTagScanner::scan($html) as $style ) {
+            $styleBlock = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ( '' !== $styleBlock ) {
+                $cssParts[] = $styleBlock;
             }
         }
         $staticCss = trim($staticCss);
@@ -1494,11 +1493,7 @@ final class HtmlTransformer
     /** @return list<string> */
     private function inlineStylesheetPayloads(string $html): array
     {
-        if ( ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            return array();
-        }
-
-        return array_map(static fn (string $payload): string => trim($payload), $matches[1]);
+        return array_map(static fn (array $style): string => trim($style['content']), StyleTagScanner::scan($html));
     }
 
     /** @param list<string> $payloads */
