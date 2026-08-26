@@ -1206,6 +1206,14 @@ trait StyleResolutionTrait
      */
     private function structuralPresentationDeclarations(DOMElement $element): array
     {
+        $cache = $this->sourceStyles();
+        $cacheKey = $this->presentationCacheKey($element);
+        if ( isset($cache->structuralDeclarations[$cacheKey]) ) {
+            ++$this->analysisCache->sourceStructuralDeclarationHits;
+            return $cache->structuralDeclarations[$cacheKey];
+        }
+        ++$this->analysisCache->sourceStructuralDeclarationBuilds;
+
         $declarations = array();
         foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
@@ -1213,7 +1221,7 @@ trait StyleResolutionTrait
             }
         }
 
-        return $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
     }
 
     /**
@@ -2455,7 +2463,9 @@ trait StyleResolutionTrait
 
     private function invalidateSourceSelectorMatchCache(): void
     {
-        $this->sourceStyles()->selectorMatchCache?->clear();
+        $cache = $this->sourceStyles();
+        $cache->selectorMatchCache?->clear();
+        $cache->structuralDeclarations = array();
     }
 
     private function recordSourceSelectorMatchWork(): void

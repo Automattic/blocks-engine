@@ -97,6 +97,10 @@ final class HtmlTransformerAnalysisCache
 
     public int $sourceStyleCandidateRulePeakRetained = 0;
 
+    public int $sourceStructuralDeclarationBuilds = 0;
+
+    public int $sourceStructuralDeclarationHits = 0;
+
     /** @param array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array} $analysis */
     public function rememberStyle(string $key, array $analysis): void
     {
