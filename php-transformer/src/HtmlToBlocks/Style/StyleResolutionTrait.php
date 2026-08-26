@@ -1602,13 +1602,12 @@ trait StyleResolutionTrait
 
     private function collectEditorHiddenStateFindings(DOMElement $body): void
     {
-        $hiddenRules = $this->hiddenStateStyleRules();
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
                 continue;
             }
             $declarations = array();
-            foreach ( $hiddenRules as $rule ) {
+            foreach ( $this->styleRuleCandidates($element, 'hidden-state') as $rule ) {
                 if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                     $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
                 }
@@ -2496,6 +2495,7 @@ trait StyleResolutionTrait
         $rules = match ($collection) {
             'static' => $this->sourceStyles()->staticRules(),
             'conditional' => $this->sourceStyles()->conditionalRules(),
+            'hidden-state' => $this->hiddenStateStyleRules(),
             'static-conditional' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()),
             'static-conditional-pseudo' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules(), $this->sourceStyles()->pseudoElementRules()),
         };
