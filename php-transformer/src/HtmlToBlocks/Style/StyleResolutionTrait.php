@@ -1589,12 +1589,12 @@ trait StyleResolutionTrait
         }
 
         if ( array() !== $stripped ) {
-            $this->frozenHiddenStateFindings[] = array(
+            $this->transformationEvidence()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
                 'selector'     => $this->elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $stripped,
-            );
+            ));
         }
 
         return $declarations;

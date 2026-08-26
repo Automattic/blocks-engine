@@ -22,11 +22,9 @@ use DOMElement;
  */
 final class HtmlTransformerSession
 {
-    public array $formControlEchoTexts = array();
+    private readonly TransformationEvidenceState $transformationEvidenceState;
     public array $responsiveImageFallbacks = array();
     public array $responsiveImageFallbackSelectors = array();
-    public array $frozenHiddenStateFindings = array();
-    public array $droppedLinkWrapperFindings = array();
     private readonly TransformationProvenanceState $transformationProvenanceState;
     public array $scriptMetadata = array();
     private readonly RuntimeDomState $runtimeDomState;
@@ -36,10 +34,7 @@ final class HtmlTransformerSession
     public bool $emptyRuntimeTargetGenerated = false;
     public array $runtimeScriptMetadata = array();
     private ?AssetMaterializationState $assetMaterializationState = null;
-    public array $gutenbergIncompatibilities = array();
     private RuntimeSelectorState $runtimeSelectorState;
-    public array $responsiveGeometryAmbiguities = array();
-    public array $authorLayoutTopologies = array();
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     private readonly AuthorSelectorProjectionState $authorSelectorProjectionState;
     private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
@@ -61,6 +56,7 @@ final class HtmlTransformerSession
         $this->authorSelectorProjectionState = new AuthorSelectorProjectionState();
         $this->generatedSupportStylesheetState = new GeneratedSupportStylesheetState();
         $this->transformationProvenanceState = new TransformationProvenanceState();
+        $this->transformationEvidenceState = new TransformationEvidenceState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -143,5 +139,10 @@ final class HtmlTransformerSession
     public function transformationProvenanceState(): TransformationProvenanceState
     {
         return $this->transformationProvenanceState;
+    }
+
+    public function transformationEvidenceState(): TransformationEvidenceState
+    {
+        return $this->transformationEvidenceState;
     }
 }
