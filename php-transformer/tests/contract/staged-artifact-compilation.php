@@ -31,6 +31,7 @@ $artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', '
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
+$assert('artifact' === ($shared['shared_reduction']['files_source'] ?? null) && !array_key_exists('files', $shared['shared_reduction']), 'Inline shared reductions reference their digest-bound artifact files instead of serializing a duplicate payload.');
 $assert(array('diagnostics', 'projected_count') === array_keys($shared['analysis']['captured_dialogs']), 'Shared preparation persists bounded captured-dialog evidence without duplicating projected artifact files.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
@@ -127,6 +128,17 @@ $largeExpandedReceipt['terminal_reduction']['entry_blocks'] = $largeExpandedRece
 $largeCompactBytes = strlen(json_encode($largeReceipt, JSON_THROW_ON_ERROR));
 $largeExpandedBytes = strlen(json_encode($largeExpandedReceipt, JSON_THROW_ON_ERROR));
 $assert($largeCompactBytes < (int) ($largeExpandedBytes * 0.7), sprintf('A large compiled page receipt is at least thirty percent smaller without duplicate source and entry output (%d compact bytes versus %d expanded bytes).', $largeCompactBytes, $largeExpandedBytes));
+$largeSharedArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Shared reduction size</main>'),
+    array('path' => 'assets/shared.bin', 'content_base64' => base64_encode(str_repeat('shared-payload', 32768)), 'mime_type' => 'application/octet-stream', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$largeSharedPlan = $compiler->prepareShared($largeSharedArtifact);
+$largeExpandedSharedPlan = $largeSharedPlan;
+$largeExpandedSharedPlan['shared_reduction']['files'] = $largeExpandedSharedPlan['artifact']['files'];
+unset($largeExpandedSharedPlan['shared_reduction']['files_source']);
+$largeSharedBytes = strlen(json_encode($largeSharedPlan, JSON_THROW_ON_ERROR));
+$largeExpandedSharedBytes = strlen(json_encode($largeExpandedSharedPlan, JSON_THROW_ON_ERROR));
+$assert($largeSharedBytes < (int) ($largeExpandedSharedBytes * 0.7), sprintf('A large shared plan is at least thirty percent smaller when its reduction references the digest-bound artifact files (%d compact bytes versus %d expanded bytes).', $largeSharedBytes, $largeExpandedSharedBytes));
 $pageScopedScriptArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main id="home-target"><script src="js/home.js"></script><h1>Home</h1></main>'),
     array('path' => 'about.html', 'content' => '<main id="about-target"><script src="js/about.js"></script><h1>About</h1></main>'),
