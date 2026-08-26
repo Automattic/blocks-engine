@@ -37,7 +37,7 @@ final class GeneratedSupportStylesheetState
     private array $directFlexButtonRules = array();
 
     /** @var array<string, string> */
-    private array $fullWidthButtonRules = array();
+    private array $buttonWidthRules = array();
 
     public function registerNativeSearchTrigger(string $className, string $rule): void
     {
@@ -106,9 +106,9 @@ final class GeneratedSupportStylesheetState
         $this->directFlexButtonRules[$marker] = $rule;
     }
 
-    public function registerFullWidthButton(string $marker, string $rule): void
+    public function registerButtonWidth(string $marker, string $rule): void
     {
-        $this->fullWidthButtonRules[$marker] = $rule;
+        $this->buttonWidthRules[$marker] = $rule;
     }
 
     public function beforeAuthorCss(): string
@@ -154,7 +154,7 @@ final class GeneratedSupportStylesheetState
         return array_values(array_filter(array(
             implode("\n", $this->nativeButtonRules),
             implode("\n", $this->directFlexButtonRules),
-            implode("\n", $this->fullWidthButtonRules),
+            implode("\n", $this->buttonWidthRules),
         ), static fn (string $rules): bool => '' !== $rules));
     }
 }

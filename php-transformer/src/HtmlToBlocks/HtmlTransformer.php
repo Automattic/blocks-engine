@@ -5660,8 +5660,9 @@ final class HtmlTransformer
                         if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
                             $this->generatedSupportStyles()->registerDirectFlexButton($controlMarker, $this->directFlexButtonStyleRule($controlMarker, $logicalControl));
                         }
-                        if ( 100 === (int) ($attrs['width'] ?? 0) ) {
-                            $this->generatedSupportStyles()->registerFullWidthButton($controlMarker, $this->fullWidthButtonStyleRule($controlMarker));
+                        $buttonWidth = (int) ($attrs['width'] ?? 0);
+                        if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
+                            $this->generatedSupportStyles()->registerButtonWidth($controlMarker, $this->buttonWidthStyleRule($controlMarker, $buttonWidth));
                         }
                     }
                 }
@@ -5676,6 +5677,10 @@ final class HtmlTransformer
                     : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
                 $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
+                $buttonWidth = (int) ($attrs['width'] ?? 0);
+                if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
+                    $this->generatedSupportStyles()->registerButtonWidth($nativeButtonMarker, $this->buttonWidthStyleRule($nativeButtonMarker, $buttonWidth));
+                }
             }
             $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
@@ -6435,11 +6440,16 @@ final class HtmlTransformer
             . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
     }
 
-    private function fullWidthButtonStyleRule(string $marker): string
+    private function buttonWidthStyleRule(string $marker, int $width): string
     {
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
+
+        if ( 100 !== $width ) {
+            return $button . '{width:' . (string) $width . '%!important}'
+                . $link . '{box-sizing:border-box;width:100%!important}';
+        }
 
         return $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
             . $button . '{display:block!important;margin:0!important;width:100%!important}'

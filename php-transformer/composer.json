@@ -114,6 +114,7 @@
       "php tests/unit/button-style-resolver.php",
       "php tests/unit/button-font-family-carry.php",
       "php tests/unit/button-visual-probe-diagnostics.php",
+      "php tests/unit/wordpress-71-save-shapes.php",
       "php tests/unit/shell-landmark-policy.php",
        "php tests/unit/block-style-support-conversion.php",
        "php tests/unit/block-support-metadata-normalization.php",
