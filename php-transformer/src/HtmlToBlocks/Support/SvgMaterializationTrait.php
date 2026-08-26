@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleTagScanner;
 use DOMElement;
 
 trait SvgMaterializationTrait
@@ -552,8 +553,9 @@ trait SvgMaterializationTrait
     private function cssCustomProperties(string $html, string $linkedCss): array
     {
         $css = trim($linkedCss);
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map('trim', $matches[1]));
+        $styleBlocks = StyleTagScanner::styleBlocks($html);
+        if ( array() !== $styleBlocks ) {
+            $css .= ( '' === $css ? '' : "\n" ) . implode("\n", array_map(static fn (array $block): string => trim($block['css']), $styleBlocks));
         }
         if ( '' === trim($css) ) {
             return array();

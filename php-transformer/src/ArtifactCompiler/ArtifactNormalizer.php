@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 
 /**
@@ -397,14 +398,14 @@ final class ArtifactNormalizer
                 continue;
             }
             $content = $this->payload($file, (string) ($file['path'] ?? ''))['content'];
-            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) || ! preg_match_all('@<style\b([^>]*)>(.*?)</style>@is', $content, $matches, PREG_SET_ORDER) ) {
+            if ( ! $this->isHtmlLikeFile($file) || '' === trim($content) ) {
                 continue;
             }
 
             $styles = array();
-            foreach ( $matches as $match ) {
-                $attributes = (string) $match[1];
-                $css = trim((string) $match[2]);
+            foreach ( StyleTagScanner::styleBlocks($content) as $block ) {
+                $attributes = $block['attributes'];
+                $css = trim($block['css']);
                 if ( '' === $css || ! $this->isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }

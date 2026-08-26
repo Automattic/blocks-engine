@@ -57,6 +57,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -2746,12 +2747,10 @@ final class HtmlTransformer
     private function combinedAuthorStylesheet(string $html, string $staticCss): string
     {
         $cssParts = array();
-        if ( preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            foreach ( $matches[1] as $styleBlock ) {
-                $styleBlock = trim(html_entity_decode((string) $styleBlock, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
-                if ( '' !== $styleBlock ) {
-                    $cssParts[] = $styleBlock;
-                }
+        foreach ( StyleTagScanner::styleBlocks($html) as $block ) {
+            $styleBlock = trim(html_entity_decode($block['css'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ( '' !== $styleBlock ) {
+                $cssParts[] = $styleBlock;
             }
         }
         $staticCss = trim($staticCss);
@@ -2824,11 +2823,7 @@ final class HtmlTransformer
     /** @return list<string> */
     private function inlineStylesheetPayloads(string $html): array
     {
-        if ( ! preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches) ) {
-            return array();
-        }
-
-        return array_map(static fn (string $payload): string => trim($payload), $matches[1]);
+        return array_map(static fn (array $block): string => trim($block['css']), StyleTagScanner::styleBlocks($html));
     }
 
     /** @param list<string> $payloads */
