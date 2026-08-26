@@ -7,8 +7,27 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer
 use DOMDocument;
 use DOMElement;
 
-final class LogoPattern
+final class LogoPattern implements PatternRecognizerInterface
 {
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $logo = $context->logoContext();
+        if ( null === $logo ) {
+            return null;
+        }
+
+        $block = $this->match(
+            $element,
+            $context->presentationAttributesCallback(),
+            fn (DOMElement $source): string => $logo->richText($source),
+            fn (DOMElement $source): string => $logo->outerHtml($source),
+            fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
+            $context->createBlockCallback()
+        );
+
+        return null === $block ? null : new PatternRecognitionResult($block);
+    }
+
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
      * @param callable(DOMElement): string $innerHtml

@@ -5,9 +5,28 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use DOMElement;
 
-final class CodeWindowPattern
+final class CodeWindowPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $codeWindow = $context->codeWindowContext();
+        if ( null === $codeWindow ) {
+            return null;
+        }
+
+        $block = $this->match(
+            $element,
+            $context->presentationAttributesCallback(),
+            $context->innerHtmlCallback(),
+            fn (DOMElement $pre, DOMElement $code): array => $codeWindow->presentationAttributes($pre, $code),
+            fn (DOMElement $code): string => $codeWindow->content($code),
+            $context->createBlockCallback()
+        );
+
+        return null === $block ? null : new PatternRecognitionResult($block);
+    }
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
