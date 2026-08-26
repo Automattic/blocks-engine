@@ -1629,7 +1629,7 @@ trait StyleResolutionTrait
     /** @return array<int, array{selector:string,declarations:array<string,string>}> */
     private function hiddenStateStyleRules(): array
     {
-        $css = preg_replace('@/\*.*?\*/@s', '', $this->combinedAuthorCss) ?? $this->combinedAuthorCss;
+        $css = preg_replace('@/\*.*?\*/@s', '', $this->authorStyles()->combinedCss()) ?? $this->authorStyles()->combinedCss();
         $css = $this->topLevelCssRules($css);
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
