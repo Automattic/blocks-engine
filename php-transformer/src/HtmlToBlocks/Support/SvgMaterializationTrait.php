@@ -167,8 +167,8 @@ trait SvgMaterializationTrait
             // rule wins without forcing intrinsic media outside this explicit
             // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
-            $fillClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->generatedGeometryRules[$fillClass] = '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule;
+            $fillClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
+            $this->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
@@ -189,14 +189,14 @@ trait SvgMaterializationTrait
                 }
             }
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
-            $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
-            $this->generatedGeometryRules[$geometryClass] = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $rule);
+            $this->layoutGeometry()->registerRule($geometryClass, ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule);
         } elseif ( ! $richTextImage ) {
             // Core/image rejects typography.lineHeight. A standalone SVG still
             // needs its source line box removed when it becomes a figure.
             $rule = '{line-height:0}';
-            $geometryClass = ($this->geometryCarrierClassAllocator ??= new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator())->allocate($this->geometryStructuralPath($element) . "\n" . $rule);
-            $this->generatedGeometryRules[$geometryClass] = '.' . $geometryClass . $rule;
+            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $rule);
+            $this->layoutGeometry()->registerRule($geometryClass, '.' . $geometryClass . $rule);
         }
         $attrs = array_filter(array_merge(array(
             'url'          => $url,

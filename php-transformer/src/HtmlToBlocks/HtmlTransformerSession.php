@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeometryCarrierClassAllocator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -100,11 +100,7 @@ final class HtmlTransformerSession
     public bool $fallbackReductionMode = false;
     public readonly PresentationResolutionCache $presentationResolutionCache;
     public readonly SourceStyleResolutionState $sourceStyleResolutionState;
-    public array $generatedGeometryRules = array();
-    public ?GeometryCarrierClassAllocator $geometryCarrierClassAllocator = null;
-    /** @var array<int,array<string,mixed>> */
-    public array $layoutGeometryProofReductions = array();
-    public array $layoutGeometryProofProvenance = array();
+    private ?LayoutGeometryState $layoutGeometryState = null;
     public readonly FallbackEmitter $fallbackEmitter;
 
     /** @param Closure(DOMElement): array<string, mixed> $sourceContextResolver */
@@ -123,5 +119,15 @@ final class HtmlTransformerSession
     public function authorStyleAnalysis(): ?AuthorStyleAnalysis
     {
         return $this->authorStyleAnalysis;
+    }
+
+    public function installLayoutGeometryState(LayoutGeometryState $state): void
+    {
+        $this->layoutGeometryState = $state;
+    }
+
+    public function layoutGeometryState(): ?LayoutGeometryState
+    {
+        return $this->layoutGeometryState;
     }
 }

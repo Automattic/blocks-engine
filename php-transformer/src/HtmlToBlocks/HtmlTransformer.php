@@ -49,6 +49,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
@@ -349,6 +350,12 @@ final class HtmlTransformer
             ?? throw new \LogicException('Author styles have not been prepared for this transform.');
     }
 
+    private function layoutGeometry(): LayoutGeometryState
+    {
+        return $this->session->layoutGeometryState()
+            ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -380,7 +387,9 @@ final class HtmlTransformer
         $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->runtimeBehavioralSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors');
         $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
-        $this->layoutGeometryProofReductions = is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array();
+        $this->session->installLayoutGeometryState(new LayoutGeometryState(
+            is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
+        ));
         $this->supersededRuntimeSelectors = array();
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
@@ -472,7 +481,7 @@ final class HtmlTransformer
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
         $blocks = $this->compressProjectedGroupChains($blocks);
-        if (array() !== $this->layoutGeometryProofReductions && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
+        if ($this->layoutGeometry()->hasProofReductions() && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
             $blocks = $this->compressProjectedGroupChains($blocks, true);
         }
         $fallbacks = array_merge($fallbacks, $this->responsiveImageFallbacks);
@@ -601,7 +610,7 @@ final class HtmlTransformer
                 'reusable_components' => $reusableComponentRecognition,
                 'script_metadata'      => $this->scriptMetadata,
                 'runtime_islands'      => $this->runtimeIslands,
-                'layout_geometry_proof' => $this->layoutGeometryProofProvenance,
+                'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
             ),
         );
         if ( array() !== $authorStylesheetProjections ) {
@@ -7903,7 +7912,7 @@ final class HtmlTransformer
             ? $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element))
             : $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
-        if (null !== $proof) $this->layoutGeometryProofProvenance[] = $proof;
+        if (null !== $proof) $this->layoutGeometry()->recordProof($proof);
 
         return $this->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
     }
@@ -7911,7 +7920,7 @@ final class HtmlTransformer
     /** @return array<string,mixed>|null */
     private function layoutGeometryProofFor(DOMElement $element): ?array
     {
-        foreach ($this->layoutGeometryProofReductions as $proof) {
+        foreach ($this->layoutGeometry()->proofReductions() as $proof) {
             // The normalizer binds the document digest. This lookup uses the
             // canonical structural selector, not a reusable author class.
             if (!is_array($proof) || $this->elementSelector($element) !== ($proof['wrapper_selector'] ?? null)) continue;
@@ -7941,7 +7950,7 @@ final class HtmlTransformer
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
         $childAttrs['className'] = $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
-        $this->layoutGeometryProofProvenance[] = $proof;
+        $this->layoutGeometry()->recordProof($proof);
         return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
     }
 
@@ -7954,7 +7963,7 @@ final class HtmlTransformer
         foreach ($declarations as $declaration) if (is_array($declaration)) $parts[] = $declaration['property'] . ':' . $declaration['value'];
         if (array() === $parts) return '';
         $className = 'be-layout-proof-' . substr(hash('sha256', (string) $proof['source_hash'] . "\n" . (string) $proof['wrapper_selector'] . "\n" . implode(';', $parts)), 0, 32);
-        $this->generatedGeometryRules[$className] = ':root .' . $className . '{' . implode(';', $parts) . '}';
+        $this->layoutGeometry()->registerRule($className, ':root .' . $className . '{' . implode(';', $parts) . '}');
         return $className;
     }
 
@@ -10963,7 +10972,7 @@ final class HtmlTransformer
             }
         }
 
-        $this->generatedGeometryRules[$marker] = implode("\n", $rules);
+        $this->layoutGeometry()->registerRule($marker, implode("\n", $rules));
     }
 
     private function registerTableCellGeometry(DOMElement $table): void
@@ -11007,10 +11016,7 @@ final class HtmlTransformer
         $path = $this->sourceElementIdentity($table);
         $marker = $this->sourceTableMarkers[$path] ??= $this->allocateAuthorMarker('table');
         $scopedRules = array_map(static fn (string $rule): string => '.' . $marker . '>table>' . $rule, $rules);
-        $this->generatedGeometryRules[$marker] = implode("\n", array_filter(array(
-            $this->generatedGeometryRules[$marker] ?? '',
-            implode("\n", $scopedRules),
-        )));
+        $this->layoutGeometry()->appendRule($marker, implode("\n", $scopedRules));
     }
 
     private function materializeDeclarativeCounters(DOMElement $body, string $declarativeStateHtml = ''): void
@@ -15261,7 +15267,7 @@ final class HtmlTransformer
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
     {
         $prefix = $this->elementSelector($element) . ' > ';
-        foreach ( $this->layoutGeometryProofReductions as $proof ) {
+        foreach ( $this->layoutGeometry()->proofReductions() as $proof ) {
             if ( is_array($proof) && str_starts_with((string) ($proof['wrapper_selector'] ?? ''), $prefix) ) {
                 return true;
             }
