@@ -364,6 +364,11 @@ final class HtmlTransformer
         return $this->session->transformationProvenanceState();
     }
 
+    private function transformationEvidence(): TransformationEvidenceState
+    {
+        return $this->session->transformationEvidenceState();
+    }
+
     private function generatedBlocks(): GeneratedBlockRegistry
     {
         return $this->session->generatedBlockRegistry()
@@ -556,7 +561,7 @@ final class HtmlTransformer
         $this->materializeEditorStaticStateStylesheet();
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
-        $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->formControlEchoTexts);
+        $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
         $diagnostics = $this->diagnosticsCollector->collect(
             self::class,
             $this->scriptMetadata,
@@ -568,7 +573,7 @@ final class HtmlTransformer
             $semanticParityReport,
             $contentRoundTripReport
         );
-        foreach ( $this->responsiveGeometryAmbiguities as $ambiguity ) {
+        foreach ( $this->transformationEvidence()->responsiveGeometryAmbiguities() as $ambiguity ) {
             $diagnostics[] = array(
                 'code' => 'responsive_geometry_ambiguous_min_width',
                 'message' => 'A wide minimum-width rule matches both page-shell and authored content surfaces, so it was retained without a responsive projection.',
@@ -588,7 +593,7 @@ final class HtmlTransformer
                 'entries' => $headMetadata,
             );
         }
-        $authorLayoutTopologyFindings = $this->authorLayoutTopologyFindings();
+        $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
         foreach ( $authorLayoutTopologyFindings as $finding ) {
             $diagnostics[] = array(
                 'code' => 'author_layout_topology_changed',
@@ -649,9 +654,9 @@ final class HtmlTransformer
             'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
             'html' => array(
                 'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
-                'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
-                'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
-                'gutenberg_incompatibilities' => $this->gutenbergIncompatibilities,
+                'frozen_hidden_state'  => $this->transformationEvidence()->frozenHiddenStateFindings(),
+                'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
+                'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
                 'author_layout_topology' => $authorLayoutTopologyFindings,
                 'source_provenance'    => $sourceProvenance,
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
@@ -1279,7 +1284,7 @@ final class HtmlTransformer
         }
 
         $repairs = array();
-        foreach ( $this->frozenHiddenStateFindings as $finding ) {
+        foreach ( $this->transformationEvidence()->frozenHiddenStateFindings() as $finding ) {
             $selector = (string) ($finding['editor_selector'] ?? '');
             if ( '' === $selector ) {
                 continue;
@@ -3082,7 +3087,7 @@ final class HtmlTransformer
             $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element));
             if ( count($shellMatches) !== count($matches) ) {
                 if ( array() !== $shellMatches ) {
-                    $this->responsiveGeometryAmbiguities[$selector . "\0" . $minimumWidth] = array('selector' => $selector, 'min_width' => $minimumWidth);
+                    $this->transformationEvidence()->recordResponsiveGeometryAmbiguity($selector, $minimumWidth);
                 }
                 return $body;
             }
@@ -6513,44 +6518,17 @@ final class HtmlTransformer
         ));
     }
 
-    /**
-     * @return array<int, array{selector: string, source_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}>
-     */
-    private function authorLayoutTopologyFindings(): array
-    {
-        $findings = array();
-        foreach ( $this->authorLayoutTopologies as $layout ) {
-            // Text-only leaves have no element-child topology to compare. Their
-            // text may become a paragraph, but that is not a container loss.
-            if ( 0 === $layout['direct_child_count'] ) {
-                continue;
-            }
-            if ( $layout['direct_child_count'] === $layout['block_child_count'] && $layout['source_tags'] === $layout['block_tags'] ) {
-                continue;
-            }
-            $findings[] = array(
-                'selector' => $layout['selector'],
-                'source_child_count' => $layout['direct_child_count'],
-                'block_child_count' => $layout['block_child_count'],
-                'source_tags' => $layout['source_tags'],
-                'block_tags' => $layout['block_tags'],
-            );
-        }
-
-        return array_slice($findings, 0, 20);
-    }
-
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
         if ( $this->isAuthorOwnedLayout($element) ) {
-            $this->authorLayoutTopologies[] = array(
-                'selector' => $this->elementSelector($element),
-                'direct_child_count' => $this->childElementCount($element),
-                'block_child_count' => count($children),
-                'source_tags' => $this->directChildTags($element),
-                'block_tags' => $this->directBlockTags($children),
+            $this->transformationEvidence()->recordAuthorLayoutTopology(
+                $this->elementSelector($element),
+                $this->childElementCount($element),
+                count($children),
+                $this->directChildTags($element),
+                $this->directBlockTags($children)
             );
         }
         return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element), $children, $element);
@@ -13918,10 +13896,7 @@ final class HtmlTransformer
      */
     private function registerFormControlEcho(string $text): void
     {
-        $text = trim($text);
-        if ( '' !== $text ) {
-            $this->formControlEchoTexts[] = $text;
-        }
+        $this->transformationEvidence()->recordFormControlEcho($text);
     }
 
     private function readableFormControlLabel(DOMElement $control): string
@@ -15507,14 +15482,14 @@ final class HtmlTransformer
             return;
         }
 
-        $this->droppedLinkWrapperFindings[] = array_merge(
+        $this->transformationEvidence()->recordDroppedLinkWrapper(array_merge(
             array(
                 'kind'     => 'source link wrapper dropped / content no longer navigable',
                 'tag'      => strtolower($anchor->tagName),
                 'selector' => $this->elementSelector($anchor),
             ),
             $link
-        );
+        ));
     }
 
     /**

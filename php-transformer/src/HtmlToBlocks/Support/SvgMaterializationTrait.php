@@ -626,13 +626,13 @@ trait SvgMaterializationTrait
 
     private function recordGutenbergIncompatibility(DOMElement $element, string $reason, string $message): void
     {
-        $this->gutenbergIncompatibilities[] = array(
+        $this->transformationEvidence()->recordGutenbergIncompatibility(array(
             'type'     => 'svg_materialization_incompatibility',
             'element'  => 'svg',
             'selector' => $this->elementSelector($element),
             'reason'   => $reason,
             'message'  => $message,
-        );
+        ));
     }
 
     private function isNativeImageCompatibleSvg(DOMElement $element, string $html): bool
