@@ -24,6 +24,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePattern;
@@ -31,7 +32,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
@@ -4597,14 +4600,20 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
             ),
-            fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
-            fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
-            fn (string $url): string => $this->resolvedAssetImageUrl($url),
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement),
-            fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement)),
-            fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-            fn (string $text): string => $this->runtime->escapeHtml($text),
+            new MediaPatternContext(
+                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
+                fn (string $url): string => $this->resolvedAssetImageUrl($url),
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+                fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement)
+            ),
+            new ColumnsPatternContext(
+                fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement))
+            ),
+            new MarkupPatternContext(
+                fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+                fn (string $text): string => $this->runtime->escapeHtml($text)
+            ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
@@ -4676,8 +4685,10 @@ final class HtmlTransformer
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
             ),
-            safeFallbackHtml: fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-            escapeHtml: fn (string $text): string => $this->runtime->escapeHtml($text),
+            markupContext: new MarkupPatternContext(
+                fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+                fn (string $text): string => $this->runtime->escapeHtml($text)
+            ),
             codeWindowContext: new CodeWindowPatternContext(
                 fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
                 fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)

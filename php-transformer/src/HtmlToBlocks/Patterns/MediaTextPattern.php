@@ -30,11 +30,8 @@ final class MediaTextPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        $attrs     = $context->mediaTextPresentationAttributesCallback();
-        $style     = $context->mediaTextPresentationStyleCallback();
-        $html      = $context->htmlAttributesCallback();
-        $url       = $context->resolveAssetImageUrlCallback();
-        if ( null === $converter || null === $attrs || null === $style || null === $html || null === $url ) {
+        $media = $context->mediaContext();
+        if ( null === $converter || null === $media ) {
             return null;
         }
 
@@ -44,10 +41,10 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $fallbacks,
             array($converter, 'children'),
             array($converter, 'element'),
-            $attrs,
-            $style,
-            $html,
-            $url,
+            $media->mediaTextAttributes(...),
+            $media->mediaTextStyle(...),
+            $media->htmlAttributes(...),
+            $media->resolveImageUrl(...),
             $context->createBlock(...)
         );
 

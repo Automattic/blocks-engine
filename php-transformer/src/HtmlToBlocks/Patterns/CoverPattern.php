@@ -43,10 +43,8 @@ final class CoverPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        $style     = $context->mergedPresentationStyleCallback();
-        $attrs     = $context->htmlAttributesCallback();
-        $url       = $context->resolveAssetImageUrlCallback();
-        if ( null === $converter || null === $style || null === $attrs || null === $url ) {
+        $media = $context->mediaContext();
+        if ( null === $converter || null === $media ) {
             return null;
         }
 
@@ -56,9 +54,9 @@ final class CoverPattern implements PatternRecognizerInterface
             $fallbacks,
             array($converter, 'children'),
             $context->presentationAttributes(...),
-            $style,
-            $attrs,
-            $url,
+            $media->coverStyle(...),
+            $media->htmlAttributes(...),
+            $media->resolveImageUrl(...),
             $context->createBlock(...)
         );
 
