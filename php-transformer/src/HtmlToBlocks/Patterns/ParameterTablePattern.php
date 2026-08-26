@@ -11,7 +11,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $innerHtml = $context->innerHtmlCallback();
+        $innerHtml = $context->innerHtml(...);
 
         if ( ! $this->hasClass($element, 'param-table') ) {
             return null;
@@ -45,7 +45,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
             return null;
         }
 
-        return new PatternRecognitionResult($context->createBlockCallback()('core/table', array_merge($context->presentationAttributesCallback()($element), array(
+        return new PatternRecognitionResult($context->createBlock('core/table', array_merge($context->presentationAttributes($element), array(
             'head' => array( array( 'cells' => array(
                 array( 'content' => 'Parameter', 'tag' => 'th' ),
                 array( 'content' => 'Type', 'tag' => 'th' ),

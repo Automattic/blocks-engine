@@ -44,9 +44,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $fallbacks,
             array($converter, 'children'),
             array($converter, 'element'),
-            $context->presentationAttributesCallback(),
+            $context->presentationAttributes(...),
             $style,
-            $context->createBlockCallback()
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);

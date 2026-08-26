@@ -21,7 +21,7 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $attrs = $context->presentationAttributesCallback()($element);
+        $attrs = $context->presentationAttributes($element);
         // The aspect ratio rides on the preserved placeholder/ratio classNames and
         // companion-plugin CSS; a raw inline `style` string would invalidate the
         // core/group block, so it is intentionally not emitted here (#261).
@@ -29,9 +29,9 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $context->createBlockCallback()('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
+        $children = '' !== $label ? array( $context->createBlock('core/paragraph', array( 'content' => $escapeHtml($label) )) ) : array();
 
-        return new PatternRecognitionResult($context->createBlockCallback()('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
+        return new PatternRecognitionResult($context->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
     }
 
     private function isPlaceholderMediaElement(DOMElement $element): bool

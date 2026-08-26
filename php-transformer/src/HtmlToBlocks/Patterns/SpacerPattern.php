@@ -27,11 +27,11 @@ final class SpacerPattern implements PatternRecognizerInterface
 
         // core/spacer serializes height itself. Preserve all remaining geometry
         // through the generated stylesheet rather than removing the whole carrier.
-        $attrs = $context->presentationAttributesCallback()($element, array( 'height' ));
+        $attrs = $context->presentationAttributes($element, array( 'height' ));
         $attrs['height'] = $height;
         unset($attrs['style']);
 
-        return new PatternRecognitionResult($context->createBlockCallback()('core/spacer', $attrs, array(), $element));
+        return new PatternRecognitionResult($context->createBlock('core/spacer', $attrs, array(), $element));
     }
 
     private function childElementCount(DOMElement $element): int

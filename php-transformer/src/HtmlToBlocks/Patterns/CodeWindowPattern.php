@@ -18,11 +18,11 @@ final class CodeWindowPattern implements PatternRecognizerInterface
 
         $block = $this->match(
             $element,
-            $context->presentationAttributesCallback(),
-            $context->innerHtmlCallback(),
+            $context->presentationAttributes(...),
+            $context->innerHtml(...),
             fn (DOMElement $pre, DOMElement $code): array => $codeWindow->presentationAttributes($pre, $code),
             fn (DOMElement $code): string => $codeWindow->content($code),
-            $context->createBlockCallback()
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block);

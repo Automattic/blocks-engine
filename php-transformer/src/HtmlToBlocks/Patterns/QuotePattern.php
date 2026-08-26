@@ -30,9 +30,9 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
-        $createBlock = $context->createBlockCallback();
+        $createBlock = $context->createBlock(...);
         if ( $this->hasClass($element, 'wp-block-pullquote') ) {
-            return new PatternRecognitionResult($createBlock('core/pullquote', array_filter(array_merge($context->presentationAttributesCallback()($element), array(
+            return new PatternRecognitionResult($createBlock('core/pullquote', array_filter(array_merge($context->presentationAttributes($element), array(
                 'value'    => $value,
                 'citation' => $citation,
             )), static fn ($value): bool => '' !== $value), array(), $element));
@@ -48,7 +48,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         return new PatternRecognitionResult(
-            $createBlock('core/quote', array_filter(array_merge($context->presentationAttributesCallback()($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element),
+            $createBlock('core/quote', array_filter(array_merge($context->presentationAttributes($element), array( 'citation' => $citation )), static fn ($value): bool => '' !== $value), $innerBlocks, $element),
             $fallbacks
         );
     }
@@ -64,7 +64,7 @@ final class QuotePattern implements PatternRecognizerInterface
         $citation = $quotes->citationFromElement($blockquote);
         $caption = $this->firstChildElement($figure, 'figcaption');
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = $context->innerHtmlCallback()($caption);
+            $citation = $context->innerHtml($caption);
             $captionClass = trim($this->attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
@@ -76,8 +76,8 @@ final class QuotePattern implements PatternRecognizerInterface
             return null;
         }
 
-        $createBlock = $context->createBlockCallback();
-        $attrs = array_filter(array_merge($context->presentationAttributesCallback()($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
+        $createBlock = $context->createBlock(...);
+        $attrs = array_filter(array_merge($context->presentationAttributes($figure), array( 'citation' => $citation )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== $value);
 
         if ( $this->hasClass($figure, 'wp-block-pullquote') || $this->hasClass($blockquote, 'wp-block-pullquote') ) {
             return new PatternRecognitionResult($createBlock('core/pullquote', array_merge($attrs, array( 'value' => $value )), array(), $figure));
@@ -89,11 +89,11 @@ final class QuotePattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || $child->isSameNode($blockquote) || $child->isSameNode($caption) ) {
                 continue;
             }
-            $content = $context->innerHtmlCallback()($child);
+            $content = $context->innerHtml($child);
             if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($quotes->stripAllTags($content)) ) {
                 continue;
             }
-            $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributesCallback()($child), array( 'content' => $content )), array(), $child);
+            $innerBlocks[] = $createBlock('core/paragraph', array_merge($context->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
         $innerBlocks = array_merge($innerBlocks, $converter->childrenWithoutTags($blockquote, $fallbacks, array( 'cite', 'footer' )));
         if ( array() === $innerBlocks ) {
@@ -136,7 +136,7 @@ final class QuotePattern implements PatternRecognizerInterface
             return array();
         }
 
-        return array( $context->createBlockCallback()('core/paragraph', array_filter(array(
+        return array( $context->createBlock('core/paragraph', array_filter(array(
             'content'   => $value,
             'className' => $isDirectText ? 'blocks-engine-synthetic-paragraph' : '',
         ), static fn (string $value): bool => '' !== $value)) );

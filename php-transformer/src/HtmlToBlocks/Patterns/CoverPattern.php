@@ -55,11 +55,11 @@ final class CoverPattern implements PatternRecognizerInterface
             $element,
             $fallbacks,
             array($converter, 'children'),
-            $context->presentationAttributesCallback(),
+            $context->presentationAttributes(...),
             $style,
             $attrs,
             $url,
-            $context->createBlockCallback()
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);

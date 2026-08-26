@@ -58,8 +58,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
             $sourceElement = $this->structuralItem($anchor, $element);
             $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
-            $links[] = $context->createBlockCallback()('core/social-link', array_merge(
-                $context->presentationAttributesCallback()($sourceElement),
+            $links[] = $context->createBlock('core/social-link', array_merge(
+                $context->presentationAttributes($sourceElement),
                 array_filter(array(
                 'url' => $url,
                 'service' => $this->service($url) ?? 'chain',
@@ -68,7 +68,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             ), array(), $sourceElement);
         }
 
-        $attrs = $context->presentationAttributesCallback()($element);
+        $attrs = $context->presentationAttributes($element);
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
         }
@@ -83,7 +83,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
         }
         return new PatternRecognitionResult(
-            $context->createBlockCallback()('core/social-links', $attrs, $links, $element)
+            $context->createBlock('core/social-links', $attrs, $links, $element)
         );
     }
 
