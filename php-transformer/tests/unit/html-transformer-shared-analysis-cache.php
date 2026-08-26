@@ -136,9 +136,10 @@ $assert(4 === $selectorCache->authorSelectorMatchResultBuilds && $selectorCache-
 $sourceSelectorCache = new HtmlTransformerAnalysisCache();
 $sourceSelectorHtml = '<style>.card{display:grid;color:red}.card.primary{gap:1rem}.card[data-kind="primary"]{padding:1rem}</style><section class="card primary" data-kind="primary"><p>Repeated source selector matching</p></section>';
 $sourceSelectorResult = (new HtmlTransformer(analysisCache: $sourceSelectorCache))->transform($sourceSelectorHtml)->toArray();
-$assert(10 === $sourceSelectorCache->sourceSelectorMatchExecutions && 12 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 10 matcher calls and reuses 12 repeated element-selector results.');
+$assert(10 === $sourceSelectorCache->sourceSelectorMatchExecutions && 3 === $sourceSelectorCache->sourceSelectorMatchHits, 'Indexed general style resolution executes 10 matcher calls and reuses three repeated element-selector results.');
 $assert(9 === $sourceSelectorCache->sourceSelectorClassTokenBuilds && 13 === $sourceSelectorCache->sourceSelectorClassTokenHits && 21 === $sourceSelectorCache->sourceSelectorAttributeReads, 'General style resolution reuses immutable class and common-attribute inputs.');
-$assert(12 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 7 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 12 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
+$assert(6 === $sourceSelectorCache->sourceStructuralDeclarationBuilds && 6 === $sourceSelectorCache->sourceStructuralDeclarationHits, 'Structural declaration resolution builds each source state once and reuses repeated element results.');
+$assert(3 === ($sourceSelectorResult['metrics']['selector_match_cache_hits'] ?? null) && 10 === ($sourceSelectorResult['metrics']['selector_match_cache_misses'] ?? null) && 0 === ($sourceSelectorResult['metrics']['selector_match_cache_evictions'] ?? null) && 3 === ($sourceSelectorResult['metrics']['selector_match_cache_peak_entries'] ?? null) && 1 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_hits'] ?? null) && 12 === ($sourceSelectorResult['metrics']['style_rule_candidate_cache_misses'] ?? null), 'Transform metrics expose selector and candidate-cache hit, miss, eviction, and peak counters without changing canonical blocks.');
 
 $candidateCache = new HtmlTransformerAnalysisCache();
 $noiseRules = array();
@@ -168,7 +169,8 @@ $assert(1601 === $hiddenStateCache->sourceStyleCandidateRulesSkipped && 1 === $h
 $pressureElementCount = 4097;
 $pressureHtml = '<main class="pressure">' . str_repeat('<p class="pressure">cache pressure</p>', $pressureElementCount) . '</main>';
 $pressureOptions = array('static_css' => '.pressure{color:#123456}', 'skip_author_stylesheet_materialization' => true);
-$pressureResult = (new HtmlTransformer())->transform($pressureHtml, $pressureOptions)->toArray();
+$pressureCache = new HtmlTransformerAnalysisCache();
+$pressureResult = (new HtmlTransformer(analysisCache: $pressureCache))->transform($pressureHtml, $pressureOptions)->toArray();
 $pressureIsolatedResult = (new HtmlTransformer())->transform($pressureHtml, $pressureOptions)->toArray();
 $pressureMetrics = $pressureResult['metrics'];
 $assert(
@@ -183,14 +185,16 @@ $assert(
 );
 $assert(
     8197 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
-    && 4100 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
+    && 1 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
     && 2 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
-    && 4096 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null),
-    'Repeated hot selector matches are refreshed while the 4,097-element transform exceeds the selector-result capacity.'
+    && 4096 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
+    && 8199 === $pressureCache->sourceStructuralDeclarationBuilds
+    && 4101 === $pressureCache->sourceStructuralDeclarationHits,
+    'Structural declaration results absorb repeated passes while selector-result storage remains bounded across invalidations.'
 );
 $assert(
     16397 === ($pressureMetrics['style_rule_candidate_cache_misses'] ?? null)
-    && 4104 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
+    && 3 === ($pressureMetrics['style_rule_candidate_cache_hits'] ?? null)
     && 7 === ($pressureMetrics['style_rule_candidate_cache_evictions'] ?? null)
     && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_entries'] ?? null)
     && 4096 === ($pressureMetrics['style_rule_candidate_cache_peak_rule_references'] ?? null),

@@ -14,6 +14,9 @@ final class SourceStyleResolutionState
     /** @var array<string, array<string, array<int, string>>> */
     public array $authorDeclaredPropertyValues = array();
 
+    /** @var array<string, array<string, string>> */
+    public array $structuralDeclarations = array();
+
     /** @var array<string, array<int, string>> */
     private array $classPromotions = array();
 
