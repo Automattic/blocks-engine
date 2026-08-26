@@ -40,10 +40,8 @@ final class HtmlTransformerSession
     public array $nativeDisclosureRootIds = array();
     private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
     public bool $emptyRuntimeTargetGenerated = false;
-    public string $generatedAssetRoot = '';
     public array $runtimeScriptMetadata = array();
-    public array $assetMetadata = array();
-    public array $generatedAssets = array();
+    private ?AssetMaterializationState $assetMaterializationState = null;
     public array $nativeSearchTriggerCssRules = array();
     public array $nativeButtonStyleRules = array();
     public array $syntheticHeaderAnchorStyleRules = array();
@@ -129,5 +127,15 @@ final class HtmlTransformerSession
     public function generatedBlockRegistry(): ?GeneratedBlockRegistry
     {
         return $this->generatedBlockRegistry;
+    }
+
+    public function installAssetMaterializationState(AssetMaterializationState $state): void
+    {
+        $this->assetMaterializationState = $state;
+    }
+
+    public function assetMaterializationState(): ?AssetMaterializationState
+    {
+        return $this->assetMaterializationState;
     }
 }

@@ -110,29 +110,7 @@ trait SvgMaterializationTrait
             'visual_payload' => $visualPayload . "\n",
         );
         if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
-        if (isset($this->generatedAssets[$path])) {
-            $existing = $this->generatedAssets[$path];
-            // A shared path represents visual identity. Once more than one
-            // instance uses it, discard instance accessibility metadata from
-            // the payload; core/image owns that metadata per block via alt.
-            $existing['content'] = (string) ($existing['visual_payload'] ?? $visualPayload . "\n");
-            $existing['bytes'] = strlen($existing['content']);
-            $existing['hash'] = hash('sha256', $existing['content']);
-            $existing['source_hash'] = $existing['hash'];
-            $occurrences = is_array($existing['component_occurrences'] ?? null) ? $existing['component_occurrences'] : array();
-            $counts = is_array($existing['component_occurrence_counts'] ?? null) ? $existing['component_occurrence_counts'] : array();
-            if (is_string($occurrence['fingerprint'] ?? null)) $counts[$occurrence['fingerprint']] = (int) ($counts[$occurrence['fingerprint']] ?? 0) + 1;
-            if (count($occurrences) < 8 && !in_array($occurrence, $occurrences, true)) $occurrences[] = $occurrence;
-            elseif (!in_array($occurrence, $occurrences, true)) $existing['component_occurrences_omitted'] = (int) ($existing['component_occurrences_omitted'] ?? 0) + 1;
-            $existing['component_occurrences'] = $occurrences;
-            $existing['component_occurrence_counts'] = $counts;
-            $existing['selector'] = $occurrences[0]['selector'] ?? $existing['selector'];
-            $this->generatedAssets[$path] = $existing;
-        } else {
-            if (is_string($occurrence['fingerprint'] ?? null)) $asset['component_occurrence_counts'] = array($occurrence['fingerprint'] => 1);
-            $asset['component_occurrences_omitted'] = 0;
-            $this->generatedAssets[$path] = $asset;
-        }
+        $this->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->presentationDeclarations($element);
@@ -620,7 +598,7 @@ trait SvgMaterializationTrait
         // selector. A content address lets every compatible instance share one
         // core/image asset while retaining its own alt text and presentation.
         $filename = 'inline-svg-' . substr(hash('sha256', $html), 0, 16) . '.svg';
-        return ('' !== $this->generatedAssetRoot ? $this->generatedAssetRoot . '/' : '') . 'assets/materialized-svg/' . $filename;
+        return $this->materializedAssets()->rootedPath('assets/materialized-svg/' . $filename);
     }
 
     private function sourceRelativeMaterializedSvgPath(string $path): string

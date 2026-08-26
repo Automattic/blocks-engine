@@ -362,6 +362,12 @@ final class HtmlTransformer
             ?? throw new \LogicException('Generated block registry has not been prepared for this transform.');
     }
 
+    private function materializedAssets(): AssetMaterializationState
+    {
+        return $this->session->assetMaterializationState()
+            ?? throw new \LogicException('Asset materialization state has not been prepared for this transform.');
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -375,11 +381,13 @@ final class HtmlTransformer
         $startedAt = hrtime(true);
         $this->fallbackProvenance = TransformationOptions::provenance($options);
         $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry($this->generatedBlockNamespaceFromOptions($options)));
-        $this->generatedAssetRoot = trim((string) ($options['generated_asset_root'] ?? ''), '/');
+        $this->session->installAssetMaterializationState(new AssetMaterializationState(
+            trim((string) ($options['generated_asset_root'] ?? ''), '/'),
+            $this->assetMetadataFromOptions($options)
+        ));
         $this->preserveShellLandmarks = !empty($options['extract_global_shell']);
         $this->fallbackReductionMode = !empty($options['fallback_reduction_mode']);
         $this->runtimeScriptMetadata = $this->runtimeScriptMetadataFromOptions($options);
-        $this->assetMetadata = $this->assetMetadataFromOptions($options);
         $this->staticClassPromotions = $this->detectStaticClassPromotions($html);
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
@@ -628,7 +636,7 @@ final class HtmlTransformer
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $serializedBlocks,
-            assets: array_values($this->generatedAssets),
+            assets: $this->materializedAssets()->assets(),
             diagnostics: $diagnostics,
             fallbacks: $fallbacks,
             provenance: $provenance,
@@ -651,7 +659,7 @@ final class HtmlTransformer
     private function engineSupportCss(): string
     {
         $css = array();
-        foreach ($this->generatedAssets as $asset) if ('engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)) $css[] = $asset['content'];
+        foreach ($this->materializedAssets()->assets() as $asset) if ('engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') && is_string($asset['content'] ?? null)) $css[] = $asset['content'];
         return implode("\n", $css);
     }
 
@@ -921,7 +929,7 @@ final class HtmlTransformer
     private function finalizeReusableComponentRecognition(array $recognition): array
     {
         $assetOccurrences = array();
-        foreach ($this->generatedAssets as $asset) {
+        foreach ($this->materializedAssets()->assets() as $asset) {
             if (!is_array($asset) || 'inline-svg' !== ($asset['source'] ?? null)) continue;
             foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $assetOccurrences[$fingerprint] = (int) ($assetOccurrences[$fingerprint] ?? 0) + $count;
         }
@@ -1246,7 +1254,7 @@ final class HtmlTransformer
         $hash = hash('sha256', $content);
         $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
 
-        $this->generatedAssets[$path] = array(
+        $this->materializedAssets()->register($path, array(
             'source'      => $source,
             'source_path' => '',
             'path'        => $path,
@@ -1263,7 +1271,7 @@ final class HtmlTransformer
             'binary'      => false,
             'hash'        => $hash,
             'source_hash' => $hash,
-        );
+        ));
     }
 
     private function materializeEditorStaticStateStylesheet(): void
@@ -8856,7 +8864,7 @@ final class HtmlTransformer
         }
 
         $textRun = '';
-        $generatedAssets = $this->generatedAssets;
+        $generatedAssets = $this->materializedAssets()->checkpoint();
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 $textRun .= htmlspecialchars($child->textContent ?? '', ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5, 'UTF-8');
@@ -8864,7 +8872,7 @@ final class HtmlTransformer
             }
 
             if ( ! $child instanceof DOMElement ) {
-                $this->generatedAssets = $generatedAssets;
+                $this->materializedAssets()->restore($generatedAssets);
                 return null;
             }
 
@@ -8875,7 +8883,7 @@ final class HtmlTransformer
 
             $image = $this->inlineSvgRichTextImageMarkup($child);
             if ( null === $image ) {
-                $this->generatedAssets = $generatedAssets;
+                $this->materializedAssets()->restore($generatedAssets);
                 return null;
             }
 
@@ -8884,7 +8892,7 @@ final class HtmlTransformer
 
         $content = trim($textRun);
         if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-            $this->generatedAssets = $generatedAssets;
+            $this->materializedAssets()->restore($generatedAssets);
             return null;
         }
 
@@ -8897,21 +8905,21 @@ final class HtmlTransformer
             return $content;
         }
 
-        $generatedAssets = $this->generatedAssets;
+        $generatedAssets = $this->materializedAssets()->checkpoint();
         foreach ( $element->getElementsByTagName('svg') as $svg ) {
             if ( ! $svg instanceof DOMElement ) {
                 continue;
             }
             $image = $this->inlineSvgRichTextImageMarkup($svg, false);
             if ( null === $image ) {
-                $this->generatedAssets = $generatedAssets;
+                $this->materializedAssets()->restore($generatedAssets);
                 return null;
             }
             // RichText preparation may normalize SVG casing (viewBox -> viewbox),
             // so the DOM serialization is not a stable replacement key.
             $replaced = preg_replace('@<svg\b[^>]*>.*?</svg>@is', $image, $content, 1);
             if ( ! is_string($replaced) || $replaced === $content ) {
-                $this->generatedAssets = $generatedAssets;
+                $this->materializedAssets()->restore($generatedAssets);
                 return null;
             }
             $content = $replaced;
@@ -8957,9 +8965,7 @@ final class HtmlTransformer
 
     private function isGeneratedInlineSvgSource(string $source): bool
     {
-        if (isset($this->generatedAssets[$source]) && 'inline-svg' === ($this->generatedAssets[$source]['source'] ?? '')) return true;
-        foreach ($this->generatedAssets as $asset) if (is_array($asset) && 'inline-svg' === ($asset['source'] ?? '') && $source === ($asset['source_url'] ?? null)) return true;
-        return false;
+        return $this->materializedAssets()->hasInlineSvgSource($source);
     }
 
     private function stripDecorativeSvgFromRichText(string $content): string
@@ -16085,40 +16091,7 @@ final class HtmlTransformer
      */
     private function assetMetadataForUrl(string $url): ?array
     {
-        foreach ( $this->assetMetadataLookupKeys($url) as $key ) {
-            if ( isset($this->assetMetadata[$key]) ) {
-                return $this->assetMetadata[$key];
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function assetMetadataLookupKeys(string $url): array
-    {
-        $keys = array();
-        // Root-relative URLs cannot traverse out of their website root. Keep
-        // their original spelling so they cannot match a relative asset key.
-        if (str_starts_with(trim($url), '/') && preg_match('~(?:^|/)\.\.(?:/|$)~', parse_url($url, PHP_URL_PATH) ?: '')) return array(trim($url));
-        foreach ( array( trim($url), ltrim(trim($url), '/') ) as $key ) {
-            if ( '' !== $key && ! in_array($key, $keys, true) ) {
-                $keys[] = $key;
-            }
-        }
-
-        $path = parse_url($url, PHP_URL_PATH);
-        if ( is_string($path) ) {
-            foreach ( array( $path, ltrim($path, '/') ) as $key ) {
-                if ( '' !== $key && ! in_array($key, $keys, true) ) {
-                    $keys[] = $key;
-                }
-            }
-        }
-
-        return $keys;
+        return $this->materializedAssets()->metadataForUrl($url);
     }
 
     private function safeResolvedAssetImageUrl(string $url): string
