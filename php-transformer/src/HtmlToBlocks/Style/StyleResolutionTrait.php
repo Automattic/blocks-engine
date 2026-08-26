@@ -2066,26 +2066,37 @@ trait StyleResolutionTrait
     }
 
     /**
-     * Preserve source order and duplicate declarations for image crop cascade
-     * resolution. General presentation maps intentionally collapse duplicates.
+     * Collect nested class-owned rules and ordered image-crop declarations from
+     * one recursive at-rule traversal.
      *
-     * @return list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
+     * @return array{
+     *     conditional: list<array{selector: string, declarations: array<string, string>, conditions: list<string>}>,
+     *     image_shape: list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
+     * }
      */
-    private function imageShapeStyleRules(string $html, string $linkedCss): array
+    private function structuredStyleAnalysis(string $css): array
     {
-        $css = trim($linkedCss);
-        if (preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches)) {
-            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
-        }
-        $rules = array();
+        $analysis = array('conditional' => array(), 'image_shape' => array());
+        $css = trim($css);
         $order = 0;
-        $this->collectImageShapeStyleRules(preg_replace('@/\*.*?\*/@s', '', $css) ?? $css, array(), $rules, $order);
+        $this->collectStructuredStyleAnalysis(
+            preg_replace('@/\*.*?\*/@s', '', $css) ?? $css,
+            array(),
+            $analysis,
+            $order
+        );
 
-        return $rules;
+        return $analysis;
     }
 
-    /** @param list<string> $conditions @param list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}> $rules */
-    private function collectImageShapeStyleRules(string $css, array $conditions, array &$rules, int &$order): void
+    /**
+     * @param list<string> $conditions
+     * @param array{
+     *     conditional: list<array{selector: string, declarations: array<string, string>, conditions: list<string>}>,
+     *     image_shape: list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
+     * } $analysis
+     */
+    private function collectStructuredStyleAnalysis(string $css, array $conditions, array &$analysis, int &$order): void
     {
         $directCss = $css;
         $events = array();
@@ -2105,23 +2116,32 @@ trait StyleResolutionTrait
             $prelude = trim(substr($css, $offset, $blockStart - $offset));
             $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
             if (preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude)) {
-                $events[] = array('offset' => $offset, 'css' => substr($css, $blockStart + 1, $end - $blockStart - 1), 'conditions' => array_merge($conditions, array($prelude)));
+                $events[] = array(
+                    'offset' => $offset,
+                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
+                    'conditions' => array_merge($conditions, array($prelude)),
+                );
             }
             $offset = $end;
         }
         if (preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
             foreach ($matches as $match) {
-                $events[] = array('offset' => $match[0][1], 'prelude' => $match[1][0], 'body' => $match[2][0], 'conditions' => $conditions);
+                $events[] = array('offset' => $match[0][1], 'prelude' => $match[1][0], 'body' => $match[2][0]);
             }
         }
         usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ($events as $event) {
             if (isset($event['css'])) {
-                $this->collectImageShapeStyleRules($event['css'], $event['conditions'], $rules, $order);
+                $this->collectStructuredStyleAnalysis($event['css'], $event['conditions'], $analysis, $order);
                 continue;
             }
-            $entries = $this->imageShapeDeclarationEntries((string) $event['body']);
-            if (array() === $entries) {
+
+            $body = (string) $event['body'];
+            $declarations = array() === $conditions
+                ? array()
+                : $this->safeVisualDeclarations($this->cssDeclarations($body));
+            $imageEntries = $this->imageShapeDeclarationEntries($body);
+            if (array() === $declarations && array() === $imageEntries) {
                 continue;
             }
             foreach (explode(',', (string) $event['prelude']) as $selector) {
@@ -2129,8 +2149,11 @@ trait StyleResolutionTrait
                 if ('' === $selector || str_starts_with($selector, '@') || $this->selectorCarriesPseudoState($selector) || ! $this->isSupportedCssSelector($selector)) {
                     continue;
                 }
-                foreach ($entries as $entry) {
-                    $rules[] = array('selector' => $selector, 'property' => $entry['property'], 'value' => $entry['value'], 'conditions' => $event['conditions'], 'order' => $order++);
+                if (array() !== $declarations) {
+                    $analysis['conditional'][] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
+                }
+                foreach ($imageEntries as $entry) {
+                    $analysis['image_shape'][] = array('selector' => $selector, 'property' => $entry['property'], 'value' => $entry['value'], 'conditions' => $conditions, 'order' => $order++);
                 }
             }
         }
@@ -2153,97 +2176,6 @@ trait StyleResolutionTrait
         }
 
         return $entries;
-    }
-
-    /**
-     * Collect author rules nested in conditional at-rules. Their declarations
-     * must remain class-owned even though only the base cascade is available to
-     * the server-side transformer.
-     *
-     * @return array<int, array{selector: string, declarations: array<string, string>}>
-     */
-    private function conditionalStyleRules(string $html, string $linkedCss): array
-    {
-        $css = trim($linkedCss);
-        if (preg_match_all('@<style\b[^>]*>(.*?)</style>@is', $html, $matches)) {
-            $css .= ('' === $css ? '' : "\n") . implode("\n", array_map('trim', $matches[1]));
-        }
-        if ('' === trim($css)) {
-            return array();
-        }
-
-        $css = preg_replace('@/\*.*?\*/@s', '', $css) ?? $css;
-        $rules = array();
-        $this->collectConditionalStyleRules($css, array(), $rules);
-
-        return $rules;
-    }
-
-    /**
-     * @param list<string> $conditions
-     * @param array<int, array{selector: string, declarations: array<string, string>, conditions: list<string>}> $rules
-     */
-    private function collectConditionalStyleRules(string $css, array $conditions, array &$rules): void
-    {
-        $directCss = $css;
-        $events = array();
-        $length = strlen($css);
-        for ($offset = 0; $offset < $length; ++$offset) {
-            if ('@' !== $css[$offset]) {
-                continue;
-            }
-            $blockStart = $this->findCssToken($css, '{', $offset);
-            $statementEnd = $this->findCssToken($css, ';', $offset);
-            if (null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart)) {
-                continue;
-            }
-            $end = $this->findMatchingCssBrace($css, $blockStart);
-            if (null === $end) {
-                continue;
-            }
-            $prelude = trim(substr($css, $offset, $blockStart - $offset));
-            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
-            if (preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude)) {
-                $events[] = array(
-                    'offset' => $offset,
-                    'kind' => 'conditional',
-                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
-                    'conditions' => array_merge($conditions, array($prelude)),
-                );
-            }
-            $offset = $end;
-        }
-
-        if (array() !== $conditions && preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
-            foreach ($matches as $match) {
-                $events[] = array(
-                    'offset' => $match[0][1],
-                    'kind' => 'style',
-                    'prelude' => $match[1][0],
-                    'body' => $match[2][0],
-                    'conditions' => $conditions,
-                );
-            }
-        }
-
-        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        foreach ($events as $event) {
-            if ('conditional' === $event['kind']) {
-                $this->collectConditionalStyleRules($event['css'], $event['conditions'], $rules);
-                continue;
-            }
-
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations((string) $event['body']));
-            if (array() === $declarations) {
-                continue;
-            }
-            foreach (explode(',', (string) $event['prelude']) as $selector) {
-                $selector = trim($selector);
-                if ('' !== $selector && ! str_starts_with($selector, '@') && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
-                    $rules[] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
-                }
-            }
-        }
     }
 
     private function findMatchingCssBrace(string $css, int $openingBrace): ?int
