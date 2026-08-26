@@ -7,6 +7,35 @@ use DOMElement;
 
 final class PatternRecognizerRegistry
 {
+    /** Canonical production composition; array order defines recognizer precedence. */
+    public static function createDefault(): self
+    {
+        $buttons = new ButtonsPattern();
+        $quote = new QuotePattern();
+
+        return new self(array(
+            new MediaTextPattern(),
+            new CoverPattern(),
+            new ColumnsPattern(),
+            new MathPattern(),
+            new ParameterTablePattern(),
+            new SpacerPattern(),
+            new CodeWindowPattern(),
+            new LogoPattern(),
+            new PlaceholderMediaPattern(),
+            $quote,
+            new FigureQuotePattern($quote),
+            new DetailsPattern(),
+            new GalleryPattern(),
+            new ButtonsContainerPattern($buttons),
+            new ButtonAnchorPattern($buttons),
+            new ButtonPattern($buttons),
+            new AccordionPattern(),
+            new SocialLinksPattern(),
+            new NavigationPattern(),
+        ));
+    }
+
     /**
      * @param array<int, PatternRecognizerInterface> $recognizers
      */

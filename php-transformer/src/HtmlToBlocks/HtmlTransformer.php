@@ -16,11 +16,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
@@ -214,13 +211,6 @@ final class HtmlTransformer
     private readonly BlockFactory $blockFactory;
 
     private readonly BackgroundImageExtractor $backgroundImageExtractor;
-
-    private readonly ColumnsPattern $columnsPattern;
-
-    private readonly CoverPattern $coverPattern;
-
-    private readonly MediaTextPattern $mediaTextPattern;
-
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
 
@@ -579,33 +569,8 @@ final class HtmlTransformer
         );
         $this->blockFactory      = new BlockFactory();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
-        $buttonsPattern         = new ButtonsPattern();
-        $this->columnsPattern    = new ColumnsPattern();
-        $this->coverPattern      = new CoverPattern();
-        $this->mediaTextPattern  = new MediaTextPattern();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
-        $quotePattern            = new QuotePattern();
-        $this->patternRecognizers = new PatternRecognizerRegistry(array(
-            $this->mediaTextPattern,
-            $this->coverPattern,
-            $this->columnsPattern,
-            new MathPattern(),
-            new ParameterTablePattern(),
-            new SpacerPattern(),
-            new CodeWindowPattern(),
-            new LogoPattern(),
-            new PlaceholderMediaPattern(),
-            $quotePattern,
-            new FigureQuotePattern($quotePattern),
-            new DetailsPattern(),
-            new GalleryPattern(),
-            new ButtonsContainerPattern($buttonsPattern),
-            new ButtonAnchorPattern($buttonsPattern),
-            new ButtonPattern($buttonsPattern),
-            new AccordionPattern(),
-            new SocialLinksPattern(),
-            new NavigationPattern(),
-        ));
+        $this->patternRecognizers = PatternRecognizerRegistry::createDefault();
         $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
         $this->diagnosticsCollector = new DiagnosticsCollector();
