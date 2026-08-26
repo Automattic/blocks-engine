@@ -36,6 +36,7 @@ final class ArtifactCompiler
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
     public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v1';
     public const COMPILED_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v2';
+    public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
@@ -374,7 +375,10 @@ final class ArtifactCompiler
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction']) ? self::COMPILED_RECEIPT_SCHEMA : self::PAGE_RECEIPT_SCHEMA;
+        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction'])
+            ? ($pagePlan['compiler_options']['compiled_page_schema'] ?? self::COMPACT_RECEIPT_SCHEMA)
+            : self::PAGE_RECEIPT_SCHEMA;
+        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) $pagePlan['artifact'] = $pageArtifact;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
         if (!isset($sharedPlan['shared_reduction'])) {
@@ -398,6 +402,9 @@ final class ArtifactCompiler
             $files,
             $entryPath
         );
+        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
+            unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
+        }
         /*
          * Observational work data is deliberately excluded from the receipt
          * digest so independently resumed work has stable canonical identity.
@@ -464,7 +471,7 @@ final class ArtifactCompiler
         $this->htmlDocumentTransformCount = 0;
         $this->assertSharedPlan($sharedPlan);
         $hasReceipts = false;
-        foreach ($pagePlans as $candidate) if (($candidate['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) { $hasReceipts = true; break; }
+        foreach ($pagePlans as $candidate) if ($this->isTerminalReceiptSchema($candidate['receipt_schema'] ?? null)) { $hasReceipts = true; break; }
         $sharedArtifact = $hasReceipts
             ? array_merge($sharedPlan['artifact'], array('files' => array()))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
@@ -479,19 +486,21 @@ final class ArtifactCompiler
                 throw new \InvalidArgumentException(sprintf('Composition received more than one staged page plan for page id "%s".', $pagePlan['page_id']));
             }
             $seen[$pagePlan['page_id']] = true;
-            $isReceipt = ($pagePlan['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA;
+            $isReceipt = $this->isTerminalReceiptSchema($pagePlan['receipt_schema'] ?? null);
             if (!$isReceipt) {
                 if ($hasReceipts) throw new \InvalidArgumentException('Composition requires a compiled receipt for every page plan.');
                 $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
                 $files = array_merge($files, $pageArtifact['files']);
                 continue;
             }
-            if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled v2 receipts require the digest-bound shared reduction supplied by their shared plan.');
+            if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled terminal receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
+            $isCompactReceipt = self::COMPACT_RECEIPT_SCHEMA === ($pagePlan['receipt_schema'] ?? null);
+            $pageFiles = $isCompactReceipt ? ($pagePlan['artifact']['files'] ?? null) : ($reduction['files'] ?? null);
+            if (!is_array($reduction) || !is_array($pageFiles) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
-            $pageArtifact = array('files' => $reduction['files']);
-            $files = array_merge($files, $reduction['files']);
+            $pageArtifact = array('files' => $pageFiles);
+            $files = array_merge($files, $pageFiles);
             $expected = $this->ownedHtmlPaths($pageArtifact['files'], (string) $pagePlan['page_id']);
             if ($expected !== array_keys($pagePlan['compiled_documents']) || $expected !== ($pagePlan['owned_document_paths'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its owned HTML documents.');
             $expectedTransformable = $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']);
@@ -505,6 +514,11 @@ final class ArtifactCompiler
                     throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
                 }
                 $compiledDocuments[$path] = $document;
+            }
+            if ($isCompactReceipt) {
+                $reduction['files'] = $pageFiles;
+                $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
+                $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
             }
             $reductions[] = $reduction;
         }
@@ -1553,7 +1567,7 @@ final class ArtifactCompiler
         if (!$this->compatibleReceiptOptions($pagePlan['compiler_options'] ?? null) || ($pagePlan['output_schema'] ?? null) !== TransformerResult::SCHEMA) {
             throw new \InvalidArgumentException('A staged page plan was prepared with incompatible compiler options or output schema.');
         }
-        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA), true)) {
+        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true)) {
             throw new \InvalidArgumentException('A compiled page plan requires the compiled page receipt schema.');
         }
         $this->assertPlanDigest(
@@ -1572,7 +1586,7 @@ final class ArtifactCompiler
             $input['compiled_documents'] = $pagePlan['compiled_documents'];
             $input['owned_document_paths'] = $pagePlan['owned_document_paths'] ?? null;
             $input['shared_reduction_digest'] = $pagePlan['shared_reduction_digest'] ?? null;
-            if (($pagePlan['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) $input['terminal_reduction'] = $pagePlan['terminal_reduction'] ?? null;
+            if ($this->isTerminalReceiptSchema($pagePlan['receipt_schema'] ?? null)) $input['terminal_reduction'] = $pagePlan['terminal_reduction'] ?? null;
         }
         $input['compiler_options'] = $pagePlan['compiler_options'] ?? null;
         $input['output_schema'] = $pagePlan['output_schema'] ?? null;
@@ -1596,7 +1610,7 @@ final class ArtifactCompiler
     private function receiptCompilerOptions(): array
     {
         return array(
-            'compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA,
+            'compiled_page_schema' => self::COMPACT_RECEIPT_SCHEMA,
             'output_schema' => TransformerResult::SCHEMA,
         );
     }
@@ -1604,10 +1618,14 @@ final class ArtifactCompiler
     /** @param mixed $options */
     private function compatibleReceiptOptions(mixed $options): bool
     {
-        return $options === $this->receiptCompilerOptions() || $options === array(
-            'compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA,
-            'output_schema' => TransformerResult::SCHEMA,
-        );
+        return $options === $this->receiptCompilerOptions()
+            || $options === array('compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA)
+            || $options === array('compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA);
+    }
+
+    private function isTerminalReceiptSchema(mixed $schema): bool
+    {
+        return in_array($schema, array(self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true);
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */
