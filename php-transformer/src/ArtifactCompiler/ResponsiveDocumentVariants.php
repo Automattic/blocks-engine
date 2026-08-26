@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 
@@ -79,7 +81,7 @@ final class ResponsiveDocumentVariants
 
             $files[$primaryIndex] = $this->withFileContent(
                 $files[$primaryIndex],
-                $this->composeDocument($primaryHtml, $variantDocuments)
+                $this->composeDocument($primaryHtml, $variantDocuments, $sourcePath)
             );
             $variantPaths = array_fill_keys(array_column($variantDocuments, 'path'), true);
             foreach ($files as $index => $file) {
@@ -96,7 +98,7 @@ final class ResponsiveDocumentVariants
     }
 
     /** @param array<int,array{id:string,path:string,media:string,html:string}> $variants */
-    private function composeDocument(string $primaryHtml, array $variants): string
+    private function composeDocument(string $primaryHtml, array $variants, string $sourcePath): string
     {
         $primaryHtml = $this->scopeDocumentStyles($primaryHtml, 'site-document-variant-default');
         $primaryBody = $this->body($primaryHtml);
@@ -112,7 +114,8 @@ final class ResponsiveDocumentVariants
         $variantMarkup = '';
         $variantStyles = '';
         foreach ($variants as $variant) {
-            $body = $this->body($variant['html']);
+            $variantHtml = $this->rebaseDocumentReferences($variant['html'], $variant['path'], $sourcePath);
+            $body = $this->body($variantHtml);
             if (null === $body) {
                 throw new \InvalidArgumentException(sprintf('Document variant "%s" must contain a body element.', $variant['path']));
             }
@@ -129,7 +132,7 @@ final class ResponsiveDocumentVariants
                 . ('' !== $bodyStyle ? ' style="' . htmlspecialchars($bodyStyle, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"' : '')
                 . '>' . preg_replace('@<style\b[^>]*>[\s\S]*?</style\s*>@i', '', $body['content']) . '</div>';
 
-            foreach ($this->styles($variant['html']) as $style) {
+            foreach ($this->styles($variantHtml) as $style) {
                 $css = $this->scopeDocumentStylesheet($style['css'], $variantClass);
                 $media = '' !== $style['media'] ? $variant['media'] . ' and ' . $style['media'] : $variant['media'];
                 $variantStyles .= '<style media="' . htmlspecialchars($media, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '">' . $css . '</style>';
@@ -146,6 +149,67 @@ final class ResponsiveDocumentVariants
         return preg_match('@</head\s*>@i', $composed)
             ? (string) preg_replace('@</head\s*>@i', $styles . '</head>', $composed, 1)
             : $styles . $composed;
+    }
+
+    private function rebaseDocumentReferences(string $html, string $variantPath, string $primaryPath): string
+    {
+        $rebase = fn(string $reference): string => $this->rebaseReference($reference, $variantPath, $primaryPath);
+        $html = (string) preg_replace_callback(
+            '~<\s*[a-z][a-z0-9:-]*(?:\s+(?:"[^"]*"|\'[^\']*\'|[^\'"<>])*)?/?>~is',
+            static function (array $match) use ($rebase): string {
+                preg_match('~^<\s*([a-z][a-z0-9:-]*)~i', $match[0], $elementMatch);
+                $element = strtolower((string) ($elementMatch[1] ?? ''));
+                return (string) preg_replace_callback(
+                    '~(?<![a-z0-9:_-])(xlink:href|srcset|src|href|poster|style)\s*=\s*(["\'])(.*?)\2~is',
+                    static function (array $attribute) use ($element, $rebase): string {
+                        $name = strtolower($attribute[1]);
+                        $value = 'href' === $name && in_array($element, array('a', 'area'), true)
+                            ? $attribute[3]
+                            : ('style' === $name
+                                ? self::rebaseCss($attribute[3], $rebase)
+                                : ('srcset' === $name ? SrcsetParser::rewrite($attribute[3], $rebase) : $rebase($attribute[3])));
+                        return $attribute[1] . '=' . $attribute[2] . $value . $attribute[2];
+                    },
+                    $match[0]
+                );
+            },
+            $html
+        );
+        return (string) preg_replace_callback(
+            '~<style\b[^>]*>(.*?)</style\s*>~is',
+            static fn(array $match): string => str_replace($match[1], self::rebaseCss($match[1], $rebase), $match[0]),
+            $html
+        );
+    }
+
+    /** @param callable(string):string $rebase */
+    private static function rebaseCss(string $css, callable $rebase): string
+    {
+        $css = CssUrlRewriter::rewrite($css, $rebase);
+        return (string) preg_replace_callback(
+            '~(@import\s+)(["\'])([^"\']+)\2~i',
+            static fn(array $match): string => $match[1] . $match[2] . $rebase($match[3]) . $match[2],
+            $css
+        );
+    }
+
+    private function rebaseReference(string $reference, string $variantPath, string $primaryPath): string
+    {
+        if ('' === trim($reference) || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|/|#|\?)~i', $reference)) {
+            return $reference;
+        }
+        preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
+        $resolved = ArtifactPath::resolveRelativePath((string) ($parts[1] ?? ''), $variantPath);
+        if ('' === $resolved) {
+            return $reference;
+        }
+        $from = '.' === dirname($primaryPath) ? array() : explode('/', dirname($primaryPath));
+        $to = explode('/', $resolved);
+        while (array() !== $from && array() !== $to && $from[0] === $to[0]) {
+            array_shift($from);
+            array_shift($to);
+        }
+        return implode('/', array_merge(array_fill(0, count($from), '..'), $to)) . (string) ($parts[2] ?? '');
     }
 
     private function scopeDocumentSelectors(string $css): string

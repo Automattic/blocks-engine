@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void {
     if (!$condition) {
@@ -35,7 +36,7 @@ $artifact = array(
         array(
             'path' => 'website/.variants/mobile/index.html',
             'role' => 'document_variant',
-            'content' => '<!doctype html><html><head><style>:root{--site-width:320px}body.mobile{display:flex;min-width:320px;overflow:hidden}body.mobile main{width:var(--site-width)}.card{display:block}</style></head><body class="mobile" style="overflow:hidden"><main><h1 class="card">Mobile</h1></main></body></html>',
+            'content' => '<!doctype html><html><head><style>:root{--site-width:320px}body.mobile{display:flex;min-width:320px;overflow:hidden}body.mobile main{width:var(--site-width)}.card{display:block}</style></head><body class="mobile" style="overflow:hidden"><main><h1 class="card">Mobile</h1><a href="calendar/index.html">Calendar</a></main></body></html>',
         ),
     ),
 );
@@ -61,6 +62,7 @@ $assert(str_contains($assetCss, '@media not all and (max-width: 768px){.site-doc
 $assert(str_contains($assetCss, '@scope (.site-document-variant-default)') && str_contains($assetCss, '.card{display:grid}'), 'Primary selectors remain editable inside the default document scope.');
 $assert(str_contains($assetCss, '.card{display:block}'), 'Mobile selectors remain editable inside the mobile document scope.');
 $assert(str_contains($blocks, 'site-document-variant-default desktop'), 'Primary body classes are projected onto the default document wrapper.');
+$assert(str_contains($blocks, 'href="calendar/index.html"'), 'Mobile route destinations retain their existing primary-route interpretation.');
 
 $sharedPlan = $compiler->prepareShared($artifact);
 $pagePlan = $compiler->preparePage($artifact, $sharedPlan, 'website/index.html');
@@ -68,6 +70,57 @@ $staged = $compiler->compose($sharedPlan, array($pagePlan))->toArray();
 $stagedBlocks = (string) ($staged['serialized_blocks'] ?? '');
 $assert(str_contains($stagedBlocks, 'site-document-variant-default') && str_contains($stagedBlocks, 'site-document-variant-mobile'), 'Staged compilation preserves the same responsive variants.');
 $assert($blocks === $stagedBlocks && ($result['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Direct and staged compilation preserve identical responsive document content and site plans.');
+
+$routeArtifact = array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/routes/hpgraduationday/index.html',
+    'document_variants' => array(
+        array(
+            'source_path' => 'website/routes/hpgraduationday/index.html',
+            'variants' => array(
+                array(
+                    'id' => 'mobile',
+                    'source_path' => 'website/.variants/mobile/routes/hpgraduationday/index.html',
+                    'media' => '(max-width: 500px)',
+                ),
+            ),
+        ),
+    ),
+    'files' => array(
+        array(
+            'path' => 'website/routes/hpgraduationday/index.html',
+            'content' => '<!doctype html><html><head></head><body><main><h1>Desktop graduation</h1><img src="artwork/hero.svg" alt="Desktop graduation artwork"></main></body></html>',
+        ),
+        array(
+            'path' => 'website/.variants/mobile/routes/hpgraduationday/index.html',
+            'role' => 'document_variant',
+            'content' => '<!doctype html><html><head></head><body><main><h1>Mobile graduation</h1><img src="artwork/hero.svg" alt="Mobile graduation artwork"></main></body></html>',
+        ),
+        array(
+            'path' => 'website/routes/hpgraduationday/artwork/hero.svg',
+            'mime_type' => 'image/svg+xml',
+            'content' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 1"><rect width="2" height="1" fill="orange"/></svg>',
+        ),
+        array(
+            'path' => 'website/.variants/mobile/routes/hpgraduationday/artwork/hero.svg',
+            'mime_type' => 'image/svg+xml',
+            'content' => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 2"><rect width="1" height="2" fill="navy"/></svg>',
+        ),
+    ),
+);
+$routeResult = $compiler->compile($routeArtifact)->toArray();
+$routePlan = $routeResult['source_reports']['wordpress_site_plan'] ?? array();
+$tokensBySource = array_column($routePlan['reference_tokens'] ?? array(), 'token', 'source_path');
+$desktopToken = $tokensBySource['website/routes/hpgraduationday/artwork/hero.svg'] ?? '';
+$mobileToken = $tokensBySource['website/.variants/mobile/routes/hpgraduationday/artwork/hero.svg'] ?? '';
+$routeMarkup = (string) ($routePlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert('' !== $desktopToken && '' !== $mobileToken && $desktopToken !== $mobileToken, 'Desktop and mobile artwork retain distinct publication identities.');
+$assert(str_contains($routeMarkup, '{{wordpress-site-plan:asset:' . $desktopToken . '}}'), 'The emitted desktop route selects its captured desktop artwork.');
+$assert(str_contains($routeMarkup, '{{wordpress-site-plan:asset:' . $mobileToken . '}}'), 'The emitted mobile route selects its captured mobile artwork.');
+$resolvedRoutePlan = (new WordPressSitePlanResolver())->resolve($routePlan, array('theme_uri' => 'https://example.test/wp-content/themes/captured'));
+$resolvedRouteMarkup = (string) ($resolvedRoutePlan['pages'][0]['resolved_block_markup'] ?? '');
+$assert(str_contains($resolvedRouteMarkup, 'https://example.test/wp-content/themes/captured/assets/website/routes/hpgraduationday/artwork/hero.svg'), 'Desktop artwork resolves to its materialized destination URL.');
+$assert(str_contains($resolvedRouteMarkup, 'https://example.test/wp-content/themes/captured/assets/website/.variants/mobile/routes/hpgraduationday/artwork/hero.svg'), 'Mobile artwork resolves to its materialized destination URL.');
 
 $invalid = $artifact;
 $invalid['document_variants'][0]['variants'][0]['media'] = '(max-width:768px)}body{display:none}';
