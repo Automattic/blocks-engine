@@ -23,6 +23,12 @@ final class HtmlTransformerAnalysisCache
 
     private ?string $oversizedAuthorSelectorKey = null;
 
+    /** @var array<string, int> */
+    private array $styleAnalysisBytes = array();
+
+    /** @var array<string, int> */
+    private array $authorSelectorAnalysisBytes = array();
+
     /** @var array<string, array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array}> */
     public array $styles = array();
 
@@ -96,6 +102,7 @@ final class HtmlTransformerAnalysisCache
     {
         $this->remember(
             $this->styles,
+            $this->styleAnalysisBytes,
             $this->styleBytes,
             $this->styleEvictions,
             $this->styleEvictedBytes,
@@ -122,6 +129,7 @@ final class HtmlTransformerAnalysisCache
     {
         $this->remember(
             $this->authorSelectorAnalyses,
+            $this->authorSelectorAnalysisBytes,
             $this->authorSelectorBytes,
             $this->authorSelectorEvictions,
             $this->authorSelectorEvictedBytes,
@@ -145,6 +153,7 @@ final class HtmlTransformerAnalysisCache
 
     private function remember(
         array &$cache,
+        array &$analysisBytes,
         int &$retainedBytes,
         int &$evictions,
         int &$evictedBytes,
@@ -161,11 +170,11 @@ final class HtmlTransformerAnalysisCache
 
         $isOversized = $bytes > self::MAX_PAYLOAD_BYTES;
         if ( $isOversized && null !== $oversizedKey ) {
-            $this->evict($cache, $retainedBytes, $evictions, $evictedBytes, $oversizedKey);
+            $this->evict($cache, $analysisBytes, $retainedBytes, $evictions, $evictedBytes, $oversizedKey);
             $oversizedKey = null;
         }
 
-        while ( count($cache) >= self::MAX_PAYLOAD_ENTRIES || ( ! $isOversized && $this->regularBytes($cache, $retainedBytes, $oversizedKey) + $bytes > self::MAX_PAYLOAD_BYTES ) ) {
+        while ( count($cache) >= self::MAX_PAYLOAD_ENTRIES || ( ! $isOversized && $this->regularBytes($analysisBytes, $retainedBytes, $oversizedKey) + $bytes > self::MAX_PAYLOAD_BYTES ) ) {
             $evictionKey = null;
             foreach ( $cache as $candidate => $_analysis ) {
                 if ( $candidate !== $oversizedKey ) {
@@ -176,29 +185,33 @@ final class HtmlTransformerAnalysisCache
             if ( null === $evictionKey ) {
                 break;
             }
-            $this->evict($cache, $retainedBytes, $evictions, $evictedBytes, $evictionKey);
+            $this->evict($cache, $analysisBytes, $retainedBytes, $evictions, $evictedBytes, $evictionKey);
         }
 
         $cache[$key] = $analysis;
+        $analysisBytes[$key] = $bytes;
         $retainedBytes += $bytes;
         if ( $isOversized ) {
             $oversizedKey = $key;
         }
     }
 
-    private function regularBytes(array $cache, int $retainedBytes, ?string $oversizedKey): int
+    /** @param array<string, int> $analysisBytes */
+    private function regularBytes(array $analysisBytes, int $retainedBytes, ?string $oversizedKey): int
     {
-        if ( null === $oversizedKey || ! isset($cache[$oversizedKey]) ) {
+        if ( null === $oversizedKey || ! isset($analysisBytes[$oversizedKey]) ) {
             return $retainedBytes;
         }
 
-        return $retainedBytes - $this->analysisBytes($cache[$oversizedKey]);
+        return $retainedBytes - $analysisBytes[$oversizedKey];
     }
 
-    private function evict(array &$cache, int &$retainedBytes, int &$evictions, int &$evictedBytes, string $key): void
+    /** @param array<string, int> $analysisBytes */
+    private function evict(array &$cache, array &$analysisBytes, int &$retainedBytes, int &$evictions, int &$evictedBytes, string $key): void
     {
-        $bytes = $this->analysisBytes($cache[$key]);
+        $bytes = $analysisBytes[$key];
         unset($cache[$key]);
+        unset($analysisBytes[$key]);
         ++$evictions;
         $retainedBytes -= $bytes;
         $evictedBytes += $bytes;
