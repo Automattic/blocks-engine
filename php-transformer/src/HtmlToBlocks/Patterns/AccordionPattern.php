@@ -11,10 +11,10 @@ final class AccordionPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $createBlock = $context->createBlockCallback();
+        $createBlock = $context->createBlock(...);
         $converter = $context->recursiveConverter();
-        $presentationAttributes = $context->presentationAttributesCallback();
-        $innerHtml = $context->innerHtmlCallback();
+        $presentationAttributes = $context->presentationAttributes(...);
+        $innerHtml = $context->innerHtml(...);
 
         if ( null === $converter || ! $this->hasAccordionSignal($element) || $this->hasRuntimeHeavyDescendant($element) ) {
             return null;

@@ -19,12 +19,12 @@ final class MathPattern implements PatternRecognizerInterface
         }
 
         $tagName = strtolower($element->tagName);
-        $content = 'math' === $tagName ? $safeFallbackHtml($element) : $this->mathExpressionContent($element, $context->innerHtmlCallback(), $escapeHtml);
+        $content = 'math' === $tagName ? $safeFallbackHtml($element) : $this->mathExpressionContent($element, $context->innerHtml(...), $escapeHtml);
         if ( '' === trim($content) ) {
             return null;
         }
 
-        return new PatternRecognitionResult($context->createBlockCallback()('core/math', array_merge($context->presentationAttributesCallback()($element), array( 'content' => $content )), array(), $element));
+        return new PatternRecognitionResult($context->createBlock('core/math', array_merge($context->presentationAttributes($element), array( 'content' => $content )), array(), $element));
     }
 
     private function isMathElement(DOMElement $element): bool

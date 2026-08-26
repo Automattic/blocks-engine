@@ -48,7 +48,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $style,
             $html,
             $url,
-            $context->createBlockCallback()
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);

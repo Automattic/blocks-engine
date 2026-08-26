@@ -32,6 +32,14 @@ $context = new PatternContext(
     static fn (DOMElement $source): string => '',
     static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name )
 );
+$semanticContext = new PatternContext(
+    static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded ),
+    static fn (DOMElement $source): string => '<span>content</span>',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null, ?DOMElement $logicalSource = null): array => array( 'blockName' => $name, 'logicalTag' => $logicalSource?->tagName )
+);
+$assertSame(array( 'excluded' => array( 'width' ) ), $semanticContext->presentationAttributes($element, array( 'width' )), 'Pattern context forwards presentation exclusions through its semantic API.');
+$assertSame('<span>content</span>', $semanticContext->innerHtml($element), 'Pattern context exposes inner HTML as a direct operation.');
+$assertSame(array( 'blockName' => 'core/group', 'logicalTag' => 'div' ), $semanticContext->createBlock('core/group', logicalSourceElement: $element), 'Pattern context forwards logical block provenance through its semantic API.');
 $calls = new ArrayObject();
 $declined = new class($calls) implements PatternRecognizerInterface {
     public function __construct(private readonly ArrayObject $calls) {}

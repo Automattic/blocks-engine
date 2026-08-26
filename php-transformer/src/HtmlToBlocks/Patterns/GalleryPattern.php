@@ -23,9 +23,9 @@ final class GalleryPattern implements PatternRecognizerInterface
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $gallery->convertImage($image, $figure, $picture, $link),
             fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $gallery->convertPicture($picture, $figure, $link),
             fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
-            $context->presentationAttributesCallback(),
-            $context->innerHtmlCallback(),
-            $context->createBlockCallback()
+            $context->presentationAttributes(...),
+            $context->innerHtml(...),
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block);

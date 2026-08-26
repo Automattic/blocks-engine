@@ -30,9 +30,9 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $presentationAttributes = $context->presentationAttributesCallback();
-        $innerHtml = $context->innerHtmlCallback();
-        $createBlock = $context->createBlockCallback();
+        $presentationAttributes = $context->presentationAttributes(...);
+        $innerHtml = $context->innerHtml(...);
+        $createBlock = $context->createBlock(...);
         $navigationContext = $context->navigationContext();
         $isRuntimeDomTarget = $navigationContext?->runtimeDomTargetCallback();
         $navigationUnderlineColor = $navigationContext?->underlineColorCallback();

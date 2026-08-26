@@ -39,19 +39,19 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, $context->innerHtmlCallback()($anchor), $buttons);
+        $text = $this->buttonText($anchor, $context->innerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameFallback($anchor);
         }
 
-        $block = $context->createBlockCallback()('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
+        $block = $context->createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
         return new PatternRecognitionResult($block);
     }
 
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
-        $createBlock = $context->createBlockCallback();
+        $createBlock = $context->createBlock(...);
         $resolvedButtonStyle = trim($buttons->resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $context, $buttons);
         if ( $buttons->isGridItem($button) ) {
@@ -80,7 +80,7 @@ final class ButtonsPattern
     {
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
-            return $context->createBlockCallback()('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
+            return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
 
         $buttonBlocks = array();
@@ -94,7 +94,7 @@ final class ButtonsPattern
             return null;
         }
 
-        return $context->createBlockCallback()('core/buttons', $context->presentationAttributesCallback()($element), $buttonBlocks, $element);
+        return $context->createBlock('core/buttons', $context->presentationAttributes($element), $buttonBlocks, $element);
     }
 
     /** @return array<string, mixed> */
@@ -117,9 +117,9 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $text = $this->buttonText($anchor, $context->innerHtmlCallback()($anchor), $buttons);
+        $text = $this->buttonText($anchor, $context->innerHtml($anchor), $buttons);
 
-        return $context->createBlockCallback()('core/button', array_filter(array_merge($attrs, array(
+        return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
             'url'        => $buttons->attribute($anchor, 'href'),
             'title'      => $this->buttonTitleForAnchor($anchor, $text),
@@ -135,7 +135,7 @@ final class ButtonsPattern
      */
     private function buttonWrapperAttributes(DOMElement $element, PatternContext $context, ButtonPatternContext $buttons): array
     {
-        $presentation = $context->presentationAttributesCallback()($element);
+        $presentation = $context->presentationAttributes($element);
         $attrs = array();
         $margin = $presentation['style']['spacing']['margin'] ?? null;
         if ( is_array($margin) && array() !== $margin ) {
@@ -320,7 +320,7 @@ final class ButtonsPattern
         if ( '' !== trim((string) ($native['style']['shadow'] ?? '')) ) {
             $excludedGeometry[] = 'box-shadow';
         }
-        $attrs = $context->presentationAttributesCallback()($element, $excludedGeometry);
+        $attrs = $context->presentationAttributes($element, $excludedGeometry);
         // Buttons resolve styling from the raw merged CSS string, not the canonical
         // block style object, so the (now object-shaped) presentation `style` is
         // dropped and re-derived via ButtonStyleResolver below.
