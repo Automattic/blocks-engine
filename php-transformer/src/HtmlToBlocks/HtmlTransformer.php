@@ -373,6 +373,11 @@ final class HtmlTransformer
         return $this->session->runtimeDomState();
     }
 
+    private function runtimeSelectors(): RuntimeSelectorState
+    {
+        return $this->session->runtimeSelectorState();
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -403,13 +408,15 @@ final class HtmlTransformer
         $this->staticPseudoElementStyleRules = $styleAnalysis['pseudo'];
         $this->cssCustomProperties = $styleAnalysis['custom_properties'];
         $this->resetPresentationResolutionCache();
-        $this->runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
-        $this->runtimeBehavioralSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors');
-        $this->runtimeCanvasSelectors = $this->runtimeCanvasSelectorsFromOptions($options);
+        $runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
+        $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
+            $runtimeDomSelectors,
+            $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
+            $this->runtimeCanvasSelectorsFromOptions($options)
+        ));
         $this->session->installLayoutGeometryState(new LayoutGeometryState(
             is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
         ));
-        $this->supersededRuntimeSelectors = array();
         $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
@@ -482,7 +489,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
-        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeCanvasSelectors, $this->sourceTagMarkers);
+        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->sourceTagMarkers);
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
@@ -611,7 +618,7 @@ final class HtmlTransformer
                 ),
             ) : array(),
             'interaction_candidates' => $interactionCandidates,
-            'superseded_selectors' => array_keys($this->supersededRuntimeSelectors),
+            'superseded_selectors' => $this->runtimeSelectors()->supersededSelectors(),
             'shell_artifacts' => $shellArtifacts,
             'wp_block_validity' => $blockValidityReport,
             'semantic_parity' => $semanticParityReport,
@@ -12014,17 +12021,17 @@ final class HtmlTransformer
     private function isRuntimeDomTarget(DOMElement $element): bool
     {
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
+        if ( '' !== $id && $this->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
         }
 
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
+            if ( '' !== $class && $this->runtimeSelectors()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
         }
 
-        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+        foreach ( array_keys($this->runtimeSelectors()->domSelectors()) as $selector ) {
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
@@ -12038,9 +12045,9 @@ final class HtmlTransformer
     {
         $selectors = array();
         $id = trim($this->attr($element, 'id'));
-        if ( '' !== $id && isset($this->runtimeDomSelectors['#' . $id]) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && isset($this->runtimeDomSelectors['.' . $class]) ) $selectors[] = '.' . $class;
-        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+        if ( '' !== $id && $this->runtimeSelectors()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->runtimeSelectors()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( array_keys($this->runtimeSelectors()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
         }
@@ -12049,7 +12056,7 @@ final class HtmlTransformer
 
     private function shouldPreserveRuntimeAppShell(DOMElement $element): bool
     {
-        if ( array() === $this->runtimeDomSelectors && array() === $this->runtimeCanvasSelectors ) {
+        if ( ! $this->runtimeSelectors()->hasRuntimeTargets() ) {
             return false;
         }
 
@@ -12307,7 +12314,7 @@ final class HtmlTransformer
             return false;
         }
 
-        foreach ( array_keys($this->runtimeDomSelectors) as $selector ) {
+        foreach ( array_keys($this->runtimeSelectors()->domSelectors()) as $selector ) {
             if ( str_contains((string) $selector, '[') && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) {
                 return true;
             }
@@ -12342,7 +12349,7 @@ final class HtmlTransformer
 
     private function isPresentationalRuntimeSelector(string $selector): bool
     {
-        return $this->isPresentationalAnimationSelector($selector) && ! isset($this->runtimeBehavioralSelectors[$selector]);
+        return $this->isPresentationalAnimationSelector($selector) && ! $this->runtimeSelectors()->hasBehavioral($selector);
     }
 
     private function elementMatchesRuntimeSelector(DOMElement $element, string $selector): bool
@@ -12508,7 +12515,7 @@ final class HtmlTransformer
     {
         $id = trim($this->attr($element, 'id'));
         $type = strtolower(trim($this->attr($element, 'type')));
-        if ( '' === $id || ! in_array($type, array('application/json', 'application/ld+json'), true) || ! isset($this->runtimeDomSelectors['#' . $id]) ) {
+        if ( '' === $id || ! in_array($type, array('application/json', 'application/ld+json'), true) || ! $this->runtimeSelectors()->hasDom('#' . $id) ) {
             return false;
         }
 
@@ -15267,7 +15274,7 @@ final class HtmlTransformer
 
     private function isDeclaredRuntimeDomTarget(DOMElement $element): bool
     {
-        foreach (array_keys($this->runtimeDomSelectors) as $selector) {
+        foreach (array_keys($this->runtimeSelectors()->domSelectors()) as $selector) {
             if (str_starts_with((string) $selector, '#') && substr((string) $selector, 1) === $this->attr($element, 'id')) {
                 return true;
             }

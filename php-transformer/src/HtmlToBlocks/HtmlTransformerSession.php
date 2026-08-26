@@ -57,10 +57,7 @@ final class HtmlTransformerSession
     public array $buttonWrapperSpacingFallbacks = array();
     public array $imageShapeStyleRules = array();
     public array $staticPseudoElementStyleRules = array();
-    public array $runtimeDomSelectors = array();
-    public array $runtimeBehavioralSelectors = array();
-    public array $runtimeCanvasSelectors = array();
-    public array $supersededRuntimeSelectors = array();
+    private RuntimeSelectorState $runtimeSelectorState;
     public array $sourceTagMarkers = array();
     public array $sourceControlMarkers = array();
     public array $directFlexButtonStyleRules = array();
@@ -96,6 +93,7 @@ final class HtmlTransformerSession
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
         $this->runtimeDomState = new RuntimeDomState();
+        $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
     public function installAuthorStyleAnalysis(AuthorStyleAnalysis $analysis): void
@@ -141,5 +139,15 @@ final class HtmlTransformerSession
     public function runtimeDomState(): RuntimeDomState
     {
         return $this->runtimeDomState;
+    }
+
+    public function installRuntimeSelectorState(RuntimeSelectorState $state): void
+    {
+        $this->runtimeSelectorState = $state;
+    }
+
+    public function runtimeSelectorState(): RuntimeSelectorState
+    {
+        return $this->runtimeSelectorState;
     }
 }
