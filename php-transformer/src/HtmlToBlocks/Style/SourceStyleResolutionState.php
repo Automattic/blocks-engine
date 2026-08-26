@@ -13,4 +13,108 @@ final class SourceStyleResolutionState
 
     /** @var array<string, array<string, array<int, string>>> */
     public array $authorDeclaredPropertyValues = array();
+
+    /** @var array<string, array<int, string>> */
+    private array $classPromotions = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $staticRules = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $conditionalRules = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $navigationStateRules = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $imageShapeRules = array();
+
+    /** @var array<int, array<string, mixed>> */
+    private array $pseudoElementRules = array();
+
+    /** @var array<string, string> */
+    private array $customProperties = array();
+
+    /** @var array<string, array<string, mixed>|null> */
+    private array $parsedSelectors = array();
+
+    private string $formLayoutCss = '';
+
+    /**
+     * @param array<string, array<int, string>> $classPromotions
+     * @param array<string, mixed> $analysis
+     */
+    public function installStylesheetAnalysis(array $classPromotions, array $analysis): void
+    {
+        $this->classPromotions = $classPromotions;
+        $this->staticRules = $analysis['static'];
+        $this->conditionalRules = $analysis['conditional'];
+        $this->navigationStateRules = $analysis['navigation_state'];
+        $this->imageShapeRules = $analysis['image_shape'];
+        $this->pseudoElementRules = $analysis['pseudo'];
+        $this->customProperties = $analysis['custom_properties'];
+    }
+
+    /** @return array<int, string> */
+    public function classPromotions(string $className): array
+    {
+        return $this->classPromotions[$className] ?? array();
+    }
+
+    public function hasClassPromotions(): bool
+    {
+        return array() !== $this->classPromotions;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function staticRules(): array
+    {
+        return $this->staticRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function conditionalRules(): array
+    {
+        return $this->conditionalRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function navigationStateRules(): array
+    {
+        return $this->navigationStateRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function imageShapeRules(): array
+    {
+        return $this->imageShapeRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function pseudoElementRules(): array
+    {
+        return $this->pseudoElementRules;
+    }
+
+    /** @return array<string, string> */
+    public function customProperties(): array
+    {
+        return $this->customProperties;
+    }
+
+    /** @return array<string, mixed>|null */
+    public function parsedSelector(string $selector): ?array
+    {
+        return $this->parsedSelectors[$selector] ??= CssSelectorMatcher::parse($selector);
+    }
+
+    public function setFormLayoutCss(string $css): void
+    {
+        $this->formLayoutCss = $css;
+    }
+
+    public function formLayoutCss(): string
+    {
+        return $this->formLayoutCss;
+    }
 }

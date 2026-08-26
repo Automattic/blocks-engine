@@ -17,10 +17,9 @@ use DOMElement;
  * CSS-rule resolution the font/typography path and `ButtonStyleResolver` rely
  * on, given a single home so style work no longer collides in the god-object.
  *
- * Pure move: methods extracted verbatim from HtmlTransformer with no logic or
- * signature changes. Methods reference `$this->attr()` / `$this->safeAnchor()`
- * (DomHelpersTrait), `$this->promotedClassName()` / `$this->cardLikeChildCount()`,
- * and the `$staticStyleRules` property, all composed onto HtmlTransformer.
+ * Methods reference `$this->attr()` / `$this->safeAnchor()` (DomHelpersTrait),
+ * `$this->promotedClassName()` / `$this->cardLikeChildCount()`, and the typed
+ * source style state, all composed onto HtmlTransformer.
  */
 trait StyleResolutionTrait
 {
@@ -186,7 +185,7 @@ trait StyleResolutionTrait
 
     private function resetPresentationResolutionCache(): void
     {
-        $this->session->sourceStyleResolutionState->selectorMatchCache = new CssSelectorMatchCache();
+        $this->sourceStyles()->selectorMatchCache = new CssSelectorMatchCache();
     }
 
     private function styleAttributeMapper(): StyleAttributeMapper
@@ -294,7 +293,7 @@ trait StyleResolutionTrait
      */
     private function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
     {
-        if (array() === $declarations || array() === $this->conditionalStyleRules) {
+        if (array() === $declarations || array() === $this->sourceStyles()->conditionalRules()) {
             return $declarations;
         }
 
@@ -783,7 +782,7 @@ trait StyleResolutionTrait
      */
     private function authorDeclaredPropertyValues(DOMElement $element, array $properties): array
     {
-        $cache = $this->session->sourceStyleResolutionState;
+        $cache = $this->sourceStyles();
         sort($properties, SORT_STRING);
         $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $properties);
         if ( isset($cache->authorDeclaredPropertyValues[ $cacheKey ]) ) {
@@ -1712,7 +1711,7 @@ trait StyleResolutionTrait
         }
 
         $inlineStyle = $this->attr($element, 'style');
-        if ( array() === $this->staticStyleRules || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
+        if ( array() === $this->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
             $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
@@ -2457,19 +2456,19 @@ trait StyleResolutionTrait
 
     private function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $cache = $this->session->sourceStyleResolutionState;
+        $cache = $this->sourceStyles();
         $match = ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 
     private function invalidateSourceSelectorMatchCache(): void
     {
-        $this->session->sourceStyleResolutionState->selectorMatchCache?->clear();
+        $this->sourceStyles()->selectorMatchCache?->clear();
     }
 
     private function recordSourceSelectorMatchWork(): void
     {
-        $selectorCache = $this->session->sourceStyleResolutionState->selectorMatchCache;
+        $selectorCache = $this->sourceStyles()->selectorMatchCache;
         if ( ! $selectorCache instanceof CssSelectorMatchCache ) {
             return;
         }
@@ -2493,7 +2492,7 @@ trait StyleResolutionTrait
     /** @return list<array<string, mixed>> */
     private function styleRuleCandidates(DOMElement $element, string $collection): array
     {
-        $cache = $this->session->sourceStyleResolutionState;
+        $cache = $this->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
     }
@@ -2502,10 +2501,10 @@ trait StyleResolutionTrait
     private function styleRuleCandidateIndex(string $collection): array
     {
         $rules = match ($collection) {
-            'static' => $this->staticStyleRules,
-            'conditional' => $this->conditionalStyleRules,
-            'static-conditional' => array_merge($this->staticStyleRules, $this->conditionalStyleRules),
-            'static-conditional-pseudo' => array_merge($this->staticStyleRules, $this->conditionalStyleRules, $this->staticPseudoElementStyleRules),
+            'static' => $this->sourceStyles()->staticRules(),
+            'conditional' => $this->sourceStyles()->conditionalRules(),
+            'static-conditional' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()),
+            'static-conditional-pseudo' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules(), $this->sourceStyles()->pseudoElementRules()),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
