@@ -617,7 +617,7 @@ final class BlockFactory
 
         $wrapperAttrs = array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
-            'class' => $this->mergeClassNames('wp-block-button', $this->buttonWidthClasses($attrs), (string) ($attrs['className'] ?? '')),
+            'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
             'style' => (string) ($attrs['inlineGeometryStyle'] ?? ''),
         );
 
@@ -639,19 +639,6 @@ final class BlockFactory
             'rel'    => (string) ($attrs['rel'] ?? ''),
         ));
         return '<div' . $this->htmlAttrs($wrapperAttrs) . '><a' . $this->htmlAttrs($controlAttrs) . $href . $linkAttrs . '>' . $this->preserveRichTextPunctuation((string) ($attrs['text'] ?? '')) . '</a></div>';
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function buttonWidthClasses(array $attrs): string
-    {
-        $width = (int) ($attrs['width'] ?? 0);
-        if ( ! in_array($width, array( 25, 50, 75, 100 ), true) ) {
-            return '';
-        }
-
-        return 'has-custom-width wp-block-button__width-' . $width;
     }
 
     /**
@@ -776,9 +763,6 @@ final class BlockFactory
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-                // Gutenberg's image save shape keeps percentage widths as width-only
-                // styles. The image's intrinsic dimensions (including an SVG viewBox)
-                // provide the automatic aspect ratio without serializing height:auto.
                 if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
                     $style[] = 'height:auto';
                 }

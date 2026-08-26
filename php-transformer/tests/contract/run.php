@@ -1058,19 +1058,19 @@ $assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-c
 
 $percentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $percentageWidthSvgMarkup = (string) ($percentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image uses canonical width-only markup while the SVG viewBox supplies its intrinsic aspect ratio');
+$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.0.4 width-only save shape');
 
 $fractionalPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width=".5%" viewBox="0 0 620 380" role="img" aria-label="Fractional responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $fractionalPercentageWidthSvgMarkup = (string) ($fractionalPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $signedPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="+.5%" viewBox="0 0 620 380" role="img" aria-label="Signed responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $signedPercentageWidthSvgMarkup = (string) ($signedPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $exponentPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="1e2%" viewBox="0 0 620 380" role="img" aria-label="Exponent responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $exponentPercentageWidthSvgMarkup = (string) ($exponentPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $negativePercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="-1%" viewBox="0 0 620 380" role="img" aria-label="Invalid negative responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $negativePercentageWidthSvgMarkup = (string) ($negativePercentageWidthSvg['serialized_blocks'] ?? '');
@@ -1202,7 +1202,7 @@ $fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fullWidthAnchorButtonMarkup = (string) ($fullWidthAnchorButton['serialized_blocks'] ?? '');
 $fullWidthAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthAnchorButton['assets'] ?? array()));
-$assert(str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor preserves native core/button width support and its generated marker');
+$assert(! str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor uses the WordPress 7.1 core/button save shape and its generated marker');
 $assert(! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width anchor without descendants keeps authored root classes out of canonical button markup');
 $assert(str_contains($fullWidthAnchorButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width anchor bridges width through every synthetic wrapper while preserving source wrapper margins');
 $assert('pass' === ($fullWidthAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width anchor wrapper chain remains editor-valid');
@@ -1213,7 +1213,7 @@ $fullWidthNativeButton = ( new HtmlTransformer() )->transform(
 $fullWidthNativeButtonMarkup = (string) ($fullWidthNativeButton['serialized_blocks'] ?? '');
 $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
-$assert(100 === ($fullWidthNativeButtonAttrs['width'] ?? null) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button uses native width support and a generated marker instead of source root classes');
+$assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
 $assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && ! isset($fullWidthNativeButtonAttrs['style']['color']['background']) && str_contains($fullWidthNativeButtonCss, 'background-color:#123456!important'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
@@ -1309,8 +1309,8 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn tier-cta" style="display:inline-flex;width:100%;justify-content:center;padding:10px 18px;background:#111827;color:#ffffff" href="/pricing">Start free</a></main>'
 )->toArray();
 $fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
-$assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), '100% source button width maps to the native core/button width attribute');
-$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta blocks-engine-native-button-'), '100% source button width emits canonical core/button width wrapper classes plus its scoped native style marker');
+$assert(! isset($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width']), '100% source button width omits the legacy core/button width attribute');
+$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button btn tier-cta blocks-engine-native-button-') && ! str_contains($fullWidthButtonMarkup, 'has-custom-width') && ! str_contains($fullWidthButtonMarkup, 'wp-block-button__width-100'), '100% source button width emits the WordPress 7.1 wrapper shape plus its scoped native style marker');
 $assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
 
 $cssVariableButton = ( new HtmlTransformer() )->transform(

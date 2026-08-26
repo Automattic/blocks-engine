@@ -202,8 +202,8 @@ $buttonResult = ( new HtmlTransformer() )->transform('<a class="button" href="/b
 $button = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
 $buttonAttrs = is_array($button['attrs'] ?? null) ? $button['attrs'] : array();
 $buttonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($buttonResult['assets'] ?? null) ? $buttonResult['assets'] : array()));
-$assert(50 === ($buttonAttrs['width'] ?? null), '32: recognized core/button owns its canonical width', json_encode($buttonAttrs));
-$assert(! str_contains($buttonCss, 'width:50%') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1') && str_contains($buttonCss, 'background-color:#135e96') && str_contains($buttonCss, 'padding-top:8px'), '33: core/button carries metadata-rejected paint and spacing with mixed geometry', $buttonCss);
+$assert(! isset($buttonAttrs['width']), '32: recognized core/button omits its legacy width attribute', json_encode($buttonAttrs));
+$assert(str_contains($buttonCss, '.wp-block-button){width:50%!important}') && str_contains($buttonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1') && str_contains($buttonCss, 'background-color:#135e96') && str_contains($buttonCss, 'padding-top:8px'), '33: core/button carries skipped width, metadata-rejected paint, spacing, and mixed geometry through generated CSS', $buttonCss);
 
 $specificityHtml = '<style>#target{width:12rem}</style><main><p id="target" style="width:30rem">Specificity</p></main>';
 $specificityResult = ( new HtmlTransformer() )->transform($specificityHtml, array())->toArray();
