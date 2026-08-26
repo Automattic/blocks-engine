@@ -36,9 +36,29 @@ final class NavigationPatternContext
         $this->overlayMenu            = null === $overlayMenu ? null : Closure::fromCallable($overlayMenu);
     }
 
-    public function runtimeDomTargetCallback(): ?Closure { return $this->runtimeDomTarget; }
-    public function underlineColorCallback(): Closure { return $this->underlineColor; }
-    public function resolvedStyleCallback(): Closure { return $this->resolvedStyle; }
-    public function colorInteractionStatesCallback(): ?Closure { return $this->colorInteractionStates; }
-    public function overlayMenuCallback(): ?Closure { return $this->overlayMenu; }
+    public function isRuntimeDomTarget(DOMElement $element): bool
+    {
+        return null !== $this->runtimeDomTarget && ($this->runtimeDomTarget)($element);
+    }
+
+    public function underlineColor(DOMElement $item, DOMElement $anchor): string
+    {
+        return ($this->underlineColor)($item, $anchor);
+    }
+
+    public function resolvedStyle(DOMElement $element): string
+    {
+        return ($this->resolvedStyle)($element);
+    }
+
+    /** @return list<string> */
+    public function colorInteractionStates(DOMElement $element): array
+    {
+        return null === $this->colorInteractionStates ? array() : ($this->colorInteractionStates)($element);
+    }
+
+    public function overlayMenu(DOMElement $element): string
+    {
+        return null === $this->overlayMenu ? 'never' : ($this->overlayMenu)($element);
+    }
 }
