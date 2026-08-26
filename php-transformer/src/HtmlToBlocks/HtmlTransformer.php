@@ -2887,8 +2887,10 @@ final class HtmlTransformer
             $analysis = $this->analysisCache->style($key);
             if ( null === $analysis ) {
                 ++$this->analysisCache->styleBuilds;
-                $topLevel = $this->topLevelStyleAnalysis($payload);
-                $structured = $this->structuredStyleAnalysis($payload);
+                $ruleCss = trim($payload);
+                $ruleCss = preg_replace('@/\*.*?\*/@s', '', $ruleCss) ?? $ruleCss;
+                $topLevel = $this->topLevelStyleAnalysis($ruleCss);
+                $structured = $this->structuredStyleAnalysis($ruleCss);
                 $analysis = array(
                     'static' => $topLevel['static'],
                     'conditional' => $structured['conditional'],
