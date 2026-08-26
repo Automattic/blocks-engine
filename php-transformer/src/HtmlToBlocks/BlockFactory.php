@@ -763,7 +763,9 @@ final class BlockFactory
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-                $style[] = 'height:auto';
+                if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
+                    $style[] = 'height:auto';
+                }
             } else {
                 $style[] = 'height:' . $this->imageDimensionCssValue((string) $attrs['height'], ! empty($attrs['href']));
             }
@@ -782,6 +784,11 @@ final class BlockFactory
             return $value;
         }
         return preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
+    }
+
+    private function isPercentageWidth(string $width): bool
+    {
+        return 1 === preg_match('/%\s*$/', trim($width));
     }
 
     /**

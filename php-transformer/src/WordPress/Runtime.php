@@ -168,6 +168,9 @@ final class Runtime
         $fallback = array();
         if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
         if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
+        // The legacy core/button width attribute is never serialized by the
+        // editor save function, irrespective of runtime support metadata.
+        if ( 'core/button' === $blockName ) unset($attrs['width']);
         foreach ( array( 'width', 'height' ) as $dimension ) {
             if ( array_key_exists($dimension, $attrs) && $this->skipsFeatureSerialization($supports, 'dimensions', $dimension) ) {
                 $fallback['dimensions'][ $dimension ] = $attrs[ $dimension ];

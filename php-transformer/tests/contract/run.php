@@ -1058,19 +1058,19 @@ $assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-c
 
 $percentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $percentageWidthSvgMarkup = (string) ($percentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%;height:auto"') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.1 width and automatic-height save shape');
+$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.0.4 width-only save shape');
 
 $fractionalPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width=".5%" viewBox="0 0 620 380" role="img" aria-label="Fractional responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $fractionalPercentageWidthSvgMarkup = (string) ($fractionalPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%;height:auto"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the canonical automatic-height responsive markup');
+$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $signedPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="+.5%" viewBox="0 0 620 380" role="img" aria-label="Signed responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $signedPercentageWidthSvgMarkup = (string) ($signedPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%;height:auto"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses canonical automatic-height responsive markup');
+$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $exponentPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="1e2%" viewBox="0 0 620 380" role="img" aria-label="Exponent responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $exponentPercentageWidthSvgMarkup = (string) ($exponentPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%;height:auto"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses canonical automatic-height responsive markup');
+$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $negativePercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="-1%" viewBox="0 0 620 380" role="img" aria-label="Invalid negative responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $negativePercentageWidthSvgMarkup = (string) ($negativePercentageWidthSvg['serialized_blocks'] ?? '');

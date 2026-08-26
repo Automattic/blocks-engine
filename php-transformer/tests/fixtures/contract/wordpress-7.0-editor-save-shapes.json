@@ -1,6 +1,6 @@
 {
     "schema": "blocks-engine/php-transformer/wordpress-editor-save-shapes/v1",
-    "source": "WordPress/wordpress-develop@7.1 wp.blocks.getSaveContent",
+    "source": "WordPress/wordpress-develop@7.0.4 wp.blocks.getSaveContent",
     "cases": [
         {
             "name": "button-legacy-width-attribute",
@@ -20,7 +20,7 @@
                 "alt": "Responsive image",
                 "width": "100%"
             },
-            "expected_inner_html": "<figure class=\"wp-block-image is-resized\"><img src=\"/image.jpg\" alt=\"Responsive image\" style=\"width:100%;height:auto\"/></figure>"
+            "expected_inner_html": "<figure class=\"wp-block-image is-resized\"><img src=\"/image.jpg\" alt=\"Responsive image\" style=\"width:100%\"/></figure>"
         }
     ]
 }
