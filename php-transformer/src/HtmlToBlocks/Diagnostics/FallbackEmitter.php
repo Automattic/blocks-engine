@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeCl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -29,10 +30,8 @@ use DOMElement;
  * byte-identical to the inline implementation.
  *
  * Decoupling notes:
- *  - The accumulators (`$fallbacks`, `$runtimeIslands`, `$scriptMetadata`) stay
- *    owned by HtmlTransformer (they are read at output time and from
- *    non-fallback code such as `isPreservedRuntimeIslandElement`); the emitter
- *    receives them by reference rather than reaching into transformer state.
+ *  - Fallback and script accumulators stay owned by HtmlTransformer. Runtime
+ *    island evidence is recorded through the per-transform RuntimeDomState.
  *  - Per-document configuration (`fallbackProvenance`, `runtimeScriptMetadata`,
  *    `runtimeCanvasSelectors`) is injected via {@see configure()} once per
  *    transform.
@@ -69,15 +68,6 @@ final class FallbackEmitter
 
     /** @var array<string, string> */
     private array $sourceTagMarkers = array();
-
-    /**
-     * DOM identity for each emitted runtime island, kept aligned by index with
-     * the transformer's accumulator so nested findings can be compared without
-     * exposing implementation-only node paths in diagnostics.
-     *
-     * @var array<int, array{document: int, path: string}>
-     */
-    private array $runtimeIslandOrigins = array();
 
     private readonly SubtreeClassifier $classifier;
 
@@ -379,7 +369,6 @@ final class FallbackEmitter
         $this->runtimeScriptMetadata  = $runtimeScriptMetadata;
         $this->runtimeCanvasSelectors = $runtimeCanvasSelectors;
         $this->sourceTagMarkers       = $sourceTagMarkers;
-        $this->runtimeIslandOrigins   = array();
     }
 
     /**
@@ -413,9 +402,8 @@ final class FallbackEmitter
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks
-     * @param array<int, array<string, mixed>> $runtimeIslands
      */
-    public function captureCanvasFallback(DOMElement $element, array &$fallbacks, array &$runtimeIslands): void
+    public function captureCanvasFallback(DOMElement $element, array &$fallbacks, RuntimeDomState $runtimeDom): void
     {
         if ( ! $this->isRuntimeCanvasTarget($element) ) {
             return;
@@ -428,7 +416,7 @@ final class FallbackEmitter
                 ? 'Scripts may target #' . $id . ' and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.'
                 : 'Scripts may target this canvas by selector and call canvas APIs such as getContext(); replacing it with a wrapper block changes runtime behavior.',
             'required_scripts' => $this->requiredScriptsForElement($element),
-        ), $runtimeIslands);
+        ), $runtimeDom);
 
         $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
             'type'            => 'html',
@@ -455,9 +443,8 @@ final class FallbackEmitter
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks
-     * @param array<int, array<string, mixed>> $runtimeIslands
      */
-    public function captureScriptFallback(DOMElement $element, array &$fallbacks, array &$runtimeIslands): void
+    public function captureScriptFallback(DOMElement $element, array &$fallbacks, RuntimeDomState $runtimeDom): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $boundedBody = $this->boundedFallbackText(trim($element->textContent ?? ''));
@@ -478,7 +465,7 @@ final class FallbackEmitter
             $scriptIslandMetadata['body_bytes']     = $boundedBody['bytes'];
             $scriptIslandMetadata['body_truncated'] = $boundedBody['truncated'];
         }
-        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', $scriptIslandMetadata, $runtimeIslands);
+        $this->recordRuntimeIsland($element, 'script', 'script_requires_runtime', 'client_script_execution', $scriptIslandMetadata, $runtimeDom);
         $fallbacks[] = FallbackDiagnostic::build(array(
             'type'            => 'html',
             'reason'          => 'script_requires_runtime',
@@ -542,9 +529,8 @@ final class FallbackEmitter
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks
-     * @param array<int, array<string, mixed>> $runtimeIslands
      */
-    public function captureTemplateFallback(DOMElement $element, array &$fallbacks, array &$runtimeIslands): void
+    public function captureTemplateFallback(DOMElement $element, array &$fallbacks, RuntimeDomState $runtimeDom): void
     {
         $runtimeTemplate = $this->templateRequiresRuntimePreservation($element);
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
@@ -559,7 +545,7 @@ final class FallbackEmitter
                 'body_bytes'      => $boundedBody['bytes'],
                 'body_truncated'  => $boundedBody['truncated'],
                 'required_scripts' => $this->requiredScriptsForElement($element),
-            ), $runtimeIslands);
+            ), $runtimeDom);
         }
 
         $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
@@ -589,9 +575,8 @@ final class FallbackEmitter
 
     /**
      * @param array<string, mixed> $metadata
-     * @param array<int, array<string, mixed>> $runtimeIslands
      */
-    public function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata, array &$runtimeIslands): void
+    public function recordRuntimeIsland(DOMElement $element, string $kind, string $reason, string $runtimeRequirement, array $metadata, RuntimeDomState $runtimeDom): void
     {
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $island = FallbackDiagnostic::withGenericFindingMetadata(array_filter(array_merge(array(
@@ -613,51 +598,11 @@ final class FallbackEmitter
             'required_scripts'    => array(),
         ), $metadata), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value));
 
-        $key = json_encode(array(
-            'kind'     => $island['kind'] ?? '',
-            'selector' => $island['selector'] ?? '',
-            'snippet'  => $island['source_snippet'] ?? '',
-        ), JSON_UNESCAPED_SLASHES);
-        $origin = array(
-            'document' => $element->ownerDocument instanceof DOMDocument ? spl_object_id($element->ownerDocument) : 0,
-            'path'     => $element->getNodePath() ?? '',
+        $runtimeDom->recordIsland(
+            $island,
+            $element->ownerDocument instanceof DOMDocument ? spl_object_id($element->ownerDocument) : 0,
+            $element->getNodePath() ?? ''
         );
-        $nestedIslandIndexes = array();
-        foreach ( $runtimeIslands as $index => $existing ) {
-            $existingKey = json_encode(array(
-                'kind'     => $existing['kind'] ?? '',
-                'selector' => $existing['selector'] ?? '',
-                'snippet'  => $existing['source_snippet'] ?? '',
-            ), JSON_UNESCAPED_SLASHES);
-            if ( $key === $existingKey ) {
-                return;
-            }
-
-            $existingOrigin = $this->runtimeIslandOrigins[$index] ?? null;
-            if ( ! is_array($existingOrigin)
-                || 0 === $origin['document']
-                || $origin['document'] !== ($existingOrigin['document'] ?? 0)
-                || '' === $origin['path']
-                || '' === ($existingOrigin['path'] ?? '')
-            ) {
-                continue;
-            }
-
-            $existingPath = (string) $existingOrigin['path'];
-            if ( str_starts_with($origin['path'], $existingPath . '/') ) {
-                return;
-            }
-            if ( str_starts_with($existingPath, $origin['path'] . '/') ) {
-                $nestedIslandIndexes[] = $index;
-            }
-        }
-
-        foreach ( array_reverse($nestedIslandIndexes) as $index ) {
-            array_splice($runtimeIslands, $index, 1);
-            array_splice($this->runtimeIslandOrigins, $index, 1);
-        }
-        $runtimeIslands[] = $island;
-        $this->runtimeIslandOrigins[] = $origin;
     }
 
     /**
