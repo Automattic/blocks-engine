@@ -384,6 +384,11 @@ final class HtmlTransformer
         return $this->session->sourceStyleResolutionState();
     }
 
+    private function reusableComponents(): ReusableComponentState
+    {
+        return $this->session->reusableComponentState();
+    }
+
     /**
      * @param array<string, mixed> $options
      */
@@ -494,10 +499,7 @@ final class HtmlTransformer
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
         $this->collectEditorHiddenStateFindings($body);
-        $reusableComponentRecognition = $this->reusableComponentRecognizer->recognize($body);
-        foreach ($reusableComponentRecognition['candidates'] as $candidate) {
-            if (is_array($candidate) && is_string($candidate['path'] ?? null) && is_string($candidate['fingerprint'] ?? null)) $this->reusableComponentFingerprints[$candidate['path']] = $candidate['fingerprint'];
-        }
+        $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
@@ -520,7 +522,7 @@ final class HtmlTransformer
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
-        $reusableComponentRecognition = $this->finalizeReusableComponentRecognition($reusableComponentRecognition);
+        $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $this->materializeAuthorStylesheet(
@@ -881,7 +883,7 @@ final class HtmlTransformer
 
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
-        return $this->reusableComponentFingerprints[$element->getNodePath()] ?? null;
+        return $this->reusableComponents()->fingerprintForPath((string) $element->getNodePath());
     }
 
     private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
@@ -891,7 +893,7 @@ final class HtmlTransformer
             && ($this->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
             && ($this->fallbackEmitter->isRepeatableContentComponent($element) || $this->fallbackEmitter->isSafeCustomElementHost($element))
         ) {
-            $this->generatedComponentCandidates[$element->getNodePath()] = true;
+            $this->reusableComponents()->markGeneratedCandidate((string) $element->getNodePath());
             return;
         }
 
@@ -920,7 +922,7 @@ final class HtmlTransformer
 
     private function isGeneratedComponentCandidate(DOMElement $element): bool
     {
-        return isset($this->generatedComponentCandidates[$element->getNodePath()]);
+        return $this->reusableComponents()->isGeneratedCandidate((string) $element->getNodePath());
     }
 
     /** @param array{blockName: string, attrs: array<string, mixed>} $generated @return array<string, mixed> */
@@ -935,26 +937,6 @@ final class HtmlTransformer
             $this->recordNativeRuntimeDomPreservation($target, $generated['blockName']);
         }
         return $block;
-    }
-
-    /** @param array<string, mixed> $recognition @return array<string, mixed> */
-    private function finalizeReusableComponentRecognition(array $recognition): array
-    {
-        $assetOccurrences = array();
-        foreach ($this->materializedAssets()->assets() as $asset) {
-            if (!is_array($asset) || 'inline-svg' !== ($asset['source'] ?? null)) continue;
-            foreach (is_array($asset['component_occurrence_counts'] ?? null) ? $asset['component_occurrence_counts'] : array() as $fingerprint => $count) if (is_string($fingerprint) && is_int($count)) $assetOccurrences[$fingerprint] = (int) ($assetOccurrences[$fingerprint] ?? 0) + $count;
-        }
-        foreach ($recognition['components'] as &$component) {
-            if (!is_array($component) || 'svg' !== ($component['tag'] ?? null)) continue;
-            $mapped = (int) ($assetOccurrences[$component['fingerprint']] ?? 0);
-            $component['mapping'] = $mapped === ($component['occurrence_count'] ?? 0) && 0 < $mapped
-                ? 'shared_core_image_asset'
-                : 'capability_gap:svg_instances_not_all_core_image_assets';
-            $component['mapped_asset_occurrence_count'] = $mapped;
-        }
-        unset($component);
-        return $recognition;
     }
 
     /**

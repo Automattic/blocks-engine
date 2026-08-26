@@ -20,8 +20,6 @@ use DOMElement;
  */
 final class HtmlTransformerSession
 {
-    public array $reusableComponentFingerprints = array();
-    public array $generatedComponentCandidates = array();
     public array $formControlEchoTexts = array();
     public array $responsiveImageFallbacks = array();
     public array $responsiveImageFallbackSelectors = array();
@@ -35,6 +33,7 @@ final class HtmlTransformerSession
     public array $structureProvenance = array();
     public array $scriptMetadata = array();
     private readonly RuntimeDomState $runtimeDomState;
+    private readonly ReusableComponentState $reusableComponentState;
     public array $nativeDisclosureRootIds = array();
     private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
     public bool $emptyRuntimeTargetGenerated = false;
@@ -84,6 +83,7 @@ final class HtmlTransformerSession
         $this->presentationResolutionCache = new PresentationResolutionCache();
         $this->sourceStyleResolutionState = new SourceStyleResolutionState();
         $this->runtimeDomState = new RuntimeDomState();
+        $this->reusableComponentState = new ReusableComponentState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -145,5 +145,10 @@ final class HtmlTransformerSession
     public function sourceStyleResolutionState(): SourceStyleResolutionState
     {
         return $this->sourceStyleResolutionState;
+    }
+
+    public function reusableComponentState(): ReusableComponentState
+    {
+        return $this->reusableComponentState;
     }
 }
