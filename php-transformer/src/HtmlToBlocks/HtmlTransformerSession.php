@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
@@ -40,23 +41,13 @@ final class HtmlTransformerSession
     public bool $emptyRuntimeTargetGenerated = false;
     public array $runtimeScriptMetadata = array();
     private ?AssetMaterializationState $assetMaterializationState = null;
-    public array $nativeSearchTriggerCssRules = array();
-    public array $nativeButtonStyleRules = array();
-    public array $syntheticHeaderAnchorStyleRules = array();
-    public array $headerRichTextStyleRules = array();
     public array $gutenbergIncompatibilities = array();
-    public array $listNavigationPaddingFallbacks = array();
-    public array $navigationLinkColorFallbacks = array();
-    public array $navigationSubmenuBackgroundFallbacks = array();
-    public array $navigationSpacingFallbacks = array();
-    public array $buttonWrapperSpacingFallbacks = array();
     private RuntimeSelectorState $runtimeSelectorState;
-    public array $directFlexButtonStyleRules = array();
-    public array $fullWidthButtonStyleRules = array();
     public array $responsiveGeometryAmbiguities = array();
     public array $authorLayoutTopologies = array();
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     private readonly AuthorSelectorProjectionState $authorSelectorProjectionState;
+    private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
     public int $nextSourceProvenanceId = 1;
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
@@ -74,6 +65,7 @@ final class HtmlTransformerSession
         $this->runtimeDomState = new RuntimeDomState();
         $this->reusableComponentState = new ReusableComponentState();
         $this->authorSelectorProjectionState = new AuthorSelectorProjectionState();
+        $this->generatedSupportStylesheetState = new GeneratedSupportStylesheetState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -146,5 +138,10 @@ final class HtmlTransformerSession
     public function authorSelectorProjectionState(): AuthorSelectorProjectionState
     {
         return $this->authorSelectorProjectionState;
+    }
+
+    public function generatedSupportStylesheetState(): GeneratedSupportStylesheetState
+    {
+        return $this->generatedSupportStylesheetState;
     }
 }

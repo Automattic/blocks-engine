@@ -57,6 +57,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTrans
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
@@ -393,6 +394,11 @@ final class HtmlTransformer
     private function authorSelectorProjections(): AuthorSelectorProjectionState
     {
         return $this->session->authorSelectorProjectionState();
+    }
+
+    private function generatedSupportStyles(): GeneratedSupportStylesheetState
+    {
+        return $this->session->generatedSupportStylesheetState();
     }
 
     protected function fallbackSourceTagMarker(string $tagName): string
@@ -1073,37 +1079,14 @@ final class HtmlTransformer
         foreach ( $this->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
-        foreach ( $this->navigationSubmenuBackgroundFallbacks as $className => $color ) {
-            if ( str_contains($serializedBlocks, $className) ) {
-                $afterAuthorCssParts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';
-            }
-        }
-        foreach ( $this->navigationSpacingFallbacks as $className => $declarations ) {
-            if ( str_contains($serializedBlocks, $className) ) {
-                $afterAuthorCssParts[] = '.wp-block-navigation.' . $className . '{' . $declarations . '}';
-            }
-        }
-        foreach ( $this->buttonWrapperSpacingFallbacks as $className => $declarations ) {
-            if ( str_contains($serializedBlocks, $className) ) {
-                $afterAuthorCssParts[] = '.wp-block-buttons.' . $className . '{' . $declarations . '}';
-            }
-        }
-        foreach ( $this->syntheticHeaderAnchorStyleRules as $className => $rule ) {
-            if ( str_contains($serializedBlocks, $className) ) {
-                $afterAuthorCssParts[] = $rule;
-            }
-        }
-        foreach ( $this->headerRichTextStyleRules as $marker => $rule ) {
-            if ( str_contains($serializedBlocks, $marker) ) {
-                $afterAuthorCssParts[] = $rule;
-            }
-        }
+        array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}';
         }
-        if ( array() !== $this->nativeSearchTriggerCssRules ) {
-            $beforeAuthorCssParts[] = implode("\n", $this->nativeSearchTriggerCssRules);
+        $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();
+        if ( '' !== $nativeSearchTriggerCss ) {
+            $beforeAuthorCssParts[] = $nativeSearchTriggerCss;
         }
         if ( '' !== trim($authorCss) ) {
             $authorCssParts[] = $authorCss;
@@ -1182,15 +1165,7 @@ final class HtmlTransformer
         if ( '' !== $directNavigationCss ) {
             $afterAuthorCssParts[] = $directNavigationCss;
         }
-        if ( array() !== $this->nativeButtonStyleRules ) {
-            $afterAuthorCssParts[] = implode("\n", $this->nativeButtonStyleRules);
-        }
-        if ( array() !== $this->directFlexButtonStyleRules ) {
-            $afterAuthorCssParts[] = implode("\n", $this->directFlexButtonStyleRules);
-        }
-        if ( array() !== $this->fullWidthButtonStyleRules ) {
-            $afterAuthorCssParts[] = implode("\n", $this->fullWidthButtonStyleRules);
-        }
+        array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
@@ -1451,8 +1426,9 @@ final class HtmlTransformer
                 : array();
             if ( array() === $padding ) {
                 foreach ( $classes as $class ) {
-                    if ( isset($this->listNavigationPaddingFallbacks[ $class ]) ) {
-                        $padding = $this->listNavigationPaddingFallbacks[ $class ];
+                    $fallbackPadding = $this->generatedSupportStyles()->listNavigationPadding($class);
+                    if ( array() !== $fallbackPadding ) {
+                        $padding = $fallbackPadding;
                         break;
                     }
                 }
@@ -2247,8 +2223,9 @@ final class HtmlTransformer
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
             if ( '' === $color ) {
                 foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
-                    if ( isset($this->navigationLinkColorFallbacks[ $class ]) ) {
-                        $color = $this->navigationLinkColorFallbacks[ $class ];
+                    $fallbackColor = $this->generatedSupportStyles()->navigationLinkColor($class);
+                    if ( '' !== $fallbackColor ) {
+                        $color = $fallbackColor;
                         break;
                     }
                 }
@@ -5672,10 +5649,10 @@ final class HtmlTransformer
                     if ( 'core/button' === $name ) {
                         $this->registerNativeButtonStyleRule($controlMarker, $attrs, $nativeButtonTextAlignment, $logicalControl);
                         if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
-                            $this->directFlexButtonStyleRules[$controlMarker] = $this->directFlexButtonStyleRule($controlMarker, $logicalControl);
+                            $this->generatedSupportStyles()->registerDirectFlexButton($controlMarker, $this->directFlexButtonStyleRule($controlMarker, $logicalControl));
                         }
                         if ( 100 === (int) ($attrs['width'] ?? 0) ) {
-                            $this->fullWidthButtonStyleRules[$controlMarker] = $this->fullWidthButtonStyleRule($controlMarker);
+                            $this->generatedSupportStyles()->registerFullWidthButton($controlMarker, $this->fullWidthButtonStyleRule($controlMarker));
                         }
                     }
                 }
@@ -5810,7 +5787,7 @@ final class HtmlTransformer
         $css = $this->cssDeclarationString($declarations);
         $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-        $this->syntheticHeaderAnchorStyleRules[$className] = 'p.' . $className . '>a{' . $css . '}';
+        $this->generatedSupportStyles()->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
     }
 
     /**
@@ -5831,13 +5808,13 @@ final class HtmlTransformer
         if ( '' !== $submenuBackground && array() !== $this->cssDeclarations('background-color:' . $submenuBackground) ) {
             $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-            $this->navigationSubmenuBackgroundFallbacks[ $className ] = $submenuBackground;
+            $this->generatedSupportStyles()->registerNavigationSubmenuBackground($className, $submenuBackground);
         }
         $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
         if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
             foreach ( $classes as $class ) {
                 if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->listNavigationPaddingFallbacks[ $class ] = $fallback['spacing']['padding'];
+                    $this->generatedSupportStyles()->registerListNavigationPadding($class, $fallback['spacing']['padding']);
                 }
             }
         }
@@ -5845,7 +5822,7 @@ final class HtmlTransformer
             $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->navigationSpacingFallbacks[ $class ] = $declarations;
+                    $this->generatedSupportStyles()->registerNavigationSpacing($class, $declarations);
                     break;
                 }
             }
@@ -5854,7 +5831,7 @@ final class HtmlTransformer
             $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && str_starts_with($class, 'blocks-engine-control-') ) {
-                    $this->buttonWrapperSpacingFallbacks[ $class ] = $declarations;
+                    $this->generatedSupportStyles()->registerButtonWrapperSpacing($class, $declarations);
                     break;
                 }
             }
@@ -5865,7 +5842,7 @@ final class HtmlTransformer
                         && ! str_starts_with($class, 'blocks-engine-navigation-link-color-states-'))
                     || str_starts_with($class, 'blocks-engine-navigation-current-color-')
                 ) {
-                    $this->navigationLinkColorFallbacks[ $class ] = (string) $fallback['color']['text'];
+                    $this->generatedSupportStyles()->registerNavigationLinkColor($class, (string) $fallback['color']['text']);
                 }
             }
         }
@@ -6060,7 +6037,7 @@ final class HtmlTransformer
         $intrinsicWrapperRule = array() === $intrinsicWrapperDeclarations
             ? ''
             : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
-        $this->nativeButtonStyleRules[$marker] = $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}';
+        $this->generatedSupportStyles()->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -7269,7 +7246,7 @@ final class HtmlTransformer
                 if ( array() !== $headerCarrier && $this->hasAncestorTag($sourceInline, array( 'header' )) ) {
                     $selector = 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]'
                         . ',span[data-blocks-engine-richtext-marker="' . $marker . '"]';
-                    $this->headerRichTextStyleRules[$marker] = $selector . '{' . $this->cssDeclarationString($headerCarrier) . '}';
+                    $this->generatedSupportStyles()->registerHeaderRichText($marker, $selector . '{' . $this->cssDeclarationString($headerCarrier) . '}');
                 }
                 $inline['--blocks-engine-richtext-marker'] = $marker;
             }
@@ -12823,7 +12800,7 @@ final class HtmlTransformer
             $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
         }
         $className = 'blocks-engine-source-search-icon-' . substr(hash('sha256', $svgMarkup), 0, 12);
-        if ( isset($this->nativeSearchTriggerCssRules[$className]) ) {
+        if ( $this->generatedSupportStyles()->hasNativeSearchTrigger($className) ) {
             return $className;
         }
 
@@ -12837,11 +12814,11 @@ final class HtmlTransformer
         $buttonWidth = $this->cssNumber($triggerWidth ?? ($width + 12));
         $dataUri = 'data:image/svg+xml,' . rawurlencode($svgMarkup);
         $selector = '.wp-block-search.' . $className;
-        $this->nativeSearchTriggerCssRules[$className] = $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
+        $this->generatedSupportStyles()->registerNativeSearchTrigger($className, $selector . '{display:block!important;box-sizing:border-box!important;flex:0 0 ' . $buttonWidth . 'px!important;width:' . $buttonWidth . 'px!important;' . $triggerHeight . '}'
             . $selector . ' .wp-block-search__inside-wrapper{' . $triggerHeight . 'box-sizing:border-box!important;width:100%!important}'
             . $selector . ' .wp-block-search__button{display:block!important;box-sizing:border-box!important;width:100%!important;height:100%!important;min-width:0!important;margin:0!important;padding:1px 6px!important;font:400 13.3333px Arial!important;line-height:normal!important;text-align:center!important;color:#000!important;background:none!important;border:0!important;border-radius:0!important}'
             . $selector . '.wp-block-search__icon-button .wp-block-search__button.has-icon>svg.search-icon{display:none!important}'
-            . $selector . ' .wp-block-search__button:before{content:"";display:inline-block;width:' . $iconWidth . 'px;height:' . $iconHeight . 'px;background:url("' . $dataUri . '") center/contain no-repeat}';
+            . $selector . ' .wp-block-search__button:before{content:"";display:inline-block;width:' . $iconWidth . 'px;height:' . $iconHeight . 'px;background:url("' . $dataUri . '") center/contain no-repeat}');
 
         return $className;
     }
