@@ -186,6 +186,7 @@ $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_p
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
 $assert(str_contains($bootstrap, "\$css = '@media ' . \$style['media'] . '{' . \$css . '}'"), 'Canonical editor styles preserve their stylesheet media conditions.');
 $assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "blocks-engine-presentation:") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "\$context->post") && str_contains($bootstrap, "get_page_uri( \$post )"), 'Canonical bootstrap loads content-addressed route styles into the edited post iframe.');
+$assert(str_contains($bootstrap, 'html :where(.block-editor-block-list__layout.is-root-container > .wp-block){margin-bottom:0;margin-top:0;max-width:none}') && str_contains($bootstrap, '$presentation_reset_added = false'), 'Canonical bootstrap emits the low-specificity editor root-wrapper reset once before matched presentation styles.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
