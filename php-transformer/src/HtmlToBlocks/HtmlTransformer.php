@@ -359,6 +359,11 @@ final class HtmlTransformer
             ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
     }
 
+    private function transformationProvenance(): TransformationProvenanceState
+    {
+        return $this->session->transformationProvenanceState();
+    }
+
     private function generatedBlocks(): GeneratedBlockRegistry
     {
         return $this->session->generatedBlockRegistry()
@@ -417,7 +422,7 @@ final class HtmlTransformer
         );
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
-        $this->fallbackProvenance = TransformationOptions::provenance($options);
+        $this->transformationProvenance()->installFallback(TransformationOptions::provenance($options));
         $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry($this->generatedBlockNamespaceFromOptions($options)));
         $this->session->installAssetMaterializationState(new AssetMaterializationState(
             trim((string) ($options['generated_asset_root'] ?? ''), '/'),
@@ -439,13 +444,12 @@ final class HtmlTransformer
         $this->session->installLayoutGeometryState(new LayoutGeometryState(
             is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
         ));
-        $this->nextSourceProvenanceId = 1;
         $provenance               = array(
             array_merge(array(
                 'source_format' => 'html',
                 'input_bytes'   => strlen($html),
                 'transformer'   => self::class,
-            ), $this->fallbackProvenance),
+            ), $this->transformationProvenance()->fallback()),
         );
 
         $sourceBodyClasses = $this->documentBodyClassNames($html);
@@ -471,7 +475,7 @@ final class HtmlTransformer
                     'diagnostic_code' => 'html_parse_failed',
                     'source_format'   => 'html',
                     'html'            => $html,
-                ), $this->fallbackProvenance),
+                ), $this->transformationProvenance()->fallback()),
             );
 
             $metrics = $this->metrics($html, array(), '', $fallbacks, $diagnostics, $startedAt);
@@ -511,7 +515,7 @@ final class HtmlTransformer
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
-        $this->fallbackEmitter->configure($this->fallbackProvenance, $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
+        $this->fallbackEmitter->configure($this->transformationProvenance()->fallback(), $this->runtimeScriptMetadata, $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
         $this->invalidateSourceSelectorMatchCache();
@@ -524,7 +528,7 @@ final class HtmlTransformer
         $this->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
-        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
+        $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
         if ($this->layoutGeometry()->hasProofReductions() && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
             $blocks = $this->compressProjectedGroupChains($blocks, true);
@@ -540,7 +544,7 @@ final class HtmlTransformer
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
-        $sourceProvenance = $this->sourceProvenanceForBlocks($blocks);
+        $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
         $this->materializeAuthorStylesheet(
             $html,
@@ -644,14 +648,14 @@ final class HtmlTransformer
             'content_round_trip' => $contentRoundTripReport,
             'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
             'html' => array(
-                'presentation_signals' => $this->presentationProvenance,
+                'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
                 'frozen_hidden_state'  => $this->frozenHiddenStateFindings,
                 'dropped_link_wrappers' => $this->droppedLinkWrapperFindings,
                 'gutenberg_incompatibilities' => $this->gutenbergIncompatibilities,
                 'author_layout_topology' => $authorLayoutTopologyFindings,
                 'source_provenance'    => $sourceProvenance,
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
-                'structure_signals'    => $this->structureProvenance,
+                'structure_signals'    => $this->transformationProvenance()->structureSignals(),
                 'reusable_components' => $reusableComponentRecognition,
                 'script_metadata'      => $this->scriptMetadata,
                 'runtime_islands'      => $this->runtimeDom()->islands(),
@@ -811,7 +815,7 @@ final class HtmlTransformer
             }
 
             $shellFallbacks = array();
-            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($child, $shellFallbacks, true), $this->sourceProvenance, $this->sourceBaseHiddenStates);
+            $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($child, $shellFallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
             $innerMarkup = $this->runtime->serializeBlocks($blocks);
             $wrapperAttrs = $this->hoistedStylingAttributes($child);
             $wrapperAttrs['tagName'] = $area;
@@ -4263,7 +4267,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
                 fn (DOMElement $anchor): PatternRecognitionResult => new PatternRecognitionResult(
                     $this->htmlPreservationBlock($anchor),
-                    array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->fallbackProvenance))
+                    array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->transformationProvenance()->fallback()))
                 )
             ),
             new QuotePatternContext(
@@ -4385,10 +4389,10 @@ final class HtmlTransformer
             }
         }
 
-        if ( isset($this->formControlSlotPaths[$element->getNodePath()]) ) {
+        $formControlSlotToken = $this->transformationProvenance()->formControlSlotToken($element->getNodePath());
+        if ( null !== $formControlSlotToken ) {
             $block = $this->htmlPreservationBlock($element);
-            $token = $this->formControlSlotPaths[$element->getNodePath()];
-            if (is_string($token)) $block['_binding_token'] = $token;
+            $block['_binding_token'] = $formControlSlotToken;
             return $block;
         }
 
@@ -5288,7 +5292,7 @@ final class HtmlTransformer
                 $fallback['control'] = $control;
             }
 
-            $fallbacks[] = FallbackDiagnostic::build($fallback, $this->fallbackProvenance);
+            $fallbacks[] = FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback());
         }
 
         return null;
@@ -5669,7 +5673,6 @@ final class HtmlTransformer
                 $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
             }
             $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
-            $provenanceId = $this->nextSourceProvenanceId++;
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
             if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
@@ -5684,8 +5687,10 @@ final class HtmlTransformer
                     $this->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
                 }
             }
-            $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry($name, $sourceElement);
-            $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($sourceElement);
+            $provenanceId = $this->transformationProvenance()->registerSource(
+                $this->sourceProvenanceEntry($name, $sourceElement),
+                $this->sourceElementStartsHidden($sourceElement)
+            );
         }
 
         if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
@@ -5703,7 +5708,7 @@ final class HtmlTransformer
             $visualTopologyEvidence = $this->emptyVisualTopologyEvidence($sourceElement);
             if ( array() !== $visualTopologyEvidence ) {
                 $block['_editability_visual_owned'] = true;
-                $this->sourceProvenance[$provenanceId]['visual_topology_evidence'] = $visualTopologyEvidence;
+                $this->transformationProvenance()->addSourceEvidence($provenanceId, array( 'visual_topology_evidence' => $visualTopologyEvidence ));
             }
         }
 
@@ -6781,11 +6786,12 @@ final class HtmlTransformer
         $opening = '<' . $tagName . $this->authorLayoutHtmlAttributes($attrs) . '>';
         $closing = '</' . $tagName . '>';
 
-        $provenanceId = $this->nextSourceProvenanceId++;
         $this->recordPresentationProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
         $this->recordStructureProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
-        $this->sourceProvenance[$provenanceId] = $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element);
-        $this->sourceBaseHiddenStates[$provenanceId] = $this->sourceElementStartsHidden($element);
+        $provenanceId = $this->transformationProvenance()->registerSource(
+            $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element),
+            $this->sourceElementStartsHidden($element)
+        );
 
         return array(
             'blockName' => AuthorLayoutBlockGenerator::NAME,
@@ -7614,45 +7620,6 @@ final class HtmlTransformer
     }
 
     /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<int, array<string, mixed>>
-     */
-    private function sourceProvenanceForBlocks(array &$blocks): array
-    {
-        $resolved = array();
-        $this->resolveSourceProvenancePaths($blocks, 'blocks', $resolved);
-        return $resolved;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $resolved
-     */
-    private function resolveSourceProvenancePaths(array &$blocks, string $path, array &$resolved): void
-    {
-        foreach ( $blocks as $index => &$block ) {
-            $blockPath = $path . '.' . $index;
-            $provenanceIds = is_array($block['_source_provenance_ids'] ?? null) ? $block['_source_provenance_ids'] : array($block['_source_provenance_id'] ?? null);
-            foreach ($provenanceIds as $provenanceId) {
-                if ( is_int($provenanceId) && isset($this->sourceProvenance[$provenanceId]) ) {
-                    $resolved[] = array_merge(array( 'block_path' => $blockPath ), $this->sourceProvenance[$provenanceId], !empty($block['_editability_runtime_owned']) ? array('editability_runtime_owned' => true) : array(), !empty($block['_editability_visual_owned']) ? array('editability_visual_owned' => true) : array());
-                }
-            }
-            unset($block['_source_provenance_id']);
-            unset($block['_source_provenance_ids']);
-            unset($block['_layout_shell_wrappers']);
-            unset($block['_binding_token']);
-            unset($block['_editability_runtime_owned']);
-            unset($block['_editability_visual_owned']);
-
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $this->resolveSourceProvenancePaths($block['innerBlocks'], $blockPath . '.innerBlocks', $resolved);
-            }
-        }
-        unset($block);
-    }
-
-    /**
      * @return array<string, mixed>
      */
     private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
@@ -7666,7 +7633,7 @@ final class HtmlTransformer
             'source_fragment'   => $this->safeSourceFragment($element),
             'source_digest'     => hash('sha256', $sourceHtml),
             'source_bytes'      => strlen($sourceHtml),
-            'source_path'       => $this->fallbackProvenance['source'] ?? '',
+            'source_path'       => $this->transformationProvenance()->fallback()['source'] ?? '',
             'context'           => $this->sourceContext($element),
         ), $this->sourceConversionMetadata($blockName, $element), $this->navigationSourceOwnership($blockName, $element));
     }
@@ -7819,13 +7786,13 @@ final class HtmlTransformer
             return;
         }
 
-        $this->presentationProvenance[] = array(
+        $this->transformationProvenance()->recordPresentationSignal(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
             'selector'          => $this->elementSelector($element),
             'signals'           => $signals,
             'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'style', 'data-layout', 'data-wp-layout' ))),
-        );
+        ));
     }
 
     /**
@@ -7838,13 +7805,13 @@ final class HtmlTransformer
             return;
         }
 
-        $this->structureProvenance[] = array(
+        $this->transformationProvenance()->recordStructureSignal(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
             'selector'          => $this->elementSelector($element),
             'signals'           => $signals,
             'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'id', 'role', 'style', 'data-layout', 'data-wp-layout' ))),
-        );
+        ));
     }
 
     private function shouldPreserveWrapper(DOMElement $element): bool
@@ -7879,7 +7846,7 @@ final class HtmlTransformer
         }
 
         $provenanceId = $childBlock['_source_provenance_id'] ?? null;
-        $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->sourceProvenance[$provenanceId]['source_digest'] ?? '')) : null;
+        $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->transformationProvenance()->source($provenanceId)['source_digest'] ?? '')) : null;
         if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
         if ( ! $sourceChild instanceof DOMElement
             || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
@@ -9752,7 +9719,7 @@ final class HtmlTransformer
                 'html'                => $boundedHtml['html'],
                 'html_bytes'          => $boundedHtml['bytes'],
                 'html_truncated'      => $boundedHtml['truncated'],
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->transformationProvenance()->fallback());
             ++$emitted;
         }
     }
@@ -9824,7 +9791,7 @@ final class HtmlTransformer
                 'context'           => $this->sourceContext($element),
                 'products'          => $products,
                 'product_count'     => count($products),
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->transformationProvenance()->fallback());
             ++$emitted;
         }
     }
@@ -9870,7 +9837,7 @@ final class HtmlTransformer
                 'context'           => $this->sourceContext($element),
                 'controls'          => $controlGroups,
                 'control_count'     => count($controlGroups),
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->fallbackProvenance);
+            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->transformationProvenance()->fallback());
             ++$emitted;
         }
     }
@@ -9949,7 +9916,7 @@ final class HtmlTransformer
                 continue;
             }
             $provenanceId = $block['_source_provenance_id'] ?? null;
-            if ( is_int($provenanceId) && $selector === ($this->sourceProvenance[$provenanceId]['selector'] ?? null) ) {
+            if ( is_int($provenanceId) && $selector === ($this->transformationProvenance()->source($provenanceId)['selector'] ?? null) ) {
                 return $block;
             }
             $nested = $this->blockForSourceSelector(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $selector);
@@ -13108,12 +13075,11 @@ final class HtmlTransformer
         if ( null === $slot ) return null;
 
         $path = $slot->getNodePath();
-        $token = 'form-control-slot-' . $this->nextSourceProvenanceId;
-        $this->formControlSlotPaths[$path] = $token;
+        $token = $this->transformationProvenance()->reserveFormControlSlot($path);
         try {
             $children = $this->convertChildren($form, $fallbacks, true);
         } finally {
-            unset($this->formControlSlotPaths[$path]);
+            $this->transformationProvenance()->releaseFormControlSlot($path);
         }
         $slotBlock = $this->blockForBindingToken($children, $token);
         if ( array() === $children || null === $slotBlock ) return null;
@@ -13553,7 +13519,7 @@ final class HtmlTransformer
             $finding['form_boundary'] = $this->pseudoFormBoundaryMetadata($element);
         }
 
-        return FallbackDiagnostic::build($finding, $this->fallbackProvenance);
+        return FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback());
     }
 
     /**
@@ -15363,7 +15329,7 @@ final class HtmlTransformer
                 'html'            => $boundedHtml['html'],
                 'html_bytes'      => $boundedHtml['bytes'],
                 'html_truncated'  => $boundedHtml['truncated'],
-            ), $this->fallbackProvenance);
+            ), $this->transformationProvenance()->fallback());
         }
 
         return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
@@ -15949,7 +15915,7 @@ final class HtmlTransformer
             'html'            => $boundedHtml['html'],
             'html_bytes'      => $boundedHtml['bytes'],
             'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->fallbackProvenance);
+        ), $this->transformationProvenance()->fallback());
 
         return null;
     }

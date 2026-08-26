@@ -25,14 +25,9 @@ final class HtmlTransformerSession
     public array $formControlEchoTexts = array();
     public array $responsiveImageFallbacks = array();
     public array $responsiveImageFallbackSelectors = array();
-    public array $fallbackProvenance = array();
-    public array $presentationProvenance = array();
     public array $frozenHiddenStateFindings = array();
     public array $droppedLinkWrapperFindings = array();
-    public array $sourceProvenance = array();
-    public array $sourceBaseHiddenStates = array();
-    public array $formControlSlotPaths = array();
-    public array $structureProvenance = array();
+    private readonly TransformationProvenanceState $transformationProvenanceState;
     public array $scriptMetadata = array();
     private readonly RuntimeDomState $runtimeDomState;
     private readonly ReusableComponentState $reusableComponentState;
@@ -48,7 +43,6 @@ final class HtmlTransformerSession
     private ?AuthorStyleAnalysis $authorStyleAnalysis = null;
     private readonly AuthorSelectorProjectionState $authorSelectorProjectionState;
     private readonly GeneratedSupportStylesheetState $generatedSupportStylesheetState;
-    public int $nextSourceProvenanceId = 1;
     public bool $preserveShellLandmarks = false;
     public bool $fallbackReductionMode = false;
     public readonly PresentationResolutionCache $presentationResolutionCache;
@@ -66,6 +60,7 @@ final class HtmlTransformerSession
         $this->reusableComponentState = new ReusableComponentState();
         $this->authorSelectorProjectionState = new AuthorSelectorProjectionState();
         $this->generatedSupportStylesheetState = new GeneratedSupportStylesheetState();
+        $this->transformationProvenanceState = new TransformationProvenanceState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -143,5 +138,10 @@ final class HtmlTransformerSession
     public function generatedSupportStylesheetState(): GeneratedSupportStylesheetState
     {
         return $this->generatedSupportStylesheetState;
+    }
+
+    public function transformationProvenanceState(): TransformationProvenanceState
+    {
+        return $this->transformationProvenanceState;
     }
 }

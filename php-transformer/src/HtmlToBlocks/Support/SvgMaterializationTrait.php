@@ -615,7 +615,7 @@ trait SvgMaterializationTrait
     private function transformSourcePath(): string
     {
         foreach ( array( 'source', 'path' ) as $key ) {
-            $value = $this->fallbackProvenance[$key] ?? '';
+            $value = $this->transformationProvenance()->fallback()[$key] ?? '';
             if ( '' !== trim((string) $value) ) {
                 return trim((string) $value);
             }
