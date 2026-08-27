@@ -4,7 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {

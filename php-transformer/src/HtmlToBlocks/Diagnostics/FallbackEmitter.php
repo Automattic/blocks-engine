@@ -8,8 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeCl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeDomState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeSelectorState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
