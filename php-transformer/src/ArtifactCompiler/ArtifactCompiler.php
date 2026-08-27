@@ -962,46 +962,6 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<string,mixed> $artifact
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>}
-     */
-    private function partitionArtifact(array $artifact): array
-    {
-        $normalized = (new ArtifactNormalizer())->normalize($artifact);
-        $shared = array();
-        $pages = array();
-        foreach ($normalized['files'] as $file) {
-            $ownership = $this->fileOwnership($file);
-            if ('shared' === $ownership['scope']) {
-                $shared[] = $file;
-                continue;
-            }
-            $pages[$ownership['id']][] = $file;
-        }
-        ksort($pages, SORT_STRING);
-        foreach ($pages as $pageId => $files) {
-            $pages[$pageId] = self::sortedByPath($files);
-        }
-        $shared = self::sortedByPath($shared);
-
-        return array(
-            'shared' => $shared,
-            'pages' => $pages,
-            'entrypoints' => $normalized['entrypoints'],
-            'limits' => $normalized['limits'],
-            'runtime_declarations' => $normalized['runtime_declarations'],
-            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
-            'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
-            'identity' => array_filter(array(
-                'site_slug' => is_string($artifact['site_slug'] ?? null) ? $artifact['site_slug'] : null,
-                'site_name' => is_string($artifact['site_name'] ?? null) ? $artifact['site_name'] : null,
-                'block_namespace' => is_string($artifact['block_namespace'] ?? null) ? $artifact['block_namespace'] : null,
-            ), static fn(mixed $value): bool => null !== $value),
-            'normalized' => $normalized,
-        );
-    }
-
-    /**
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
      *

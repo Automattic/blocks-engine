@@ -920,51 +920,6 @@ final class RuntimeDependencyParityReport
     /**
      * @return array<int, string>
      */
-    private function scriptDomSelectorsFromBundle(string $script): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'svg') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptAppendedRootSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
     private function scriptDataAttributeSelectors(string $script): array
     {
         $selectors = array();

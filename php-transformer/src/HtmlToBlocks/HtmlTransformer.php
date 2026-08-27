@@ -58,7 +58,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTrans
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
@@ -153,19 +152,6 @@ final class HtmlTransformer
      * font-size, so the CSS default is the correct constant rather than a guess.
      */
     private const ROOT_FONT_SIZE_PX = 16;
-
-    private const MAX_FORM_TOPOLOGY_DEPTH = 8;
-
-    private const MAX_FORM_TOPOLOGY_NODES = 128;
-
-    private const MAX_FORM_TOPOLOGY_CLASSES = 8;
-
-    /** @var array<int, string> */
-    private const FORM_TOPOLOGY_WRAPPER_TAGS = array(
-        'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
-        'label', 'li', 'main', 'nav', 'ol', 'p', 'section', 'span', 'table', 'tbody',
-        'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
-    );
 
     /**
      * Tag-only script selectors that must keep their native DOM shape when a
@@ -2642,13 +2628,6 @@ final class HtmlTransformer
         }
 
         return $this->replaceSelectorSpans($selector, $replacements);
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function rightmostTypeIsControl(array $parsed): bool
-    {
-        $type = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-        return is_string($type) && in_array(strtolower($type), array( 'a', 'button' ), true);
     }
 
     private function typeSpecificityShim(): string
@@ -5433,52 +5412,6 @@ final class HtmlTransformer
         return $tags;
     }
 
-    private function authorLayoutLeafBlockFromElement(DOMElement $element): ?array
-    {
-        $this->generatedBlocks()->register(AuthorLayoutBlockGenerator::class, ( new AuthorLayoutBlockGenerator() )->definition());
-        $content = $this->richTextContentWithMaterializedInlineStyles($element);
-        $content = $this->richTextContentWithMaterializedSvgImages($element, $content);
-        if ( null === $content ) {
-            return null;
-        }
-
-        $tagName = strtolower($element->tagName);
-        $presentationAttrs = $this->presentationAttributes($element);
-        $attrs = array_filter(array(
-            'anchor' => $this->safeAnchor($this->attr($element, 'id')),
-            'className' => $this->sourceProjectionClassName($element, $this->mergePresentationClassNames(
-                (string) ($presentationAttrs['className'] ?? $this->promotedClassName($this->attr($element, 'class'))),
-                $this->editorAnchorClassName($element)
-            )),
-            'content' => $content,
-            'contentMode' => 'rich-text',
-            'sourceAttributes' => array_filter(array_merge(
-                $this->authorLayoutSourceAttributes($element),
-                array_intersect_key($this->htmlAttributes($element), array_flip(array( 'target', 'rel', 'type' )))
-            )),
-            'tagName' => $tagName,
-            'url' => 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '',
-        ), static fn (mixed $value): bool => array() !== $value && '' !== $value);
-        $opening = '<' . $tagName . $this->authorLayoutHtmlAttributes($attrs) . '>';
-        $closing = '</' . $tagName . '>';
-
-        $this->recordPresentationProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
-        $this->recordStructureProvenance(AuthorLayoutBlockGenerator::NAME, $attrs, $element);
-        $provenanceId = $this->transformationProvenance()->registerSource(
-            $this->sourceProvenanceEntry(AuthorLayoutBlockGenerator::NAME, $element),
-            $this->sourceElementStartsHidden($element)
-        );
-
-        return array(
-            'blockName' => AuthorLayoutBlockGenerator::NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $opening . ($attrs['content'] ?? '') . $closing,
-            'innerContent' => array($opening . ($attrs['content'] ?? '') . $closing),
-            '_source_provenance_id' => $provenanceId,
-        );
-    }
-
     /** @return array<string, string> */
     private function authorLayoutSourceAttributes(DOMElement $element): array
     {
@@ -5711,22 +5644,6 @@ final class HtmlTransformer
         return $only instanceof DOMElement && $this->isStylingHookSpan($only) ? $only : null;
     }
 
-    private function soleRichTextAnchor(DOMElement $container): ?DOMElement
-    {
-        $only = null;
-        foreach ( $container->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( null !== $only ) {
-                return null;
-            }
-            $only = $child;
-        }
-
-        return $only instanceof DOMElement && 'a' === strtolower($only->tagName) ? $only : null;
-    }
-
     /**
      * A `<span>` whose attributes can be represented by a semantic RichText
      * carrier. Class/id/data identity and inline styles move together onto a
@@ -5789,21 +5706,6 @@ final class HtmlTransformer
         }
 
         return $hasStyling;
-    }
-
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function stylingHookSpans(DOMElement $container): array
-    {
-        $spans = array();
-        foreach ( $container->getElementsByTagName('span') as $span ) {
-            if ( $span instanceof DOMElement && $this->isStylingHookSpan($span) ) {
-                $spans[] = $span;
-            }
-        }
-
-        return $spans;
     }
 
     /**
@@ -6699,16 +6601,6 @@ final class HtmlTransformer
     {
         $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:band|carousel|loop|marquee|mask|rail|scroller|slider|ticker|track|viewport)(?:[^a-z0-9]|$)/', $identity);
-    }
-
-    private function hasBoxAffectingAuthorDeclarations(DOMElement $element): bool
-    {
-        foreach ( array_keys($this->matchingAuthorDeclarations($element)) as $property ) {
-            if ( preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property) ) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -11775,20 +11667,6 @@ final class HtmlTransformer
         return $attrs;
     }
 
-    private function hasPositionedVisualMediaChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 0 === $child->getElementsByTagName('img')->length ) {
-                continue;
-            }
-            $position = strtolower(trim((string) ($this->structuralPresentationDeclarations($child)['position'] ?? '')));
-            if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private function intrinsicVisualMediaHeight(DOMElement $element): string
     {
         $parent = $element->parentNode;
@@ -12729,30 +12607,6 @@ final class HtmlTransformer
         }
 
         return $rebuilt;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function pictureSourceAttributes(DOMElement $picture): array
-    {
-        foreach ( $picture->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'source' !== strtolower($child->tagName) ) {
-                continue;
-            }
-
-            $srcset = $this->attr($child, 'srcset');
-            if ( '' === $srcset || preg_match('/javascript\s*:/i', $srcset) ) {
-                continue;
-            }
-
-            return array_filter(array(
-                'srcset' => $srcset,
-                'sizes'  => $this->attr($child, 'sizes'),
-            ), static fn (string $value): bool => '' !== $value);
-        }
-
-        return array();
     }
 
     private function safeEmbedUrl(string $url): string

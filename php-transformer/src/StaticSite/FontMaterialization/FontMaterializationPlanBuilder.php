@@ -254,29 +254,6 @@ final class FontMaterializationPlanBuilder
     }
 
     /**
-     * Parse web-font stylesheet URLs from CSS `@import` rules.
-     *
-     * @return array<int,array{family:string,weights:array<int,int>}>
-     */
-    private function fontUsageFromCssImports(string $css): array
-    {
-        $css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
-        if ( '' === trim($css) || ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $usage = array();
-        foreach ( $matches as $match ) {
-            $href = (string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? ''));
-            foreach ( $this->fontUsageFromFontHref($href) as $font ) {
-                $usage[] = $font;
-            }
-        }
-
-        return $usage;
-    }
-
-    /**
      * Resolve CSS imports into stable source records and typed face declarations.
      *
      * @param array<int,array<string,mixed>> $cssSources
