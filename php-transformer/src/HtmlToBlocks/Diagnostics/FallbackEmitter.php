@@ -5,7 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\ClassificationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SubtreeClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RuntimeDomState;

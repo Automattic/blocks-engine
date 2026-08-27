@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
+namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 /** Builds a bounded List View carrier for exact source wrapper chains. */
 final class LayoutShellBlockGenerator
