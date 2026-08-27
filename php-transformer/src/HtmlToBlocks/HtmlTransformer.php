@@ -2728,7 +2728,7 @@ final class HtmlTransformer
 
             $column = $this->createBlock(
                 'core/column',
-                $this->presentationAttributes($cell),
+                $this->layoutTableColumnAttributes($cell),
                 $this->convertChildren($cell, $fallbacks, true),
                 $cell
             );
@@ -2739,6 +2739,20 @@ final class HtmlTransformer
         }
 
         return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function layoutTableColumnAttributes(DOMElement $cell): array
+    {
+        $attrs = $this->presentationAttributes($cell);
+        $style = strtolower($this->attr($cell, 'style'));
+        if ( preg_match('/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)%/i', $style, $matches) ) {
+            $attrs['width'] = $matches[1] . '%';
+        }
+
+        return $attrs;
     }
 
     /**
@@ -2760,7 +2774,7 @@ final class HtmlTransformer
                 }
                 $columns[] = $this->createBlock(
                     'core/column',
-                    $this->presentationAttributes($cell),
+                    $this->layoutTableColumnAttributes($cell),
                     $this->convertChildren($cell, $fallbacks, true),
                     $cell
                 );
