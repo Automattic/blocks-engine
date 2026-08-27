@@ -197,6 +197,8 @@ $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_p
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
 $assert(str_contains($bootstrap, "\$css = '@media ' . \$style['media'] . '{' . \$css . '}'"), 'Canonical editor styles preserve their stylesheet media conditions.');
 $assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "blocks-engine-presentation:") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "\$context->post") && str_contains($bootstrap, "get_page_uri( \$post )"), 'Canonical bootstrap loads content-addressed route styles into the edited post iframe.');
+$themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
+$assert(is_array($themeScaffold) && '0px' === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json declares an explicit block gap so the editor canvas does not inherit the WordPress 24px layout gap that the frontend never emits.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
