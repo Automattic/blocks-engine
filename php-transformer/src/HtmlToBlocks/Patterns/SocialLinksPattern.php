@@ -42,8 +42,8 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $structuralItems = true;
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-            if ( '' === $url ) {
-                return null;
+            if ( '' === $url || ! $this->isUsableSocialUrl($url) ) {
+                continue;
             }
 
             $label = trim($this->attr($anchor, 'aria-label'));
@@ -66,6 +66,10 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 'label' => $label,
                 ), static fn(string $value): bool => '' !== $value)
             ), array(), $sourceElement);
+        }
+
+        if ( array() === $links ) {
+            return null;
         }
 
         $attrs = $context->presentationAttributes($element);
@@ -131,8 +135,22 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $anchors;
     }
 
+    private function isUsableSocialUrl(string $url): bool
+    {
+        if ( str_starts_with(strtolower($url), 'mailto:') ) {
+            return true;
+        }
+
+        $resolved = str_contains($url, '://') ? $url : (str_starts_with($url, '//') ? 'https:' . $url : 'https://' . $url);
+        return '' !== strtolower((string) parse_url($resolved, PHP_URL_HOST));
+    }
+
     private function service(string $url): ?string
     {
+        if ( str_starts_with(strtolower($url), 'mailto:') ) {
+            return 'mail';
+        }
+
         $host = strtolower((string) parse_url(str_contains($url, '://') ? $url : 'https://' . $url, PHP_URL_HOST));
         foreach ( self::HOST_SERVICES as $domain => $service ) {
             if ( $host === $domain || str_ends_with($host, '.' . $domain) ) {
@@ -155,8 +173,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     private function hasIcon(DOMElement $anchor): bool
     {
-        return 0 < $anchor->getElementsByTagName('img')->length
-            || 0 < $anchor->getElementsByTagName('svg')->length;
+        if ( 0 < $anchor->getElementsByTagName('img')->length || 0 < $anchor->getElementsByTagName('svg')->length ) {
+            return true;
+        }
+
+        return '' === trim((string) $anchor->textContent) && 0 < $anchor->getElementsByTagName('span')->length;
     }
 
     /** @param array<int,DOMElement> $anchors */

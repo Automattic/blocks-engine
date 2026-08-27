@@ -563,6 +563,15 @@ $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-sour
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
+$spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
+$spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
+$spanSocialBlock = $spanSocialResult['blocks'][0] ?? array();
+$spanSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $spanSocialBlock['innerBlocks'] ?? array());
+$assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
+$assert(array( 'facebook', 'instagram', 'mail' ) === $spanSocialServices, 'placeholder social hrefs are skipped and mailto maps to the mail service', json_encode($spanSocialServices));
+$assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
+$assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
+
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
 
