@@ -267,6 +267,11 @@ trait ElementConversionTrait
      */
     private function convertInlineContentElement(DOMElement $element, array &$fallbacks): ?array
     {
+        $socialLinks = $this->recognizePatterns($element, $fallbacks, array(SocialLinksPattern::class));
+        if ( null !== $socialLinks ) {
+            return $socialLinks;
+        }
+
         if ( $this->isRuntimeDomTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
