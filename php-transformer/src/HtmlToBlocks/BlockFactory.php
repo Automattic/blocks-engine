@@ -176,9 +176,6 @@ final class BlockFactory
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
         }
-        if ( 'core/cover' === $name ) {
-            unset($attrs['hasDefiniteHeight']);
-        }
         if ( 'core/media-text' === $name ) {
             if ( '' === ($attrs['mediaAlt'] ?? null) ) {
                 unset($attrs['mediaAlt']);
@@ -428,12 +425,12 @@ final class BlockFactory
         unset($wrapperAttrs['layout']);
         if ( ! empty($attrs['minHeight']) ) {
             $unit = '' !== (string) ($attrs['minHeightUnit'] ?? '') ? (string) $attrs['minHeightUnit'] : 'px';
-            $geometry = 'min-height:' . (string) $attrs['minHeight'] . $unit;
-            if ( ! empty($attrs['hasDefiniteHeight']) ) {
-                $geometry .= ';height:' . (string) $attrs['minHeight'] . $unit;
-            }
+            // Only the minHeight floor rides the inline style: cover's save()
+            // regenerates it from the minHeight attribute, so the stored
+            // markup round-trips. A definite source height is pinned through
+            // the generated geometry carrier instead (CoverPattern).
             $wrapperAttrs['inlineGeometryStyle'] = trim(
-                (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';' . $geometry,
+                (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';min-height:' . (string) $attrs['minHeight'] . $unit,
                 ';'
             );
         }

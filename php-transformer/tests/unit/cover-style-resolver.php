@@ -80,8 +80,8 @@ $assertSameArray(array( 'x' => 0.25, 'y' => 0.75 ), $resolver->focalPointFromSty
 $assertNull($resolver->focalPointFromStyle('background-position:center center'), 'Center is the default; omitted.');
 $assertNull($resolver->focalPointFromStyle('background-position:10px 20px'), 'Length positions are not derivable.');
 
-$assertSameArray(array( 'minHeight' => 480, 'minHeightUnit' => 'px' ), $resolver->minHeightFromStyle('min-height:480px'), 'px minHeight parses.');
-$assertSameArray(array( 'minHeight' => 80, 'minHeightUnit' => 'vh' ), $resolver->minHeightFromStyle('height:80vh'), 'height falls back when min-height absent.');
+$assertSameArray(array( 'minHeight' => 480, 'minHeightUnit' => 'px', 'definite' => false ), $resolver->minHeightFromStyle('min-height:480px'), 'px minHeight parses.');
+$assertSameArray(array( 'minHeight' => 80, 'minHeightUnit' => 'vh', 'definite' => true ), $resolver->minHeightFromStyle('height:80vh'), 'height falls back when min-height absent.');
 $assertNull($resolver->minHeightFromStyle('min-height:50%'), 'Percentage heights are not derivable.');
 
 $assertTrue($resolver->meetsHeroSizeGate('background:url(h.jpg) center/cover'), 'Shorthand size cover passes.');
@@ -123,7 +123,7 @@ $assertSameArray(
 
 // H4: A trailing !important does not alter parsed declaration values.
 $assertSameArray(
-    array( 'minHeight' => 480, 'minHeightUnit' => 'px' ),
+    array( 'minHeight' => 480, 'minHeightUnit' => 'px', 'definite' => false ),
     $resolver->minHeightFromStyle('min-height:480px !important'),
     'Important min-height values parse.'
 );
@@ -152,7 +152,7 @@ $assertSameArray(array( 'x' => 0.5, 'y' => 0.0 ), $resolver->focalPointFromStyle
 $assertSameArray(array( 'x' => 1.0, 'y' => 0.0 ), $resolver->focalPointFromStyle('background-position:top right'), 'Vertical-first keyword pairs map to axes.');
 
 // H8: Modern viewport units parse and use the viewport hero threshold.
-$assertSameArray(array( 'minHeight' => 100, 'minHeightUnit' => 'dvh' ), $resolver->minHeightFromStyle('min-height:100dvh'), 'dvh minHeight parses.');
+$assertSameArray(array( 'minHeight' => 100, 'minHeightUnit' => 'dvh', 'definite' => false ), $resolver->minHeightFromStyle('min-height:100dvh'), 'dvh minHeight parses.');
 $assertTrue($resolver->meetsHeroSizeGate('background-image:url(h.jpg);min-height:100dvh'), '100dvh passes the hero-size gate.');
 
 // Required change 9: Oversized scraped style strings are rejected without parsing.
@@ -178,7 +178,7 @@ $assertSameArray(
     'Modern rgba slash syntax maps to dimRatio and overlay color.'
 );
 $assertSameArray(
-    array( 'minHeight' => 480, 'minHeightUnit' => 'px' ),
+    array( 'minHeight' => 480, 'minHeightUnit' => 'px', 'definite' => false ),
     $resolver->minHeightFromStyle('min-height:480px ! important'),
     'Spaced important min-height values parse.'
 );

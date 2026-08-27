@@ -288,15 +288,27 @@ $assertTrue(! (bool) preg_match('/(?<!min-)height:480px/', $minHeightOpening), '
 $assertSame(480, $minHeightCover['attrs']['minHeight'] ?? null, 'K3: Min-height hero keeps numeric minHeight attr.');
 $assertTrue(! isset($minHeightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Min-height hero removes duplicate style.dimensions.minHeight.');
 $assertTrue(! str_contains($assetCss($minHeightResult), 'min-height:480px'), 'K3: Min-height hero generates no carrier min-height rule.');
+$assertTrue(! str_contains($assetCss($minHeightResult), 'height:480px'), 'K3: Min-height hero generates no carrier height rule (floor semantics, no definite box).');
 
 $heightResult = $transformHtml('<section class="hero" style="background-image:url(https://example.com/hero.jpg);background-size:cover;height:345.5px"><h1>Build</h1><p>Ship</p></section>');
 $heightCover = $heightResult['blocks'][0] ?? array();
 $heightOpening = (string) ($heightCover['innerContent'][0] ?? '');
+$heightCss = $assetCss($heightResult);
+$heightCarrierClasses = array();
+preg_match_all('/be-inline-geometry-[a-f0-9-]+/', (string) ($heightCover['attrs']['className'] ?? ''), $heightCarrierClasses);
+$heightCarrierClasses = $heightCarrierClasses[0] ?? array();
 $assertSame('core/cover', $heightCover['blockName'] ?? null, 'K3: Height-fallback hero remains core/cover.');
 $assertSame(1, substr_count($heightOpening, 'min-height'), 'K3: Height-fallback hero opening markup emits min-height once.');
-$assertTrue((bool) preg_match('/(?<!min-)height:345.5px/', $heightOpening), 'K3: Height-fallback source height also emits height so absolute cover media is contained.');
+$assertTrue(! (bool) preg_match('/(?<!min-)height:345\.5px/', $heightOpening), 'K3: Height-fallback hero keeps the wrapper inline style save()-canonical (no inline height the editor would flag for recovery).');
 $assertTrue(! isset($heightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Height-fallback hero removes duplicate style.dimensions.minHeight.');
-$assertTrue(! str_contains($assetCss($heightResult), 'height:345.5px'), 'K3: Height-fallback hero generates no carrier height rule.');
+$assertTrue($heightCarrierClasses !== array(), 'K3: Definite-height hero carries a generated geometry carrier class on the cover.');
+$heightCarrierHasHeight = false;
+foreach ( $heightCarrierClasses as $heightCarrierClass ) {
+    if ( str_contains($heightCss, '.' . $heightCarrierClass . '{height:345.5px !important}') ) {
+        $heightCarrierHasHeight = true;
+    }
+}
+$assertTrue($heightCarrierHasHeight, 'K3: Definite-height hero pins the cover box through a carrier height rule so absolute cover media stays contained and the next section starts at the hero bottom (#1285).');
 
 // K4: CSS-owned semantic flex heroes retain their source section and direct children.
 $columnsResult = $transformHtml('<section style="display:flex;background-image:url(https://example.com/h.jpg);background-size:cover"><div style="flex:1"><h1>Left</h1></div><div style="flex:1"><p>Right</p></div></section>');
