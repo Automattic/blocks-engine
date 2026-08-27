@@ -60,6 +60,17 @@ foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_
 unset($compiledPage);
 $assert($compiledPages === $compiledBatch, 'Worker-batch compilation reuses bounded analysis without changing independently compiled receipt content.');
 
+// One batch verifies its immutable shared plan once, so the batch entry point
+// stays the enforcement boundary for every shared-plan invariant.
+$tamperedReduction = $shared;
+$tamperedReduction['shared_reduction']['component_facts']['tampered'] = true;
+$throws(static fn () => $compiler->compilePreparedPages($tamperedReduction, $pages), 'Batch compilation rejects a shared reduction whose contents no longer match its digest.');
+$throws(static fn () => $compiler->compilePreparedPage($tamperedReduction, $pages['index.html']), 'Single-page compilation rejects a shared reduction whose contents no longer match its digest.');
+$tamperedSharedDigest = $shared;
+$tamperedSharedDigest['digest'] = str_repeat('0', 64);
+$throws(static fn () => $compiler->compilePreparedPages($tamperedSharedDigest, $pages), 'Batch compilation rejects a shared plan whose declared plan digest is invalid.');
+$throws(static fn () => $compiler->compilePreparedPages(array_diff_key($shared, array('schema' => null)), $pages), 'Batch compilation rejects a shared plan that omits its staged schema.');
+
 // Simulate interruption/resume and arbitrary parallel completion order.
 $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
 $resumedPages = json_decode(json_encode(array($pages['contact.html'], $pages['index.html'], $pages['about.html']), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);

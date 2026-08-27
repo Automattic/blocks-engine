@@ -299,7 +299,7 @@ final class ArtifactCompiler
             if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
                 throw new \InvalidArgumentException('Prepared page batches require unique page plans with string page ids.');
             }
-            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader);
+            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
         }
         return $receipts;
     }
@@ -311,12 +311,18 @@ final class ArtifactCompiler
         return $compiler;
     }
 
-    /** @param array<string,mixed> $sharedPlan @param array<string,mixed> $pagePlan @return array<string,mixed> */
-    private function compilePreparedPageWithCompiler(array $sharedPlan, array $pagePlan, self $stageCompiler, ?PayloadReader $payloadReader): array
+    /**
+     * A shared plan is immutable for the whole batch, and verifying its
+     * reduction digest rehashes every shared fact. Callers that already
+     * verified this exact plan declare it so one batch validates once.
+     *
+     * @param array<string,mixed> $sharedPlan @param array<string,mixed> $pagePlan @return array<string,mixed>
+     */
+    private function compilePreparedPageWithCompiler(array $sharedPlan, array $pagePlan, self $stageCompiler, ?PayloadReader $payloadReader, bool $sharedPlanVerified = false): array
     {
         $startedAt = hrtime(true);
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
-        $this->assertSharedPlan($sharedPlan);
+        if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $sharedArtifact = isset($sharedPlan['shared_reduction'])
             ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
