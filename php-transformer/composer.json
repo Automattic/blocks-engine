@@ -70,6 +70,7 @@
        "php tests/unit/authored-marquee-block.php",
        "php tests/unit/responsive-document-variants.php",
        "php tests/unit/editability-report.php",
+      "php tests/unit/depth-pressure-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/list-item-lowering.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
