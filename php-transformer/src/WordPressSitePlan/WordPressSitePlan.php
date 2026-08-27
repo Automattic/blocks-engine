@@ -1276,7 +1276,6 @@ final class WordPressSitePlan
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
             $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
             $lines[] = '    $styles = ' . var_export($editorStyles, true) . ';';
-            $lines[] = "    \$presentation_reset_added = false;";
             $lines[] = "    foreach ( \$styles as \$style ) {";
             $lines[] = "        \$matches = \$site_editor; if ( ! \$matches ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "            if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
@@ -1285,10 +1284,10 @@ final class WordPressSitePlan
             $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
             $lines[] = "        }";
             $lines[] = "        if ( ! \$matches ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
-            $lines[] = "        if ( false !== \$css ) { if ( ! \$presentation_reset_added ) { \$settings['styles'][] = array( 'css' => ':root :where(.block-editor-block-list__layout) > *{margin-block-start:0;margin-block-end:0}', '__unstableType' => 'theme' ); \$presentation_reset_added = true; } if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
+            $lines[] = "        if ( false !== \$css ) { if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
             $lines[] = "    }";
             $lines[] = "    return \$settings;";
-            $lines[] = "}, PHP_INT_MAX, 2 );";
+            $lines[] = "}, 10, 2 );";
         }
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
