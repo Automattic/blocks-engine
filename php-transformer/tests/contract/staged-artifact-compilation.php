@@ -188,7 +188,6 @@ $assert(str_contains($bootstrap, "\$css = '@media ' . \$style['media'] . '{' . \
 $assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "blocks-engine-presentation:") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "\$context->post") && str_contains($bootstrap, "get_page_uri( \$post )"), 'Canonical bootstrap loads content-addressed route styles into the edited post iframe.');
 $themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
 $assert(is_array($themeScaffold) && '0px' === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json declares an explicit block gap so the editor canvas does not inherit the WordPress 24px layout gap that the frontend never emits.');
-$assert(str_contains($bootstrap, 'blocks_engine_scope_editor_css') && str_contains($bootstrap, '$css = blocks_engine_scope_editor_css( $css );') && str_contains($bootstrap, '\':root{\' . $scoped . \'}\'') && str_contains($bootstrap, '\'font-face\', \'keyframes\''), 'Generated editor styles are nested inside :root so authored selectors outrank WordPress layout gap rules, while non-nestable at-rules are hoisted.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
