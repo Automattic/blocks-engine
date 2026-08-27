@@ -643,7 +643,7 @@ trait FormDispatchTrait
                 return null;
             }
 
-            if ( 'submit' === $this->formControlType($control) ) {
+            if ( $this->isSubmitLikeControl($control) ) {
                 $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->presentationAttributes($control), array(
                     'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
                 )), array(), $control);
@@ -659,9 +659,22 @@ trait FormDispatchTrait
             }
 
             $readableControlBlock = $this->readableFormControlBlockFromElement($control);
-            if ( null !== $readableControlBlock ) {
-                $contentBlocks[] = $readableControlBlock;
+            if ( null === $readableControlBlock ) {
+                continue;
             }
+
+            $fieldBlocks = array();
+            $associatedLabel = $this->associatedLabelElement($control);
+            if ( $associatedLabel instanceof DOMElement && AuthoredInputBlockGenerator::NAME === ($readableControlBlock['blockName'] ?? '') ) {
+                $labelBlock = $this->readableFormControlBlockFromElement($associatedLabel);
+                if ( null !== $labelBlock ) {
+                    $fieldBlocks[] = $labelBlock;
+                }
+            }
+            $fieldBlocks[] = $readableControlBlock;
+            $contentBlocks[] = ( 1 === count($fieldBlocks) && AuthoredInputBlockGenerator::NAME !== ($readableControlBlock['blockName'] ?? '') )
+                ? $fieldBlocks[0]
+                : $this->createBlock('core/group', array(), $fieldBlocks, $control);
         }
 
         if ( array() !== $buttonBlocks ) {
@@ -1342,7 +1355,42 @@ trait FormDispatchTrait
             return false;
         }
 
-        return $this->hasSubmitSemantics($control);
+        return $this->hasSubmitSemantics($control) || $this->isSoleFormActionControl($control);
+    }
+
+    /**
+     * The only non-reset button-like control in the enclosing form is the form's
+     * action, even when its type is `button` and its label is not a submit verb.
+     */
+    private function isSoleFormActionControl(DOMElement $control): bool
+    {
+        $form = null;
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                $form = $parent;
+                break;
+            }
+        }
+        if ( ! $form instanceof DOMElement ) {
+            return false;
+        }
+
+        $actions = 0;
+        foreach ( $this->formControlElements($form) as $candidate ) {
+            $tagName = strtolower($candidate->tagName);
+            $type = $this->formControlType($candidate);
+            if ( 'reset' === $type ) {
+                continue;
+            }
+            if ( 'button' === $tagName || ( 'input' === $tagName && in_array($type, array( 'submit', 'image', 'button' ), true) ) ) {
+                ++$actions;
+                if ( 1 < $actions ) {
+                    return false;
+                }
+            }
+        }
+
+        return 1 === $actions;
     }
 
     /**
@@ -1358,6 +1406,9 @@ trait FormDispatchTrait
             $this->attr($control, 'id'),
             $this->attr($control, 'name'),
             $this->attr($control, 'aria-label'),
+            $this->attr($control, 'data-hook'),
+            $this->attr($control, 'data-field-type'),
+            $this->attr($control, 'data-testid'),
         )));
 
         foreach ( array( 'submit', 'subscribe', 'sign up', 'sign-up', 'signup', 'send' ) as $needle ) {
@@ -1521,11 +1572,34 @@ trait FormDispatchTrait
         }
 
         $type = $this->formControlType($control);
+        if ( '' === $label && $this->isSubmitLikeControl($control) ) {
+            $label = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        }
         if ( '' === $label ) {
             return 'select' === $type ? 'Select option' : ucfirst($type);
         }
 
         return $label;
+    }
+
+    /**
+     * Label associated by `for`, not a wrapping parent label. Wrapping labels
+     * are converted with the control they contain.
+     */
+    private function associatedLabelElement(DOMElement $control): ?DOMElement
+    {
+        $id = $this->attr($control, 'id');
+        if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
+            return null;
+        }
+
+        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
+            if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
+                return $label;
+            }
+        }
+
+        return null;
     }
 
     private function readableSubmitText(DOMElement $control): string
