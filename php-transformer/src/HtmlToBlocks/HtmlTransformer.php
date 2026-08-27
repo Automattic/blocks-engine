@@ -536,7 +536,7 @@ final class HtmlTransformer
         // Remove wrapper-convention custom elements before author selectors are
         // prepared, so style projection and component promotion both observe the
         // content rather than the source's wrapping convention.
-        $this->unwrapRenderNeutralCustomElements($body, (string) ($options['static_css'] ?? ''));
+        $this->unwrapRenderNeutralCustomElements($body, $this->authoredCssText($html, (string) ($options['static_css'] ?? '')));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
@@ -977,8 +977,10 @@ final class HtmlTransformer
             return false;
         }
 
-        // A styled tag carries presentation of its own and is not render-neutral.
-        if ( '' !== $staticCss && 1 === preg_match('/(?<![\w-])' . preg_quote($tag, '/') . '(?![\w-])/i', $staticCss) ) {
+        // A tag that carries presentation of its own is not render-neutral.
+        // `display:contents` is the exception that proves the rule: it states
+        // the element generates no box and renders as its children.
+        if ( ! $this->customElementCssIsRenderNeutral($tag, $staticCss) ) {
             return false;
         }
 
@@ -991,6 +993,72 @@ final class HtmlTransformer
         }
 
         return false;
+    }
+
+    /**
+     * Author CSS visible to the document: declared stylesheets plus the styles
+     * the source embeds inline.
+     */
+    private function authoredCssText(string $html, string $staticCss): string
+    {
+        $embedded = array();
+        if ( 0 < preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
+            $embedded = $matches[1];
+        }
+
+        return trim($staticCss . "\n" . implode("\n", $embedded));
+    }
+
+    /**
+     * Whether every author rule addressing a custom element tag leaves it
+     * render-neutral, so replacing instances with their children preserves the
+     * authored presentation.
+     */
+    private function customElementCssIsRenderNeutral(string $tag, string $css): bool
+    {
+        if ( '' === trim($css) ) {
+            return true;
+        }
+
+        $pattern = '/(?<![\w-])' . preg_quote($tag, '/') . '(?![\w-])/i';
+        if ( 1 !== preg_match($pattern, $css) ) {
+            return true;
+        }
+
+        foreach ( $this->cssRuleBlocks($css) as $rule ) {
+            if ( 1 !== preg_match($pattern, $rule['selector']) ) {
+                continue;
+            }
+            foreach ( $this->cssDeclarations($rule['declarations']) as $property => $value ) {
+                if ( 'display' !== strtolower(trim($property)) || 'contents' !== strtolower(trim($value)) ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Flat selector/declaration pairs for the top-level rules in a stylesheet.
+     *
+     * @return array<int, array{selector: string, declarations: string}>
+     */
+    private function cssRuleBlocks(string $css): array
+    {
+        $rules = array();
+        if ( 1 !== preg_match_all('/([^{}]+)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER) && array() === $matches ) {
+            return $rules;
+        }
+
+        foreach ( $matches as $match ) {
+            $rules[] = array(
+                'selector'     => trim($match[1]),
+                'declarations' => trim($match[2]),
+            );
+        }
+
+        return $rules;
     }
 
     /**
