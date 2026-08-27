@@ -166,6 +166,43 @@ trait StyleResolutionTrait
     }
 
     /**
+     * Positioning that makes an empty named anchor a scroll target rather than
+     * a zero-size in-flow box.
+     *
+     * @return list<string>
+     */
+    private function namedFragmentTargetProperties(): array
+    {
+        return array(
+            'position',
+            'top',
+            'right',
+            'bottom',
+            'left',
+            'inset',
+            'overflow',
+            'pointer-events',
+        );
+    }
+
+    /**
+     * An empty element whose inline style already places it for hash navigation.
+     */
+    private function isNamedFragmentTarget(DOMElement $element): bool
+    {
+        if ( '' === trim($this->attr($element, 'id')) ) {
+            return false;
+        }
+        if ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
+            return false;
+        }
+
+        $position = strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['position'] ?? '')));
+
+        return in_array($position, array( 'absolute', 'fixed' ), true);
+    }
+
+    /**
      * @return list<string>
      */
     private function inlineBackgroundCarrierProperties(): array
@@ -420,6 +457,9 @@ trait StyleResolutionTrait
             : $this->cssDeclarations($this->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
+        if ( $this->isNamedFragmentTarget($element) ) {
+            $properties = array_merge($properties, $this->namedFragmentTargetProperties());
+        }
         if ( $this->inlineDisplayOverridesAuthorLayout($element, $declarations) ) {
             $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
             if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {
@@ -1029,7 +1069,11 @@ trait StyleResolutionTrait
         $declarations = $this->cssDeclarations($this->attr($element, 'style'));
         $style = array();
         $geometryValues = array();
-        foreach (array_values(array_unique(array_merge($this->inlineGeometryProperties(), $forcedProperties))) as $property) {
+        $properties = $this->inlineGeometryProperties();
+        if ( $this->isNamedFragmentTarget($element) ) {
+            $properties = array_merge($properties, $this->namedFragmentTargetProperties());
+        }
+        foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
             }
