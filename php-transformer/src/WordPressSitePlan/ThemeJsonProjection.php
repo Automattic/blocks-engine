@@ -109,11 +109,13 @@ final class ThemeJsonProjection
             elseif ('body' === $target) $destination['spacing'][('gap' === $property ? 'blockGap' : $property)] = $this->presetValue($presets['spacing'], $value, 'spacing');
             if ('body' === $target) $styles = $destination; else $styles['elements'][substr($target, 8)] = $destination;
         }
-        // Authored CSS owns every gap in a materialized static site. Without an
-        // explicit blockGap the block editor inherits WordPress's default 24px
-        // layout gap (`:root :where(.is-layout-flow) > *`), which the frontend
-        // never emits, so the same markup renders taller in the editor canvas.
-        if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = '0px';
+        // Authored CSS owns every gap in a materialized static site. While block
+        // gap support is enabled WordPress emits `:root :where(.is-layout-flow) > *`
+        // layout rules into the editor canvas that the frontend never emits. Those
+        // rules match authored class specificity and are emitted last, so they win
+        // every tie and overwrite authored margins in the editor only. Disabling
+        // the feature keeps authored spacing authoritative on both surfaces.
+        if (!isset($settings['spacing']['blockGap'])) $settings['spacing']['blockGap'] = false;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
     }
 
