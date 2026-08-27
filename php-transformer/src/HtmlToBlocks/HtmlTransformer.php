@@ -67,6 +67,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrai
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMDocument;
@@ -324,7 +325,10 @@ final class HtmlTransformer
         $this->navigationUnderlineColorResolver = new NavigationUnderlineColorResolver();
         $this->navigationBlockNormalizer = new NavigationBlockNormalizer(fn (string $label): string => $this->normalizedNavigationLabel($label));
         $this->diagnosticsCollector = new DiagnosticsCollector();
-        $this->semanticParityReporter = new SemanticParityReporter($this->runtime);
+        $this->semanticParityReporter = new SemanticParityReporter(
+            $this->runtime,
+            new TypographyParityAnalyzer(new FontMaterializationPlanBuilder($this->analysisCache->cssFontAnalysis))
+        );
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->patternContext = $this->createPatternContext(true);
