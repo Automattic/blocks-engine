@@ -5,8 +5,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPayload;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ResponsiveLayoutBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {

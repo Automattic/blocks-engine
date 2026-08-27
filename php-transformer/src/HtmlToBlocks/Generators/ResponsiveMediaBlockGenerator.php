@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
+namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
 /** Builds the bounded companion block for responsive and linked image markup. */
 final class ResponsiveMediaBlockGenerator
