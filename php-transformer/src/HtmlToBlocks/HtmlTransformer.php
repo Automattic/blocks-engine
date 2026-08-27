@@ -3239,89 +3239,8 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->convertInlineContentElement($element, $fallbacks);
         }
 
-        if ( 'ul' === $tagName || 'ol' === $tagName ) {
-            $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
-            if ( null !== $navigation ) {
-                return $this->rememberAccordionDisclosureRoot($navigation, $element);
-            }
-
-            if ( $this->isStructuredCardList($element) ) {
-                $decomposed = $this->decomposeStructuredCardList($element, $fallbacks);
-                if ( null !== $decomposed ) {
-                    return $decomposed;
-                }
-            }
-
-            if ( $this->listContainsStructuralItemContent($element) ) {
-                return $this->decomposeStructuralList($element, $fallbacks);
-            }
-
-            $items = $this->listItems($element, $fallbacks);
-
-            if ( array() === $items ) {
-                return null;
-            }
-
-            // core/list has no layout support, so an author grid on the list
-            // element rides the css-owned grid carrier instead of a layout attr.
-            $listAttrs = $this->isCssOwnedGridElement($element)
-                ? $this->cssOwnedGridAttributes($element)
-                : $this->presentationAttributes($element);
-
-            return $this->createBlock('core/list', array_merge($listAttrs, 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
-        }
-
-        if ( 'dl' === $tagName ) {
-            $descriptionList = $this->descriptionListBlockFromElement($element);
-            if ( null !== $descriptionList ) {
-                return $descriptionList;
-            }
-
-            $metadataGrid = $this->metadataGridBlockFromElement($element);
-            if ( null !== $metadataGrid ) {
-                return $metadataGrid;
-            }
-
-            $items = $this->definitionListItems($element);
-            if ( array() !== $items ) {
-                $definitionListAttrs = $this->isCssOwnedGridElement($element)
-                    ? $this->cssOwnedGridAttributes($element)
-                    : $this->presentationAttributes($element);
-
-                return $this->createBlock('core/list', $definitionListAttrs, $items, $element);
-            }
-
-            $children = $this->convertChildren($element, $fallbacks, true);
-            if ( array() === $children ) {
-                return null;
-            }
-
-            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-        }
-
-        if ( 'dt' === $tagName ) {
-            $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-        }
-
-        if ( 'dd' === $tagName ) {
-            if ( $this->hasBlockContentChildren($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                }
-            }
-
-            $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        if ( in_array( $tagName, array( 'ul', 'ol', 'dl', 'dt', 'dd' ), true ) ) {
+            return $this->convertListElement($element, $fallbacks);
         }
 
         if ( 'blockquote' === $tagName ) {
@@ -3604,6 +3523,104 @@ if ( 'svg' === $tagName ) {
 
             $fallbacks[] = FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback());
         }
+
+        return null;
+    }
+
+    /**
+     * Convert one list structure: ordered and unordered lists, description lists, and the terms and details they contain.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertListElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        $tagName = strtolower($element->tagName);
+
+    if ( 'ul' === $tagName || 'ol' === $tagName ) {
+        $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
+        if ( null !== $navigation ) {
+            return $this->rememberAccordionDisclosureRoot($navigation, $element);
+        }
+
+        if ( $this->isStructuredCardList($element) ) {
+            $decomposed = $this->decomposeStructuredCardList($element, $fallbacks);
+            if ( null !== $decomposed ) {
+                return $decomposed;
+            }
+        }
+
+        if ( $this->listContainsStructuralItemContent($element) ) {
+            return $this->decomposeStructuralList($element, $fallbacks);
+        }
+
+        $items = $this->listItems($element, $fallbacks);
+
+        if ( array() === $items ) {
+            return null;
+        }
+
+        // core/list has no layout support, so an author grid on the list
+        // element rides the css-owned grid carrier instead of a layout attr.
+        $listAttrs = $this->isCssOwnedGridElement($element)
+            ? $this->cssOwnedGridAttributes($element)
+            : $this->presentationAttributes($element);
+
+        return $this->createBlock('core/list', array_merge($listAttrs, 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
+    }
+
+    if ( 'dl' === $tagName ) {
+        $descriptionList = $this->descriptionListBlockFromElement($element);
+        if ( null !== $descriptionList ) {
+            return $descriptionList;
+        }
+
+        $metadataGrid = $this->metadataGridBlockFromElement($element);
+        if ( null !== $metadataGrid ) {
+            return $metadataGrid;
+        }
+
+        $items = $this->definitionListItems($element);
+        if ( array() !== $items ) {
+            $definitionListAttrs = $this->isCssOwnedGridElement($element)
+                ? $this->cssOwnedGridAttributes($element)
+                : $this->presentationAttributes($element);
+
+            return $this->createBlock('core/list', $definitionListAttrs, $items, $element);
+        }
+
+        $children = $this->convertChildren($element, $fallbacks, true);
+        if ( array() === $children ) {
+            return null;
+        }
+
+        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+    }
+
+    if ( 'dt' === $tagName ) {
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
+
+    if ( 'dd' === $tagName ) {
+        if ( $this->hasBlockContentChildren($element) ) {
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+        }
+
+        $content = $this->richTextContentWithMaterializedInlineStyles($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            return null;
+        }
+
+        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+    }
 
         return null;
     }
