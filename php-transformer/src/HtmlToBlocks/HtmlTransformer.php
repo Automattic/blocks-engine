@@ -88,6 +88,17 @@ use DOMNode;
 final class HtmlTransformer
 {
     private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
+
+    /**
+     * Instances a custom element tag must reach before recurring usage can be
+     * read as a wrapping convention rather than a component.
+     */
+    private const WRAPPER_CONVENTION_MIN_INSTANCES = 3;
+
+    /**
+     * Depth of the shallow tag skeleton compared across wrapper instances.
+     */
+    private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use ButtonLinkDispatchTrait;
     use DomHelpersTrait;
     use ElementConversionTrait;
@@ -522,6 +533,10 @@ final class HtmlTransformer
 
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
+        // Remove wrapper-convention custom elements before author selectors are
+        // prepared, so style projection and component promotion both observe the
+        // content rather than the source's wrapping convention.
+        $this->unwrapRenderNeutralCustomElements($body, (string) ($options['static_css'] ?? ''));
         $this->prepareAuthorSelectorSemantics($html, (string) ($options['static_css'] ?? ''), $body, $options);
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
@@ -917,6 +932,101 @@ final class HtmlTransformer
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
         return $this->reusableComponents()->fingerprintForPath((string) $element->getNodePath());
+    }
+
+    /**
+     * Remove custom elements a source uses as a wrapping convention.
+     *
+     * Site builders wrap ordinary content in presentation-only custom elements.
+     * A custom element tag is not evidence that its subtree needs a generated
+     * block, so leaving those wrappers in place freezes headings and copy into
+     * opaque markup. A tag is treated as a convention when it recurs across the
+     * document while the content it wraps diverges: a genuine component repeats
+     * its internal structure, a wrapper does not.
+     */
+    private function unwrapRenderNeutralCustomElements(DOMElement $body, string $staticCss): void
+    {
+        $instances = array();
+        foreach ( $body->getElementsByTagName('*') as $element ) {
+            if ( $element instanceof DOMElement && str_contains(strtolower($element->tagName), '-') ) {
+                $instances[strtolower($element->tagName)][] = $element;
+            }
+        }
+
+        foreach ( $instances as $tag => $elements ) {
+            if ( ! $this->isWrapperConventionTag($tag, $elements, $staticCss) ) {
+                continue;
+            }
+            foreach ( $elements as $element ) {
+                if ( $this->isRenderNeutralWrapper($element) ) {
+                    $this->unwrapElement($element);
+                }
+            }
+        }
+    }
+
+    /**
+     * Whether a custom element tag is used as a wrapping convention rather than
+     * as a component host.
+     *
+     * @param array<int, DOMElement> $elements Every instance of the tag.
+     */
+    private function isWrapperConventionTag(string $tag, array $elements, string $staticCss): bool
+    {
+        if ( self::WRAPPER_CONVENTION_MIN_INSTANCES > count($elements) ) {
+            return false;
+        }
+
+        // A styled tag carries presentation of its own and is not render-neutral.
+        if ( '' !== $staticCss && 1 === preg_match('/(?<![\w-])' . preg_quote($tag, '/') . '(?![\w-])/i', $staticCss) ) {
+            return false;
+        }
+
+        $shapes = array();
+        foreach ( $elements as $element ) {
+            $shapes[$this->wrappedContentShape($element)] = true;
+            if ( 1 < count($shapes) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Shallow tag skeleton of the content a wrapper carries. Instances of a real
+     * component repeat this shape; instances of a wrapper do not.
+     */
+    private function wrappedContentShape(DOMElement $element, int $depth = 0): string
+    {
+        $parts = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $tag = strtolower($child->tagName);
+            $parts[] = self::WRAPPER_CONTENT_SHAPE_DEPTH > $depth
+                ? $tag . '(' . $this->wrappedContentShape($child, $depth + 1) . ')'
+                : $tag;
+        }
+
+        return implode(',', $parts);
+    }
+
+    /**
+     * Whether a wrapper instance carries no identity, behavior, or presentation
+     * of its own, and can therefore be replaced by its children.
+     */
+    private function isRenderNeutralWrapper(DOMElement $element): bool
+    {
+        return null !== $element->parentNode
+            && '' === trim($this->attr($element, 'id'))
+            && '' === trim($this->attr($element, 'class'))
+            && '' === trim($this->attr($element, 'role'))
+            && '' === trim($this->attr($element, 'style'))
+            && array() === $this->interactiveAttributes($element)
+            && ! $this->isRuntimeDomTarget($element)
+            && ! $this->hasMotionStructureToken($element);
     }
 
     private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
