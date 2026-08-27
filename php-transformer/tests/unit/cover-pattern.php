@@ -284,6 +284,7 @@ $minHeightCover = $minHeightResult['blocks'][0] ?? array();
 $minHeightOpening = (string) ($minHeightCover['innerContent'][0] ?? '');
 $assertSame('core/cover', $minHeightCover['blockName'] ?? null, 'K3: Min-height hero remains core/cover.');
 $assertSame(1, substr_count($minHeightOpening, 'min-height'), 'K3: Min-height hero opening markup emits min-height once.');
+$assertTrue(! (bool) preg_match('/(?<!min-)height:480px/', $minHeightOpening), 'K3: Min-height hero does not emit a definite height.');
 $assertSame(480, $minHeightCover['attrs']['minHeight'] ?? null, 'K3: Min-height hero keeps numeric minHeight attr.');
 $assertTrue(! isset($minHeightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Min-height hero removes duplicate style.dimensions.minHeight.');
 $assertTrue(! str_contains($assetCss($minHeightResult), 'min-height:480px'), 'K3: Min-height hero generates no carrier min-height rule.');
@@ -293,7 +294,7 @@ $heightCover = $heightResult['blocks'][0] ?? array();
 $heightOpening = (string) ($heightCover['innerContent'][0] ?? '');
 $assertSame('core/cover', $heightCover['blockName'] ?? null, 'K3: Height-fallback hero remains core/cover.');
 $assertSame(1, substr_count($heightOpening, 'min-height'), 'K3: Height-fallback hero opening markup emits min-height once.');
-$assertSame(1, substr_count($heightOpening, 'height:345.5px'), 'K3: Height-fallback source height survives only inside emitted min-height.');
+$assertTrue((bool) preg_match('/(?<!min-)height:345.5px/', $heightOpening), 'K3: Height-fallback source height also emits height so absolute cover media is contained.');
 $assertTrue(! isset($heightCover['attrs']['style']['dimensions']['minHeight']), 'K3: Height-fallback hero removes duplicate style.dimensions.minHeight.');
 $assertTrue(! str_contains($assetCss($heightResult), 'height:345.5px'), 'K3: Height-fallback hero generates no carrier height rule.');
 

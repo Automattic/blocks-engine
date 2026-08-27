@@ -176,6 +176,9 @@ final class BlockFactory
         if ( 'core/cover' === $name && 'px' === ($attrs['minHeightUnit'] ?? null) ) {
             unset($attrs['minHeightUnit']);
         }
+        if ( 'core/cover' === $name ) {
+            unset($attrs['hasDefiniteHeight']);
+        }
         if ( 'core/media-text' === $name ) {
             if ( '' === ($attrs['mediaAlt'] ?? null) ) {
                 unset($attrs['mediaAlt']);
@@ -425,8 +428,12 @@ final class BlockFactory
         unset($wrapperAttrs['layout']);
         if ( ! empty($attrs['minHeight']) ) {
             $unit = '' !== (string) ($attrs['minHeightUnit'] ?? '') ? (string) $attrs['minHeightUnit'] : 'px';
+            $geometry = 'min-height:' . (string) $attrs['minHeight'] . $unit;
+            if ( ! empty($attrs['hasDefiniteHeight']) ) {
+                $geometry .= ';height:' . (string) $attrs['minHeight'] . $unit;
+            }
             $wrapperAttrs['inlineGeometryStyle'] = trim(
-                (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';min-height:' . (string) $attrs['minHeight'] . $unit,
+                (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';' . $geometry,
                 ';'
             );
         }

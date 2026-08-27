@@ -164,6 +164,9 @@ final class CoverPattern implements PatternRecognizerInterface
             if ( null !== $minHeight ) {
                 $attrs['minHeight'] = $minHeight['minHeight'];
                 $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
+                if ( ! empty($minHeight['definite']) ) {
+                    $attrs['hasDefiniteHeight'] = true;
+                }
             }
         } catch ( Throwable ) {
             // Omit underivable height attributes.
