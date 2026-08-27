@@ -47,6 +47,7 @@
       "@test:packaging"
     ],
     "test:canonical": [
+      "php tests/contract/namespace-resolution.php",
       "php tests/contract/runtime-no-wordpress.php",
       "php tests/contract/runtime-no-markdown.php",
       "php tests/contract/runtime-wordpress-stubs.php",
