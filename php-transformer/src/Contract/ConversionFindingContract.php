@@ -64,8 +64,6 @@ final class ConversionFindingContract
     /**
      * Human-readable descriptor keys. Optional; type-checked when present.
      */
-    private const MESSAGE_KEYS = array('message', 'summary');
-
     /**
      * Well-known optional scalar string fields, validated for type only when
      * present. Unknown fields are tolerated.

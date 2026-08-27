@@ -14,6 +14,20 @@ use DOMNode;
 
 trait FormDispatchTrait
 {
+    /** Bounds for the reported form topology, owned by the dispatch that reads them. */
+    private const MAX_FORM_TOPOLOGY_DEPTH = 8;
+
+    private const MAX_FORM_TOPOLOGY_NODES = 128;
+
+    private const MAX_FORM_TOPOLOGY_CLASSES = 8;
+
+    /** @var array<int, string> */
+    private const FORM_TOPOLOGY_WRAPPER_TAGS = array(
+        'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
+        'label', 'li', 'main', 'nav', 'ol', 'p', 'section', 'span', 'table', 'tbody',
+        'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
+    );
+
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -958,21 +972,6 @@ trait FormDispatchTrait
         }
 
         return array() === $selected ? '' : implode(', ', $selected) . ' (selected)';
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function searchInputRuntimeAttributes(DOMElement $input): array
-    {
-        if ( ! $this->isRuntimeDomTarget($input) ) {
-            return array();
-        }
-
-        return array_filter(array(
-            'inputAnchor'    => $this->safeAnchor($this->attr($input, 'id')),
-            'inputClassName' => $this->promotedClassName($this->attr($input, 'class')),
-        ), static fn (string $value): bool => '' !== trim($value));
     }
 
     private function formRequiresRuntimePreservation(DOMElement $form): bool
