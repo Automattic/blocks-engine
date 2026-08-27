@@ -188,6 +188,8 @@ $assert(str_contains($bootstrap, "\$css = '@media ' . \$style['media'] . '{' . \
 $assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "blocks-engine-presentation:") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "\$context->post") && str_contains($bootstrap, "get_page_uri( \$post )"), 'Canonical bootstrap loads content-addressed route styles into the edited post iframe.');
 $assert(str_contains($bootstrap, ':root :where(.block-editor-block-list__layout) > *{margin-block-start:0;margin-block-end:0}') && str_contains($bootstrap, '$presentation_reset_added = false'), 'Canonical bootstrap emits the block-gap neutralizing reset once before matched presentation styles.');
 $assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all', static function") && str_contains($bootstrap, '}, PHP_INT_MAX, 2 );'), 'Generated editor presentation styles are appended after WordPress core layout styles so equal-specificity authored rules win.');
+$themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
+$assert(is_array($themeScaffold) && '0px' === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json declares an explicit block gap so the editor canvas does not inherit the WordPress 24px layout gap that the frontend never emits.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
