@@ -3,11 +3,21 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\CssFontAnalysisCache;
+
 /**
  * Bounded cache for immutable stylesheet analysis shared by one site compile.
  */
 final class HtmlTransformerAnalysisCache
 {
+    /** Immutable CSS-derived font analysis shared by one site compile. */
+    public readonly CssFontAnalysisCache $cssFontAnalysis;
+
+    public function __construct()
+    {
+        $this->cssFontAnalysis = new CssFontAnalysisCache();
+    }
+
     // Payload analyses contain parsed selector graphs, so keep the site-scoped
     // cache small even when every route contributes a local stylesheet.
     private const MAX_PAYLOAD_ENTRIES = 16;
