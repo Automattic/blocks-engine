@@ -3235,93 +3235,8 @@ final class HtmlTransformer
             return $this->convertAnchorDispatchElement($element, $fallbacks);
         }
 
-        if ( $this->isInlineContentElement($tagName) ) {
-            if ( $this->isRuntimeDomTarget($element) ) {
-                return $this->htmlPreservationBlock($element);
-            }
-
-            $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
-            if ( null !== $inlineSvgTextGroup ) {
-                return $inlineSvgTextGroup;
-            }
-
-            if ( $this->ownsPositioningGeometry($element) ) {
-                $carrier = $this->positionedInlineCarrierBlock($element, $fallbacks);
-                if ( null !== $carrier ) {
-                    return $carrier;
-                }
-            }
-
-            if ( $this->hasAuthorSemanticMarker($element) ) {
-                $content = $this->innerHtml($element);
-                if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
-                    if ( $this->richTextContentHasStructuralHtml($content) ) {
-                        $children = $this->convertChildren($element, $fallbacks, true);
-                        if ( array() !== $children ) {
-                            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                        }
-                    }
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(
-                        $this->createBlock('core/paragraph', array( 'content' => $content )),
-                    ), $element);
-                }
-            }
-
-            $richTextMarker = $this->richTextMarkerForElement($element);
-            if ( '' !== $richTextMarker ) {
-                // RichText only accepts phrasing content. Keep a selector-addressed
-                // inline wrapper editable when it contains layout/content blocks by
-                // lowering its children instead of storing structural HTML in content.
-                if ( $this->hasBlockContentChildren($element) || $this->richTextContentHasStructuralHtml($this->innerHtml($element)) ) {
-                    $children = $this->convertChildren($element, $fallbacks, true);
-                    if ( array() !== $children ) {
-                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                    }
-                }
-                $content = $this->innerHtml($element);
-                if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
-                    $declarations = $this->richTextInlineVisualDeclarations($element);
-                    if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
-                        $declarations['color'] = 'transparent';
-                    }
-                    $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
-                    return $this->createBlock('core/paragraph', array(
-                        'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
-                    ), array(), $element);
-                }
-            }
-
-            $dynamicText = $this->dynamicTextContent($element);
-            if ( null !== $dynamicText ) {
-                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
-            }
-
-            $content = $this->outerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( 1 === count($children) ) {
-                    if ( array() !== $this->presentationAttributes($element) ) {
-                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                    }
-                    return $children[0];
-                }
-                if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                }
-
-                if ( $this->shouldPreserveEmptyVisualElement($element) ) {
-                    return $this->emptyVisualSpacerBlock($element);
-                }
-
-                return null;
-            }
-
-            $listItem = $this->ancestorElement($element, 'li');
-            $sourceElement = $this->richTextContentHasStructuralHtml($content)
-                || ($listItem instanceof DOMElement && $this->isStructuralListItem($listItem))
-                ? $element
-                : null;
-            return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement);
+if ( $this->isInlineContentElement($tagName) ) {
+            return $this->convertInlineContentElement($element, $fallbacks);
         }
 
         if ( 'ul' === $tagName || 'ol' === $tagName ) {
@@ -3577,68 +3492,8 @@ final class HtmlTransformer
             return $this->convertButtonDispatchElement($element);
         }
 
-        if ( 'svg' === $tagName ) {
-            if ( $this->isInertHiddenSvgStorage($element) ) {
-                return null;
-            }
-            if ( $this->isRuntimeDomTarget($element) ) {
-                $html = $this->sanitizeInlineSvgMarkup($element);
-                if ( $this->isSafeSvgContent($html) ) {
-                    return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
-                }
-            }
-
-            // Imported inline SVGs are never routed through core/icon: that block
-            // is dynamic and keyed on a registered icon slug, not arbitrary SVG.
-            // Passive self-contained SVGs can be represented by core/image using
-            // a data:image/svg+xml source; the rest stay faithful core/html.
-            if ( $this->isSafeDecorativeSvgElement($element) ) {
-                // Faithfully preserve any inline SVG that carries real drawable
-                // artwork — icons, diagrams, illustrations — even when it is
-                // marked aria-hidden / role=presentation. aria-hidden hides the
-                // graphic from the accessibility tree; it does NOT mean the
-                // artwork is visually disposable. WordPress cannot reconstruct
-                // arbitrary vector artwork from CSS, so routing such an SVG into
-                // the visual-layer group (empty) or dropping it (return null)
-                // silently erased every shape — service icons collapsed to empty
-                // blocks and pipe/boiler diagrams to whitespace + comments.
-                //
-                // A proven positioned visual layer can collapse to its CSS-owned
-                // carrier. Stretching alone is not evidence that artwork is
-                // recreated elsewhere; preserve drawable stretched SVGs.
-                $isDecorativeChrome = $this->isVisualLayerElement($element);
-                if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
-                    if ( $this->svgNeedsPhrasingHost($element) ) {
-                        $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
-                        if ( null !== $imageMarkup ) {
-                            return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
-                        }
-                    }
-                    $svgBlock = $this->inlineSvgBlockFromElement($element);
-                    if ( null !== $svgBlock ) {
-                        return $svgBlock;
-                    }
-                }
-                if ( $this->isVisualLayerElement($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
-                }
-                return null;
-            }
-
-            if ( $this->svgNeedsPhrasingHost($element) ) {
-                $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
-                if ( null !== $imageMarkup ) {
-                    return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
-                }
-            }
-
-            $svgBlock = $this->inlineSvgBlockFromElement($element);
-            if ( null !== $svgBlock ) {
-                return $svgBlock;
-            }
-
-            $this->captureInlineSvgFallback($element, $fallbacks);
-            return null;
+if ( 'svg' === $tagName ) {
+            return $this->convertSvgElement($element, $fallbacks);
         }
 
         if ( 'canvas' === $tagName ) {
@@ -3751,6 +3606,173 @@ final class HtmlTransformer
         }
 
         return null;
+    }
+
+    /**
+     * Convert one standalone SVG into its materialized image, preserved markup, or runtime island.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertSvgElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->isInertHiddenSvgStorage($element) ) {
+            return null;
+        }
+        if ( $this->isRuntimeDomTarget($element) ) {
+            $html = $this->sanitizeInlineSvgMarkup($element);
+            if ( $this->isSafeSvgContent($html) ) {
+                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
+            }
+        }
+
+        // Imported inline SVGs are never routed through core/icon: that block
+        // is dynamic and keyed on a registered icon slug, not arbitrary SVG.
+        // Passive self-contained SVGs can be represented by core/image using
+        // a data:image/svg+xml source; the rest stay faithful core/html.
+        if ( $this->isSafeDecorativeSvgElement($element) ) {
+            // Faithfully preserve any inline SVG that carries real drawable
+            // artwork — icons, diagrams, illustrations — even when it is
+            // marked aria-hidden / role=presentation. aria-hidden hides the
+            // graphic from the accessibility tree; it does NOT mean the
+            // artwork is visually disposable. WordPress cannot reconstruct
+            // arbitrary vector artwork from CSS, so routing such an SVG into
+            // the visual-layer group (empty) or dropping it (return null)
+            // silently erased every shape — service icons collapsed to empty
+            // blocks and pipe/boiler diagrams to whitespace + comments.
+            //
+            // A proven positioned visual layer can collapse to its CSS-owned
+            // carrier. Stretching alone is not evidence that artwork is
+            // recreated elsewhere; preserve drawable stretched SVGs.
+            $isDecorativeChrome = $this->isVisualLayerElement($element);
+            if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
+                if ( $this->svgNeedsPhrasingHost($element) ) {
+                    $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+                    if ( null !== $imageMarkup ) {
+                        return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                    }
+                }
+                $svgBlock = $this->inlineSvgBlockFromElement($element);
+                if ( null !== $svgBlock ) {
+                    return $svgBlock;
+                }
+            }
+            if ( $this->isVisualLayerElement($element) ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+            }
+            return null;
+        }
+
+        if ( $this->svgNeedsPhrasingHost($element) ) {
+            $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+            if ( null !== $imageMarkup ) {
+                return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+            }
+        }
+
+        $svgBlock = $this->inlineSvgBlockFromElement($element);
+        if ( null !== $svgBlock ) {
+            return $svgBlock;
+        }
+
+        $this->captureInlineSvgFallback($element, $fallbacks);
+        return null;
+    }
+
+    /**
+     * Convert one phrasing-content element: its inline descendants become a paragraph, a heading promotion, or the block its materialized content requires.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function convertInlineContentElement(DOMElement $element, array &$fallbacks): ?array
+    {
+        if ( $this->isRuntimeDomTarget($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
+        $inlineSvgTextGroup = $this->inlineSvgTextGroupBlockFromElement($element);
+        if ( null !== $inlineSvgTextGroup ) {
+            return $inlineSvgTextGroup;
+        }
+
+        if ( $this->ownsPositioningGeometry($element) ) {
+            $carrier = $this->positionedInlineCarrierBlock($element, $fallbacks);
+            if ( null !== $carrier ) {
+                return $carrier;
+            }
+        }
+
+        if ( $this->hasAuthorSemanticMarker($element) ) {
+            $content = $this->innerHtml($element);
+            if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                if ( $this->richTextContentHasStructuralHtml($content) ) {
+                    $children = $this->convertChildren($element, $fallbacks, true);
+                    if ( array() !== $children ) {
+                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    }
+                }
+                return $this->createBlock('core/group', $this->presentationAttributes($element), array(
+                    $this->createBlock('core/paragraph', array( 'content' => $content )),
+                ), $element);
+            }
+        }
+
+        $richTextMarker = $this->richTextMarkerForElement($element);
+        if ( '' !== $richTextMarker ) {
+            // RichText only accepts phrasing content. Keep a selector-addressed
+            // inline wrapper editable when it contains layout/content blocks by
+            // lowering its children instead of storing structural HTML in content.
+            if ( $this->hasBlockContentChildren($element) || $this->richTextContentHasStructuralHtml($this->innerHtml($element)) ) {
+                $children = $this->convertChildren($element, $fallbacks, true);
+                if ( array() !== $children ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+            }
+            $content = $this->innerHtml($element);
+            if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
+                $declarations = $this->richTextInlineVisualDeclarations($element);
+                if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
+                    $declarations['color'] = 'transparent';
+                }
+                $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
+                return $this->createBlock('core/paragraph', array(
+                    'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
+                ), array(), $element);
+            }
+        }
+
+        $dynamicText = $this->dynamicTextContent($element);
+        if ( null !== $dynamicText ) {
+            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
+        }
+
+        $content = $this->outerHtml($element);
+        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+            $children = $this->convertChildren($element, $fallbacks, true);
+            if ( 1 === count($children) ) {
+                if ( array() !== $this->presentationAttributes($element) ) {
+                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                }
+                return $children[0];
+            }
+            if ( array() !== $children ) {
+                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            }
+
+            if ( $this->shouldPreserveEmptyVisualElement($element) ) {
+                return $this->emptyVisualSpacerBlock($element);
+            }
+
+            return null;
+        }
+
+        $listItem = $this->ancestorElement($element, 'li');
+        $sourceElement = $this->richTextContentHasStructuralHtml($content)
+            || ($listItem instanceof DOMElement && $this->isStructuralListItem($listItem))
+            ? $element
+            : null;
+        return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $sourceElement);
     }
 
     /**
