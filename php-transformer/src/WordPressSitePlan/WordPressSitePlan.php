@@ -1273,6 +1273,39 @@ final class WordPressSitePlan
             $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
+            // WordPress emits `:root :where(.is-layout-flow) > *` layout rules into
+            // the editor canvas after theme styles. They match authored class
+            // specificity and win every tie, so authored margins silently lose in
+            // the editor while the frontend keeps them. Nesting the generated CSS
+            // inside `:root` adds one class-level of specificity to every authored
+            // selector uniformly, preserving their relative order while outranking
+            // the core layout rules. At-rules that cannot legally nest are hoisted
+            // so `@font-face`, `@keyframes`, and `@import` keep working.
+            $lines[] = "if ( ! function_exists( 'blocks_engine_scope_editor_css' ) ) {";
+            $lines[] = "function blocks_engine_scope_editor_css( string \$css ): string {";
+            $lines[] = "    \$hoisted = ''; \$scoped = ''; \$length = strlen( \$css ); \$index = 0;";
+            $lines[] = "    \$hoistable = array( 'font-face', 'keyframes', '-webkit-keyframes', 'import', 'charset', 'property', 'namespace', 'counter-style', 'font-feature-values' );";
+            $lines[] = "    while ( \$index < \$length ) {";
+            $lines[] = "        if ( '@' === \$css[ \$index ] ) {";
+            $lines[] = "            \$matched = false;";
+            $lines[] = "            foreach ( \$hoistable as \$name ) { if ( 0 === substr_compare( \$css, '@' . \$name, \$index, strlen( \$name ) + 1, true ) ) { \$matched = true; break; } }";
+            $lines[] = "            if ( \$matched ) {";
+            $lines[] = "                \$cursor = \$index; \$depth = 0; \$seen = false;";
+            $lines[] = "                while ( \$cursor < \$length ) {";
+            $lines[] = "                    \$current = \$css[ \$cursor ];";
+            $lines[] = "                    if ( '{' === \$current ) { \$depth++; \$seen = true; }";
+            $lines[] = "                    elseif ( '}' === \$current ) { \$depth--; if ( 0 === \$depth ) { \$cursor++; break; } }";
+            $lines[] = "                    elseif ( ';' === \$current && ! \$seen ) { \$cursor++; break; }";
+            $lines[] = "                    \$cursor++;";
+            $lines[] = "                }";
+            $lines[] = "                \$hoisted .= substr( \$css, \$index, \$cursor - \$index ); \$index = \$cursor; continue;";
+            $lines[] = "            }";
+            $lines[] = "        }";
+            $lines[] = "        \$scoped .= \$css[ \$index ]; \$index++;";
+            $lines[] = "    }";
+            $lines[] = "    return \$hoisted . ( '' === trim( \$scoped ) ? '' : ':root{' . \$scoped . '}' );";
+            $lines[] = "}";
+            $lines[] = "}";
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ): array {";
             $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
             $lines[] = '    $styles = ' . var_export($editorStyles, true) . ';';
@@ -1284,7 +1317,7 @@ final class WordPressSitePlan
             $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
             $lines[] = "        }";
             $lines[] = "        if ( ! \$matches ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
-            $lines[] = "        if ( false !== \$css ) { if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
+            $lines[] = "        if ( false !== \$css ) { \$css = blocks_engine_scope_editor_css( \$css ); if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
             $lines[] = "    }";
             $lines[] = "    return \$settings;";
             $lines[] = "}, 10, 2 );";
