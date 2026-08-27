@@ -524,7 +524,11 @@ final class HtmlTransformer
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
-        if ($this->layoutGeometry()->hasProofReductions() && self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
+        // Last resort under measured depth pressure: past this cap the
+        // editability policy hard-fails the document anyway, so admit exact
+        // two-wrapper branch shells whether or not layout-geometry proofs
+        // accompanied the artifact.
+        if (self::MAX_NATIVE_LIST_VIEW_DEPTH < $this->blockTreeDepth($blocks)) {
             $blocks = $this->compressProjectedGroupChains($blocks, true);
         }
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
