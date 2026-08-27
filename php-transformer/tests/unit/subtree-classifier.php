@@ -183,6 +183,70 @@ $assert($r->signals()['interactive_role'] === true, '10: result exposes structur
 $assert(isset($r->toArray()['bucket'], $r->toArray()['confidence'], $r->toArray()['signals']), '10: toArray shape');
 
 // ---------------------------------------------------------------------------
+// 11. repeatable_children reflects content shape, not wrapper shape (issue #1278).
+//     Site builders wrap every element in an identical wrapper, so wrapper shape
+//     alone reported repetition that the content does not have.
+// ---------------------------------------------------------------------------
+$wrappedSection = $element(
+    '<div role="group" class="section">'
+    . '<interact-element><div class="rich"><h1><span>Commute with Purpose</span></h1></div></interact-element>'
+    . '<interact-element><div class="rich"><p>Turn your daily transit into rewards.</p></div></interact-element>'
+    . '</div>'
+);
+$r = $classifier->classify($wrappedSection, new ClassificationContext('.section { display: grid; }', ''));
+$assert(
+    $r->signals()['repeatable_children'] < 2,
+    '11: identical wrappers around a heading and a paragraph are not repetition',
+    json_encode($r->signals()['repeatable_children'])
+);
+
+// True positive must survive: sibling units with matching content shape still repeat.
+$wrappedCards = $element(
+    '<div class="grid">'
+    . '<interact-element><div class="card"><img src="a.jpg"><h3>One</h3><p>First.</p></div></interact-element>'
+    . '<interact-element><div class="card"><img src="b.jpg"><h3>Two</h3><p>Second.</p></div></interact-element>'
+    . '<interact-element><div class="card"><img src="c.jpg"><h3>Three</h3><p>Third.</p></div></interact-element>'
+    . '</div>'
+);
+$r = $classifier->classify($wrappedCards, new ClassificationContext('.card { border: 1px solid #ccc; }', ''));
+$assert(
+    $r->signals()['repeatable_children'] === 3,
+    '11: wrapped cards with matching content shape still repeat',
+    json_encode($r->signals()['repeatable_children'])
+);
+$assert($r->is(SubtreeClassifier::BUCKET_CUSTOM_BLOCK), '11: wrapped card grid -> custom_block', $summarize($r));
+
+// Peers that differ only in incidental content must still repeat: collections
+// routinely carry an icon or image on some items and not others.
+$unevenCards = $element(
+    '<section class="cards">'
+    . '<article class="card"><svg viewBox="0 0 1 1"><path d="M0 0h1v1z"/></svg><h3>One</h3><p>First.</p></article>'
+    . '<article class="card"><h3>Two</h3><p>Second with <strong>bold</strong>.</p></article>'
+    . '<article class="card"><h3>Three</h3><ul><li>Third</li></ul></article>'
+    . '</section>'
+);
+$r = $classifier->classify($unevenCards, new ClassificationContext('.card { padding: 8px; }', ''));
+$assert(
+    $r->signals()['repeatable_children'] === 3,
+    '11: peers differing in incidental content still repeat',
+    json_encode($r->signals()['repeatable_children'])
+);
+
+// Headings at different levels are not peers.
+$mixedHeadings = $element(
+    '<div class="stack">'
+    . '<div class="row"><h2>Section title</h2></div>'
+    . '<div class="row"><h4>Sub label</h4></div>'
+    . '</div>'
+);
+$r = $classifier->classify($mixedHeadings, new ClassificationContext('.row { margin: 4px; }', ''));
+$assert(
+    $r->signals()['repeatable_children'] < 2,
+    '11: differing heading levels in matching wrappers are not repetition',
+    json_encode($r->signals()['repeatable_children'])
+);
+
+// ---------------------------------------------------------------------------
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "SubtreeClassifier unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
