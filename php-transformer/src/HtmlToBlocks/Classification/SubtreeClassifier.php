@@ -47,6 +47,18 @@ final class SubtreeClassifier
      */
     private const MIN_MARGIN = 1.5;
 
+    /**
+     * Heading tags used as the structural landmark in a child's repetition
+     * signature.
+     */
+    private const HEADING_TAGS = array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' );
+
+    /**
+     * Upper bound on descendants inspected when profiling a child's headings;
+     * the profile is deliberately coarse, so deep subtrees need no full walk.
+     */
+    private const HEADING_PROFILE_SCAN_LIMIT = 256;
+
     private const INTERACTIVE_ROLES = array(
         'tablist',
         'tab',
@@ -438,9 +450,20 @@ final class SubtreeClassifier
     }
 
     /**
-     * Largest group of direct child elements that share the same tag + class
-     * signature — the structural hallmark of a repeatable content unit. Returns
-     * the size of that group (0 or 1 means "not repeatable").
+     * Largest group of direct child elements that share the same structural
+     * signature — the hallmark of a repeatable content unit. Returns the size of
+     * that group (0 or 1 means "not repeatable").
+     *
+     * The signature pairs the child's own tag + class shape with the heading
+     * levels it carries. Sources routinely wrap every element in an identical
+     * wrapper (custom elements, class-less layout divs), so wrapper shape alone
+     * reports repetition the content does not have. Peers in a collection agree
+     * on their heading structure; a section heading and the body copy beside it
+     * do not, even when their wrappers match exactly.
+     *
+     * Headings are the landmark rather than a full content profile so that
+     * genuine peers still match when they differ in incidental content, such as
+     * one card carrying an icon its siblings omit.
      */
     private function repeatableChildCount(DOMElement $element): int
     {
@@ -451,11 +474,42 @@ final class SubtreeClassifier
             }
             $classes = $this->classNames($child);
             sort($classes);
-            $signature = strtolower($child->tagName) . '|' . implode('.', $classes);
+            $signature = strtolower($child->tagName) . '|' . implode('.', $classes)
+                . '|' . implode('.', $this->headingProfile($child));
             $signatures[$signature] = ( $signatures[$signature] ?? 0 ) + 1;
         }
 
         return empty($signatures) ? 0 : max($signatures);
+    }
+
+    /**
+     * Distinct heading levels carried by a child subtree, including the child
+     * itself when it is a heading.
+     *
+     * @return array<int, string> Sorted distinct heading tag names.
+     */
+    private function headingProfile(DOMElement $element): array
+    {
+        $profile = array();
+        if ( in_array(strtolower($element->tagName), self::HEADING_TAGS, true) ) {
+            $profile[strtolower($element->tagName)] = true;
+        }
+
+        $scanned = 0;
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ++$scanned > self::HEADING_PROFILE_SCAN_LIMIT ) {
+                break;
+            }
+            $tag = strtolower($descendant->tagName);
+            if ( in_array($tag, self::HEADING_TAGS, true) ) {
+                $profile[$tag] = true;
+            }
+        }
+
+        $tags = array_keys($profile);
+        sort($tags);
+
+        return $tags;
     }
 
     /**
