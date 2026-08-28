@@ -2118,8 +2118,12 @@ final class HtmlTransformer
         $geometry = array();
         $inner = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $name = strtolower(trim(strtok($declaration, ':')));
-            if ( '' !== $name && str_contains($declaration, ':') && in_array($name, array( 'position', 'top', 'right', 'bottom', 'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
+            $colon = strpos($declaration, ':');
+            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
+            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
+            if ( '' !== $name && false !== $colon && in_array($name, array( 'position', 'top', 'right', 'bottom', 'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true)
+                && ! $this->isButtonControlBoxSize($name, $value)
+            ) {
                 $geometry[] = $declaration;
             } else {
                 $inner[] = $declaration;
@@ -2144,12 +2148,14 @@ final class HtmlTransformer
         $layout = array();
         $control = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $name = strtolower(trim(strtok($declaration, ':')));
-            if ( '' === $name || ! str_contains($declaration, ':') ) {
+            $colon = strpos($declaration, ':');
+            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
+            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
+            if ( '' === $name || false === $colon ) {
                 $control[] = $declaration;
                 continue;
             }
-            if ( $this->isButtonWrapperLayoutProperty($name) ) {
+            if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
                 $layout[] = $declaration;
             } else {
                 $control[] = $declaration;
@@ -2157,6 +2163,21 @@ final class HtmlTransformer
         }
 
         return array( implode(';', $layout), implode(';', $control) );
+    }
+
+    /**
+     * Keyword sizes describe the control's box. On `.wp-block-buttons` they
+     * shrink-wrap the flex wrapper and override a definite source width.
+     */
+    private function isButtonControlBoxSize(string $property, string $value): bool
+    {
+        if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
+            return false;
+        }
+
+        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+
+        return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
     }
 
     private function isButtonWrapperLayoutProperty(string $property): bool
