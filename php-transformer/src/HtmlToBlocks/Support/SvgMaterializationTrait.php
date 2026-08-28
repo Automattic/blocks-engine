@@ -114,10 +114,10 @@ trait SvgMaterializationTrait
         $this->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
-        $presentation = $this->presentationDeclarations($element);
+        $presentation = $this->styleResolver->presentationDeclarations($element);
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
-        $parentPresentation = $parent instanceof DOMElement ? $this->structuralPresentationDeclarations($parent) : array();
+        $parentPresentation = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         $parentDisplay = strtolower(trim((string) ($parentPresentation['display'] ?? '')));
         $isFlexOrGridItem = in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
         $sourceObjectFit = strtolower(trim((string) ($presentation['object-fit'] ?? '')));
@@ -146,12 +146,12 @@ trait SvgMaterializationTrait
             // rule wins without forcing intrinsic media outside this explicit
             // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
-            $fillClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
+            $fillClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
             $this->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
-                'className'  => $this->mergePresentationClassNames($this->attr($element, 'class'), $fillClass),
+                'className'  => $this->styleResolver->mergePresentationClassNames($this->attr($element, 'class'), $fillClass),
             );
 
             return array_filter($attrs, static fn ($value): bool => null !== $value && '' !== $value);
@@ -168,19 +168,19 @@ trait SvgMaterializationTrait
                 }
             }
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
-            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $rule);
+            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
             $this->layoutGeometry()->registerRule($geometryClass, ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule);
         } elseif ( ! $richTextImage ) {
             // Core/image rejects typography.lineHeight. A standalone SVG still
             // needs its source line box removed when it becomes a figure.
             $rule = '{line-height:0}';
-            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $rule);
+            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
             $this->layoutGeometry()->registerRule($geometryClass, '.' . $geometryClass . $rule);
         }
         $attrs = array_filter(array_merge(array(
             'url'          => $url,
             'alt'          => $this->svgImageAlt($element),
-            'className'    => $this->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
+            'className'    => $this->styleResolver->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $attrs;
@@ -225,7 +225,7 @@ trait SvgMaterializationTrait
             $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $resolvedSourceDimensions[$dimension];
         }
         if ( $this->cssOwnsMediaBox($element) ) {
-            $resolved = $this->richTextSvgDimensions($element, $this->presentationDeclarations($element));
+            $resolved = $this->richTextSvgDimensions($element, $this->styleResolver->presentationDeclarations($element));
             foreach ( array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ) as $dimension ) {
                 if ( ! isset($resolved[$dimension]) || preg_match('/(?:^|;)\s*' . preg_quote($dimension, '/') . '\s*:/i', $style) ) {
                     continue;
@@ -274,7 +274,7 @@ trait SvgMaterializationTrait
             $scale = (float) $match[1] / 100.0;
             $fallback = '';
             for ( $parent = $element->parentNode; $parent instanceof DOMElement && in_array(strtolower($parent->tagName), array( 'div', 'span', 'i', 'b' ), true); $parent = $parent->parentNode ) {
-                $parentDimensions = $this->cssDeclarations($this->specificityResolvedPresentationStyle($parent));
+                $parentDimensions = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($parent));
                 $parentDimension = trim((string) ($parentDimensions[$dimension] ?? ''));
                 if ( preg_match('/^\s*((?:\d+(?:\.\d+)?|\.\d+))%\s*$/', $parentDimension, $parentMatch) ) {
                     $scale *= (float) $parentMatch[1] / 100.0;
@@ -355,7 +355,7 @@ trait SvgMaterializationTrait
 
         // A flex/grid child is a standalone layout item, even where its next
         // sibling is a block. Keep its native image figure as the media column.
-        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+        if ( $parent instanceof DOMElement && in_array(strtolower((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '')), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return false;
         }
 
@@ -379,7 +379,7 @@ trait SvgMaterializationTrait
 
     private function cssOwnsMediaBox(DOMElement $element): bool
     {
-        return $this->declarationsOwnMediaBox($this->presentationDeclarations($element));
+        return $this->declarationsOwnMediaBox($this->styleResolver->presentationDeclarations($element));
     }
 
     /**
@@ -493,7 +493,7 @@ trait SvgMaterializationTrait
     private function inheritedSvgColor(DOMElement $element): string
     {
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->presentationDeclarations($current);
+            $declarations = $this->styleResolver->presentationDeclarations($current);
             if ( empty($declarations['color']) ) {
                 continue;
             }
@@ -520,7 +520,7 @@ trait SvgMaterializationTrait
                 $ancestors[] = $current;
             }
             foreach ( array_reverse($ancestors) as $ancestor ) {
-                foreach ( $this->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
+                foreach ( $this->styleResolver->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
                     if ( str_starts_with($name, '--') ) {
                         $customProperties[$name] = $propertyValue;
                     }
@@ -654,7 +654,7 @@ trait SvgMaterializationTrait
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->styleResolver->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
             if ( preg_match('/var\s*\(/i', $value) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }
@@ -787,12 +787,12 @@ trait SvgMaterializationTrait
             'min-width',
             'width',
         ));
-        $boxDeclarations = array_intersect_key($this->presentationDeclarations($element), $boxProperties);
+        $boxDeclarations = array_intersect_key($this->styleResolver->presentationDeclarations($element), $boxProperties);
         if ( array() === $boxDeclarations ) {
             return $html;
         }
 
-        $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         foreach ( array_keys($existingDeclarations) as $name ) {
             unset($boxDeclarations[$name]);
         }
@@ -800,7 +800,7 @@ trait SvgMaterializationTrait
             return $html;
         }
 
-        $style = $this->cssDeclarationString(array_merge($existingDeclarations, $boxDeclarations));
+        $style = $this->styleResolver->cssDeclarationString(array_merge($existingDeclarations, $boxDeclarations));
         if ( '' === $style ) {
             return $html;
         }

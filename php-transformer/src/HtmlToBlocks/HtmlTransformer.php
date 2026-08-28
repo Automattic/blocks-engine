@@ -26,6 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -68,7 +70,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
@@ -114,7 +115,6 @@ final class HtmlTransformer
     use FormDispatchTrait;
     use NavigationStyleProjectionTrait;
     use NavigationToggleSuppressionTrait;
-    use StyleResolutionTrait;
     use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
@@ -247,6 +247,8 @@ final class HtmlTransformer
 
     private readonly RichTextElementConverter $richTextConverter;
 
+    private readonly StyleResolver $styleResolver;
+
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -366,12 +368,47 @@ final class HtmlTransformer
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
+        $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
     }
 
+
+    /**
+     * Link canonicalization rewrote source markup, so cached selector matches
+     * for the previous markup are no longer valid.
+     */
+    private function onSourceMarkupMutated(): void
+    {
+        $this->styleResolver->invalidateSourceSelectorMatchCache();
+    }
+
+    /**
+     * Collaborator surface for {@see StyleResolver}. Per-transform state is
+     * resolved lazily so the resolver always sees the running transform.
+     */
+    private function createStyleResolutionContext(): StyleResolutionContext
+    {
+        return new StyleResolutionContext(
+            fn (): AuthorStyleAnalysis => $this->authorStyles(),
+            fn (): SourceStyleResolutionState => $this->sourceStyles(),
+            fn (): LayoutGeometryState => $this->layoutGeometry(),
+            fn (): PresentationResolutionCache => $this->presentationResolutionCache(),
+            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): int => $this->cardLikeChildCount($element),
+            fn (DOMElement $element): int => $this->directElementChildCount($element),
+            fn (string $value): string => $this->cssComparableValue($value),
+            fn (string $selector): array => $this->parsedCssSelector($selector),
+            fn (string $className): string => $this->promotedClassName($className),
+            fn (string $value, ?DOMElement $element = null): string => $this->resolveCssVariablesInValue($value, $element),
+            fn (string $url): string => $this->resolvedAssetImageUrl($url),
+            fn (string $id): string => $this->safeAnchor($id)
+        );
+    }
 
     /**
      * Collaborator surface for {@see ButtonLinkDispatcher}.
@@ -394,14 +431,14 @@ final class HtmlTransformer
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->convertLinkWrapperGroup($element, $fallbacks);
             },
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): string => $this->outerHtml($element),
             fn (string $href): string => $this->safeLinkUrl($href),
             fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
             fn (string $first, string $second): string => $this->mergeClassNames($first, $second),
-            fn (DOMElement $element): array => $this->structuralPresentationDeclarations($element)
+            fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element)
         );
     }
 
@@ -446,7 +483,7 @@ final class HtmlTransformer
                 return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             },
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (DOMElement $element): array => $this->tableAttributes($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         );
@@ -478,7 +515,7 @@ final class HtmlTransformer
     private function createRichTextElementContext(): RichTextElementContext
     {
         return new RichTextElementContext(
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
             fn (string $content): string => $this->headingRichTextContent($content),
@@ -506,7 +543,7 @@ final class HtmlTransformer
     private function createTextLeafElementContext(): TextLeafElementContext
     {
         return new TextLeafElementContext(
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (DOMElement $element): string => $this->innerHtml($element),
             fn (DOMElement $element): string => $this->innerHtmlPreservingWhitespace($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -629,7 +666,7 @@ final class HtmlTransformer
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
-        $this->resetPresentationResolutionCache();
+        $this->styleResolver->resetPresentationResolutionCache();
         $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
             $runtimeDomSelectors,
@@ -717,8 +754,8 @@ final class HtmlTransformer
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
-        $this->invalidateSourceSelectorMatchCache();
-        $this->collectEditorHiddenStateFindings($body);
+        $this->styleResolver->invalidateSourceSelectorMatchCache();
+        $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
         $fallbacks   = array();
@@ -816,7 +853,7 @@ final class HtmlTransformer
             );
         }
 
-        $this->recordSourceSelectorMatchWork();
+        $this->styleResolver->recordSourceSelectorMatchWork();
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
@@ -1205,7 +1242,7 @@ final class HtmlTransformer
             if ( 1 !== preg_match($pattern, $rule['selector']) ) {
                 continue;
             }
-            foreach ( $this->cssDeclarations($rule['declarations']) as $property => $value ) {
+            foreach ( $this->styleResolver->cssDeclarations($rule['declarations']) as $property => $value ) {
                 if ( 'display' !== strtolower(trim($property)) || 'contents' !== strtolower(trim($value)) ) {
                     return false;
                 }
@@ -1387,7 +1424,7 @@ final class HtmlTransformer
             }
             $authorCss = $split['stylesheet'];
         }
-        $geometryCss = $this->generatedGeometryCss($serializedBlocks);
+        $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -1699,7 +1736,7 @@ final class HtmlTransformer
                 continue;
             }
             foreach ( $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed) as $element ) {
-                $declarations = $this->structuralPresentationDeclarations($element);
+                $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
                 $hasBoxGeometry = array() !== array_intersect_key($declarations, array_flip(array(
                     'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
                     'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
@@ -1918,8 +1955,8 @@ final class HtmlTransformer
                 ++$this->analysisCache->styleBuilds;
                 $ruleCss = trim($payload);
                 $ruleCss = preg_replace('@/\*.*?\*/@s', '', $ruleCss) ?? $ruleCss;
-                $topLevel = $this->topLevelStyleAnalysis($ruleCss);
-                $structured = $this->structuredStyleAnalysis($ruleCss);
+                $topLevel = $this->styleResolver->topLevelStyleAnalysis($ruleCss);
+                $structured = $this->styleResolver->structuredStyleAnalysis($ruleCss);
                 $analysis = array(
                     'static' => $topLevel['static'],
                     'conditional' => $structured['conditional'],
@@ -2029,7 +2066,7 @@ final class HtmlTransformer
                 }
             }
             if ( array() !== $ruleSelectors ) {
-                $rules[] = array('order' => count($rules), 'declarations' => $this->cssDeclarations($body), 'selectors' => $ruleSelectors);
+                $rules[] = array('order' => count($rules), 'declarations' => $this->styleResolver->cssDeclarations($body), 'selectors' => $ruleSelectors);
             }
 
             return $prelude;
@@ -2081,7 +2118,7 @@ final class HtmlTransformer
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
-            $declarations = $this->cssDeclarations($body);
+            $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
             $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg', $declarations);
@@ -2096,10 +2133,10 @@ final class HtmlTransformer
             }
 
             $inner = array_diff_key($declarations, $margins);
-            $rules = '' === $this->cssDeclarationString($inner)
+            $rules = '' === $this->styleResolver->cssDeclarationString($inner)
                 ? ''
-                : $this->rewriteAuthorStyleRule($prelude, $this->cssDeclarationString($inner));
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
+                : $this->rewriteAuthorStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner));
+            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
     }
 
@@ -2112,7 +2149,7 @@ final class HtmlTransformer
      */
     private function projectResponsiveCanvasMinimumWidth(string $prelude, string $body): string
     {
-        $declarations = $this->cssDeclarations($body);
+        $declarations = $this->styleResolver->cssDeclarations($body);
         $minimumWidth = (string) ($declarations['min-width'] ?? '');
         if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
             return $body;
@@ -2678,7 +2715,7 @@ final class HtmlTransformer
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
-        $parentStyle = $this->structuralPresentationDeclarations($parent);
+        $parentStyle = $this->styleResolver->structuralPresentationDeclarations($parent);
         if ( ! in_array(strtolower(trim((string) ($parentStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
@@ -2993,7 +3030,7 @@ final class HtmlTransformer
             $columns[] = $column;
         }
 
-        return $this->createBlock('core/columns', $this->presentationAttributes($table), $columns, $table);
+        return $this->createBlock('core/columns', $this->styleResolver->presentationAttributes($table), $columns, $table);
     }
 
     /**
@@ -3001,7 +3038,7 @@ final class HtmlTransformer
      */
     private function layoutTableColumnAttributes(DOMElement $cell): array
     {
-        $attrs = $this->presentationAttributes($cell);
+        $attrs = $this->styleResolver->presentationAttributes($cell);
         $style = strtolower($this->attr($cell, 'style'));
         if ( preg_match('/(?:^|;)\s*width\s*:\s*(\d+(?:\.\d+)?)%/i', $style, $matches) ) {
             $attrs['width'] = $matches[1] . '%';
@@ -3039,7 +3076,7 @@ final class HtmlTransformer
             }
         }
 
-        $tableAttributes = $this->presentationAttributes($table);
+        $tableAttributes = $this->styleResolver->presentationAttributes($table);
         if (1 === count($rows)) {
             return array() === $tableAttributes
                 ? $rows[0]
@@ -3356,7 +3393,7 @@ final class HtmlTransformer
     private function createPatternContext(bool $includeRuntimeDomTarget): PatternContext
     {
         return new PatternContext(
-            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
             fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             new PatternRecursiveConverter(
@@ -3377,19 +3414,19 @@ final class HtmlTransformer
             new NavigationPatternContext(
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
             ),
             new MediaPatternContext(
-                fn (DOMElement $sourceElement): string => $this->mergedPresentationStyle($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
                 fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
                 fn (string $url): string => $this->resolvedAssetImageUrl($url),
-                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
-                fn (DOMElement $sourceElement): string => $this->mediaTextPresentationStyle($sourceElement)
+                fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->mediaTextPresentationStyle($sourceElement)
             ),
             new ColumnsPatternContext(
-                fn (DOMElement $sourceElement): string => $this->cssDeclarationString($this->structuralPresentationDeclarations($sourceElement))
+                fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement))
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
@@ -3397,7 +3434,7 @@ final class HtmlTransformer
             ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->mergedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->mergedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
@@ -3454,7 +3491,7 @@ final class HtmlTransformer
     private function createProbePatternContext(): PatternContext
     {
         return new PatternContext(
-            presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->presentationAttributes($sourceElement, $excludedGeometryProperties),
+            presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
             innerHtml: fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             createBlock: static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
                 'blockName'   => $name,
@@ -3464,7 +3501,7 @@ final class HtmlTransformer
             navigationContext: new NavigationPatternContext(
                 null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement))
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement))
             ),
             markupContext: new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
@@ -3492,9 +3529,9 @@ final class HtmlTransformer
         return $this->navigationUnderlineColorResolver->resolve(
             $item,
             $anchor,
-            fn (DOMElement $element): array => $this->presentationDeclarations($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             $this->sourceStyles()->pseudoElementRules(),
-            fn (DOMElement $element, string $selector): bool => $this->matchesCssSelector($element, $selector)
+            fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
         );
     }
 
@@ -3506,7 +3543,7 @@ final class HtmlTransformer
     {
         // Conversion helpers may rewrite source markup. Do not reuse selector
         // results or cached inputs across independently converted elements.
-        $this->invalidateSourceSelectorMatchCache();
+        $this->styleResolver->invalidateSourceSelectorMatchCache();
         $tagName = strtolower($element->tagName);
 
         // Capturers sometimes append hidden, sourceless frames as internal
@@ -3537,7 +3574,7 @@ final class HtmlTransformer
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
-                $controlAttrs = $this->presentationAttributes($element);
+                $controlAttrs = $this->styleResolver->presentationAttributes($element);
                 $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
                 if ( $this->isImplicitDialogNavigationControl($element) ) {
                     $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
@@ -3604,7 +3641,7 @@ final class HtmlTransformer
         if ( $this->session->preservesShellLandmarks() && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
         }
 
@@ -3638,7 +3675,7 @@ final class HtmlTransformer
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
-                $attrs = array_merge($this->presentationAttributes($element), array('text' => $text));
+                $attrs = array_merge($this->styleResolver->presentationAttributes($element), array('text' => $text));
                 if ('a' === $tagName && '' !== trim($this->attr($element, 'href'))) {
                     $attrs['url'] = $this->attr($element, 'href');
                 }
@@ -3713,7 +3750,7 @@ if ( $this->isInlineContentElement($tagName) ) {
             if ( $this->isImageCarrierButton($element) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
                 }
             }
             return $this->buttonLinkDispatcher->convertButton($element);
@@ -3858,7 +3895,7 @@ if ( 'svg' === $tagName ) {
                 return null;
             }
             if ( $isList ) {
-                $converted[] = $this->createBlock('core/group', array_merge($this->presentationAttributes($child), array( 'tagName' => 'li' )), $childBlocks, $child);
+                $converted[] = $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($child), array( 'tagName' => 'li' )), $childBlocks, $child);
             } else {
                 array_push($converted, ...$childBlocks);
             }
@@ -3868,14 +3905,14 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( $isList ) {
-            return $this->createBlock('core/group', array_merge($this->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
+            return $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
         }
 
-        if ( 1 === count($converted) && array() === $this->presentationAttributes($element) ) {
+        if ( 1 === count($converted) && array() === $this->styleResolver->presentationAttributes($element) ) {
             return $converted[0];
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $converted, $element);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $converted, $element);
     }
 
     private function isSafeTransparentCustomElement(DOMElement $element): bool
@@ -3962,7 +3999,7 @@ if ( 'svg' === $tagName ) {
             }
 
             foreach ( $layoutElements as $layoutElement ) {
-                $declarations = $this->structuralPresentationDeclarations($layoutElement);
+                $declarations = $this->styleResolver->structuralPresentationDeclarations($layoutElement);
                 $position = strtolower(trim((string) ($declarations['position'] ?? '')));
                 if ( in_array($position, array( 'absolute', 'fixed', 'sticky' ), true) ) {
                     return false;
@@ -4066,7 +4103,7 @@ if ( 'svg' === $tagName ) {
             $structuralFallbacks = array();
             $children = $this->convertChildren($sourceElement, $structuralFallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($sourceElement), $children, $sourceElement, $logicalSourceElement);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($sourceElement), $children, $sourceElement, $logicalSourceElement);
             }
         }
 
@@ -4076,7 +4113,7 @@ if ( 'svg' === $tagName ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
-            $textAlign = strtolower(trim((string) ($this->presentationDeclarations($sourceElement)['text-align'] ?? '')));
+            $textAlign = strtolower(trim((string) ($this->styleResolver->presentationDeclarations($sourceElement)['text-align'] ?? '')));
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
                 $attrs['align'] = $textAlign;
             }
@@ -4130,7 +4167,7 @@ if ( 'svg' === $tagName ) {
                 // Core Group's save() does not reproduce a blockGap declaration.
                 // Preserve an authored inline gap in a generated carrier instead
                 // of storing markup that the editor will mark invalid.
-                $gapCarrier = $this->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
+                $gapCarrier = $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
                 if ( '' !== $gapCarrier ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
                 }
@@ -4245,7 +4282,7 @@ if ( 'svg' === $tagName ) {
         }
 
         foreach ( $children as $child ) {
-            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->cssDeclarations($this->attr($child, 'style'))['display'] ?? ''))));
+            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->styleResolver->cssDeclarations($this->attr($child, 'style'))['display'] ?? ''))));
             if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
                 return false;
             }
@@ -4269,10 +4306,10 @@ if ( 'svg' === $tagName ) {
             return;
         }
 
-        $direct = $this->cssDeclarations($this->specificityResolvedPresentationStyle($anchor));
+        $direct = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($anchor));
         $declarations = array();
         if ( 'inherit' === strtolower(trim((string) ($direct['color'] ?? ''))) ) {
-            $inheritedColor = $this->authoredInheritedPropertyWinner($anchor, 'color');
+            $inheritedColor = $this->styleResolver->authoredInheritedPropertyWinner($anchor, 'color');
             if ( '' !== $inheritedColor ) {
                 $declarations['color'] = $inheritedColor;
             }
@@ -4284,13 +4321,13 @@ if ( 'svg' === $tagName ) {
                 $declarations[$property] = $this->resolveCssVariablesInValue($value);
             }
         }
-        foreach ( $this->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
+        foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
             if ( ! str_contains(strtolower($value), '!important') ) {
                 $declarations[$property] = $this->resolveCssVariablesInValue($value);
             }
         }
         foreach ( array( 'font-family', 'font-size', 'font-style', 'letter-spacing', 'line-height', 'text-transform', 'white-space' ) as $property ) {
-            $value = $this->authoredInheritedPropertyWinner($anchor, $property);
+            $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
                 $declarations[$property] = $value;
             }
@@ -4300,7 +4337,7 @@ if ( 'svg' === $tagName ) {
             return;
         }
 
-        $css = $this->cssDeclarationString($declarations);
+        $css = $this->styleResolver->cssDeclarationString($declarations);
         $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $this->generatedSupportStyles()->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
@@ -4321,7 +4358,7 @@ if ( 'svg' === $tagName ) {
         $fallback = $normalized['fallbackStyle'];
         $attrs = $normalized['attrs'];
         $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
-        if ( '' !== $submenuBackground && array() !== $this->cssDeclarations('background-color:' . $submenuBackground) ) {
+        if ( '' !== $submenuBackground && array() !== $this->styleResolver->cssDeclarations('background-color:' . $submenuBackground) ) {
             $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $this->generatedSupportStyles()->registerNavigationSubmenuBackground($className, $submenuBackground);
@@ -4335,7 +4372,7 @@ if ( 'svg' === $tagName ) {
             }
         }
         if ( 'core/navigation' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
+            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
                     $this->generatedSupportStyles()->registerNavigationSpacing($class, $declarations);
@@ -4344,7 +4381,7 @@ if ( 'svg' === $tagName ) {
             }
         }
         if ( 'core/buttons' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
+            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && str_starts_with($class, 'blocks-engine-control-') ) {
                     $this->generatedSupportStyles()->registerButtonWrapperSpacing($class, $declarations);
@@ -4366,11 +4403,11 @@ if ( 'svg' === $tagName ) {
             return $attrs;
         }
 
-        $fallbackStyle = $this->styleAttributeMapper()->serialize($fallback)['style'];
-        $fallbackDeclarations = $this->cssDeclarations($fallbackStyle);
-        $inlineDeclarations = $this->cssDeclarations($this->attr($sourceElement, 'style'));
-        $inlineMapped = $this->styleAttributeMapper()->map($inlineDeclarations);
-        $inlineFallbackDeclarations = $this->cssDeclarations($this->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
+        $fallbackStyle = $this->styleResolver->styleAttributeMapper()->serialize($fallback)['style'];
+        $fallbackDeclarations = $this->styleResolver->cssDeclarations($fallbackStyle);
+        $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceElement, 'style'));
+        $inlineMapped = $this->styleResolver->styleAttributeMapper()->map($inlineDeclarations);
+        $inlineFallbackDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
         $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
             || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
         foreach ( array_keys($fallbackDeclarations) as $property ) {
@@ -4390,7 +4427,7 @@ if ( 'svg' === $tagName ) {
         if ( preg_match('/(?:^|\s)be-inline-geometry-[^\s]+/', (string) ($attrs['className'] ?? '')) ) {
             // The source geometry carrier preserves declaration priority and
             // custom-property case. Do not add a lossy mapped duplicate.
-            foreach ( $this->inlineGeometryProperties() as $property ) {
+            foreach ( $this->styleResolver->inlineGeometryProperties() as $property ) {
                 unset($fallbackDeclarations[ $property ]);
             }
             unset($fallbackDeclarations['box-shadow']);
@@ -4398,9 +4435,9 @@ if ( 'svg' === $tagName ) {
         if ( array() === $fallbackDeclarations ) {
             return $attrs;
         }
-        $carrier = $this->inlineGeometryClassName(
+        $carrier = $this->styleResolver->inlineGeometryClassName(
             $sourceElement,
-            array_diff($this->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
+            array_diff($this->styleResolver->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
             array_keys($fallbackDeclarations),
             $fallbackDeclarations
         );
@@ -4420,14 +4457,14 @@ if ( 'svg' === $tagName ) {
      */
     private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs, bool $useInitialTextAlignment): string
     {
-        $anchorDeclarations = $this->presentationDeclarations($anchor);
+        $anchorDeclarations = $this->styleResolver->presentationDeclarations($anchor);
         $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
         $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
         $inheritedColor = '';
         $inheritedTextAlignment = '';
 
         for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->presentationDeclarations($ancestor);
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
             if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
                 $inheritedColor = (string) $declarations['color'];
             }
@@ -4440,7 +4477,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
-            $mappedColor = $this->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
+            $mappedColor = $this->styleResolver->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
             if ( '' !== trim((string) $mappedColor) ) {
                 $attrs['style']['color']['text'] = $mappedColor;
             }
@@ -4493,11 +4530,11 @@ if ( 'svg' === $tagName ) {
             }
         }
         if ( $sourceControl instanceof DOMElement ) {
-            $sourceDeclarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($sourceControl));
-            $sourceStructuralDeclarations = $this->structuralPresentationDeclarations($sourceControl);
-            $inlineDeclarations = $this->cssDeclarations($this->attr($sourceControl, 'style'));
+            $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
+            $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
+            $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceControl, 'style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
-                || array() !== $this->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
+                || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
             if ( ! $hasAuthoredWidth && in_array($this->cssComparableValue((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
                 // Preserve the source flex CTA's content-plus-padding contribution
                 // through the synthetic wrappers of its native button topology.
@@ -4558,7 +4595,7 @@ if ( 'svg' === $tagName ) {
 
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
         $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
         $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
@@ -4599,7 +4636,7 @@ if ( 'svg' === $tagName ) {
     private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
     {
         $decorationLine = null;
-        foreach ( $this->cssDeclarations($this->mergedPresentationStyle($anchor)) as $property => $value ) {
+        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($anchor)) as $property => $value ) {
             $value = $this->cssComparableValue($this->resolveCssVariablesInValue($value));
             if ( 'text-decoration' === $property ) {
                 if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
@@ -4641,11 +4678,11 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         // A grid placement belongs to this inline node. Keep phrasing-only grid
         // siblings in one RichText container rather than replacing their direct
         // grid items with Group/Paragraph wrappers.
-        if ( 'grid' === strtolower(trim((string) ($this->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
+        if ( 'grid' === strtolower(trim((string) ($this->styleResolver->presentationDeclarations($parent)['display'] ?? ''))) && ( '' !== trim((string) ($declarations['grid-column'] ?? '')) || '' !== trim((string) ($declarations['grid-row'] ?? '')) ) ) {
             return false;
         }
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
@@ -4674,7 +4711,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
         if ( $this->hasPositionedInlineDescendant($element) ) {
             return true;
@@ -4848,7 +4885,7 @@ if ( 'svg' === $tagName ) {
     /** @return array<string, mixed> */
     private function positionedInlineCarrierAttributes(DOMElement $element): array
     {
-        return $this->presentationAttributes($element, array(), array(
+        return $this->styleResolver->presentationAttributes($element, array(), array(
             'position', 'z-index', 'inset', 'inset-block', 'inset-inline',
             'inset-block-start', 'inset-block-end', 'inset-inline-start',
             'inset-inline-end', 'top', 'right', 'bottom', 'left',
@@ -4857,7 +4894,7 @@ if ( 'svg' === $tagName ) {
 
     private function isStructuralLayoutElement(DOMElement $element): bool
     {
-        $declarations = array_merge($this->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
+        $declarations = array_merge($this->styleResolver->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
         return in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 
@@ -4869,14 +4906,14 @@ if ( 'svg' === $tagName ) {
         if ( 0 === $this->childElementCount($element) ) {
             return false;
         }
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? '')));
         if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return true;
         }
 
-        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) && in_array(strtolower(trim((string) ($rule['declarations']['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+        foreach ( $this->styleResolver->styleRuleCandidates($element, 'conditional') as $rule ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && in_array(strtolower(trim((string) ($rule['declarations']['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
                 return true;
             }
         }
@@ -4927,7 +4964,7 @@ if ( 'svg' === $tagName ) {
     private function directFlexButtonStyleRule(string $marker, DOMElement $control): string
     {
         $parent = $control->parentNode;
-        $parentStyle = $parent instanceof DOMElement ? $this->structuralPresentationDeclarations($parent) : array();
+        $parentStyle = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
@@ -4983,7 +5020,7 @@ if ( 'svg' === $tagName ) {
             }
         }
 
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( 'block' === $display ) {
             return true;
@@ -5054,14 +5091,14 @@ if ( 'svg' === $tagName ) {
     /** @return array<string, mixed> */
     private function cssOwnedGroupAttributes(DOMElement $element): array
     {
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         $layout = $attrs['layout'] ?? null;
         if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
             // The source track list is exactly expressible as native grid
             // layout, so WordPress owns the track geometry. Group save markup
             // does not serialize blockGap, so source gap remains stylesheet
             // owned by the normalization in createBlock().
-            $declarations = $this->structuralPresentationDeclarations($element);
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
             $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
             unset($style['spacing']['blockGap']);
             if ( empty($style['spacing']) ) {
@@ -5071,7 +5108,7 @@ if ( 'svg' === $tagName ) {
             if ( 1 === preg_match('/^(#[0-9a-f]{3,8}|[a-z][a-z-]*|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|var)\([^()]*\))$/i', $background)
                 && ! in_array(strtolower($background), array( 'none', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)
                 && ! isset($style['color']['background'])
-                && ! $this->hasConditionalStyleFamily($element, 'background')
+                && ! $this->styleResolver->hasConditionalStyleFamily($element, 'background')
             ) {
                 $style['color'] = array_merge(is_array($style['color'] ?? null) ? $style['color'] : array(), array( 'background' => $background ));
             }
@@ -5115,7 +5152,7 @@ if ( 'svg' === $tagName ) {
         $display = strtolower(trim((string) preg_replace(
             '/\s*!important\s*$/i',
             '',
-            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? '')
         )));
 
         return in_array($display, array( 'flex', 'inline-flex' ), true);
@@ -5140,15 +5177,15 @@ if ( 'svg' === $tagName ) {
      */
     private function cssOwnedFlexAttributes(DOMElement $element): array
     {
-        $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         // Deliberately the CONFLICT-only predicate, not the wider carrier one.
         // This branch chooses a priority TIER: taking it drops the layout carrier
         // to the non-important tier, which is only sound when the inline display
         // is overriding a different author display. An inline display that merely
         // differs from the tag default has no such guarantee, and demoting it
         // lets any author selector above (0,2,0) win.
-        if ( $this->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
-            return $this->presentationAttributes($element);
+        if ( $this->styleResolver->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
+            return $this->styleResolver->presentationAttributes($element);
         }
 
         // Carry only the inline-present properties so the fallback to
@@ -5156,7 +5193,7 @@ if ( 'svg' === $tagName ) {
         // overrides explicit row-gap/column-gap values.
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_FLEX_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
 
-        return $this->presentationAttributes($element, array(), $carriedProperties);
+        return $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
     }
 
     private function isCssOwnedGridElement(DOMElement $element): bool
@@ -5164,7 +5201,7 @@ if ( 'svg' === $tagName ) {
         $display = strtolower(trim((string) preg_replace(
             '/\s*!important\s*$/i',
             '',
-            (string) ($this->structuralPresentationDeclarations($element)['display'] ?? '')
+            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['display'] ?? '')
         )));
 
         return in_array($display, array( 'grid', 'inline-grid' ), true);
@@ -5186,9 +5223,9 @@ if ( 'svg' === $tagName ) {
         // Carry only the inline-present properties so the fallback to
         // mapper-synthesized declarations cannot invent a `gap` that
         // overrides explicit row-gap/column-gap values.
-        $inlineDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
-        $attrs = $this->presentationAttributes($element, array(), $carriedProperties);
+        $attrs = $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),
@@ -5201,7 +5238,7 @@ if ( 'svg' === $tagName ) {
 
     private function authorOwnsChildFlowSpacing(DOMElement $element): bool
     {
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'gap', 'row-gap', 'column-gap' ) as $property ) {
             if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
                 return true;
@@ -5304,8 +5341,8 @@ if ( 'svg' === $tagName ) {
     private function authorSemanticDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = array_merge($declarations, $rule['declarations']);
             }
         }
@@ -5407,14 +5444,14 @@ if ( 'svg' === $tagName ) {
         // onto the block. A source identity needs to remain on the inline node so
         // author selectors continue to address the saved RichText carrier.
         while ( ! $listItemHasBlockContent && ( $wrapper = $this->soleStylingHookSpan($body) ) instanceof DOMElement ) {
-            $wrapperDeclarations = $this->cssDeclarations($this->attr($wrapper, 'style'));
+            $wrapperDeclarations = $this->styleResolver->cssDeclarations($this->attr($wrapper, 'style'));
             if ( array() !== $this->richTextSafeIdentityAttributes($wrapper) || isset($wrapperDeclarations['--blocks-engine-richtext-marker']) ) {
                 break;
             }
             $hoistedClasses = trim($hoistedClasses . ' ' . $this->attr($wrapper, 'class'));
             $wrapperStyle   = trim($this->attr($wrapper, 'style'));
             if ( '' !== $wrapperStyle ) {
-                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->cssDeclarations($wrapperStyle));
+                $hoistedDeclarations = array_merge($hoistedDeclarations, $this->styleResolver->cssDeclarations($wrapperStyle));
             }
             $this->unwrapElement($wrapper);
         }
@@ -5453,7 +5490,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( array() !== $hoistedDeclarations ) {
-            $mapped = $this->styleAttributeMapper()->map($hoistedDeclarations)['style'];
+            $mapped = $this->styleResolver->styleAttributeMapper()->map($hoistedDeclarations)['style'];
             if ( array() !== $mapped ) {
                 $existing       = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
                 $attrs['style'] = array_replace_recursive($mapped, $existing);
@@ -5510,8 +5547,8 @@ if ( 'svg' === $tagName ) {
             return true;
         }
 
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
             }
         }
@@ -5670,7 +5707,7 @@ if ( 'svg' === $tagName ) {
                 if ( array() !== $headerCarrier && $this->hasAncestorTag($sourceInline, array( 'header' )) ) {
                     $selector = 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]'
                         . ',span[data-blocks-engine-richtext-marker="' . $marker . '"]';
-                    $this->generatedSupportStyles()->registerHeaderRichText($marker, $selector . '{' . $this->cssDeclarationString($headerCarrier) . '}');
+                    $this->generatedSupportStyles()->registerHeaderRichText($marker, $selector . '{' . $this->styleResolver->cssDeclarationString($headerCarrier) . '}');
                 }
                 $inline['--blocks-engine-richtext-marker'] = $marker;
             }
@@ -5678,8 +5715,8 @@ if ( 'svg' === $tagName ) {
                 continue;
             }
 
-            $existing = $this->cssDeclarations($this->attr($targetInline, 'style'));
-            $targetInline->setAttribute('style', $this->cssDeclarationString(array_merge($inline, $existing)));
+            $existing = $this->styleResolver->cssDeclarations($this->attr($targetInline, 'style'));
+            $targetInline->setAttribute('style', $this->styleResolver->cssDeclarationString(array_merge($inline, $existing)));
         }
 
         // Source comments are authoring metadata, not RichText. Gutenberg exposes comments inside
@@ -5739,7 +5776,7 @@ if ( 'svg' === $tagName ) {
             'width',
         ));
 
-        $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
         if ('font' === strtolower($element->tagName)) {
             $color = trim($this->attr($element, 'color'));
             $face = trim($this->attr($element, 'face'));
@@ -5802,7 +5839,7 @@ if ( 'svg' === $tagName ) {
         }
 
         $declarations = $this->richTextInlineVisualDeclarations($element);
-        $existingDeclarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
         if ( '' === $marker ) {
             $marker = trim($this->attr($element, 'data-blocks-engine-richtext-marker'));
@@ -5831,7 +5868,7 @@ if ( 'svg' === $tagName ) {
         foreach ( $this->richTextSafeIdentityAttributes($element) as $name => $value ) {
             $mark->setAttribute($name, $value);
         }
-        $mark->setAttribute('style', $this->cssDeclarationString($declarations));
+        $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
         }
@@ -6178,7 +6215,7 @@ if ( 'svg' === $tagName ) {
     private function promotedClassName(string $className): string
     {
         if ( '' === trim($className) || ! $this->sourceStyles()->hasClassPromotions() ) {
-            return $this->presentationClassName($className);
+            return $this->styleResolver->presentationClassName($className);
         }
 
         $classes = preg_split('/\s+/', trim($className)) ?: array();
@@ -6190,7 +6227,7 @@ if ( 'svg' === $tagName ) {
             }
         }
 
-        return $this->presentationClassName(implode(' ', $classes));
+        return $this->styleResolver->presentationClassName(implode(' ', $classes));
     }
 
     /**
@@ -6234,7 +6271,7 @@ if ( 'svg' === $tagName ) {
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
@@ -6259,7 +6296,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         if ( ! $redundantNestedLayout && array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
             return null;
         }
@@ -6409,7 +6446,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         return ! array_diff(array_keys($attrs), array( 'className', 'style' )) && $this->soleElementChild($element) instanceof DOMElement;
     }
 
@@ -6519,7 +6556,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $display = strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['display'] ?? ''))));
         if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return false;
@@ -6539,7 +6576,7 @@ if ( 'svg' === $tagName ) {
 
     private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
     {
-        foreach ($this->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
+        foreach ($this->styleResolver->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
             if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
         }
         return true;
@@ -6547,7 +6584,7 @@ if ( 'svg' === $tagName ) {
 
     private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
     {
-        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         if ( '100%' !== strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')))) ) {
             return false;
         }
@@ -6575,7 +6612,7 @@ if ( 'svg' === $tagName ) {
         if ( $this->hasContainingBlockDependentAuthorDeclarations($element) ) {
             return false;
         }
-        $declarations = $this->presentationDeclarations($element);
+        $declarations = $this->styleResolver->presentationDeclarations($element);
         return ! isset($declarations['width'])
             && ! isset($declarations['min-width'])
             && ! isset($declarations['max-width']);
@@ -6626,7 +6663,7 @@ if ( 'svg' === $tagName ) {
     /** @return array<string, string> */
     private function matchingAuthorDeclarations(DOMElement $element): array
     {
-        $declarations = $this->presentationDeclarations($element);
+        $declarations = $this->styleResolver->presentationDeclarations($element);
         $matchedRules = array();
         foreach ( $this->authorStyleRuleCandidates($element) as $selector ) {
             $ruleOrder = $selector['rule_order'];
@@ -6635,7 +6672,7 @@ if ( 'svg' === $tagName ) {
             }
             if ( ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
-                $declarations = $this->mergeCssDeclarationMaps($declarations, $selector['declarations']);
+                $declarations = $this->styleResolver->mergeCssDeclarationMaps($declarations, $selector['declarations']);
             }
         }
         return $declarations;
@@ -6688,7 +6725,7 @@ if ( 'svg' === $tagName ) {
         $parent->insertBefore($child, $element);
         $parent->removeChild($element);
         $child->setAttribute('class', $this->mergeClassNames(...$chainClasses));
-        $this->invalidateSourceSelectorMatchCache();
+        $this->styleResolver->invalidateSourceSelectorMatchCache();
 
         $survives = true;
         $afterCandidates = $this->authorStyleRuleCandidates($child);
@@ -6715,7 +6752,7 @@ if ( 'svg' === $tagName ) {
         } else {
             $child->setAttribute('class', $childClass);
         }
-        $this->invalidateSourceSelectorMatchCache();
+        $this->styleResolver->invalidateSourceSelectorMatchCache();
 
         return $survives;
     }
@@ -6793,7 +6830,7 @@ if ( 'svg' === $tagName ) {
 
     private function hasRenderableEmptyBlockBox(DOMElement $element): bool
     {
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
             if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
@@ -6810,7 +6847,7 @@ if ( 'svg' === $tagName ) {
     private function hasStaticPseudoElementRule(DOMElement $element): bool
     {
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 return true;
             }
         }
@@ -6864,9 +6901,9 @@ if ( 'svg' === $tagName ) {
             || '' !== trim($element->textContent ?? '')
             || ! $this->sourceElementStartsHidden($element)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->hasConditionalStyleFamily($element, 'layout')
-            || $this->hasConditionalStyleFamily($element, 'visibility')
-            || $this->hasConditionalStyleFamily($element, 'opacity')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
         ) {
             return false;
         }
@@ -6884,7 +6921,7 @@ if ( 'svg' === $tagName ) {
     {
         return 0 === $this->childElementCount($element)
             && '' === trim($element->textContent ?? '')
-            && 'none' === strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')))
+            && 'none' === strtolower(trim((string) ($this->styleResolver->cssDeclarations($this->attr($element, 'style'))['display'] ?? '')))
             && '' === trim($this->attr($element, 'class'))
             && '' === trim($this->attr($element, 'id'))
             && '' === trim($this->attr($element, 'role'))
@@ -6914,18 +6951,18 @@ if ( 'svg' === $tagName ) {
     /** @return array<string, mixed> */
     private function emptyVisualElementAttributes(DOMElement $element): array
     {
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
             return $attrs;
         }
 
-        $parentDisplay = strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['display'] ?? '')));
+        $parentDisplay = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '')));
         if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
             return $attrs;
         }
 
-        $declarations = $this->presentationDeclarations($element);
+        $declarations = $this->styleResolver->presentationDeclarations($element);
         $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
         if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return $attrs;
@@ -6936,7 +6973,7 @@ if ( 'svg' === $tagName ) {
             }
         }
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array_intersect_key($rule['declarations'], array_flip(array( 'content', 'display', 'width', 'min-width' ))) ) {
                 return $attrs;
             }
         }
@@ -6959,8 +6996,8 @@ if ( 'svg' === $tagName ) {
             return $block;
         }
 
-        $declarations = $this->structuralPresentationDeclarations($element);
-        $paint = $this->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $paint = $this->styleResolver->styleAttributeMapper()->map(array_intersect_key($declarations, array_flip(array(
             'background',
             'background-color',
             'background-image',
@@ -7005,7 +7042,7 @@ if ( 'svg' === $tagName ) {
                 return null;
             }
 
-            $declarations = $this->cssDeclarations($this->attr($flank, 'style'));
+            $declarations = $this->styleResolver->cssDeclarations($this->attr($flank, 'style'));
             if ( array() !== array_diff(array_keys($declarations), array( 'height', 'overflow', 'width' ))
                 || 'hidden' !== strtolower(trim((string) ($declarations['overflow'] ?? '')))
                 || ! in_array(strtolower(trim((string) ($declarations['width'] ?? ''))), array( '', '100%' ), true)
@@ -7021,7 +7058,7 @@ if ( 'svg' === $tagName ) {
         }
 
         $separator = $children[1];
-        $attrs = $this->presentationAttributes($separator, array(), array( 'margin-left', 'margin-right' ));
+        $attrs = $this->styleResolver->presentationAttributes($separator, array(), array( 'margin-left', 'margin-right' ));
         $attrs['style']['spacing']['margin'] = array_merge($attrs['style']['spacing']['margin'] ?? array(), $margins);
 
         return $this->createBlock('core/separator', $attrs, array(), $separator);
@@ -7033,7 +7070,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         return $this->hasExplicitEmptyVisualDimensions($declarations) && $this->hasVisibleEmptyVisualPaint($declarations);
     }
 
@@ -7110,13 +7147,13 @@ if ( 'svg' === $tagName ) {
     private function authoredDisplay(DOMElement $element): string
     {
         $display = '';
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( isset($rule['declarations']['display']) && $this->matchesCssSelector($element, $rule['selector']) ) {
+        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( isset($rule['declarations']['display']) && $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
                 $display = (string) $rule['declarations']['display'];
             }
         }
 
-        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        $inline = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
     }
 
@@ -7209,7 +7246,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     private function richTextContentWithoutDecorativeSvg(DOMElement $element): string
@@ -7293,7 +7330,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     private function richTextContentWithMaterializedSvgImages(DOMElement $element, string $content): ?string
@@ -7413,14 +7450,14 @@ if ( 'svg' === $tagName ) {
             if ( '' === trim($this->runtime->stripAllTags($content)) ) {
                 return null;
             }
-            $children[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+            $children[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
 
         if ( count($children) < 2 ) {
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
     }
 
     private function hasInlineTokenGroupSignal(DOMElement $element): bool
@@ -7476,7 +7513,7 @@ if ( 'svg' === $tagName ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
         }
 
@@ -7506,7 +7543,7 @@ if ( 'svg' === $tagName ) {
         if ( 0 === $this->childElementCount($element) ) {
             return $this->createBlock(
                 'core/paragraph',
-                array_merge($this->presentationAttributes($element), array( 'content' => $content )),
+                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
                 array(),
                 $element
             );
@@ -7514,7 +7551,7 @@ if ( 'svg' === $tagName ) {
 
         return $this->createBlock(
             'core/group',
-            $this->presentationAttributes($element),
+            $this->styleResolver->presentationAttributes($element),
             array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
             $element
         );
@@ -7569,7 +7606,7 @@ if ( 'svg' === $tagName ) {
         // Read the raw matched declarations rather than the post-projection
         // presentation set: box-model properties such as padding are consumed
         // into block-supports attributes and would otherwise be invisible here.
-        $declarations = $this->structuralPresentationDeclarations($element);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( $properties as $property ) {
             if ( isset($declarations[$property]) && $this->cssValueIsNonZero((string) $declarations[$property]) ) {
                 return true;
@@ -7627,7 +7664,7 @@ if ( 'svg' === $tagName ) {
             $fallbacks = array();
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
         }
 
@@ -7640,7 +7677,7 @@ if ( 'svg' === $tagName ) {
 
         $structuredInlineItems = $this->structuredInlineItemBlocks($element);
         if ( null !== $structuredInlineItems ) {
-            return $this->createBlock('core/group', $this->presentationAttributes($element), $structuredInlineItems, $element);
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $structuredInlineItems, $element);
         }
 
         $content = $this->richTextContentWithMaterializedInlineStyles($element);
@@ -7648,7 +7685,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
         $attrs['content'] = $content;
         return $this->createBlock('core/paragraph', $attrs, array(), $element);
@@ -7689,7 +7726,7 @@ if ( 'svg' === $tagName ) {
         }
 
         $paragraph = $this->createBlock('core/paragraph', array( 'content' => $content ));
-        return $this->createBlock('core/group', $this->presentationAttributes($element), array( $paragraph ), $element);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array( $paragraph ), $element);
     }
 
     private function hasAuthorSemanticMarkedChild(DOMElement $element): bool
@@ -7787,7 +7824,7 @@ if ( 'svg' === $tagName ) {
                 return null;
             }
 
-            $blocks[] = $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($child), array( 'content' => $content )), array(), $child);
+            $blocks[] = $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), array(), $child);
         }
 
         return 1 < count($blocks) ? $blocks : null;
@@ -9206,17 +9243,17 @@ if ( 'svg' === $tagName ) {
 
         if ( array() === $children ) {
             if ( $this->shouldPreserveEmptyVisualFigure($figure) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($figure), array(), $figure);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), array(), $figure);
             }
 
             return null;
         }
 
-        if ( 1 === count($children) && array() === $this->presentationAttributes($figure) ) {
+        if ( 1 === count($children) && array() === $this->styleResolver->presentationAttributes($figure) ) {
             return $children[0];
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($figure), $children, $figure);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($figure), $children, $figure);
     }
 
     private function shouldPreserveEmptyVisualFigure(DOMElement $figure): bool
@@ -9225,7 +9262,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        $declarations = $this->structuralPresentationDeclarations($figure);
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
         $hasBoundedHeight = false;
         foreach ( array( 'height', 'min-height' ) as $property ) {
             if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
@@ -9242,7 +9279,7 @@ if ( 'svg' === $tagName ) {
         }
 
         foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
-            if ( $this->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
+            if ( $this->styleResolver->matchesCssSelector($figure, $rule['selector']) && $this->hasVisibleEmptyVisualPaint($rule['declarations'], $figure) ) {
                 return true;
             }
         }
@@ -9288,7 +9325,7 @@ if ( 'svg' === $tagName ) {
     private function tableAttributes(DOMElement $table): array
     {
         $attrs = array(
-            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
+            'hasFixedLayout' => 'fixed' === strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($table)['table-layout'] ?? ''))),
         );
         $this->registerTablePresentationNormalization($table);
         $this->registerTableCellGeometry($table);
@@ -9338,7 +9375,7 @@ if ( 'svg' === $tagName ) {
     {
         $path = $this->sourceElementIdentity($table);
         $marker = $this->authorSelectorProjections()->ensureTableMarker($path);
-        $tableDeclarations = $this->structuralPresentationDeclarations($table);
+        $tableDeclarations = $this->styleResolver->structuralPresentationDeclarations($table);
         // A single marker class ties core's .wp-block-table margin while later
         // source classes promoted onto the figure retain their authored margins.
         $rules = array( '.' . $marker . '{margin:0}' );
@@ -9359,7 +9396,7 @@ if ( 'svg' === $tagName ) {
 
         $head = $this->firstChildElement($table, 'thead');
         if ( $head instanceof DOMElement ) {
-            $headDeclarations = $this->structuralPresentationDeclarations($head);
+            $headDeclarations = $this->styleResolver->structuralPresentationDeclarations($head);
             if ( ! isset($headDeclarations['border']) && ! isset($headDeclarations['border-bottom']) && ! isset($headDeclarations['border-bottom-width']) ) {
                 // core/table adds a 3px header separator that did not exist in source.
                 $rules[] = '.' . $marker . '>table>thead{border-bottom:0}';
@@ -9386,7 +9423,7 @@ if ( 'svg' === $tagName ) {
                     continue;
                 }
                 ++$cellIndex;
-                $declarations = $this->cssDeclarations($this->attr($cell, 'style'));
+                $declarations = $this->styleResolver->cssDeclarations($this->attr($cell, 'style'));
                 $geometry = array();
                 $width = trim((string) ($declarations['width'] ?? ''));
                 if ( '' !== $width && preg_match('/^(?:\d+(?:\.\d+)?(?:%|px|em|rem|vw|ch)|calc\(.+\)|var\(.+\))$/i', $width) ) {
@@ -9532,7 +9569,7 @@ if ( 'svg' === $tagName ) {
                 }
 
                 $prefix = '' !== trim($term) ? '<strong>' . $term . '</strong>' : '';
-                $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array(
+                $items[] = $this->createBlock('core/list-item', array_merge($this->styleResolver->presentationAttributes($child), array(
                     'content' => trim($prefix . ( '' !== $prefix && '' !== trim($description) ? ' ' : '' ) . $description),
                 )), array(), $child);
             }
@@ -9816,7 +9853,7 @@ if ( 'svg' === $tagName ) {
             $blocks[] = $this->createBlock('core/paragraph', $this->metadataCellAttributes($child, $content), array(), $child);
         }
 
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         // The source stylesheet owns the grid tracks and independent gaps. Core's
         // layout support emits classes and a gap shorthand that can override both.
         unset($attrs['layout'], $attrs['style']['spacing']['blockGap']);
@@ -9882,7 +9919,7 @@ if ( 'svg' === $tagName ) {
             return true;
         }
 
-        $style = $this->cssDeclarations($this->metadataPresentationStyle($element));
+        $style = $this->styleResolver->cssDeclarations($this->metadataPresentationStyle($element));
         $weight = (int) preg_replace('/\D.*/', '', (string) ($style['font-weight'] ?? ''));
         if ( 600 <= $weight || in_array(strtolower(trim((string) ($style['text-transform'] ?? ''))), array( 'uppercase', 'capitalize' ), true) ) {
             return true;
@@ -9925,13 +9962,13 @@ if ( 'svg' === $tagName ) {
     {
         // Layout is structural evidence, so inspect matching stylesheet rules even
         // when the element is not otherwise a high-value style boundary.
-        return $this->cssDeclarationString($this->structuralPresentationDeclarations($element));
+        return $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($element));
     }
 
     /** @return array<string, mixed> */
     private function metadataCellAttributes(DOMElement $element, string $content): array
     {
-        $attrs = $this->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes($element);
         $attrs['content'] = $content;
         $attrs['style']['spacing']['margin']['top'] = '0';
         $attrs['style']['spacing']['margin']['bottom'] = '0';
@@ -9974,7 +10011,7 @@ if ( 'svg' === $tagName ) {
                 continue;
             }
 
-            $items[] = $this->createBlock('core/list-item', array_merge($this->presentationAttributes($child), array( 'content' => $content )), $nested, $child);
+            $items[] = $this->createBlock('core/list-item', array_merge($this->styleResolver->presentationAttributes($child), array( 'content' => $content )), $nested, $child);
         }
 
         return $items;
@@ -10221,7 +10258,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($list), $itemGroups, $list);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($list), $itemGroups, $list);
     }
 
     /**
@@ -10266,7 +10303,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($item), $fragmentBlocks, $item);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $fragmentBlocks, $item);
     }
 
     /**
@@ -10337,7 +10374,7 @@ if ( 'svg' === $tagName ) {
 
         $style = trim($this->attr($element, 'style'));
         if ( '' !== $style ) {
-            $mapped = $this->styleAttributeMapper()->map($this->cssDeclarations($style))['style'];
+            $mapped = $this->styleResolver->styleAttributeMapper()->map($this->styleResolver->cssDeclarations($style))['style'];
             if ( array() !== $mapped ) {
                 $attrs['style'] = $mapped;
             }
@@ -10574,8 +10611,8 @@ if ( 'svg' === $tagName ) {
 
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
     {
-        $declarations = $this->presentationDeclarations($element);
-        $url = $this->backgroundImageExtractor->urlFromStyle($this->mergedPresentationStyle($element));
+        $declarations = $this->styleResolver->presentationDeclarations($element);
+        $url = $this->backgroundImageExtractor->urlFromStyle($this->styleResolver->mergedPresentationStyle($element));
         if ( '' === $url ) {
             return null;
         }
@@ -10619,7 +10656,7 @@ if ( 'svg' === $tagName ) {
         // core/columns is a flex layout; WordPress rejects it with is-layout-grid.
         // Decline when the resolved layout is grid so the container demotes to
         // core/group, where grid layout is native.
-        $layout = $this->presentationAttributes($element)['layout'] ?? null;
+        $layout = $this->styleResolver->presentationAttributes($element)['layout'] ?? null;
         if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') ) {
             return null;
         }
@@ -10632,11 +10669,11 @@ if ( 'svg' === $tagName ) {
                 return null;
             }
 
-            $columns[] = $this->createBlock('core/column', $this->presentationAttributes($child), $converted, $child);
+            $columns[] = $this->createBlock('core/column', $this->styleResolver->presentationAttributes($child), $converted, $child);
         }
         array_push($fallbacks, ...$rowFallbacks);
 
-        return $this->createBlock('core/columns', $this->presentationAttributes($element), $columns, $element);
+        return $this->createBlock('core/columns', $this->styleResolver->presentationAttributes($element), $columns, $element);
     }
 
     /**
@@ -10651,7 +10688,7 @@ if ( 'svg' === $tagName ) {
      */
     private function hasEqualWidthFlexColumnsGeometry(DOMElement $element, array $children): bool
     {
-        $container = $this->structuralPresentationDeclarations($element);
+        $container = $this->styleResolver->structuralPresentationDeclarations($element);
         if ( 'flex' !== strtolower(trim((string) ($container['display'] ?? ''))) ) {
             return false;
         }
@@ -10664,7 +10701,7 @@ if ( 'svg' === $tagName ) {
 
         $flex = null;
         foreach ( $children as $child ) {
-            $childFlex = $this->equalWidthFlexSignal($this->structuralPresentationDeclarations($child));
+            $childFlex = $this->equalWidthFlexSignal($this->styleResolver->structuralPresentationDeclarations($child));
             if ( null === $childFlex || ( null !== $flex && $flex !== $childFlex ) ) {
                 return false;
             }
@@ -10867,7 +10904,7 @@ if ( 'svg' === $tagName ) {
         }
         $blocks[] = $this->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), array_values(array_filter($blocks)), $element);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array_values(array_filter($blocks)), $element);
     }
 
     private function isNavigationSectionHeading(DOMElement $element): bool
@@ -10922,7 +10959,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        $attrs = array_filter(array_merge($this->presentationAttributes($element), array(
+        $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($element), array(
             'src'      => $src,
             'poster'   => 'video' === $tagName ? $this->safeImageUrl($this->attr($element, 'poster')) : '',
             'preload'  => $this->attr($element, 'preload'),
@@ -10966,7 +11003,7 @@ if ( 'svg' === $tagName ) {
             return null;
         }
 
-        $attrs = array_filter(array_merge($this->presentationAttributes($anchor), array(
+        $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($anchor), array(
             'href'               => $href,
             'fileName'           => $this->richTextContentWithMaterializedInlineStyles($anchor),
             'textLinkHref'       => $href,
@@ -11073,7 +11110,7 @@ if ( 'svg' === $tagName ) {
 
         $attrs = $this->imagePresentationAttributes($image, $figure);
         if ( null !== $picture && ! $figure instanceof DOMElement ) {
-            $attrs = array_merge($this->presentationAttributes($picture), $attrs);
+            $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
         }
         $linked = $link instanceof DOMElement;
         $width = $this->imageDisplayDimension($image, 'width', $linked);
@@ -11116,7 +11153,7 @@ if ( 'svg' === $tagName ) {
 
     private function imageDisplayDimension(DOMElement $image, string $property, bool $linked): string
     {
-        $inline = trim($this->cssValueWithoutImportant((string) ($this->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
+        $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $inline) ? $inline . 'px' : $inline;
         }
@@ -11128,13 +11165,13 @@ if ( 'svg' === $tagName ) {
     private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs): array
     {
         $geometry = array();
-        $presentation = $this->presentationDeclarations($element);
-        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        $presentation = $this->styleResolver->presentationDeclarations($element);
+        $inline = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
-            $family = $this->responsivePropertyFamily($property);
+            $family = $this->styleResolver->responsivePropertyFamily($property);
             if ( array() !== $this->sourceStyles()->conditionalRules()
-                && $this->hasConditionalStyleFamily($element, $family)
-                && ! $this->inlineOwnsResponsiveProperty($property, $family, $inline)
+                && $this->styleResolver->hasConditionalStyleFamily($element, $family)
+                && ! $this->styleResolver->inlineOwnsResponsiveProperty($property, $family, $inline)
             ) {
                 continue;
             }
@@ -11151,7 +11188,7 @@ if ( 'svg' === $tagName ) {
             return $attrs;
         }
 
-        $carrier = $this->inlineGeometryClassName(
+        $carrier = $this->styleResolver->inlineGeometryClassName(
             $element,
             array(),
             array_keys($geometry),
@@ -11167,12 +11204,12 @@ if ( 'svg' === $tagName ) {
     {
         $parent = $element->parentNode;
         if ( $parent instanceof DOMElement ) {
-            $parentPosition = strtolower(trim((string) ($this->structuralPresentationDeclarations($parent)['position'] ?? '')));
+            $parentPosition = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['position'] ?? '')));
             if ( in_array($parentPosition, array( 'absolute', 'fixed' ), true) ) {
                 return '';
             }
         }
-        $own = $this->presentationDeclarations($element);
+        $own = $this->styleResolver->presentationDeclarations($element);
         foreach ( array( 'height', 'min-height' ) as $property ) {
             $value = trim($this->cssValueWithoutImportant((string) ($own[ $property ] ?? '')));
             if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
@@ -11189,7 +11226,7 @@ if ( 'svg' === $tagName ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            $position = strtolower(trim((string) ($this->structuralPresentationDeclarations($child)['position'] ?? '')));
+            $position = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($child)['position'] ?? '')));
             if ( ! in_array($position, array( 'absolute', 'fixed' ), true) ) {
                 continue;
             }
@@ -11198,12 +11235,12 @@ if ( 'svg' === $tagName ) {
                     continue;
                 }
                 for ( $carrier = $image->parentNode; $carrier instanceof DOMElement && $carrier !== $child; $carrier = $carrier->parentNode ) {
-                    $carrierPosition = strtolower(trim((string) ($this->structuralPresentationDeclarations($carrier)['position'] ?? '')));
+                    $carrierPosition = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($carrier)['position'] ?? '')));
                     if ( 'sticky' === $carrierPosition ) {
                         continue 2;
                     }
                 }
-                $height = trim($this->cssValueWithoutImportant((string) ($this->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
+                $height = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
                 if ( preg_match('/^(?:\d+|\d*\.\d+)$/', $height) ) {
                     $height .= 'px';
                 }
@@ -11218,7 +11255,7 @@ if ( 'svg' === $tagName ) {
 
     private function hasInFlowContent(DOMElement $element): bool
     {
-        $position = strtolower(trim((string) ($this->structuralPresentationDeclarations($element)['position'] ?? '')));
+        $position = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($element)['position'] ?? '')));
         if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
@@ -11310,12 +11347,12 @@ if ( 'svg' === $tagName ) {
         // Flattening the host drops its box. A class, id, inline declaration, or
         // matched author rule means that box may carry presentation we cannot
         // faithfully move onto core/video.
-        if ( '' !== $this->attr($element, 'class') || '' !== $this->attr($element, 'id') || '' !== $this->attr($element, 'style') || array() !== $this->structuralPresentationDeclarations($element) ) {
+        if ( '' !== $this->attr($element, 'class') || '' !== $this->attr($element, 'id') || '' !== $this->attr($element, 'style') || array() !== $this->styleResolver->structuralPresentationDeclarations($element) ) {
             return false;
         }
 
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) && array() !== ($rule['declarations'] ?? array()) ) {
+        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) && array() !== ($rule['declarations'] ?? array()) ) {
                 return false;
             }
         }
@@ -11618,9 +11655,9 @@ if ( 'svg' === $tagName ) {
         $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, ( new AuthoredMarqueeBlockGenerator() )->definition($this->generatedBlocks()->namespace()));
 
         $duration = 40.0;
-        $durationCandidates = array( $this->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
+        $durationCandidates = array( $this->styleResolver->cssDeclarations($this->attr($track, 'style'))['--marquee-duration'] ?? '' );
         for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode instanceof DOMElement ? $carrier->parentNode : null ) {
-            $durationCandidates[] = $this->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
+            $durationCandidates[] = $this->styleResolver->cssDeclarations($this->attr($carrier, 'style'))['--marquee-duration'] ?? '';
         }
         foreach ( $durationCandidates as $value ) {
             if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)s$/', trim((string) $value), $matches) ) {
@@ -11708,9 +11745,9 @@ if ( 'svg' === $tagName ) {
     private function isInertHiddenSvgStorage(DOMElement $element): bool
     {
         if ( ! $this->sourceElementStartsHidden($element)
-            || $this->hasConditionalStyleFamily($element, 'layout')
-            || $this->hasConditionalStyleFamily($element, 'visibility')
-            || $this->hasConditionalStyleFamily($element, 'opacity')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))
             || '' !== trim($this->attr($element, 'title'))
@@ -11725,9 +11762,9 @@ if ( 'svg' === $tagName ) {
     private function isInertHiddenCaptureIframe(DOMElement $element): bool
     {
         if ( ! $this->sourceElementStartsHidden($element)
-            || $this->hasConditionalStyleFamily($element, 'layout')
-            || $this->hasConditionalStyleFamily($element, 'visibility')
-            || $this->hasConditionalStyleFamily($element, 'opacity')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
+            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || '' !== trim($this->attr($element, 'src'))
             || '' !== trim($this->attr($element, 'srcdoc'))
@@ -11904,7 +11941,7 @@ if ( 'svg' === $tagName ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($anchor), $children, $anchor);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
     }
 
     /**
@@ -11921,7 +11958,7 @@ if ( 'svg' === $tagName ) {
             return array();
         }
 
-        $declarations = $this->presentationDeclarations($anchor);
+        $declarations = $this->styleResolver->presentationDeclarations($anchor);
         $textDecoration = strtolower(trim((string) ($declarations['text-decoration'] ?? '')));
 
         return array_filter(array(
@@ -12216,7 +12253,7 @@ if ( 'svg' === $tagName ) {
         $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
         if ( '' !== $providerNameSlug ) {
-            return $this->createBlock('core/embed', array_filter(array_merge($this->presentationAttributes($iframe), array(
+            return $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($iframe), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
@@ -12361,11 +12398,11 @@ if ( 'svg' === $tagName ) {
      */
     private function imagePresentationAttributes(DOMElement $image, ?DOMElement $figure): array
     {
-        $attrs = $this->presentationAttributes($figure ?? $image);
+        $attrs = $this->styleResolver->presentationAttributes($figure ?? $image);
         if ( $figure instanceof DOMElement ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $this->nonCoreImageFigureClassName($figure), $this->nonCoreImageClassName($image), ...$this->authorSemanticMarkersForElement($image));
         } else {
-            $attrs['className'] = $this->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->injectedFigureHeightClassName($image));
+            $attrs['className'] = $this->styleResolver->mergePresentationClassNames((string) ($attrs['className'] ?? ''), $this->styleResolver->injectedFigureHeightClassName($image));
         }
 
         return array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
@@ -12411,7 +12448,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( '' === $aspectRatio ) {
-            $inlineScale = strtolower($this->cssValueWithoutImportant((string) ($this->cssDeclarations($this->attr($image, 'style'))['object-fit'] ?? '')));
+            $inlineScale = strtolower($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['object-fit'] ?? '')));
             return $scale === $inlineScale ? array( 'scale' => $scale ) : array();
         }
 
@@ -12426,7 +12463,7 @@ if ( 'svg' === $tagName ) {
     {
         $winner = null;
         foreach ($this->sourceStyles()->imageShapeRules() as $rule) {
-            if ($property !== $rule['property'] || ! $this->matchesCssSelector($element, $rule['selector'])) {
+            if ($property !== $rule['property'] || ! $this->styleResolver->matchesCssSelector($element, $rule['selector'])) {
                 continue;
             }
             if (array() !== $rule['conditions']) {
@@ -12437,7 +12474,7 @@ if ( 'svg' === $tagName ) {
             }
             $candidate = array(
                 'value' => $rule['value'],
-                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']),
+                'specificity' => $this->styleResolver->mediaTextSelectorSpecificity($rule['selector']),
                 'order' => $rule['order'],
                 'inline' => false,
             );
@@ -12445,7 +12482,7 @@ if ( 'svg' === $tagName ) {
                 $winner = $candidate;
             }
         }
-        $inlineEntries = $this->imageShapeDeclarationEntries($this->attr($element, 'style'));
+        $inlineEntries = $this->styleResolver->imageShapeDeclarationEntries($this->attr($element, 'style'));
         foreach ($inlineEntries as $index => $entry) {
             if ($property !== $entry['property']) {
                 continue;
@@ -12470,7 +12507,7 @@ if ( 'svg' === $tagName ) {
         if ($candidateImportant !== $currentImportant) {
             return $candidateImportant;
         }
-        $specificity = $this->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
         return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
@@ -12634,7 +12671,7 @@ if ( 'svg' === $tagName ) {
      */
     private function codePresentationAttributes(DOMElement $pre, DOMElement $code): array
     {
-        $attrs = $this->presentationAttributes($pre);
+        $attrs = $this->styleResolver->presentationAttributes($pre);
         $codeClassName = $this->attr($code, 'class');
         if ( '' !== trim($codeClassName) ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $codeClassName);
