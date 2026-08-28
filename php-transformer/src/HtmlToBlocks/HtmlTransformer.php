@@ -3595,6 +3595,10 @@ if ( $this->isInlineContentElement($tagName) ) {
                 return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             }
 
+            if ( $this->tableClassificationPolicy->isPercentLayoutTable($element) ) {
+                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
+            }
+
             $classification = $this->tableClassificationPolicy->classify($element);
             if ( ! $classification['representable'] ) {
                 return $this->htmlPreservationBlock($element);
