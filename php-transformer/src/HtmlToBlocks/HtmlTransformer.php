@@ -26,6 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\TypographyParityAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
@@ -235,6 +237,8 @@ final class HtmlTransformer
 
     private readonly PatternRecognizerRegistry $patternRecognizers;
 
+    private readonly TextLeafElementConverter $textLeafConverter;
+
     private readonly PatternContext $patternContext;
 
     private readonly PatternContext $patternContextWithoutRuntimeDomTarget;
@@ -345,6 +349,32 @@ final class HtmlTransformer
         $this->patternContext = $this->createPatternContext(true);
         $this->patternContextWithoutRuntimeDomTarget = $this->createPatternContext(false);
         $this->patternProbeContext = $this->createProbePatternContext();
+        $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
+    }
+
+    /**
+     * Collaborator surface for {@see TextLeafElementConverter}. Enumerating the
+     * operations here is the point: the converter cannot reach transformer
+     * state that is not listed.
+     */
+    private function createTextLeafElementContext(): TextLeafElementContext
+    {
+        return new TextLeafElementContext(
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (DOMElement $element): string => $this->innerHtmlPreservingWhitespace($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
+            fn (string $html): string => $this->runtime->stripAllTags($html),
+            fn (string $text): string => $this->runtime->escapeHtml($text),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
+            fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
+            fn (DOMElement $code): string => $this->codeContent($code),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            }
+        );
     }
 
     private function authorStyles(): AuthorStyleAnalysis
@@ -3448,12 +3478,7 @@ final class HtmlTransformer
         }
 
         if ( 'address' === $tagName ) {
-            $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( $this->session->preservesShellLandmarks() && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
@@ -3525,65 +3550,19 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'noscript' === $tagName ) {
-            $children = $this->convertChildren($element, $fallbacks, true);
-            if ( array() === $children ) {
-                $content = $this->innerHtml($element);
-                if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                    return null;
-                }
-
-                return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-            }
-
-            if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
-                return $children[0];
-            }
-
-            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'marquee' === $tagName || 'blink' === $tagName ) {
-            if ( $this->hasBlockContentChildren($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() === $children ) {
-                    return null;
-                }
-
-                if ( 1 === count($children) && array() === $this->presentationAttributes($element) ) {
-                    return $children[0];
-                }
-
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-            }
-
-            $content = $this->innerHtml($element);
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'label' === $tagName ) {
             return $this->readableFormControlBlockFromElement($element);
         }
 
-        if ( 'pre' === $tagName ) {
-            $code = $this->firstChildElement($element, 'code');
-            if ( $code instanceof DOMElement ) {
-                return $this->createBlock('core/code', array_merge($this->codePresentationAttributes($element, $code), array( 'content' => $this->codeContent($code) )), array(), $element);
-            }
-
-            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $this->innerHtmlPreservingWhitespace($element) )), array(), $element);
-        }
-
-        if ( 'plaintext' === $tagName ) {
-            $content = $this->runtime->escapeHtml($element->textContent ?? '');
-            if ( '' === trim($content) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/preformatted', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        if ( 'pre' === $tagName || 'plaintext' === $tagName ) {
+            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'table' === $tagName ) {
@@ -3608,12 +3587,8 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $parameterTable;
         }
 
-        if ( 'hr' === $tagName ) {
-            return $this->createBlock('core/separator', $this->presentationAttributes($element, array(), array( 'margin-left', 'margin-right' )), array(), $element);
-        }
-
-        if ( 'br' === $tagName ) {
-            return null;
+        if ( 'hr' === $tagName || 'br' === $tagName ) {
+            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'details' === $tagName ) {
