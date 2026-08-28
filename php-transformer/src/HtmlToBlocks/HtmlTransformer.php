@@ -26,6 +26,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
@@ -243,6 +247,10 @@ final class HtmlTransformer
 
     private readonly RichTextElementConverter $richTextConverter;
 
+    private readonly TableElementConverter $tableConverter;
+
+    private readonly UnsupportedElementRecorder $unsupportedRecorder;
+
     private readonly PatternContext $patternContext;
 
     private readonly PatternContext $patternContextWithoutRuntimeDomTarget;
@@ -355,6 +363,48 @@ final class HtmlTransformer
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
+        $this->tableConverter = new TableElementConverter($this->createTableElementContext());
+        $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
+    }
+
+    /**
+     * Collaborator surface for {@see TableElementConverter}.
+     */
+    private function createTableElementContext(): TableElementContext
+    {
+        return new TableElementContext(
+            $this->tableClassificationPolicy,
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
+            },
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (DOMElement $element): array => $this->tableAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        );
+    }
+
+    /**
+     * Collaborator surface for {@see UnsupportedElementRecorder}.
+     */
+    private function createUnsupportedElementContext(): UnsupportedElementContext
+    {
+        return new UnsupportedElementContext(
+            fn (DOMElement $element): ?array => $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks()),
+            fn (array $generated, DOMElement $element): array => $this->generatedComponentBlock($generated, $element),
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->htmlAttributes($element),
+            fn (DOMElement $element): array => $this->sourceContext($element),
+            fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): int => $this->childElementCount($element),
+            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): array => $this->formControlMetadata($element),
+            fn (array $fallback): array => FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback())
+        );
     }
 
     /**
@@ -3570,25 +3620,8 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( 'table' === $tagName ) {
-            if ( $this->tableClassificationPolicy->isNestedLayoutTableMember($element) ) {
-                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
-            }
-
-            if ( $this->tableClassificationPolicy->isMediaLayoutTable($element) ) {
-                return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
-            }
-
-            if ( $this->tableClassificationPolicy->isPercentLayoutTable($element) ) {
-                return $this->nestedLayoutTableColumnsBlock($element, $fallbacks);
-            }
-
-            $classification = $this->tableClassificationPolicy->classify($element);
-            if ( ! $classification['representable'] ) {
-                return $this->htmlPreservationBlock($element);
-            }
-
-            return $this->createBlock('core/table', array_merge($this->presentationAttributes($element), $this->tableAttributes($element)), array(), $element);
+        if ( $this->tableConverter->handles($tagName) ) {
+            return $this->tableConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         $parameterTable = $this->recognizePatterns($element, $fallbacks, array(ParameterTablePattern::class));
@@ -3700,38 +3733,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( $captureUnsupported ) {
-            // Producer link (issue #497): this is a core/html fallback decision —
-            // the element mapped to nothing native/Automattic. If the structural
-            // classifier identifies it as a high-confidence custom_block, generate
-            // a static-render block and emit a self-closing reference instead of raw
-            // core/html. Otherwise keep the existing fallback diagnostic.
-            $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks());
-            if ( null !== $generated ) {
-                return $this->generatedComponentBlock($generated, $element);
-            }
-
-            $fallback = array(
-                'type'            => 'unsupported_element',
-                'reason'          => 'unsupported_element',
-                'diagnostic_code' => 'html_unsupported_element',
-                'source_format'   => 'html',
-                'tag'             => $tagName,
-                'selector'        => $this->elementSelector($element),
-                'attributes'      => $this->htmlAttributes($element),
-                'context'         => $this->sourceContext($element),
-                'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-                'events'          => $this->eventMetadata($element),
-                'text_length'     => strlen(trim($element->textContent ?? '')),
-                'child_count'     => $this->childElementCount($element),
-                'html'            => $this->safeFallbackHtml($element),
-            );
-
-            $control = $this->formControlMetadata($element);
-            if ( array() !== $control ) {
-                $fallback['control'] = $control;
-            }
-
-            $fallbacks[] = FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback());
+            return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
 
         return null;
