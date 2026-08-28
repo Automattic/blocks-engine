@@ -115,6 +115,9 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 $syntheticImageFigure = ( new HtmlTransformer() )->transform(
     '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
 )->toArray();
+$logosOnlySocial = ( new HtmlTransformer() )->transform(
+    '<ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>'
+)->toArray();
 $adminBar = ( new HtmlTransformer() )->transform(
     '<style>.fixed-shell{position:fixed;top:0}.sticky-toc{position:sticky;top:calc(var(--header-h) + 1rem)}.ordinary{position:relative;top:1rem}</style>'
         . '<header class="fixed-shell">Header</header><aside class="sticky-toc">Contents</aside><main class="ordinary">Content</main>'
@@ -136,6 +139,7 @@ $results = array(
     $colouredSyntheticLink,
     $uncolouredSyntheticLink,
     $syntheticImageFigure,
+    $logosOnlySocial,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -165,6 +169,7 @@ $beforeFamilies = array(
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
+    'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
