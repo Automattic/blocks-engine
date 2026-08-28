@@ -529,9 +529,10 @@ trait StyleResolutionTrait
             if ( isset($inlineListMarkerPropertyLookup[$property])
                 || isset($overridePropertyLookup[$property])
                 || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
+                || 'height' === $property
             ) {
-                // Preserve source inline layout and list markers over a later
-                // plain author class without introducing !important.
+                // Preserve source inline layout, list markers, and height over a
+                // later plain author class without introducing !important.
                 $normalPriorityDeclarations[] = $property . ':' . $value;
                 continue;
             }
