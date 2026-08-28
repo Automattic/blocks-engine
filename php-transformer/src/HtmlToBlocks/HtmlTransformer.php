@@ -26,6 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
@@ -239,6 +241,8 @@ final class HtmlTransformer
 
     private readonly TextLeafElementConverter $textLeafConverter;
 
+    private readonly RichTextElementConverter $richTextConverter;
+
     private readonly PatternContext $patternContext;
 
     private readonly PatternContext $patternContextWithoutRuntimeDomTarget;
@@ -350,6 +354,33 @@ final class HtmlTransformer
         $this->patternContextWithoutRuntimeDomTarget = $this->createPatternContext(false);
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
+        $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
+    }
+
+    /**
+     * Collaborator surface for {@see RichTextElementConverter}.
+     */
+    private function createRichTextElementContext(): RichTextElementContext
+    {
+        return new RichTextElementContext(
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
+            fn (string $content): string => $this->headingRichTextContent($content),
+            fn (DOMElement $element, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($element, $content),
+            fn (string $content): bool => $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content),
+            fn (string $content): bool => $this->richTextContainsNativeSvgImageObject($content),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): ?array => $this->authoredMarqueeBlock($element),
+            fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
+            fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
+            fn (DOMElement $element): bool => $this->isRuntimeDomTarget($element),
+            fn (string $text): array => $this->convertText($text),
+            fn (string $html): string => $this->runtime->stripAllTags($html),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            }
+        );
     }
 
     /**
@@ -3436,50 +3467,8 @@ final class HtmlTransformer
             return $mathBlock;
         }
 
-        if ( preg_match('/^h([1-6])$/', $tagName, $matches) ) {
-            $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            $content = $this->headingRichTextContent($content);
-            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->htmlPreservationBlock($element);
-            }
-            if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-                return null;
-            }
-
-            return $this->createBlock('core/heading', array_merge($this->presentationAttributes($element), array(
-                'content' => $content,
-                'level'   => (int) $matches[1],
-            )), array(), $element);
-        }
-
-        if ( 'p' === $tagName ) {
-            $marquee = $this->authoredMarqueeBlock($element);
-            if ( null !== $marquee ) {
-                return $marquee;
-            }
-            $content = $this->richTextContentWithMaterializedInlineStyles($element);
-            $inlineSvgContent = $this->richTextContentWithMaterializedSvgImages($element, $content);
-            if ( null !== $inlineSvgContent ) {
-                $content = $inlineSvgContent;
-            }
-            if ( $this->richTextRequiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
-                return $this->htmlPreservationBlock($element);
-            }
-            if ( $this->hasEmptyVisualInlineChild($element) && $this->hasBoxChromeWrapperStyling($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
-                }
-            }
-            if ( '' === trim($this->runtime->stripAllTags($content)) && ! $this->richTextContainsNativeSvgImageObject($content) ) {
-                if ( $this->isRuntimeDomTarget($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
-                }
-                $textBlocks = $this->convertText(trim($element->textContent ?? ''));
-                return $textBlocks[0] ?? null;
-            }
-
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        if ( $this->richTextConverter->handles($tagName) ) {
+            return $this->richTextConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'address' === $tagName ) {
