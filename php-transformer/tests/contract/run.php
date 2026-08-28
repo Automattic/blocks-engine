@@ -561,6 +561,7 @@ $assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['classNa
 $assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
 $socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
 $assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
 $assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
 
