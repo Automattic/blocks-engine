@@ -1140,7 +1140,7 @@ $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
 $outlineButtonCss = implode("\n", array_column($outlineButton['assets'] ?? array(), 'content'));
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
 $assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
-$assert(str_contains($outlineButtonCss, 'border-radius:0'), 'outline button with no source radius carries square radius to suppress default rounded inner button chrome');
+$assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
 
@@ -1238,7 +1238,7 @@ $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:bloc
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
 
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
-    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;border-radius:0;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
 $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));

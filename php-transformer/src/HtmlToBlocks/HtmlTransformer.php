@@ -3434,7 +3434,7 @@ final class HtmlTransformer
             ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->mergedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
@@ -4550,9 +4550,6 @@ if ( 'svg' === $tagName ) {
                 }
                 if ( '' === trim((string) ($style['border']['width'] ?? '')) ) {
                     $declarations[] = 'border-width:0!important';
-                }
-                if ( '' === trim((string) ($style['border']['radius'] ?? '')) ) {
-                    $declarations[] = 'border-radius:0!important';
                 }
             }
             $height = $this->cssComparableValue((string) ($sourceDeclarations['height'] ?? ''));

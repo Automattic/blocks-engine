@@ -8,6 +8,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonStyleResolver;
 
 $failures = 0;
 $passes   = 0;
@@ -104,6 +105,15 @@ $explicitButtonAttrs = $explicitButton['blocks'][0]['innerBlocks'][0]['innerBloc
 $assert(! isset($explicitButtonAttrs['style']['color']['text']) && str_contains($explicitCss, 'color:#102030'), 'explicit anchor color remains authoritative over inherited color through CSS', $explicitMarkup);
 $assert(str_contains($explicitCss, 'text-align:end!important') && ! str_contains($explicitCss, 'text-align:start!important'), 'explicit anchor alignment remains authoritative over inherited alignment', $explicitCss);
 $assert('pass' === ($explicitButton['source_reports']['wp_block_validity']['status'] ?? ''), 'explicit native button remains editor-valid', json_encode($explicitButton['source_reports']['wp_block_validity'] ?? array()));
+
+$resetButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{padding:13.5px 27px;border-radius:56.25px;background:#123456;color:#fff}a{border:0;padding:0}</style><a class="cta" href="/quote">Quote</a>'
+)->toArray();
+$resetButtonCss = implode("\n", array_column($resetButton['assets'] ?? array(), 'content'));
+$assert(str_contains($resetButtonCss, 'border-radius:56.25px!important') && str_contains($resetButtonCss, 'padding-right:27px!important') && str_contains($resetButtonCss, 'padding-left:27px!important'), 'resolved button styling overrides an authored border and padding reset', $resetButtonCss);
+
+$squareButtonStyle = ( new ButtonStyleResolver() )->nativeAttributes('border:0;padding:0;border-radius:0');
+$assert('0' === ($squareButtonStyle['style']['border']['radius'] ?? '') && '0' === ($squareButtonStyle['style']['spacing']['padding']['left'] ?? '') && '0' === ($squareButtonStyle['style']['spacing']['padding']['right'] ?? ''), 'explicit zero button radius and padding remain preserved', json_encode($squareButtonStyle));
 
 foreach ( array(
     '/contact' => array( '', '' ),
