@@ -2185,7 +2185,18 @@ final class HtmlTransformer
             $colon = strpos($declaration, ':');
             $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            if ( '' !== $name && false !== $colon && in_array($name, array( 'position', 'top', 'right', 'bottom', 'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true)
+            // The buttons wrapper is the source control's box in the parent
+            // layout: it is the grid/flex item. Placement and self-alignment
+            // belong there, not on the inner control, which would leave the
+            // wrapper unplaced and push it into normal flow.
+            $wrapperOwned = array(
+                'position', 'top', 'right', 'bottom', 'left', 'z-index',
+                'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+                'grid-area', 'grid-column', 'grid-row',
+                'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
+                'align-self', 'justify-self', 'order',
+            );
+            if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value)
             ) {
                 $geometry[] = $declaration;
