@@ -127,6 +127,7 @@
       "php tests/unit/form-associated-label-submit.php",
       "php tests/unit/named-fragment-target-geometry.php",
       "php tests/unit/button-wrapper-keyword-width.php",
+      "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php",
       "php tests/unit/deterministic-row-deduplicator.php",
