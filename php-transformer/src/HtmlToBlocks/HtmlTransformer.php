@@ -26,6 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
@@ -80,7 +82,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ButtonLinkDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
@@ -108,7 +109,6 @@ final class HtmlTransformer
      * Depth of the shallow tag skeleton compared across wrapper instances.
      */
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
-    use ButtonLinkDispatchTrait;
     use DomHelpersTrait;
     use ElementConversionTrait;
     use FormDispatchTrait;
@@ -249,6 +249,8 @@ final class HtmlTransformer
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
+    private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
+
     private readonly TableElementConverter $tableConverter;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
@@ -283,7 +285,6 @@ final class HtmlTransformer
 
     private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
 
-    private const POSITIONED_FRAGMENT_LINK_CARRIER_CLASS = 'blocks-engine-positioned-fragment-link-carrier';
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
@@ -366,10 +367,43 @@ final class HtmlTransformer
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
+        $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
     }
 
+
+    /**
+     * Collaborator surface for {@see ButtonLinkDispatcher}.
+     */
+    private function createButtonLinkDispatchContext(): ButtonLinkDispatchContext
+    {
+        return new ButtonLinkDispatchContext(
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            function (DOMElement $element): void {
+                $this->recordRuntimeControlIsland($element);
+            },
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
+            },
+            fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->convertLinkWrapperGroup($element, $fallbacks);
+            },
+            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (string $href): string => $this->safeLinkUrl($href),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (string $first, string $second): string => $this->mergeClassNames($first, $second),
+            fn (DOMElement $element): array => $this->structuralPresentationDeclarations($element)
+        );
+    }
 
     /**
      * Collaborator surface for {@see RuntimeIslandAnalyzer}. Session-scoped
@@ -1381,10 +1415,10 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';
         }
-        if ( str_contains($serializedBlocks, self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
+        if ( str_contains($serializedBlocks, ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS) ) {
             // Positioned fragment links retain their source anchor and selectors;
             // their valid paragraph host must not create a line box in document flow.
-            $beforeAuthorCssParts[] = ':where(.' . self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
+            $beforeAuthorCssParts[] = ':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
@@ -3616,7 +3650,7 @@ final class HtmlTransformer
         // to the button dispatcher before generic inline lowering splits their
         // label and decorative SVG into separate paragraph blocks.
         if ( 'a' === $tagName ) {
-            return $this->convertAnchorDispatchElement($element, $fallbacks);
+            return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
 if ( $this->isInlineContentElement($tagName) ) {
@@ -3669,7 +3703,7 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'a' === $tagName ) {
-            return $this->convertAnchorDispatchElement($element, $fallbacks);
+            return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
         if ( 'button' === $tagName ) {
@@ -3682,7 +3716,7 @@ if ( $this->isInlineContentElement($tagName) ) {
                     return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
                 }
             }
-            return $this->convertButtonDispatchElement($element);
+            return $this->buttonLinkDispatcher->convertButton($element);
         }
 
 if ( 'svg' === $tagName ) {
