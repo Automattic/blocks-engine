@@ -302,7 +302,7 @@ trait FormDispatchTrait
             $label = trim($this->attr($textInput, 'placeholder'));
         }
 
-        $attrs = array_merge($this->presentationAttributes($form), array(
+        $attrs = array_merge($this->styleResolver->presentationAttributes($form), array(
             'label'       => '' !== $label ? $label : 'Search',
             'showLabel'   => $showLabel,
             'placeholder' => $this->attr($textInput, 'placeholder'),
@@ -319,7 +319,7 @@ trait FormDispatchTrait
             $attrs['style']['color']['text'] = '#000000';
             $attrs['style']['color']['background'] = 'transparent';
             $attrs['style']['border']['width'] = '0px';
-            $triggerAttrs = $this->presentationAttributes($searchTrigger);
+            $triggerAttrs = $this->styleResolver->presentationAttributes($searchTrigger);
             $attrs['className'] = trim(implode(' ', array_filter(array(
                 (string) ($attrs['className'] ?? ''),
                 (string) ($triggerAttrs['className'] ?? ''),
@@ -361,7 +361,7 @@ trait FormDispatchTrait
             return '';
         }
 
-        $svgDeclarations = $this->presentationDeclarations($svg);
+        $svgDeclarations = $this->styleResolver->presentationDeclarations($svg);
         $width = $this->cssPixelLength((string) ($svgDeclarations['width'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'width'));
         $height = $this->cssPixelLength((string) ($svgDeclarations['height'] ?? '')) ?? $this->cssPixelLength($this->attr($svg, 'height'));
         if ( null === $width || null === $height ) {
@@ -384,7 +384,7 @@ trait FormDispatchTrait
             return $className;
         }
 
-        $declarations = $this->presentationDeclarations($trigger);
+        $declarations = $this->styleResolver->presentationDeclarations($trigger);
         $triggerHeight = isset($declarations['height']) && '' !== trim($declarations['height'])
             ? 'height:' . trim($declarations['height']) . '!important;'
             : '';
@@ -619,7 +619,7 @@ trait FormDispatchTrait
         }
 
         $placeholder = $this->attr($searchInput, 'placeholder');
-        return $this->createBlock('core/search', array_merge($this->presentationAttributes($element), array(
+        return $this->createBlock('core/search', array_merge($this->styleResolver->presentationAttributes($element), array(
             'label'          => '' !== $label ? $label : 'Search',
             'showLabel'      => false,
             'placeholder'    => $placeholder,
@@ -644,7 +644,7 @@ trait FormDispatchTrait
             }
 
             if ( $this->isSubmitLikeControl($control) ) {
-                $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->presentationAttributes($control), array(
+                $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->styleResolver->presentationAttributes($control), array(
                     'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
                 )), array(), $control);
                 continue;
@@ -685,7 +685,7 @@ trait FormDispatchTrait
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($form), $contentBlocks, $form);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($form), $contentBlocks, $form);
     }
 
     /**
@@ -711,7 +711,7 @@ trait FormDispatchTrait
         if ( array() === $children || null === $slotBlock ) return null;
 
         return array(
-            'block' => $this->createBlock('core/group', $this->presentationAttributes($form), $children, $form),
+            'block' => $this->createBlock('core/group', $this->styleResolver->presentationAttributes($form), $children, $form),
             'slot'  => $slotBlock,
         );
     }
@@ -776,7 +776,7 @@ trait FormDispatchTrait
                     return $blocks[0];
                 }
 
-                return array() !== $blocks ? $this->createBlock('core/group', $this->presentationAttributes($element), $blocks, $element) : null;
+                return array() !== $blocks ? $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $blocks, $element) : null;
             }
 
             $label = $this->normalizedControlLabelText($element);
@@ -827,7 +827,7 @@ trait FormDispatchTrait
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
     }
 
     private function recordRuntimeControlIsland(DOMElement $element): void
@@ -883,7 +883,7 @@ trait FormDispatchTrait
         // Form controls are below the general high-value style boundary, so use
         // the selector-resolved author cascade directly as the representation
         // gate. Class/id presence alone is never sufficient.
-        if ( array() === $this->structuralPresentationDeclarations($select) ) {
+        if ( array() === $this->styleResolver->structuralPresentationDeclarations($select) ) {
             $optionBlocks = array();
             foreach ( $options as $option ) {
                 $optionLabel = trim((string) ($option['label'] ?? ''));
@@ -897,7 +897,7 @@ trait FormDispatchTrait
                 $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
             }
 
-            return $this->createBlock('core/group', $this->presentationAttributes($select), array(
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($select), array(
                 $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
                 $this->createBlock('core/list', array(), $optionBlocks, $select),
             ), $select);
@@ -940,7 +940,7 @@ trait FormDispatchTrait
      */
     private function readableInputBlockFromElement(DOMElement $input): ?array
     {
-        if ( array() === $this->structuralPresentationDeclarations($input) ) {
+        if ( array() === $this->styleResolver->structuralPresentationDeclarations($input) ) {
             return null;
         }
         $this->generatedBlocks()->register(AuthoredInputBlockGenerator::class, ( new AuthoredInputBlockGenerator() )->definition());

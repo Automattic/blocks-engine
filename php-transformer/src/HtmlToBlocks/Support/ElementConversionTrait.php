@@ -84,7 +84,7 @@ trait ElementConversionTrait
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
         return null;
@@ -127,7 +127,7 @@ trait ElementConversionTrait
         // element rides the css-owned grid carrier instead of a layout attr.
         $listAttrs = $this->isCssOwnedGridElement($element)
             ? $this->cssOwnedGridAttributes($element)
-            : $this->presentationAttributes($element);
+            : $this->styleResolver->presentationAttributes($element);
 
         return $this->createBlock('core/list', array_merge($listAttrs, 'ol' === $tagName ? array( 'ordered' => true ) : array()), $items, $element);
     }
@@ -147,7 +147,7 @@ trait ElementConversionTrait
         if ( array() !== $items ) {
             $definitionListAttrs = $this->isCssOwnedGridElement($element)
                 ? $this->cssOwnedGridAttributes($element)
-                : $this->presentationAttributes($element);
+                : $this->styleResolver->presentationAttributes($element);
 
             return $this->createBlock('core/list', $definitionListAttrs, $items, $element);
         }
@@ -157,7 +157,7 @@ trait ElementConversionTrait
             return null;
         }
 
-        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
     }
 
     if ( 'dt' === $tagName ) {
@@ -166,14 +166,14 @@ trait ElementConversionTrait
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
     if ( 'dd' === $tagName ) {
         if ( $this->hasBlockContentChildren($element) ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
         }
 
@@ -182,7 +182,7 @@ trait ElementConversionTrait
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $content )), array(), $element);
+        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
     }
 
         return null;
@@ -238,7 +238,7 @@ trait ElementConversionTrait
                 }
             }
             if ( $this->isVisualLayerElement($element) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), array(), $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array(), $element);
             }
             return null;
         }
@@ -294,10 +294,10 @@ trait ElementConversionTrait
                 if ( $this->richTextContentHasStructuralHtml($content) ) {
                     $children = $this->convertChildren($element, $fallbacks, true);
                     if ( array() !== $children ) {
-                        return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
                     }
                 }
-                return $this->createBlock('core/group', $this->presentationAttributes($element), array(
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array(
                     $this->createBlock('core/paragraph', array( 'content' => $content )),
                 ), $element);
             }
@@ -311,7 +311,7 @@ trait ElementConversionTrait
             if ( $this->hasBlockContentChildren($element) || $this->richTextContentHasStructuralHtml($this->innerHtml($element)) ) {
                 $children = $this->convertChildren($element, $fallbacks, true);
                 if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                    return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
                 }
             }
             $content = $this->innerHtml($element);
@@ -322,27 +322,27 @@ trait ElementConversionTrait
                 }
                 $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
                 return $this->createBlock('core/paragraph', array(
-                    'content' => '<mark style="' . htmlspecialchars($this->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
+                    'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
                 ), array(), $element);
             }
         }
 
         $dynamicText = $this->dynamicTextContent($element);
         if ( null !== $dynamicText ) {
-            return $this->createBlock('core/paragraph', array_merge($this->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
+            return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element);
         }
 
         $content = $this->outerHtml($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( 1 === count($children) ) {
-                if ( array() !== $this->presentationAttributes($element) ) {
-                    return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                if ( array() !== $this->styleResolver->presentationAttributes($element) ) {
+                    return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
                 }
                 return $children[0];
             }
             if ( array() !== $children ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
 
             if ( $this->shouldPreserveEmptyVisualElement($element) ) {
@@ -579,12 +579,12 @@ trait ElementConversionTrait
                 return $coalesced;
             }
             if ( $this->shouldPreserveWrapper($element) || $this->isDirectChildOfAuthorOwnedLayout($element) ) {
-                return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+                return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
             }
             return $children[0];
         }
         if ( array() !== $children ) {
-            return $this->createBlock('core/group', $this->presentationAttributes($element), $children, $element);
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
         }
         if ( $this->shouldPreserveEmptyVisualElement($element) ) {
             return $this->emptyVisualSpacerBlock($element);

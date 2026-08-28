@@ -37,7 +37,7 @@ trait NavigationStyleProjectionTrait
                 if ( '' === $color ) {
                     continue;
                 }
-                $safeColor = (string) ($this->styleAttributeMapper()->map(array( 'color' => $color ))['style']['color']['text'] ?? '');
+                $safeColor = (string) ($this->styleResolver->styleAttributeMapper()->map(array( 'color' => $color ))['style']['color']['text'] ?? '');
                 if ( '' === $safeColor ) {
                     continue;
                 }
@@ -273,7 +273,7 @@ trait NavigationStyleProjectionTrait
             foreach ( array( 'top', 'right', 'bottom', 'left' ) as $side ) {
                 $property = 'padding-' . $side;
                 $value = trim((string) ($padding[$side] ?? ''));
-                $safe = $this->safeVisualDeclarations($this->cssDeclarations($property . ':' . $value));
+                $safe = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($property . ':' . $value));
                 if ( '' !== $value
                     && ($safe[$property] ?? null) === $value
                     && ! $this->navigationDeclarationIsImportant($value)
@@ -609,7 +609,7 @@ trait NavigationStyleProjectionTrait
         if ( str_starts_with(ltrim($prelude), '@') ) {
             return;
         }
-        $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
+        $declarations = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($body));
         if ( array() === $declarations ) {
             return;
         }
@@ -769,7 +769,7 @@ trait NavigationStyleProjectionTrait
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->safeVisualDeclarations($this->cssDeclarations($this->attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($this->attr($anchor, 'style')));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -918,8 +918,8 @@ trait NavigationStyleProjectionTrait
                 return null;
             }
 
-            $itemDeclarations = $this->safeVisualDeclarations(
-                $this->cssDeclarations($this->specificityResolvedPresentationStyle($item))
+            $itemDeclarations = $this->styleResolver->safeVisualDeclarations(
+                $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($item))
             );
             foreach ( $itemDeclarations as $itemProperty => $_itemValue ) {
                 if ( $itemProperty !== $property && $this->navigationPropertiesOverlap($property, $itemProperty) ) {
@@ -968,7 +968,7 @@ trait NavigationStyleProjectionTrait
         if ( $candidate['important'] !== $current['important'] ) {
             return $candidate['important'];
         }
-        $specificity = $this->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
+        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
         return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
     }
 
@@ -1004,7 +1004,7 @@ trait NavigationStyleProjectionTrait
         $matched = array();
         foreach ( $this->sourceStyles()->navigationStateRules() as $rule ) {
             if ( ! isset($rule['declarations']['color'])
-                || ! $this->matchesCssSelector($element, $rule['base_selector'])
+                || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
             ) {
                 continue;
             }
@@ -1068,7 +1068,7 @@ trait NavigationStyleProjectionTrait
             }
             if ( '' === $color
                 || preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $color)
-                || array() === $this->cssDeclarations('color:' . $color)
+                || array() === $this->styleResolver->cssDeclarations('color:' . $color)
             ) {
                 continue;
             }

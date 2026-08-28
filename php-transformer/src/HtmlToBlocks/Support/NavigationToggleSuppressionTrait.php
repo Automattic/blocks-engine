@@ -525,7 +525,7 @@ trait NavigationToggleSuppressionTrait
 
     private function hasHiddenDisplay(DOMElement $element): bool
     {
-        $declarations = $this->cssDeclarations($this->specificityResolvedPresentationStyle($element));
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
         return 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($declarations['display'] ?? '')));
     }
 

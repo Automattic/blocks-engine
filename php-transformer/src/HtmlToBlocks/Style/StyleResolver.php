@@ -1,28 +1,33 @@
 <?php
+declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
 
 /**
- * CSS / style-resolution concern extracted from HtmlTransformer.
+ * Resolves source CSS into native block presentation attributes.
  *
- * Resolves an element's declared styling from the source `<style>`/linked CSS
- * and computes presentation attributes: static CSS-rule collection, supported
- * selector matching (`matchesCssSelector`), merged inline + matched-rule style
- * (`mergedPresentationStyle`), CSS declaration parsing/serialization, layout
- * attribute inference, and presentation class-name normalization. This is the
- * CSS-rule resolution the font/typography path and `ButtonStyleResolver` rely
- * on, given a single home so style work no longer collides in the god-object.
+ * Previously `StyleResolutionTrait` — at 2,822 lines the largest
+ * single-consumer trait mixed into `HtmlTransformer`, and therefore the largest
+ * single contributor to that class's object scope. As a trait every one of its
+ * 99 methods resolved against the transformer's `$this`.
  *
- * Methods reference `$this->attr()` / `$this->safeAnchor()` (DomHelpersTrait),
- * `$this->promotedClassName()` / `$this->cardLikeChildCount()`, and the typed
- * source style state, all composed onto HtmlTransformer.
+ * Despite its size this was the most self-contained of the remaining traits:
+ * it needs 15 transformer operations and 3 collaborators, which is fewer
+ * external dependencies than traits a third its size.
  */
-trait StyleResolutionTrait
+final class StyleResolver
 {
+    public function __construct(
+        private readonly StyleResolutionContext $context,
+        private readonly HtmlTransformerAnalysisCache $analysisCache
+    ) {
+    }
+
     private ?StyleAttributeMapper $styleAttributeMapper = null;
 
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
@@ -145,7 +150,7 @@ trait StyleResolutionTrait
     /**
      * @return list<string>
      */
-    private function inlineGeometryProperties(): array
+    public function inlineGeometryProperties(): array
     {
         return array_merge($this->inlineLayoutCarrierProperties(), $this->inlineListMarkerCarrierProperties(), array(
             'width',
@@ -190,14 +195,14 @@ trait StyleResolutionTrait
      */
     private function isNamedFragmentTarget(DOMElement $element): bool
     {
-        if ( '' === trim($this->attr($element, 'id')) ) {
+        if ( '' === trim($this->context->attr($element, 'id')) ) {
             return false;
         }
-        if ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
+        if ( 0 < $this->context->directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
             return false;
         }
 
-        $position = strtolower(trim((string) ($this->cssDeclarations($this->attr($element, 'style'))['position'] ?? '')));
+        $position = strtolower(trim((string) ($this->cssDeclarations($this->context->attr($element, 'style'))['position'] ?? '')));
 
         return in_array($position, array( 'absolute', 'fixed' ), true);
     }
@@ -220,12 +225,12 @@ trait StyleResolutionTrait
         );
     }
 
-    private function resetPresentationResolutionCache(): void
+    public function resetPresentationResolutionCache(): void
     {
-        $this->sourceStyles()->selectorMatchCache = new CssSelectorMatchCache();
+        $this->context->sourceStyles()->selectorMatchCache = new CssSelectorMatchCache();
     }
 
-    private function styleAttributeMapper(): StyleAttributeMapper
+    public function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
     }
@@ -248,7 +253,7 @@ trait StyleResolutionTrait
      *
      * @return array<string, mixed>
      */
-    private function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
+    public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
     {
         return $this->resolvedPresentationAttributes($element, $excludedGeometryProperties, $forcedGeometryProperties, false);
     }
@@ -259,7 +264,7 @@ trait StyleResolutionTrait
      *
      * @return array<string, mixed>
      */
-    private function mediaTextPresentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
+    public function mediaTextPresentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         return $this->resolvedPresentationAttributes($element, $excludedGeometryProperties, array(), true);
     }
@@ -278,7 +283,7 @@ trait StyleResolutionTrait
             . ':' . implode(',', $excludedGeometryProperties)
             . ':' . implode(',', $forcedGeometryProperties)
             . ':' . ($carrierOwnsInlineGeometry ? 'carrier' : 'inline');
-        $cache = $this->presentationResolutionCache();
+        $cache = $this->context->presentationResolutionCache();
         if ( isset($cache->attributes[$cacheKey]) ) {
             return $cache->attributes[$cacheKey];
         }
@@ -290,16 +295,16 @@ trait StyleResolutionTrait
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(
             $declarations,
-            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->context->resolveCssVariablesInValue($value, $element)
         );
         $forcedGeometryDeclarations = array() === $forcedGeometryProperties
             ? array()
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
-            'anchor'    => $this->safeAnchor($this->attr($element, 'id')),
+            'anchor'    => $this->context->safeAnchor($this->context->attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
-                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->promotedClassName($this->attr($element, 'class')),
+                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName($this->context->attr($element, 'class')),
                 $this->editorAnchorClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
@@ -330,7 +335,7 @@ trait StyleResolutionTrait
      */
     private function classOwnedResponsiveDeclarations(DOMElement $element, array $declarations): array
     {
-        if (array() === $declarations || array() === $this->sourceStyles()->conditionalRules()) {
+        if (array() === $declarations || array() === $this->context->sourceStyles()->conditionalRules()) {
             return $declarations;
         }
 
@@ -348,7 +353,7 @@ trait StyleResolutionTrait
             return $declarations;
         }
 
-        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        $inline = $this->cssDeclarations($this->context->attr($element, 'style'));
         foreach (array_keys($declarations) as $property) {
             $family = $this->responsivePropertyFamily($property);
             if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
@@ -371,7 +376,7 @@ trait StyleResolutionTrait
      */
     private function classOwnedBackgroundPaintDeclarations(DOMElement $element, array $declarations): array
     {
-        $inline = $this->cssDeclarations($this->attr($element, 'style'));
+        $inline = $this->cssDeclarations($this->context->attr($element, 'style'));
         foreach ( array(
             'background',
             'background-color',
@@ -392,7 +397,7 @@ trait StyleResolutionTrait
         return $declarations;
     }
 
-    private function responsivePropertyFamily(string $property): string
+    public function responsivePropertyFamily(string $property): string
     {
         $property = strtolower(trim($property));
         if (
@@ -414,7 +419,7 @@ trait StyleResolutionTrait
     /**
      * @param array<string, string> $inline
      */
-    private function inlineOwnsResponsiveProperty(string $property, string $family, array $inline): bool
+    public function inlineOwnsResponsiveProperty(string $property, string $family, array $inline): bool
     {
         if (isset($inline[$property])) {
             return true;
@@ -423,7 +428,7 @@ trait StyleResolutionTrait
         return $property !== $family && isset($inline[$family]);
     }
 
-    private function hasConditionalStyleFamily(DOMElement $element, string $family): bool
+    public function hasConditionalStyleFamily(DOMElement $element, string $family): bool
     {
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             if (! $this->matchesCssSelector($element, $rule['selector'])) {
@@ -444,7 +449,7 @@ trait StyleResolutionTrait
      * inline geometry in a generated stylesheet; class-owned declarations are
      * already retained by author stylesheet materialization.
      */
-    private function inlineGeometryClassName(
+    public function inlineGeometryClassName(
         DOMElement $element,
         array $excludedProperties = array(),
         array $forcedProperties = array(),
@@ -453,8 +458,8 @@ trait StyleResolutionTrait
     ): string
     {
         $declarations = $carrierOwnsInlineGeometry
-            ? $this->mediaTextInlineCascadeDeclarations($this->attr($element, 'style'))
-            : $this->cssDeclarations($this->attr($element, 'style'));
+            ? $this->mediaTextInlineCascadeDeclarations($this->context->attr($element, 'style'))
+            : $this->cssDeclarations($this->context->attr($element, 'style'));
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {
@@ -487,7 +492,7 @@ trait StyleResolutionTrait
         }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
-            && ( 0 < $this->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
+            && ( 0 < $this->context->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
         ) {
             $properties = array_merge($properties, $this->inlineBackgroundCarrierProperties());
         }
@@ -503,7 +508,7 @@ trait StyleResolutionTrait
                 $value .= 'px';
             }
             if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
-                $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->resolvedAssetImageUrl($url));
+                $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
             if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
                 $geometry[$property] = $value;
@@ -587,7 +592,7 @@ trait StyleResolutionTrait
             $importantDeclarations[] = $property . ':' . $value . ' !important';
         }
         $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
-        $className = $this->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $signature);
+        $className = $this->context->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $signature);
         $rules = array();
         if ( array() !== $normalPriorityDeclarations ) {
             $rules[] = ':root .' . $className . '{' . implode(';', $normalPriorityDeclarations) . '}';
@@ -595,7 +600,7 @@ trait StyleResolutionTrait
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
         }
-        $this->layoutGeometry()->registerRule($className, implode("\n", $rules));
+        $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
     }
@@ -656,7 +661,7 @@ trait StyleResolutionTrait
      *
      * @param array<string, string> $inlineDeclarations
      */
-    private function inlineDisplayConflictsWithAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
+    public function inlineDisplayConflictsWithAuthorLayout(DOMElement $element, array $inlineDeclarations): bool
     {
         $inlineDisplay = $this->inlineDisplayValue($inlineDeclarations);
         if ( '' === $inlineDisplay ) {
@@ -757,7 +762,7 @@ trait StyleResolutionTrait
     ): array {
         $candidates = $this->styleAttributeMapper()->map(
             $inlineDeclarations,
-            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->context->resolveCssVariablesInValue($value, $element)
         )['leftover'] ?? array();
         if ( isset($inlineDeclarations['box-shadow']) ) {
             $candidates['box-shadow'] = $inlineDeclarations['box-shadow'];
@@ -791,7 +796,7 @@ trait StyleResolutionTrait
                 }
                 continue;
             }
-            if ( ! in_array($this->cssComparableValue($value), $authorDeclared[ $property ], true) ) {
+            if ( ! in_array($this->context->cssComparableValue($value), $authorDeclared[ $property ], true) ) {
                 $overrides[ $property ] = $value;
             }
         }
@@ -825,9 +830,9 @@ trait StyleResolutionTrait
      * @param array<int, string> $properties
      * @return array<string, array<int, string>>
      */
-    private function authorDeclaredPropertyValues(DOMElement $element, array $properties): array
+    public function authorDeclaredPropertyValues(DOMElement $element, array $properties): array
     {
-        $cache = $this->sourceStyles();
+        $cache = $this->context->sourceStyles();
         sort($properties, SORT_STRING);
         $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $properties);
         if ( isset($cache->authorDeclaredPropertyValues[ $cacheKey ]) ) {
@@ -842,7 +847,7 @@ trait StyleResolutionTrait
             }
             foreach ( $rule['declarations'] as $property => $value ) {
                 if ( isset($wanted[ strtolower((string) $property) ]) ) {
-                    $declared[ strtolower((string) $property) ][] = $this->cssComparableValue((string) $value);
+                    $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
                 }
             }
         }
@@ -871,7 +876,7 @@ trait StyleResolutionTrait
      */
     private function inlineInheritedTextAlignDeclaration(DOMElement $element, array $declarations, array $excludedProperties): array
     {
-        if ( in_array('text-align', $excludedProperties, true) || 0 === $this->directElementChildCount($element) ) {
+        if ( in_array('text-align', $excludedProperties, true) || 0 === $this->context->directElementChildCount($element) ) {
             return array();
         }
 
@@ -955,7 +960,7 @@ trait StyleResolutionTrait
     private function isRightToLeftElement(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $direction = strtolower(trim($this->attr($node, 'dir')));
+            $direction = strtolower(trim($this->context->attr($node, 'dir')));
             if ( '' !== $direction ) {
                 return 'rtl' === $direction;
             }
@@ -1010,15 +1015,15 @@ trait StyleResolutionTrait
      * is auto the figure percentage computes back to auto, so the carry stays
      * faithful even when the driving rule lives behind a media query.
      */
-    private function injectedFigureHeightClassName(DOMElement $image): string
+    public function injectedFigureHeightClassName(DOMElement $image): string
     {
         if ( ! $this->authorStylesDriveImageHeight($image) ) {
             return '';
         }
 
         $rule = 'height:100% !important';
-        $className = $this->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
-        $this->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
+        $className = $this->context->layoutGeometry()->allocateCarrier('figure-height' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
 
         return $className;
     }
@@ -1053,7 +1058,7 @@ trait StyleResolutionTrait
         return 1 === preg_match('/^\d+(?:\.\d+)?%$/', $value);
     }
 
-    private function geometryStructuralPath(DOMElement $element): string
+    public function geometryStructuralPath(DOMElement $element): string
     {
         $segments = array();
         for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
@@ -1071,7 +1076,7 @@ trait StyleResolutionTrait
 
     private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array()): string
     {
-        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $declarations = $this->cssDeclarations($this->context->attr($element, 'style'));
         $style = array();
         $geometryValues = array();
         $properties = $this->inlineGeometryProperties();
@@ -1201,10 +1206,10 @@ trait StyleResolutionTrait
      */
     private function inlineStyleDeclaresAllReset(DOMElement $element): bool
     {
-        return $this->isCssAllResetValue((string) ($this->cssDeclarations($this->attr($element, 'style'))['all'] ?? ''));
+        return $this->isCssAllResetValue((string) ($this->cssDeclarations($this->context->attr($element, 'style'))['all'] ?? ''));
     }
 
-    private function mergePresentationClassNames(string ...$classNames): string
+    public function mergePresentationClassNames(string ...$classNames): string
     {
         $classes = array();
         foreach ($classNames as $className) {
@@ -1218,18 +1223,18 @@ trait StyleResolutionTrait
         return implode(' ', $classes);
     }
 
-    private function generatedGeometryCss(string $serializedBlocks): string
+    public function generatedGeometryCss(string $serializedBlocks): string
     {
-        return $this->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
+        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
     }
 
     /**
      * @return array<string, string>
      */
-    private function presentationDeclarations(DOMElement $element): array
+    public function presentationDeclarations(DOMElement $element): array
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->presentationResolutionCache();
+        $cache = $this->context->presentationResolutionCache();
         if ( isset($cache->declarations[$cacheKey]) ) {
             return $cache->declarations[$cacheKey];
         }
@@ -1253,9 +1258,9 @@ trait StyleResolutionTrait
      *
      * @return array<string, string>
      */
-    private function structuralPresentationDeclarations(DOMElement $element): array
+    public function structuralPresentationDeclarations(DOMElement $element): array
     {
-        $cache = $this->sourceStyles();
+        $cache = $this->context->sourceStyles();
         $cacheKey = $this->presentationCacheKey($element);
         if ( isset($cache->structuralDeclarations[$cacheKey]) ) {
             ++$this->analysisCache->sourceStructuralDeclarationHits;
@@ -1270,7 +1275,7 @@ trait StyleResolutionTrait
             }
         }
 
-        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->context->attr($element, 'style')));
     }
 
     /**
@@ -1300,7 +1305,7 @@ trait StyleResolutionTrait
             }
         }
 
-        foreach ($this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry) {
+        foreach ($this->mediaTextInlineDeclarationEntries($this->context->attr($element, 'style')) as $entry) {
             $this->applyMediaTextCascadeDeclaration(
                 $cascade,
                 $entry['property'],
@@ -1558,9 +1563,9 @@ trait StyleResolutionTrait
     /**
      * @return array{int, int, int}
      */
-    private function mediaTextSelectorSpecificity(string $selector): array
+    public function mediaTextSelectorSpecificity(string $selector): array
     {
-        $parsed = $this->parsedCssSelector($selector);
+        $parsed = $this->context->parsedCssSelector($selector);
         if (! ($parsed['supported'] ?? false)) {
             return array( 0, 0, 0 );
         }
@@ -1588,7 +1593,7 @@ trait StyleResolutionTrait
      * @param array{int, int, int} $left
      * @param array{int, int, int} $right
      */
-    private function compareMediaTextSpecificity(array $left, array $right): int
+    public function compareMediaTextSpecificity(array $left, array $right): int
     {
         foreach ( array( 0, 1, 2 ) as $index ) {
             if ( $left[ $index ] !== $right[ $index ] ) {
@@ -1603,10 +1608,10 @@ trait StyleResolutionTrait
      * Resolve full authored layout style for media-text strict gates, including
      * low-value direct children that general presentation resolution skips.
      */
-    private function mediaTextPresentationStyle(DOMElement $element): string
+    public function mediaTextPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->presentationResolutionCache();
+        $cache = $this->context->presentationResolutionCache();
         if ( isset($cache->mediaTextStyles[$cacheKey]) ) {
             return $cache->mediaTextStyles[$cacheKey];
         }
@@ -1646,9 +1651,9 @@ trait StyleResolutionTrait
         }
 
         if ( array() !== $stripped ) {
-            $this->transformationEvidence()->recordFrozenHiddenState(array(
+            $this->context->transformationEvidence()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
-                'selector'     => $this->elementSelector($element),
+                'selector'     => $this->context->elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $stripped,
             ));
@@ -1657,7 +1662,7 @@ trait StyleResolutionTrait
         return $declarations;
     }
 
-    private function collectEditorHiddenStateFindings(DOMElement $body): void
+    public function collectEditorHiddenStateFindings(DOMElement $body): void
     {
         foreach ( $body->getElementsByTagName('*') as $element ) {
             if ( ! $element instanceof DOMElement ) {
@@ -1669,7 +1674,7 @@ trait StyleResolutionTrait
                     $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
                 }
             }
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->attr($element, 'style')));
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->context->attr($element, 'style')));
             $this->stripFrozenHiddenState($element, $declarations);
         }
     }
@@ -1677,7 +1682,7 @@ trait StyleResolutionTrait
     /** @return array<int, array{selector:string,declarations:array<string,string>}> */
     private function hiddenStateStyleRules(): array
     {
-        $css = preg_replace('@/\*.*?\*/@s', '', $this->authorStyles()->combinedCss()) ?? $this->authorStyles()->combinedCss();
+        $css = preg_replace('@/\*.*?\*/@s', '', $this->context->authorStyles()->combinedCss()) ?? $this->context->authorStyles()->combinedCss();
         $css = $this->topLevelCssRules($css);
         if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -1705,13 +1710,13 @@ trait StyleResolutionTrait
 
     private function editorStaticStateSelector(DOMElement $element): string
     {
-        $id = trim($this->attr($element, 'id'));
+        $id = trim($this->context->attr($element, 'id'));
         if ( preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
             return '#' . $id;
         }
 
         $classes = array_values(array_filter(
-            preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array(),
+            preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array(),
             static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class)
         ));
 
@@ -1723,7 +1728,7 @@ trait StyleResolutionTrait
         if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
             return '';
         }
-        $anchor = $this->safeAnchor($this->attr($element, 'id'));
+        $anchor = $this->context->safeAnchor($this->context->attr($element, 'id'));
         return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
     }
 
@@ -1735,10 +1740,10 @@ trait StyleResolutionTrait
      */
     private function isDecorativeHiddenElement(DOMElement $element): bool
     {
-        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) ) {
             return true;
         }
-        if ( in_array(strtolower(trim($this->attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
+        if ( in_array(strtolower(trim($this->context->attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
             return true;
         }
         if ( in_array(strtolower($element->tagName), array( 'svg', 'canvas' ), true) ) {
@@ -1758,16 +1763,16 @@ trait StyleResolutionTrait
         return true;
     }
 
-    private function mergedPresentationStyle(DOMElement $element): string
+    public function mergedPresentationStyle(DOMElement $element): string
     {
         $cacheKey = $this->presentationCacheKey($element);
-        $cache = $this->presentationResolutionCache();
+        $cache = $this->context->presentationResolutionCache();
         if ( isset($cache->mergedStyles[$cacheKey]) ) {
             return $cache->mergedStyles[$cacheKey];
         }
 
-        $inlineStyle = $this->attr($element, 'style');
-        if ( array() === $this->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
+        $inlineStyle = $this->context->attr($element, 'style');
+        if ( array() === $this->context->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
             $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
         }
@@ -1798,7 +1803,7 @@ trait StyleResolutionTrait
      * use the browser winner. A later low-specificity item class cannot replace
      * an earlier, stronger menu-anchor rule.
      */
-    private function specificityResolvedPresentationStyle(DOMElement $element): string
+    public function specificityResolvedPresentationStyle(DOMElement $element): string
     {
         $cascade = array();
         $sequence = 0;
@@ -1820,7 +1825,7 @@ trait StyleResolutionTrait
             }
         }
 
-        foreach ( $this->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->cssDeclarations($this->context->attr($element, 'style')) as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration(
                 $cascade,
                 (string) $property,
@@ -1844,7 +1849,7 @@ trait StyleResolutionTrait
      * user-agent defaults are deliberately absent: callers use this only when
      * preserving a value the source CSS actually states.
      */
-    private function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
+    public function authoredInheritedPropertyWinner(DOMElement $element, string $property): string
     {
         $property = strtolower(trim($property));
         if ( ! in_array($property, array(
@@ -1879,7 +1884,7 @@ trait StyleResolutionTrait
                 return '';
             }
 
-            return $this->resolveCssVariablesInValue($value);
+            return $this->context->resolveCssVariablesInValue($value);
         }
 
         return '';
@@ -1890,7 +1895,7 @@ trait StyleResolutionTrait
      *
      * @return array{row-gap?: string, column-gap?: string}
      */
-    private function specificityResolvedGapDeclarations(DOMElement $element): array
+    public function specificityResolvedGapDeclarations(DOMElement $element): array
     {
         $cascade = array();
         $sequence = 0;
@@ -1923,7 +1928,7 @@ trait StyleResolutionTrait
             }
         }
 
-        foreach ( $this->mediaTextInlineDeclarationEntries($this->attr($element, 'style')) as $entry ) {
+        foreach ( $this->mediaTextInlineDeclarationEntries($this->context->attr($element, 'style')) as $entry ) {
             $this->applyGapCascadeDeclaration(
                 $cascade,
                 (string) ($entry['property'] ?? ''),
@@ -1975,7 +1980,7 @@ trait StyleResolutionTrait
      * @param array<string, string> $incoming
      * @return array<string, string>
      */
-    private function mergeCssDeclarationMaps(array $base, array $incoming): array
+    public function mergeCssDeclarationMaps(array $base, array $incoming): array
     {
         foreach ( $incoming as $property => $value ) {
             if ( 'all' === $property && $this->isCssAllResetValue($value) ) {
@@ -2044,7 +2049,7 @@ trait StyleResolutionTrait
      *     pseudo: list<array{selector: string, pseudo: string, declarations: array<string, string>}>
      * }
      */
-    private function topLevelStyleAnalysis(string $css): array
+    public function topLevelStyleAnalysis(string $css): array
     {
         $analysis = array('static' => array(), 'navigation_state' => array(), 'pseudo' => array());
         if ( '' === $css ) {
@@ -2128,7 +2133,7 @@ trait StyleResolutionTrait
      *     image_shape: list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
      * }
      */
-    private function structuredStyleAnalysis(string $css): array
+    public function structuredStyleAnalysis(string $css): array
     {
         $analysis = array('conditional' => array(), 'image_shape' => array());
         $order = 0;
@@ -2208,7 +2213,7 @@ trait StyleResolutionTrait
     }
 
     /** @return list<array{property: string, value: string}> */
-    private function imageShapeDeclarationEntries(string $style): array
+    public function imageShapeDeclarationEntries(string $style): array
     {
         $entries = array();
         foreach (CssValueSplitter::splitTopLevel($style, array(';')) as $declaration) {
@@ -2362,7 +2367,7 @@ trait StyleResolutionTrait
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    private function safeVisualDeclarations(array $declarations): array
+    public function safeVisualDeclarations(array $declarations): array
     {
         $safe = array_flip(array(
             '-webkit-background-clip',
@@ -2462,7 +2467,7 @@ trait StyleResolutionTrait
     /**
      * @return array<string, string>
      */
-    private function cssDeclarations(string $style): array
+    public function cssDeclarations(string $style): array
     {
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
@@ -2488,7 +2493,7 @@ trait StyleResolutionTrait
     /**
      * @param array<string, string> $declarations
      */
-    private function cssDeclarationString(array $declarations): string
+    public function cssDeclarationString(array $declarations): string
     {
         $parts = array();
         foreach ( $declarations as $name => $value ) {
@@ -2500,26 +2505,26 @@ trait StyleResolutionTrait
 
     private function isSupportedCssSelector(string $selector): bool
     {
-        return (bool) ($this->parsedCssSelector($selector)['supported'] ?? false);
+        return (bool) ($this->context->parsedCssSelector($selector)['supported'] ?? false);
     }
 
-    private function matchesCssSelector(DOMElement $element, string $selector): bool
+    public function matchesCssSelector(DOMElement $element, string $selector): bool
     {
-        $cache = $this->sourceStyles();
-        $match = ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->parsedCssSelector($selector));
+        $cache = $this->context->sourceStyles();
+        $match = ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->context->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
     }
 
-    private function invalidateSourceSelectorMatchCache(): void
+    public function invalidateSourceSelectorMatchCache(): void
     {
-        $cache = $this->sourceStyles();
+        $cache = $this->context->sourceStyles();
         $cache->selectorMatchCache?->clear();
         $cache->structuralDeclarations = array();
     }
 
-    private function recordSourceSelectorMatchWork(): void
+    public function recordSourceSelectorMatchWork(): void
     {
-        $selectorCache = $this->sourceStyles()->selectorMatchCache;
+        $selectorCache = $this->context->sourceStyles()->selectorMatchCache;
         if ( ! $selectorCache instanceof CssSelectorMatchCache ) {
             return;
         }
@@ -2541,9 +2546,9 @@ trait StyleResolutionTrait
     }
 
     /** @return list<array<string, mixed>> */
-    private function styleRuleCandidates(DOMElement $element, string $collection): array
+    public function styleRuleCandidates(DOMElement $element, string $collection): array
     {
-        $cache = $this->sourceStyles();
+        $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
         return ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
     }
@@ -2552,15 +2557,15 @@ trait StyleResolutionTrait
     private function styleRuleCandidateIndex(string $collection): array
     {
         $rules = match ($collection) {
-            'static' => $this->sourceStyles()->staticRules(),
-            'conditional' => $this->sourceStyles()->conditionalRules(),
+            'static' => $this->context->sourceStyles()->staticRules(),
+            'conditional' => $this->context->sourceStyles()->conditionalRules(),
             'hidden-state' => $this->hiddenStateStyleRules(),
-            'static-conditional' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()),
-            'static-conditional-pseudo' => array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules(), $this->sourceStyles()->pseudoElementRules()),
+            'static-conditional' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()),
+            'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
-            $parsed = $this->parsedCssSelector((string) ($rule['selector'] ?? ''));
+            $parsed = $this->context->parsedCssSelector((string) ($rule['selector'] ?? ''));
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
             $target = 'universal';
@@ -2610,7 +2615,7 @@ trait StyleResolutionTrait
         return 1 === preg_match('/:{1,2}(?:hover|focus-visible|focus-within|focus|active|visited|before|after)\b/i', $selector);
     }
 
-    private function presentationClassName(string $className): string
+    public function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
         $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class) && ! self::isTransformerMarkerClassName($class));
@@ -2646,9 +2651,9 @@ trait StyleResolutionTrait
      */
     private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
     {
-        $declared = trim($this->attr($element, 'data-layout'));
+        $declared = trim($this->context->attr($element, 'data-layout'));
         if ( '' === $declared ) {
-            $declared = trim($this->attr($element, 'data-wp-layout'));
+            $declared = trim($this->context->attr($element, 'data-wp-layout'));
         }
 
         if ( '' !== $declared ) {
@@ -2659,7 +2664,7 @@ trait StyleResolutionTrait
             }
         }
 
-        $inlineStyle = strtolower($this->attr($element, 'style'));
+        $inlineStyle = strtolower($this->context->attr($element, 'style'));
         $mergedDeclarations = $this->cssDeclarations($mergedStyle);
         $inlineDeclarations = $this->cssDeclarations($inlineStyle);
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
@@ -2683,7 +2688,7 @@ trait StyleResolutionTrait
 
             return $layout;
         }
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->attr($element, 'style'));
+        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->context->attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
             && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
         ) {
@@ -2724,11 +2729,11 @@ trait StyleResolutionTrait
         // multi-column arrangement survives even when the children are plain
         // wrappers rather than recognized card markup. Without this the grid
         // collapses to a vertical stack and loses visual parity.
-        if ( $this->hasExplicitGridClass($element) && 1 < $this->directElementChildCount($element) ) {
+        if ( $this->hasExplicitGridClass($element) && 1 < $this->context->directElementChildCount($element) ) {
             return array( 'type' => 'grid' );
         }
 
-        if ( $this->hasGridLikeClass($element) && 1 < $this->cardLikeChildCount($element) ) {
+        if ( $this->hasGridLikeClass($element) && 1 < $this->context->cardLikeChildCount($element) ) {
             return array( 'type' => 'grid' );
         }
 
@@ -2737,7 +2742,7 @@ trait StyleResolutionTrait
 
     private function hasOwnStyleHook(DOMElement $element): bool
     {
-        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'id'));
+        return '' !== trim($this->context->attr($element, 'class')) || '' !== trim($this->context->attr($element, 'id'));
     }
 
     private function layoutJustifyContent(string $value): string
@@ -2815,7 +2820,7 @@ trait StyleResolutionTrait
      */
     private function authorClassTokens(DOMElement $element): string
     {
-        $tokens = preg_split('/\s+/', strtolower(trim($this->attr($element, 'class')))) ?: array();
+        $tokens = preg_split('/\s+/', strtolower(trim($this->context->attr($element, 'class')))) ?: array();
 
         return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
     }
