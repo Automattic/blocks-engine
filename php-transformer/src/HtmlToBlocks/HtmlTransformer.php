@@ -4292,8 +4292,8 @@ if ( 'svg' === $tagName ) {
     }
 
     /**
-     * A linked text logo becomes a paragraph for valid block markup. Carry the
-     * source anchor's exact header winners onto the saved inner anchor instead
+     * A linked text logo becomes a paragraph for valid block markup. Carry
+     * non-inherited header anchor behavior onto the saved inner anchor instead
      * of re-pointing its source selector at a higher-specificity target.
      *
      * @param array<string, mixed> $attrs
@@ -4326,13 +4326,6 @@ if ( 'svg' === $tagName ) {
                 $declarations[$property] = $this->resolveCssVariablesInValue($value);
             }
         }
-        foreach ( array( 'font-family', 'font-size', 'font-style', 'letter-spacing', 'line-height', 'text-transform', 'white-space' ) as $property ) {
-            $value = $this->styleResolver->authoredInheritedPropertyWinner($anchor, $property);
-            if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $value;
-            }
-        }
-
         if ( array() === $declarations ) {
             return;
         }

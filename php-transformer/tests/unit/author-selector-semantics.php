@@ -245,6 +245,22 @@ $assert(
     'synthetic header anchor stays uncoloured when source does not state inherit'
 );
 
+$inheritedHeaderTypography = $transform(
+    '<style>.label{font-family:Georgia;font-size:18px;font-style:italic;letter-spacing:.05em;line-height:1.4;text-transform:uppercase;white-space:nowrap}.brand{display:inline-flex}</style>'
+        . '<header><div class="label"><a class="brand" href="/">Brand</a></div></header>'
+);
+$inheritedHeaderTypographyMarkup = (string) ($inheritedHeaderTypography['serialized_blocks'] ?? '');
+$inheritedHeaderTypographyCss = $css($inheritedHeaderTypography);
+preg_match('/p\.(blocks-engine-synthetic-header-anchor-[a-f0-9]+)>a\{([^}]*)\}/', $inheritedHeaderTypographyCss, $inheritedHeaderTypographyRule);
+$inheritedHeaderTypographyCarrier = (string) ($inheritedHeaderTypographyRule[2] ?? '');
+$assert(
+    str_contains($inheritedHeaderTypographyMarkup, 'wp-block-group label')
+        && str_contains($inheritedHeaderTypographyCss, '.label{font-family:Georgia;font-size:18px')
+        && str_contains($inheritedHeaderTypographyCarrier, 'display:inline-flex')
+        && ! preg_match('/(?:font-family|font-size|font-style|letter-spacing|line-height|text-transform|white-space):/', $inheritedHeaderTypographyCarrier),
+    'header anchor carrier leaves typography to the reconstructed ancestor chain while retaining non-inherited layout'
+);
+
 $mediaLogo = $transform('<a id="brand" href="/"><picture><img src="logo.png" alt=""></picture><span>Brand</span></a>');
 $mediaLogoMarkup = (string) ($mediaLogo['serialized_blocks'] ?? '');
 $assert(
