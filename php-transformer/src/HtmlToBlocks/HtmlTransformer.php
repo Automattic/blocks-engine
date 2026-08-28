@@ -2033,7 +2033,7 @@ final class HtmlTransformer
             if ( '' === $directWrapperPrelude || '' === $geometry ) {
                 return $projectedPrelude . '{' . $body . '}';
             }
-            return $directWrapperPrelude . '{' . $geometry . '}' . ('' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
+            return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
@@ -2041,10 +2041,10 @@ final class HtmlTransformer
             return $projectedPrelude . '{' . $body . '}';
         }
         if ( '' === $control ) {
-            return $wrapperPrelude . '{' . $body . '}';
+            return $this->withButtonWrapperInnerFill($wrapperPrelude, $body);
         }
 
-        return $wrapperPrelude . '{' . $layout . '}' . $projectedPrelude . '{' . $control . '}';
+        return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
     }
 
     private function buttonPresentationWrapperPrelude(string $prelude): string
@@ -2166,6 +2166,44 @@ final class HtmlTransformer
         }
 
         return array( implode(';', $layout), implode(';', $control) );
+    }
+
+    /**
+     * When the buttons wrapper carries a definite width, the inner Gutenberg
+     * button and link must fill it. Otherwise they shrink-wrap and wrap text
+     * into a one-character column.
+     */
+    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = ''): string
+    {
+        $css = $wrapperPrelude . '{' . $layoutCss . '}';
+        if ( $this->cssHasDefiniteWidth($layoutCss) ) {
+            $css .= $wrapperPrelude . '> :where(.wp-block-button){width:100%!important;box-sizing:border-box}'
+                . $wrapperPrelude . '> :where(.wp-block-button)> :where(.wp-block-button__link){width:100%!important;max-width:100%!important;box-sizing:border-box}';
+        }
+
+        return $css . $rest;
+    }
+
+    private function cssHasDefiniteWidth(string $css): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = strtolower(trim(substr($declaration, 0, $colon)));
+            if ( 'width' !== $name && 'min-width' !== $name ) {
+                continue;
+            }
+            $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
+            if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
