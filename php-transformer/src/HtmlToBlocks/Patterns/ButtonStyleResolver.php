@@ -86,9 +86,6 @@ final class ButtonStyleResolver
 
         $border = is_array($mapped['border'] ?? null) ? $mapped['border'] : array();
         if ( array() !== $border ) {
-            if ( '' === trim((string) ($border['radius'] ?? '')) && ! isset($declarations['border-radius']) ) {
-                $border['radius'] = '0';
-            }
             $style['border'] = $border;
         }
 

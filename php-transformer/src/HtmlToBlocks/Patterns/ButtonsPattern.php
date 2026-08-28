@@ -104,14 +104,6 @@ final class ButtonsPattern
         $resolvedPresentation = trim($buttons->resolvedStyle($presentationElement));
         $hasAuthoredStyleRules = $resolvedPresentation !== trim($presentationElement->getAttribute('style'));
         $attrs = $this->buttonPresentationAttributes($presentationElement, $context, $buttons);
-        if ( $presentationElement !== $anchor ) {
-            $anchorStyle = $buttons->resolvedStyle($anchor);
-            if ( preg_match('/(?:^|;)\s*border\s*:\s*(?!0(?:;|$)|none(?:;|$))[^;]+/i', $anchorStyle)
-                && ! preg_match('/(?:^|;)\s*border-radius\s*:/i', $anchorStyle)
-            ) {
-                $attrs['style']['border']['radius'] = '0';
-            }
-        }
         // core/button only saves className on its wrapper. Anchor-root selectors
         // are projected through the generated control marker onto the saved link.
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
@@ -352,20 +344,9 @@ final class ButtonsPattern
                 $attrs['className'] = 'is-style-outline';
             }
             $attrs['style']['color']['background'] = 'transparent';
-            if ( ! $this->hasBorderRadius($attrs) ) {
-                $attrs['style']['border']['radius'] = '0';
-            }
         }
 
         return $attrs;
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function hasBorderRadius(array $attrs): bool
-    {
-        return '' !== trim((string) ($attrs['style']['border']['radius'] ?? ''));
     }
 
     private function mergeClassNames(string ...$classNames): string

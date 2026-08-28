@@ -426,7 +426,7 @@ $assert(str_contains($linkedRichTextMarkerMarkup, '<a href="/"><mark class="labe
 
 $resetRoleButton = ( new HtmlTransformer() )->transform('<style>a{background:0 0;border:0}.label{font-size:25px}</style><a role="button"><span class="label">Contact</span></a>')->toArray();
 $resetRoleButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $resetRoleButton['assets'] ?? array()));
-$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection carries explicit source reset chrome past later theme defaults');
+$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && ! str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection carries only the properties reset by the source border declaration past later theme defaults');
 $assert(str_contains($selectorIdentityMarkup, '<a href="/plain">Plain link</a>') && ! str_contains($selectorIdentityMarkup, '<a class="" href="/plain"'), 'plain links remain native links without invented source identity');
 $emptyAccessibleLink = $transform('<a class="logo-link" id="site-logo" data-kind="brand" href="/" aria-label="Home"></a>');
 $emptyAccessibleLinkMarkup = (string) ($emptyAccessibleLink['serialized_blocks'] ?? '');
