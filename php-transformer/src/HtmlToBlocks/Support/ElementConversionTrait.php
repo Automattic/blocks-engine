@@ -199,7 +199,7 @@ trait ElementConversionTrait
         if ( $this->isInertHiddenSvgStorage($element) ) {
             return null;
         }
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $html = $this->sanitizeInlineSvgMarkup($element);
             if ( $this->isSafeSvgContent($html) ) {
                 return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
@@ -272,7 +272,7 @@ trait ElementConversionTrait
             return $socialLinks;
         }
 
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -372,13 +372,13 @@ trait ElementConversionTrait
     {
         $tagName = strtolower($element->tagName);
 
-        if ( $this->shouldPreserveRuntimeAppShell($element) ) {
-            $targets = $this->runtimeTargetsInSubtree($element, 8);
-            $this->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+        if ( $this->runtimeIslands->shouldPreserveRuntimeAppShell($element) ) {
+            $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
+            $this->runtimeIslands->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
                 'events'          => $this->eventMetadata($element),
                 'target_count'    => count($targets),
                 'targets'         => $targets,
-                'app_shell_signals' => $this->runtimeAppShellSignals($element),
+                'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
                 'required_scripts' => $this->requiredScriptsForElement($element),
             ));
 

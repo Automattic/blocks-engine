@@ -26,6 +26,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementContext;
@@ -83,7 +85,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\RuntimeIslandTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -113,7 +114,6 @@ final class HtmlTransformer
     use FormDispatchTrait;
     use NavigationStyleProjectionTrait;
     use NavigationToggleSuppressionTrait;
-    use RuntimeIslandTrait;
     use StyleResolutionTrait;
     use SvgMaterializationTrait;
 
@@ -247,6 +247,8 @@ final class HtmlTransformer
 
     private readonly RichTextElementConverter $richTextConverter;
 
+    private readonly RuntimeIslandAnalyzer $runtimeIslands;
+
     private readonly TableElementConverter $tableConverter;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
@@ -363,8 +365,37 @@ final class HtmlTransformer
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
+        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
+    }
+
+
+    /**
+     * Collaborator surface for {@see RuntimeIslandAnalyzer}. Session-scoped
+     * state is resolved lazily so the analyzer always sees the running transform.
+     */
+    private function createRuntimeIslandContext(): RuntimeIslandContext
+    {
+        return new RuntimeIslandContext(
+            fn (): FallbackEmitter => $this->fallbackEmitter(),
+            fn (): RuntimeDomState => $this->runtimeDom(),
+            fn (): RuntimeSelectorState => $this->runtimeSelectors(),
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): iterable => $this->descendantElements($element),
+            fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
+            fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
+            fn (DOMElement $element): bool => $this->formHasDataEntryControls($element),
+            fn (DOMElement $element): bool => $this->hasFormAncestor($element),
+            fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
+            fn (DOMElement $element): bool => $this->isDivBasedPseudoForm($element),
+            fn (DOMElement $element): bool => $this->isFormControlElement($element),
+            fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+            fn (string $selector): bool => $this->isPresentationalAnimationSelector($selector),
+            fn (array $rows): array => $this->dedupeArrayRows($rows)
+        );
     }
 
     /**
@@ -424,7 +455,7 @@ final class HtmlTransformer
             fn (DOMElement $element): ?array => $this->authoredMarqueeBlock($element),
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
-            fn (DOMElement $element): bool => $this->isRuntimeDomTarget($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (string $text): array => $this->convertText($text),
             fn (string $html): string => $this->runtime->stripAllTags($html),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -560,16 +591,16 @@ final class HtmlTransformer
             $this->assetMetadataFromOptions($options)
         ));
         $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
-        $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeScriptMetadataFromOptions($options));
+        $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
         $this->resetPresentationResolutionCache();
-        $runtimeDomSelectors = $this->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
+        $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
             $runtimeDomSelectors,
-            $this->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
-            $this->runtimeCanvasSelectorsFromOptions($options)
+            $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_behavioral_selectors'),
+            $this->runtimeIslands->runtimeCanvasSelectorsFromOptions($options)
         ));
         $this->session->installLayoutGeometryState(new LayoutGeometryState(
             is_array($options['layout_geometry_proof']['reductions'] ?? null) ? $options['layout_geometry_proof']['reductions'] : array()
@@ -675,7 +706,7 @@ final class HtmlTransformer
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
         }
-        $this->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
+        $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
         $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
         $this->appendCommerceControlsFallbacks($body, $fallbacks);
@@ -912,7 +943,7 @@ final class HtmlTransformer
         libxml_use_internal_errors($previous);
         if ($loaded) {
             foreach ($document->getElementsByTagName('*') as $element) {
-                if ($element instanceof DOMElement && $this->isRuntimeDomTarget($element)) {
+                if ($element instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($element)) {
                     return null;
                 }
             }
@@ -1204,7 +1235,7 @@ final class HtmlTransformer
             && '' === trim($this->attr($element, 'role'))
             && '' === trim($this->attr($element, 'style'))
             && array() === $this->interactiveAttributes($element)
-            && ! $this->isRuntimeDomTarget($element)
+            && ! $this->runtimeIslands->isRuntimeDomTarget($element)
             && ! $this->hasMotionStructureToken($element);
     }
 
@@ -1252,11 +1283,11 @@ final class HtmlTransformer
     {
         $block = $this->createBlock($generated['blockName'], $generated['attrs'], array(), $element);
         foreach (array_merge(array($element), $this->descendantElements($element)) as $target) {
-            if (! $this->isRuntimeDomTarget($target)) {
+            if (! $this->runtimeIslands->isRuntimeDomTarget($target)) {
                 continue;
             }
             $block['_editability_runtime_owned'] = true;
-            $this->recordNativeRuntimeDomPreservation($target, $generated['blockName']);
+            $this->runtimeIslands->recordNativeRuntimeDomPreservation($target, $generated['blockName']);
         }
         return $block;
     }
@@ -3310,7 +3341,7 @@ final class HtmlTransformer
                 }
             ),
             new NavigationPatternContext(
-                $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->isRuntimeDomTarget($sourceElement) : null,
+                $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
@@ -3504,7 +3535,7 @@ final class HtmlTransformer
             return $this->capturedDialogBlock($element, $fallbacks);
         }
 
-        if ( $this->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        if ( $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -3659,11 +3690,11 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( 'canvas' === $tagName ) {
-            if ( ! $this->isRuntimeCanvasTarget($element) ) {
+            if ( ! $this->runtimeIslands->isRuntimeCanvasTarget($element) ) {
                 return null;
             }
 
-            $this->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
+            $this->runtimeIslands->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
                 'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
                 'required_scripts'        => $this->requiredScriptsForElement($element),
             ));
@@ -3673,7 +3704,7 @@ if ( 'svg' === $tagName ) {
         if ( 'script' === $tagName ) {
             if ( $this->captureStaticScriptMetadata($element) ) {
                 if ( $this->isAddressableStaticJsonTarget($element) ) {
-                    $this->recordRuntimeIsland($element, 'static_script', 'static_script_runtime_target', 'client_script_configuration', array(
+                    $this->runtimeIslands->recordRuntimeIsland($element, 'static_script', 'static_script_runtime_target', 'client_script_configuration', array(
                         'script_role' => 'data',
                         'required_scripts' => $this->requiredScriptsForElement($element),
                     ));
@@ -3815,7 +3846,7 @@ if ( 'svg' === $tagName ) {
 
     private function isSafeTransparentCustomElement(DOMElement $element): bool
     {
-        if ( $this->isRuntimeDomTarget($element) || array() !== $this->eventMetadata($element) || $this->hasMotionStructureToken($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) || array() !== $this->eventMetadata($element) || $this->hasMotionStructureToken($element) ) {
             return false;
         }
 
@@ -4121,16 +4152,16 @@ if ( 'svg' === $tagName ) {
             $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
-            if ( $this->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+            if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
                 $runtimeOwned = true;
-                if ( ! $this->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
-                    $this->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                if ( ! $this->runtimeIslands->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
+                    $this->runtimeIslands->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
                         'events'          => $this->eventMetadata($sourceElement),
                         'required_scripts' => $this->requiredScriptsForElement($sourceElement),
                     ));
-                    $this->recordRuntimeDomFallback($sourceElement, $name);
+                    $this->runtimeIslands->recordRuntimeDomFallback($sourceElement, $name);
                 } else {
-                    $this->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
+                    $this->runtimeIslands->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
                 }
             }
             $provenanceId = $this->transformationProvenance()->registerSource(
@@ -5593,7 +5624,7 @@ if ( 'svg' === $tagName ) {
                 continue;
             }
 
-            if ( '' === trim($sourceInline->textContent ?? '') && 0 === $this->childElementCount($sourceInline) && ! $this->isRuntimeDomTarget($sourceInline) && ! $this->shouldPreserveEmptyVisualElement($sourceInline) ) {
+            if ( '' === trim($sourceInline->textContent ?? '') && 0 === $this->childElementCount($sourceInline) && ! $this->runtimeIslands->isRuntimeDomTarget($sourceInline) && ! $this->shouldPreserveEmptyVisualElement($sourceInline) ) {
                 $targetInline->parentNode?->removeChild($targetInline);
                 continue;
             }
@@ -6052,7 +6083,7 @@ if ( 'svg' === $tagName ) {
             );
         }
 
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return array(
                 'conversion_classification' => 'runtime_island_preserved',
                 'preservation_strategy'     => 'core_block_shell_with_runtime_target',
@@ -6169,7 +6200,7 @@ if ( 'svg' === $tagName ) {
 
     private function shouldPreserveWrapper(DOMElement $element): bool
     {
-        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
+        return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
     /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
@@ -6181,7 +6212,7 @@ if ( 'svg' === $tagName ) {
         if ( 'div' !== strtolower($element->tagName)
             || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
             || ($fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null))
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || (null === $proof && $this->isDirectChildOfStructuralLayout($element))
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
@@ -6248,7 +6279,7 @@ if ( 'svg' === $tagName ) {
     private function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
         $proof = $this->layoutGeometryProofFor($element);
-        if (null === $proof || $this->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->hasMotionStructureToken($element)) return null;
+        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)) return null;
         $sourceChild = $this->soleElementChild($element);
@@ -6330,7 +6361,7 @@ if ( 'svg' === $tagName ) {
     private function isNeutralGroupChainWrapper(DOMElement $element): bool
     {
         if ( 'div' !== strtolower($element->tagName)
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
@@ -6692,13 +6723,13 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( $this->isInlineContentElement(strtolower($element->tagName)) ) {
-            return $this->isRuntimeDomTarget($element)
+            return $this->runtimeIslands->isRuntimeDomTarget($element)
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
                 || 'true' === strtolower($this->attr($element, 'aria-hidden'))
                 || $this->isEmptyVisualInlineCandidate($element);
         }
 
-        if ( $this->isRuntimeDomTarget($element)
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element)
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
             || array() !== $this->interactiveAttributes($element)
@@ -6762,7 +6793,7 @@ if ( 'svg' === $tagName ) {
         $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role')));
         if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
             || '' !== $this->renderedTextContent($element)
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->isDirectChildOfStructuralLayout($element)
             || $this->hasAuthorInlineAlignment($element)
         ) {
@@ -6776,7 +6807,7 @@ if ( 'svg' === $tagName ) {
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->isRuntimeDomTarget($descendant) ) {
+            if ( $descendant instanceof DOMElement && $this->runtimeIslands->isRuntimeDomTarget($descendant) ) {
                 return false;
             }
         }
@@ -6798,7 +6829,7 @@ if ( 'svg' === $tagName ) {
         if ( 0 !== $this->childElementCount($element)
             || '' !== trim($element->textContent ?? '')
             || ! $this->sourceElementStartsHidden($element)
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasConditionalStyleFamily($element, 'layout')
             || $this->hasConditionalStyleFamily($element, 'visibility')
             || $this->hasConditionalStyleFamily($element, 'opacity')
@@ -6877,7 +6908,7 @@ if ( 'svg' === $tagName ) {
         }
 
         $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
             $this->runtimeBehavior()->markEmptyRuntimeTargetGenerated();
         }
@@ -7600,7 +7631,7 @@ if ( 'svg' === $tagName ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            if ( $this->isRuntimeDomTarget($child) ) {
+            if ( $this->runtimeIslands->isRuntimeDomTarget($child) ) {
                 ++$targets;
             }
         }
@@ -8287,7 +8318,7 @@ if ( 'svg' === $tagName ) {
         if ( null === $block ) {
             return array();
         }
-        return $this->blockBinding($block, 'commerce_controls', $this->runtimeDomSelectorsForElement($control));
+        return $this->blockBinding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
     }
 
     /**
@@ -8825,7 +8856,7 @@ if ( 'svg' === $tagName ) {
             return false;
         }
 
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return false;
         }
 
@@ -10370,7 +10401,7 @@ if ( 'svg' === $tagName ) {
             if ( in_array($tagName, array( 'canvas', 'iframe', 'template' ), true) ) {
                 return true;
             }
-            if ( 'textarea' === $tagName && $this->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
+            if ( 'textarea' === $tagName && $this->runtimeIslands->textareaIsRuntimeWorkspaceSurface($descendant, $element) ) {
                 return true;
             }
             if ( '' !== trim($this->attr($descendant, 'contenteditable')) ) {
@@ -11360,7 +11391,7 @@ if ( 'svg' === $tagName ) {
     private function capturedMediaLayoutBoundaryBlock(DOMElement $element): ?array
     {
         if ( ! in_array(strtolower($element->tagName), array('main', 'article', 'section', 'div', 'figure'), true)
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
@@ -11502,7 +11533,7 @@ if ( 'svg' === $tagName ) {
             if (str_starts_with((string) $selector, '.') && in_array(substr((string) $selector, 1), $this->classNames($element), true)) {
                 return true;
             }
-            if ($this->elementMatchesRuntimeSelector($element, (string) $selector)) {
+            if ($this->runtimeIslands->elementMatchesRuntimeSelector($element, (string) $selector)) {
                 return true;
             }
         }
@@ -11663,7 +11694,7 @@ if ( 'svg' === $tagName ) {
             || $this->hasConditionalStyleFamily($element, 'layout')
             || $this->hasConditionalStyleFamily($element, 'visibility')
             || $this->hasConditionalStyleFamily($element, 'opacity')
-            || $this->isRuntimeDomTarget($element)
+            || $this->runtimeIslands->isRuntimeDomTarget($element)
             || '' !== trim($this->attr($element, 'src'))
             || '' !== trim($this->attr($element, 'srcdoc'))
             || '' !== trim($this->attr($element, 'name'))
@@ -12159,7 +12190,7 @@ if ( 'svg' === $tagName ) {
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
-        $this->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+        $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
             'preservation_strategy' => 'sanitized_embed_markup',
             'attributes'            => $this->safeEmbedAttributes($iframe),
         ));
