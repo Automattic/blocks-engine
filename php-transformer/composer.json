@@ -144,7 +144,9 @@
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
             "php tests/unit/text-leaf-element-converter.php",
-            "php tests/unit/rich-text-element-converter.php"
+            "php tests/unit/rich-text-element-converter.php",
+            "php tests/unit/table-element-converter.php",
+            "php tests/unit/unsupported-element-recorder.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
