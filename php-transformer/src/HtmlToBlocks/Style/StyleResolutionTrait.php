@@ -564,6 +564,11 @@ trait StyleResolutionTrait
         // specificity. The !important tier would additionally beat authored
         // non-important `:hover`/`:focus` rules and delete the interactive
         // states the source still wants.
+        // Background-image heroes pin a definite box through :root .carrier
+        // (0,2,0). Other height carriers still need !important to beat IDs.
+        if ( isset($geometry['height']) && preg_match('/\burl\s*\(/i', $inlineBackground) ) {
+            $overrideDeclarations['height'] = $geometry['height'];
+        }
         $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
         foreach ($geometry as $property => $value) {
             if ( isset($inlineListMarkerPropertyLookup[$property])

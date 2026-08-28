@@ -304,11 +304,12 @@ $assertTrue(! isset($heightCover['attrs']['style']['dimensions']['minHeight']), 
 $assertTrue($heightCarrierClasses !== array(), 'K3: Definite-height hero carries a generated geometry carrier class on the cover.');
 $heightCarrierHasHeight = false;
 foreach ( $heightCarrierClasses as $heightCarrierClass ) {
-    if ( str_contains($heightCss, '.' . $heightCarrierClass . '{height:345.5px !important}') ) {
+    if ( str_contains($heightCss, ':root .' . $heightCarrierClass . '{height:345.5px}')
+        && ! str_contains($heightCss, '.' . $heightCarrierClass . '{height:345.5px !important}') ) {
         $heightCarrierHasHeight = true;
     }
 }
-$assertTrue($heightCarrierHasHeight, 'K3: Definite-height hero pins the cover box through a carrier height rule so absolute cover media stays contained and the next section starts at the hero bottom (#1285).');
+$assertTrue($heightCarrierHasHeight, 'K3: Definite-height hero pins the cover box through a :root carrier height rule without !important.');
 
 // K4: CSS-owned semantic flex heroes retain their source section and direct children.
 $columnsResult = $transformHtml('<section style="display:flex;background-image:url(https://example.com/h.jpg);background-size:cover"><div style="flex:1"><h1>Left</h1></div><div style="flex:1"><p>Right</p></div></section>');
