@@ -2177,8 +2177,11 @@ final class HtmlTransformer
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
         if ( $this->cssHasDefiniteWidth($layoutCss) ) {
-            $css .= $wrapperPrelude . '> :where(.wp-block-button){width:100%!important;box-sizing:border-box}'
-                . $wrapperPrelude . '> :where(.wp-block-button)> :where(.wp-block-button__link){width:100%!important;max-width:100%!important;box-sizing:border-box}';
+            $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
+            $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
+            $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
+            $css .= $button . '{width:100%!important;box-sizing:border-box}'
+                . $link . '{width:100%!important;max-width:100%!important;box-sizing:border-box}';
         }
 
         return $css . $rest;
