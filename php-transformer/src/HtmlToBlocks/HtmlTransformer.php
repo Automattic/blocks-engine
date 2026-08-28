@@ -1350,6 +1350,9 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
         }
+        if ( str_contains($serializedBlocks, 'wp:social-links') ) {
+            $afterAuthorCssParts[] = '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
+        }
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $afterAuthorCssParts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
         }
