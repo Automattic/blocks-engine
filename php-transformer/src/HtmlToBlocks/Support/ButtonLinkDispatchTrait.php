@@ -16,7 +16,7 @@ trait ButtonLinkDispatchTrait
      */
     private function convertAnchorDispatchElement(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -108,7 +108,7 @@ trait ButtonLinkDispatchTrait
      */
     private function convertButtonDispatchElement(DOMElement $element): ?array
     {
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $this->recordRuntimeControlIsland($element);
             return $this->htmlPreservationBlock($element);
         }

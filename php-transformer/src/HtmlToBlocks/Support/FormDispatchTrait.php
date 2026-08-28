@@ -92,7 +92,7 @@ trait FormDispatchTrait
     private function recordFormRuntimeIsland(DOMElement $element, ?array $readableFormBlock): void
     {
         $controls = $this->formControls($element);
-        $this->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
+        $this->runtimeIslands->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
             'form'             => $this->formMetadata($element),
             'controls'         => $controls,
             'control_count'    => count($controls),
@@ -580,7 +580,7 @@ trait FormDispatchTrait
      */
     private function searchBlockFromStandaloneControl(DOMElement $element): ?array
     {
-        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) || $this->isRuntimeDomTarget($element) ) {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->eventMetadata($element) || $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             return null;
         }
 
@@ -590,7 +590,7 @@ trait FormDispatchTrait
                 $inputs[] = $input;
             }
         }
-        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) || $this->isRuntimeDomTarget($inputs[0]) ) {
+        if ( 1 !== count($inputs) || array() !== $this->eventMetadata($inputs[0]) || $this->runtimeIslands->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
         $controls = $this->formControlElements($element);
@@ -650,8 +650,8 @@ trait FormDispatchTrait
                 continue;
             }
 
-            if ( $this->isRuntimeDomTarget($control) ) {
-                $this->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
+            if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
+                $this->runtimeIslands->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
                     'control'          => $this->formControlMetadata($control),
                     'events'           => $this->eventMetadata($control),
                     'required_scripts' => $this->requiredScriptsForElement($control),
@@ -761,7 +761,7 @@ trait FormDispatchTrait
                         return null;
                     }
 
-                    if ( $this->isRuntimeDomTarget($control) ) {
+                    if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
                         $this->recordRuntimeControlIsland($control);
                         return $this->htmlPreservationBlock($element);
                     }
@@ -803,7 +803,7 @@ trait FormDispatchTrait
             return $this->htmlPreservationBlock($element);
         }
 
-        if ( $this->isRuntimeDomTarget($element) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $this->recordRuntimeControlIsland($element);
             return $this->htmlPreservationBlock($element);
         }
@@ -832,7 +832,7 @@ trait FormDispatchTrait
 
     private function recordRuntimeControlIsland(DOMElement $element): void
     {
-        $this->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
+        $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
             'control'          => $this->formControlMetadata($element),
             'events'           => $this->eventMetadata($element),
             'required_scripts' => $this->requiredScriptsForElement($element),
@@ -860,7 +860,7 @@ trait FormDispatchTrait
             return false;
         }
 
-        $this->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
+        $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
             'control'          => $this->formControlMetadata($element),
             'events'           => $this->eventMetadata($element),
             'required_scripts' => $this->requiredScriptsForElement($element),
@@ -1043,12 +1043,12 @@ trait FormDispatchTrait
 
     private function formHasRuntimeDomTargets(DOMElement $form): bool
     {
-        if ( $this->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
+        if ( $this->runtimeIslands->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
             return true;
         }
 
         foreach ( $this->formControlElements($form) as $control ) {
-            if ( $this->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
+            if ( $this->runtimeIslands->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
                 return true;
             }
         }
@@ -1085,7 +1085,7 @@ trait FormDispatchTrait
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
-        $supersededRuntimeSelectors = $this->runtimeDomSelectorsForElement($element);
+        $supersededRuntimeSelectors = $this->runtimeIslands->runtimeDomSelectorsForElement($element);
         if ( $replacesRuntimeIsland ) $supersededRuntimeSelectors[] = $this->runtimeIslandSelector($element);
 
         $finding = array(
