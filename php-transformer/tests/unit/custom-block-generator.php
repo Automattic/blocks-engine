@@ -173,7 +173,10 @@ $shellResult = ( new HtmlTransformer() )->transform($projectedChain)->toArray();
 $shellBlock = $shellResult['blocks'][0] ?? array();
 $shellDefinitions = array_values(array_filter($shellResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
 $assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell') && 8 === count($shellBlock['attrs']['wrappers'] ?? array()) && 'core/paragraph' === ($shellBlock['innerBlocks'][0]['blockName'] ?? null), '6: a projected wrapper chain becomes one layout-shell block around native editable content');
-$assert(1 === count($shellDefinitions) && str_contains((string) ($shellDefinitions[0]['assets']['index.js'] ?? ''), 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
+$shellScript = (string) ($shellDefinitions[0]['assets']['index.js'] ?? '');
+$assert(1 === count($shellDefinitions) && str_contains($shellScript, 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
+$assert(str_contains($shellScript, 'function wrappedContent( wrappers, content, outerProps )') && str_contains($shellScript, 'props = outerProps( props )') && str_contains($shellScript, 'wrappedContent( wrappers, content, useBlockProps )') && str_contains($shellScript, 'edit: edit,'), '6: layout-shell edit preserves the save wrapper chain and merges block props onto its outermost wrapper');
+$assert(str_contains($shellScript, "wrappers.length ? wrappedContent( wrappers, content, useBlockProps ) : createElement( 'div', useBlockProps(), content )"), '6: layout-shell edit retains an editor wrapper for empty source chains');
 $assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 8 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
 
 $emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();

@@ -36,17 +36,24 @@ final class LayoutShellBlockGenerator
         } );
         return props;
     }
-    function savedContent( wrappers ) {
-        var content = createElement( InnerBlocks.Content );
+    function wrappedContent( wrappers, content, outerProps ) {
         for ( var index = ( wrappers || [] ).length - 1; index >= 0; index-- ) {
-            content = createElement( wrappers[ index ].tagName || 'div', wrapperProps( wrappers[ index ].attributes ), content );
+            var props = wrapperProps( wrappers[ index ].attributes );
+            if ( index === 0 && outerProps ) { props = outerProps( props ); }
+            content = createElement( wrappers[ index ].tagName || 'div', props, content );
         }
         return content;
+    }
+    function savedContent( wrappers ) { return wrappedContent( wrappers, createElement( InnerBlocks.Content ) ); }
+    function edit( props ) {
+        var wrappers = props.attributes.wrappers || [];
+        var content = createElement( InnerBlocks );
+        return wrappers.length ? wrappedContent( wrappers, content, useBlockProps ) : createElement( 'div', useBlockProps(), content );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { wrappers: { type: 'array', default: [] } },
         supports: { html: false, reusable: false },
-        edit: function() { return createElement( 'div', useBlockProps(), createElement( InnerBlocks ) ); },
+        edit: edit,
         save: function( props ) { return savedContent( props.attributes.wrappers ); }
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
