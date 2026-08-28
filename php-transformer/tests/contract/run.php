@@ -572,6 +572,7 @@ $spanSocialServices = array_map(static fn(array $link): string => (string) ($lin
 $assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
 $assert(array( 'facebook', 'instagram', 'mail' ) === $spanSocialServices, 'placeholder social hrefs are skipped and mailto maps to the mail service', json_encode($spanSocialServices));
 $assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
+$assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
 $assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();

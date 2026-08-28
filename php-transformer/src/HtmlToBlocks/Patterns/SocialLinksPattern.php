@@ -78,10 +78,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
         if ( $iconOnly ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
-            $size = $this->iconSize($anchors);
-            if ( null !== $size ) {
-                $attrs['size'] = $size;
-            }
+            $attrs['size'] = $this->iconSize($anchors) ?? 'small';
         }
         if ( $structuralItems ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
