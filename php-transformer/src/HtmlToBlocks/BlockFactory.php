@@ -425,6 +425,10 @@ final class BlockFactory
         unset($wrapperAttrs['layout']);
         if ( ! empty($attrs['minHeight']) ) {
             $unit = '' !== (string) ($attrs['minHeightUnit'] ?? '') ? (string) $attrs['minHeightUnit'] : 'px';
+            // Only the minHeight floor rides the inline style: cover's save()
+            // regenerates it from the minHeight attribute, so the stored
+            // markup round-trips. A definite source height is pinned through
+            // the generated geometry carrier instead (CoverPattern).
             $wrapperAttrs['inlineGeometryStyle'] = trim(
                 (string) ($wrapperAttrs['inlineGeometryStyle'] ?? '') . ';min-height:' . (string) $attrs['minHeight'] . $unit,
                 ';'

@@ -116,7 +116,25 @@ final class CoverPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $excludedProperties = array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height', 'height' );
+        $minHeight = null;
+        try {
+            $minHeight = $this->styleResolver->minHeightFromStyle($style);
+        } catch ( Throwable ) {
+            $minHeight = null;
+        }
+
+        // A definite source height (fixed `height`, no `min-height`) fixes the
+        // hero box: core sizes wp-block-cover__image-background to the wrapper
+        // and already clips overflow, so the cover must keep that fixed box or
+        // in-flow overlay content grows the hero past the source section and
+        // pushes the following sections down. The height rides the generated
+        // geometry carrier (className + authored stylesheet), the one channel
+        // core/cover's save() round-trips verbatim — an inline wrapper height
+        // would diverge from save() and flag the block for editor recovery.
+        $excludedProperties = array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height' );
+        if ( null === $minHeight || empty($minHeight['definite']) ) {
+            $excludedProperties[] = 'height';
+        }
         try {
             $attrs = $presentationAttributes($element, $excludedProperties);
         } catch ( Throwable ) {
@@ -159,14 +177,9 @@ final class CoverPattern implements PatternRecognizerInterface
         $this->promoteDesignGradient($attrs, $dim);
         $this->removeConsumedGradient($attrs);
 
-        try {
-            $minHeight = $this->styleResolver->minHeightFromStyle($style);
-            if ( null !== $minHeight ) {
-                $attrs['minHeight'] = $minHeight['minHeight'];
-                $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
-            }
-        } catch ( Throwable ) {
-            // Omit underivable height attributes.
+        if ( null !== $minHeight ) {
+            $attrs['minHeight'] = $minHeight['minHeight'];
+            $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
         }
 
         try {
