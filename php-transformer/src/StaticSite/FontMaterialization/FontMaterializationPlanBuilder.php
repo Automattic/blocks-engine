@@ -12,6 +12,15 @@ final class FontMaterializationPlanBuilder
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'revert', 'revert-layer', 'unset');
 
     /**
+     * Typography consumers rescan one shared stylesheet for every page. A
+     * caller that compiles several pages supplies a cache so the immutable
+     * CSS-derived analysis is built once for the stylesheets it shares.
+     */
+    public function __construct(private readonly CssFontAnalysisCache $fontAnalysisCache = new CssFontAnalysisCache())
+    {
+    }
+
+    /**
      * @param array<int,array<string,mixed>> $fontUsage
      * @param array<string,string> $roles
      * @return array<string,mixed>
@@ -236,29 +245,6 @@ final class FontMaterializationPlanBuilder
             if ( '' === $href ) {
                 continue;
             }
-            foreach ( $this->fontUsageFromFontHref($href) as $font ) {
-                $usage[] = $font;
-            }
-        }
-
-        return $usage;
-    }
-
-    /**
-     * Parse web-font stylesheet URLs from CSS `@import` rules.
-     *
-     * @return array<int,array{family:string,weights:array<int,int>}>
-     */
-    private function fontUsageFromCssImports(string $css): array
-    {
-        $css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
-        if ( '' === trim($css) || ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $usage = array();
-        foreach ( $matches as $match ) {
-            $href = (string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? ''));
             foreach ( $this->fontUsageFromFontHref($href) as $font ) {
                 $usage[] = $font;
             }
@@ -519,6 +505,15 @@ final class FontMaterializationPlanBuilder
      */
     public function fontFamilyDeclarationsFromCssSources(array $stylesheets): array
     {
+        return $this->fontAnalysisCache->declarations($stylesheets, fn (): array => $this->buildFontFamilyDeclarations($stylesheets));
+    }
+
+    /**
+     * @param list<string> $stylesheets
+     * @return list<array{family:string,selector:string,source_snippet:string}>
+     */
+    private function buildFontFamilyDeclarations(array $stylesheets): array
+    {
         $variables = $this->cssVariableValues($stylesheets);
         $visitor = new CssStylesheetTransformer();
         $declarations = array();
@@ -549,6 +544,12 @@ final class FontMaterializationPlanBuilder
 
     /** @param list<string> $stylesheets @return array<string,string> */
     public function cssVariableValues(array $stylesheets): array
+    {
+        return $this->fontAnalysisCache->variables($stylesheets, fn (): array => $this->buildCssVariableValues($stylesheets));
+    }
+
+    /** @param list<string> $stylesheets @return array<string,string> */
+    private function buildCssVariableValues(array $stylesheets): array
     {
         $variables = array();
         $visitor = new CssStylesheetTransformer();

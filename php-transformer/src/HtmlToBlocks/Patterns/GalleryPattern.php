@@ -7,9 +7,29 @@ use DOMElement;
 
 use const XML_TEXT_NODE;
 
-final class GalleryPattern
+final class GalleryPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $gallery = $context->galleryContext();
+        if ( null === $gallery ) {
+            return null;
+        }
+
+        $block = $this->match(
+            $element,
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $gallery->convertImage($image, $figure, $picture, $link),
+            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $gallery->convertPicture($picture, $figure, $link),
+            fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
+            $context->presentationAttributes(...),
+            $context->innerHtml(...),
+            $context->createBlock(...)
+        );
+
+        return null === $block ? null : new PatternRecognitionResult($block);
+    }
 
     /**
      * @param callable(DOMElement, DOMElement|null, DOMElement|null, DOMElement|null): (array<string, mixed>|null) $convertImageElement

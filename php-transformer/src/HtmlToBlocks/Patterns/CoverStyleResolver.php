@@ -161,6 +161,7 @@ final class CoverStyleResolver
         return array(
             'minHeight'     => $number,
             'minHeightUnit' => $matches[2],
+            'definite'      => ! array_key_exists('min-height', $declarations),
         );
     }
 

@@ -28,7 +28,7 @@
     { "path": "blocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading" },
     { "path": "blocks.1.innerBlocks.1", "name": "core/group" },
     { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/group" },
-    { "path": "blocks.1.innerBlocks.2.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "width": 100 } }
+    { "path": "blocks.1.innerBlocks.2.innerBlocks.0.innerBlocks.0", "name": "core/button" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -44,7 +44,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "status-orb" },
     { "path": "serialized_blocks", "assert": "contains", "value": "trusted-by" },
     { "path": "serialized_blocks", "assert": "contains", "value": "trusted-card" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "has-custom-width wp-block-button__width-100" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "has-custom-width wp-block-button__width-100" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "brand-logo\"><!-- wp:paragraph" },
     { "path": "fallbacks", "assert": "count", "count": 0 },

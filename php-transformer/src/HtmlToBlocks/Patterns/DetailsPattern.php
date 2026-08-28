@@ -24,9 +24,9 @@ final class DetailsPattern implements PatternRecognizerInterface
                 function (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags) use ($converter): array {
                     return $converter->childrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags);
                 },
-                $context->presentationAttributesCallback(),
-                $context->innerHtmlCallback(),
-                $context->createBlockCallback()
+                $context->presentationAttributes(...),
+                $context->innerHtml(...),
+                $context->createBlock(...)
             );
         } else {
             $block = $this->matchDisclosure(
@@ -34,9 +34,9 @@ final class DetailsPattern implements PatternRecognizerInterface
                 function (DOMElement $sourceElement) use ($converter, &$fallbacks): array {
                     return $converter->children($sourceElement, $fallbacks, true);
                 },
-                $context->presentationAttributesCallback(),
-                $context->innerHtmlCallback(),
-                $context->createBlockCallback()
+                $context->presentationAttributes(...),
+                $context->innerHtml(...),
+                $context->createBlock(...)
             );
         }
 

@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TypographyParityAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
@@ -35,7 +34,10 @@ final class SemanticParityReporter
      * normalizedNavigationLabel). It mirrors the transformer's own runtime so the
      * extracted builders behave identically to the inline implementation.
      */
-    public function __construct(private readonly Runtime $runtime = new Runtime())
+    public function __construct(
+        private readonly Runtime $runtime = new Runtime(),
+        private readonly TypographyParityAnalyzer $typographyParityAnalyzer = new TypographyParityAnalyzer()
+    )
     {
     }
 
@@ -66,7 +68,7 @@ final class SemanticParityReporter
         }
         $findings = array_merge(
             $findings,
-            ( new TypographyParityAnalyzer() )->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
+            $this->typographyParityAnalyzer->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
         );
 
         $findings = array_map(

@@ -946,14 +946,17 @@ $assertContains('has-media-on-the-right', (string) ($roundTrip['innerHTML'] ?? '
 // Media-text style resolution memoizes by the shared presentation cache key.
 $memoizedTransformer = new HtmlTransformer();
 $memoizedElement = $elementFromHtml('<section style="display:flex"><img src="memo.jpg"><div><p>Memo</p></div></section>');
-$mediaStyleMethod = new ReflectionMethod(HtmlTransformer::class, 'mediaTextPresentationStyle');
-$presentationKeyMethod = new ReflectionMethod(HtmlTransformer::class, 'presentationCacheKey');
+// Style resolution moved to StyleResolver under #242; reach it through the
+// transformer's collaborator rather than reflecting on the transformer.
+$styleResolverProperty = new ReflectionProperty(HtmlTransformer::class, 'styleResolver');
+$memoizedResolver = $styleResolverProperty->getValue($memoizedTransformer);
 $sessionProperty = new ReflectionProperty(HtmlTransformer::class, 'session');
-$firstMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
+$firstMediaStyle = $memoizedResolver->mediaTextPresentationStyle($memoizedElement);
 $memoizedElement->setAttribute('style', 'display:grid');
-$secondMediaStyle = $mediaStyleMethod->invoke($memoizedTransformer, $memoizedElement);
-$mediaStyleCache = $sessionProperty->getValue($memoizedTransformer)->presentationResolutionCache->mediaTextStyles;
-$presentationKey = $presentationKeyMethod->invoke($memoizedTransformer, $memoizedElement);
+$secondMediaStyle = $memoizedResolver->mediaTextPresentationStyle($memoizedElement);
+$mediaStyleCache = $sessionProperty->getValue($memoizedTransformer)->presentationResolutionCache()->mediaTextStyles;
+$presentationKeyMethod = new ReflectionMethod($memoizedResolver, 'presentationCacheKey');
+$presentationKey = $presentationKeyMethod->invoke($memoizedResolver, $memoizedElement);
 $assertSame('display:flex', $firstMediaStyle, 'Media-text presentation style resolves initial authored style.');
 $assertSame($firstMediaStyle, $secondMediaStyle, 'Media-text presentation style reuses cached value for same DOM node.');
 $assertSame($firstMediaStyle, $mediaStyleCache[$presentationKey] ?? null, 'Media-text style cache uses shared presentation cache key.');

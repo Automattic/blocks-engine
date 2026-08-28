@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognit
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 
@@ -32,6 +33,14 @@ $context = new PatternContext(
     static fn (DOMElement $source): string => '',
     static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name )
 );
+$semanticContext = new PatternContext(
+    static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded ),
+    static fn (DOMElement $source): string => '<span>content</span>',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null, ?DOMElement $logicalSource = null): array => array( 'blockName' => $name, 'logicalTag' => $logicalSource?->tagName )
+);
+$assertSame(array( 'excluded' => array( 'width' ) ), $semanticContext->presentationAttributes($element, array( 'width' )), 'Pattern context forwards presentation exclusions through its semantic API.');
+$assertSame('<span>content</span>', $semanticContext->innerHtml($element), 'Pattern context exposes inner HTML as a direct operation.');
+$assertSame(array( 'blockName' => 'core/group', 'logicalTag' => 'div' ), $semanticContext->createBlock('core/group', logicalSourceElement: $element), 'Pattern context forwards logical block provenance through its semantic API.');
 $calls = new ArrayObject();
 $declined = new class($calls) implements PatternRecognizerInterface {
     public function __construct(private readonly ArrayObject $calls) {}
@@ -94,11 +103,13 @@ $directContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $innerHtml,
     $createBlock,
-    safeFallbackHtml: static fn (DOMElement $source): string => $source->ownerDocument?->saveHTML($source) ?: '',
-    escapeHtml: static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+    markupContext: new MarkupPatternContext(
+        static fn (DOMElement $source): string => $source->ownerDocument?->saveHTML($source) ?: '',
+        static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+    )
 );
-$overlap = ( new PatternRecognizerRegistry( array( new MathPattern(), new PlaceholderMediaPattern() ) ) )->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
-$assertSame('core/math', $overlap?->block()['blockName'] ?? null, 'Math wins direct ordered-registry competition with placeholder media.');
+$overlap = PatternRecognizerRegistry::createDefault()->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);
+$assertSame('core/math', $overlap?->block()['blockName'] ?? null, 'Math wins the default ordered-registry competition with placeholder media.');
 $assertSame('$x$', $overlap?->block()['attrs']['content'] ?? null, 'Direct ordered-registry winner preserves math content.');
 
 $state = new ArrayObject();
@@ -123,12 +134,10 @@ $declinedSpacer = ( new PatternRecognizerRegistry( array( new SpacerPattern(), $
 $assertSame('lower', $declinedSpacer?->block()['blockName'] ?? null, 'A declined direct spacer leaves lower recognizers available.');
 $assertSame(array( 'lower' ), $state->getArrayCopy(), 'A declined direct spacer does not invoke context callbacks or mutate recognizer state.');
 
-$missingSafeFallback = new PatternContext(static fn (DOMElement $source): array => array(), $innerHtml, $createBlock, escapeHtml: static fn (string $text): string => $text);
-$missingEscapeHtml = new PatternContext(static fn (DOMElement $source): array => array(), $innerHtml, $createBlock, safeFallbackHtml: static fn (DOMElement $source): string => 'safe');
-$assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingSafeFallback), 'Math declines without its safe-fallback context dependency.');
-$assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingEscapeHtml), 'Math declines without its HTML-escaping context dependency.');
+$missingMarkup = new PatternContext(static fn (DOMElement $source): array => array(), $innerHtml, $createBlock);
+$assertSame(null, ( new MathPattern() )->recognize($elementFromHtml('<math><mi>x</mi></math>'), $missingMarkup), 'Math declines without its atomic markup capability.');
 $placeholderState = new ArrayObject();
-$missingPlaceholderEscapeHtml = new PatternContext(
+$missingPlaceholderMarkup = new PatternContext(
     static function (DOMElement $source) use ($placeholderState): array {
         $placeholderState[] = 'presentation';
         return array();
@@ -140,10 +149,9 @@ $missingPlaceholderEscapeHtml = new PatternContext(
     static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
         $placeholderState[] = 'create-block';
         return array();
-    },
-    safeFallbackHtml: static fn (DOMElement $source): string => 'safe'
+    }
 );
-$assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderEscapeHtml), 'Placeholder media declines without its HTML-escaping context dependency.');
+$assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderMarkup), 'Placeholder media declines without its atomic markup capability.');
 $assertSame(array(), $placeholderState->getArrayCopy(), 'Placeholder media validates missing dependencies before invoking stateful context callbacks.');
 
 echo "pattern recognizer registry ok\n";

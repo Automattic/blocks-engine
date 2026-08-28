@@ -51,6 +51,18 @@ trait DomHelpersTrait
         return trim($element->ownerDocument->saveHTML($element) ?: '');
     }
 
+    /**
+     * Signals that link canonicalization rewrote source markup.
+     *
+     * This trait is shared by four classes; only the transformer owns a
+     * selector-match cache that such a rewrite would invalidate. The default is
+     * a no-op and HtmlTransformer overrides it, so the other consumers do not
+     * need a collaborator they have no use for.
+     */
+    private function onSourceMarkupMutated(): void
+    {
+    }
+
     private function canonicalizeLinkUrls(DOMElement $element): void
     {
         $anchors = 'a' === strtolower($element->tagName) ? array( $element ) : array();
@@ -67,12 +79,12 @@ trait DomHelpersTrait
 
             $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
             if ( '' === $href ) {
-                $this->invalidateSourceSelectorMatchCache();
+                $this->onSourceMarkupMutated();
                 $anchor->removeAttribute('href');
                 continue;
             }
             if ( $href !== $anchor->getAttribute('href') ) {
-                $this->invalidateSourceSelectorMatchCache();
+                $this->onSourceMarkupMutated();
             }
             $anchor->setAttribute('href', $href);
         }
@@ -239,13 +251,18 @@ trait DomHelpersTrait
 
     private function materializeFallbackSourceTagMarker(DOMElement $element): void
     {
-        $markers = isset($this->sourceTagMarkers) && is_array($this->sourceTagMarkers)
-            ? $this->sourceTagMarkers
-            : array();
-        $marker = $markers[strtolower($element->tagName)] ?? '';
+        $marker = $this->fallbackSourceTagMarker(strtolower($element->tagName));
         if ( '' !== $marker ) {
             $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
         }
+    }
+
+    protected function fallbackSourceTagMarker(string $tagName): string
+    {
+        $markers = isset($this->sourceTagMarkers) && is_array($this->sourceTagMarkers)
+            ? $this->sourceTagMarkers
+            : array();
+        return $markers[$tagName] ?? '';
     }
 
     private function safeFallbackHtmlString(string $html): string

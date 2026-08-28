@@ -51,6 +51,14 @@ $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" st
 $assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
 $assert('html_stylable_button_accessible_name_fallback' === ($button['fallbacks'][0]['diagnostic_code'] ?? null), 'Button fallback is committed by the staged registry dispatcher.');
 
+$buttonContainer = (new HtmlTransformer())->transform('<div><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/one">One</a><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/two">Two</a></div>')->toArray();
+$assert('core/buttons' === ($buttonContainer['blocks'][0]['blockName'] ?? null), 'A multi-button container wins before generic inline-wrapper lowering.');
+$assert(2 === count($buttonContainer['blocks'][0]['innerBlocks'] ?? array()), 'The direct container recognizer preserves both button children.');
+
+$declinedButtonAnchor = (new HtmlTransformer())->transform('<a href="/ordinary">Ordinary link</a>')->toArray();
+$assert('core/paragraph' === ($declinedButtonAnchor['blocks'][0]['blockName'] ?? null), 'An anchor without a button signal declines to ordinary link lowering.');
+$assert(array() === ($declinedButtonAnchor['fallbacks'] ?? array()), 'A declined button anchor commits no accessible-name fallback diagnostics.');
+
 $mathOverPlaceholder = (new HtmlTransformer())->transform('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>')->toArray();
 $assert('core/math' === ($mathOverPlaceholder['blocks'][0]['blockName'] ?? null), 'Math remains ahead of the overlapping placeholder-media recognizer.');
 $assert('$x$' === ($mathOverPlaceholder['blocks'][0]['attrs']['content'] ?? null), 'The higher-precedence math recognizer preserves its exact content.');
@@ -61,6 +69,35 @@ $assert('Visible content' === ($declinedSpacer['blocks'][0]['attrs']['content'] 
 
 $quoteWithNavigation = (new HtmlTransformer())->transform('<blockquote><nav><a href="/one">One</a><a href="/two">Two</a></nav></blockquote>')->toArray();
 $assert('core/quote' === ($quoteWithNavigation['blocks'][0]['blockName'] ?? null), 'Quote child lowering does not re-enter unrelated registry recognizers through the navigation probe.');
+
+$figureQuote = (new HtmlTransformer())->transform('<figure><blockquote><p>Quoted.</p><object data="/quote.pdf"></object></blockquote><figcaption class="credit">Ada</figcaption></figure>')->toArray();
+$assert('core/quote' === ($figureQuote['blocks'][0]['blockName'] ?? null), 'A figure quote wins before generic figure lowering.');
+$assert('<span class="credit">Ada</span>' === ($figureQuote['blocks'][0]['attrs']['citation'] ?? null), 'The direct figure-quote recognizer preserves caption citation markup.');
+$assert('html_unsupported_element' === ($figureQuote['fallbacks'][0]['diagnostic_code'] ?? null), 'A winning figure quote commits recursive child fallback diagnostics.');
+
+$declinedQuote = (new HtmlTransformer())->transform('<blockquote><cite>Ada</cite></blockquote>')->toArray();
+$assert(array() === ($declinedQuote['blocks'] ?? array()), 'A quote without visible quoted content declines normal lowering.');
+$assert(array() === ($declinedQuote['fallbacks'] ?? array()), 'A declined quote commits no recursive fallback diagnostics.');
+
+$codeWindow = (new HtmlTransformer())->transform('<div class="code-window"><pre><code>echo 1;</code></pre></div>')->toArray();
+$assert('core/group' === ($codeWindow['blocks'][0]['blockName'] ?? null), 'A code-window recognizer wins before generic container lowering.');
+$assert('core/code' === ($codeWindow['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'The direct code-window recognizer preserves its nested code block.');
+
+$declinedCodeWindow = (new HtmlTransformer())->transform('<div class="code-window"><pre>Plain text</pre></div>')->toArray();
+$assert('core/preformatted' === ($declinedCodeWindow['blocks'][0]['innerBlocks'][0]['blockName'] ?? null), 'A code window without a code child declines to ordinary preformatted lowering.');
+
+$logo = (new HtmlTransformer())->transform('<a class="site-logo" href="/">Mara Vale</a>')->toArray();
+$assert('site-logo blocks-engine-synthetic-paragraph' === ($logo['blocks'][0]['attrs']['className'] ?? null), 'The direct logo recognizer preserves the logo signal on its synthetic paragraph.');
+
+$declinedLogo = (new HtmlTransformer())->transform('<a href="/">Mara Vale</a>')->toArray();
+$assert('blocks-engine-synthetic-paragraph' === ($declinedLogo['blocks'][0]['attrs']['className'] ?? null), 'An ordinary anchor without a logo signal declines to normal anchor lowering.');
+
+$gallery = (new HtmlTransformer())->transform('<div class="media-grid" data-layout="grid"><figure><img src="c.jpg" alt="C"></figure><figure><img src="d.jpg" alt="D"></figure></div>')->toArray();
+$assert('core/gallery' === ($gallery['blocks'][0]['blockName'] ?? null), 'A multi-image gallery wins before generic grid lowering.');
+$assert(2 === count($gallery['blocks'][0]['innerBlocks'] ?? array()), 'The direct gallery recognizer preserves both converted images.');
+
+$declinedGallery = (new HtmlTransformer())->transform('<div class="media-grid" data-layout="grid"><figure><img src="c.jpg" alt="C"></figure></div>')->toArray();
+$assert('core/group' === ($declinedGallery['blocks'][0]['blockName'] ?? null), 'A single-image gallery candidate declines to generic grid lowering.');
 
 $accordion = (new HtmlTransformer())->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">A?</button><div id="a"><p>A.</p><object data="/a.pdf"></object></div></div><div class="faq-item"><button aria-controls="b">B?</button><div id="b"><p>B.</p></div></div></section>')->toArray();
 $assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? null), 'Accordion recognition survives an unsupported panel child.');

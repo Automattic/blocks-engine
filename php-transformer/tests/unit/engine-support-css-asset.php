@@ -54,7 +54,7 @@ $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
@@ -115,6 +115,9 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 $syntheticImageFigure = ( new HtmlTransformer() )->transform(
     '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
 )->toArray();
+$logosOnlySocial = ( new HtmlTransformer() )->transform(
+    '<ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>'
+)->toArray();
 $adminBar = ( new HtmlTransformer() )->transform(
     '<style>.fixed-shell{position:fixed;top:0}.sticky-toc{position:sticky;top:calc(var(--header-h) + 1rem)}.ordinary{position:relative;top:1rem}</style>'
         . '<header class="fixed-shell">Header</header><aside class="sticky-toc">Contents</aside><main class="ordinary">Content</main>'
@@ -136,6 +139,7 @@ $results = array(
     $colouredSyntheticLink,
     $uncolouredSyntheticLink,
     $syntheticImageFigure,
+    $logosOnlySocial,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -159,11 +163,13 @@ $beforeFamilies = array(
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
+    'list-navigation container row' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
+    'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',

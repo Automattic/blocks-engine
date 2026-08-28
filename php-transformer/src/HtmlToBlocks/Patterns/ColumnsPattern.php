@@ -33,8 +33,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        $style     = $context->structuralPresentationStyleCallback();
-        if ( null === $converter || null === $style ) {
+        $columns = $context->columnsContext();
+        if ( null === $converter || null === $columns ) {
             return null;
         }
 
@@ -44,9 +44,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $fallbacks,
             array($converter, 'children'),
             array($converter, 'element'),
-            $context->presentationAttributesCallback(),
-            $style,
-            $context->createBlockCallback()
+            $context->presentationAttributes(...),
+            $columns->structuralStyle(...),
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackFindingNormalizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackFindingNormalizer;
 
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
     if ( ! $condition ) {

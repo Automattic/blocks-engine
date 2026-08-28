@@ -168,6 +168,15 @@ final class Runtime
         $fallback = array();
         if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
         if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
+        // The legacy core/button width attribute is never serialized by the
+        // editor save function, irrespective of runtime support metadata.
+        if ( 'core/button' === $blockName ) unset($attrs['width']);
+        foreach ( array( 'width', 'height' ) as $dimension ) {
+            if ( array_key_exists($dimension, $attrs) && $this->skipsFeatureSerialization($supports, 'dimensions', $dimension) ) {
+                $fallback['dimensions'][ $dimension ] = $attrs[ $dimension ];
+                unset($attrs[ $dimension ]);
+            }
+        }
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
         $this->filterStyleGroup($style, $fallback, $supports, 'dimensions', array( 'minHeight' => 'minHeight', 'maxWidth' => 'maxWidth' ));
         $this->filterSpacing($style, $fallback, $supports);
@@ -191,6 +200,15 @@ final class Runtime
 
     /** @param array<string, mixed> $supports */
     private function supportsFeature(array $supports, string $group, string $feature, bool $colorDefaults = false, string $side = ''): bool { $declaration = 'border' === $group ? ($supports['border'] ?? $supports['__experimentalBorder'] ?? false) : ($supports[ $group ] ?? false); if ( true === $declaration ) return true; if ( ! is_array($declaration) || true === ($declaration['__experimentalSkipSerialization'] ?? false) ) return false; $skipped = $declaration['__experimentalSkipSerialization'] ?? array(); $skipFeature = lcfirst(str_replace('__experimental', '', $feature)); if ( is_array($skipped) && (in_array($feature, $skipped, true) || in_array($skipFeature, $skipped, true)) ) return false; if ( 'layout' === $group ) return false !== ($declaration['allowEditing'] ?? true) && ( 'grid' !== $feature || false !== ($declaration['allowSwitching'] ?? true) ); $value = $declaration[ $feature ] ?? ($colorDefaults ? true : false); return '' !== $side && is_array($value) ? in_array($side, $value, true) : true === $value; }
+
+    /** @param array<string, mixed> $supports */
+    private function skipsFeatureSerialization(array $supports, string $group, string $feature): bool
+    {
+        $declaration = $supports[ $group ] ?? false;
+        if ( ! is_array($declaration) ) return false;
+        $skipped = $declaration['__experimentalSkipSerialization'] ?? false;
+        return true === $skipped || (is_array($skipped) && in_array($feature, $skipped, true));
+    }
 
     /**
      * @return array<int, string>
