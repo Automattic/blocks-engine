@@ -597,7 +597,17 @@ $commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['seria
 $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
 
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
-$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+	$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+
+$nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
+$nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
+$assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
+
+$flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
+$assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'a flex item Group around stacked content is not coalesced into the flex container');
+
+$namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
+$assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex shells remain distinct from nested layout wrappers');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

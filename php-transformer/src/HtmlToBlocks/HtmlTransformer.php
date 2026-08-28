@@ -4982,6 +4982,12 @@ if ( 'svg' === $tagName ) {
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
+        if ( 1 === count($children) ) {
+            $coalesced = $this->coalescedSingleGroupWrapper($element, $children[0]);
+            if ( null !== $coalesced ) {
+                return $coalesced;
+            }
+        }
         if ( $this->isAuthorOwnedLayout($element) ) {
             $this->transformationEvidence()->recordAuthorLayoutTopology(
                 $this->elementSelector($element),
@@ -6185,6 +6191,7 @@ if ( 'svg' === $tagName ) {
     {
         $proof = $this->layoutGeometryProofFor($element);
         $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
+        $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
         if ( 'div' !== strtolower($element->tagName)
             || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
             || ($fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null))
@@ -6192,17 +6199,17 @@ if ( 'svg' === $tagName ) {
             || (null === $proof && $this->isDirectChildOfStructuralLayout($element))
             || '' !== trim($this->attr($element, 'id'))
             || '' !== trim($this->attr($element, 'role'))
-            || (null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element))
+            || (null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout)
             || array() !== $this->interactiveAttributes($element)
             || (null === $proof && array() !== $this->safeDataAttributes($element))
-            || (null === $proof && array() !== $this->structureSignals($element, array()))
+            || (null === $proof && array() !== $this->structureSignals($element, array()) && ! $redundantNestedLayout)
             || $this->hasMotionStructureToken($element)
         ) {
             return null;
         }
 
         $attrs = $this->presentationAttributes($element);
-        if ( array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
+        if ( ! $redundantNestedLayout && array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
             return null;
         }
 
@@ -6212,9 +6219,9 @@ if ( 'svg' === $tagName ) {
         if ( ! $sourceChild instanceof DOMElement
             || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
             || $this->hasMotionStructureToken($sourceChild)
-            || (null === $proof && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)))
+            || (null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)))
             || (null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
-            || ('core/image' !== ($childBlock['blockName'] ?? null) && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
+            || ('core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
             || (null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell))
         ) {
             return null;
@@ -6436,6 +6443,47 @@ if ( 'svg' === $tagName ) {
             return false;
         }
         return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
+    }
+
+    /**
+     * A sole nested flex/grid wrapper is redundant when it only restates display
+     * and the child group already carries its own geometry carrier.
+     *
+     * @param array<string, mixed> $childBlock
+     */
+    private function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
+    {
+        if ( 'core/group' !== ($childBlock['blockName'] ?? null) ) {
+            return false;
+        }
+
+        $childClass = (string) ($childBlock['attrs']['className'] ?? '');
+        if ( ! str_contains($childClass, 'blocks-engine-css-owned-layout')
+            || ! (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $childClass)
+        ) {
+            return false;
+        }
+
+        if ( '' !== trim($this->attr($element, 'class')) ) {
+            return false;
+        }
+
+        $declarations = $this->cssDeclarations($this->attr($element, 'style'));
+        $display = strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['display'] ?? ''))));
+        if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+
+        unset($declarations['display']);
+        foreach ( $declarations as $property => $value ) {
+            if ( ! $this->isRenderNeutralGeometryDeclaration($property, $value) ) {
+                return false;
+            }
+        }
+
+        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap(
+            array_diff_key($this->matchingAuthorDeclarations($element), array( 'display' => true ))
+        );
     }
 
     private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
