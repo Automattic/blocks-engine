@@ -98,6 +98,9 @@ final class AssetReferenceCanonicalizer
             $content = self::replaceWhenChanged('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3]);
             $content = self::replaceWhenChanged('~(\bstyle\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::css($match[2], $replace) . $match[3]);
         }
+        if (str_contains($content, '\\u003c')) {
+            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*([\'\"]))(.*?)\2~is', $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
+        }
         if (false !== stripos($content, '<style')) {
             $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
                 return str_replace($match[1], self::css($match[1], $replace), $match[0]);

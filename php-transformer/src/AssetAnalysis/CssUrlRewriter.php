@@ -76,6 +76,7 @@ final class CssUrlRewriter
     {
         $character = $content[$offset] ?? '';
         if ('"' === $character || "'" === $character) return array($character, 1);
+        if (preg_match('/\A\\\\u0022/i', substr($content, $offset, 6), $match)) return array('"', strlen($match[0]));
         if (!preg_match('/\A(?:&|\\\\u0026)(?:[A-Za-z][A-Za-z0-9]{0,30}|#[0-9]{1,8}|#x[0-9A-Fa-f]{1,8});/i', substr($content, $offset, 46), $match)) return null;
         $entity = preg_replace('/\A\\\\u0026/i', '&', $match[0]) ?? $match[0];
         $character = html_entity_decode($entity, ENT_QUOTES | ENT_HTML5, 'UTF-8');
