@@ -148,7 +148,8 @@
             "php tests/unit/rich-text-element-converter.php",
             "php tests/unit/table-element-converter.php",
             "php tests/unit/unsupported-element-recorder.php",
-            "php tests/unit/runtime-island-analyzer.php"
+            "php tests/unit/runtime-island-analyzer.php",
+            "php tests/unit/button-link-dispatcher.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
