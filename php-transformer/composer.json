@@ -129,6 +129,7 @@
       "php tests/unit/button-wrapper-keyword-width.php",
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/button-wrapper-fill-selector-list.php",
+      "php tests/unit/button-grid-item-placement.php",
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php",
       "php tests/unit/deterministic-row-deduplicator.php",
