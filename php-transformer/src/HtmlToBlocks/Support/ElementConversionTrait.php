@@ -202,7 +202,7 @@ trait ElementConversionTrait
         if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $html = $this->sanitizeInlineSvgMarkup($element);
             if ( $this->isSafeSvgContent($html) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->restoreSvgCasing($this->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
+                return $this->createBlock('core/html', array( 'content' => $this->svgMaterializer->restoreSvgCasing($this->svgMaterializer->ensureInlineSvgBoxStyle($html, $element)) ), array(), $element);
             }
         }
 
@@ -210,7 +210,7 @@ trait ElementConversionTrait
         // is dynamic and keyed on a registered icon slug, not arbitrary SVG.
         // Passive self-contained SVGs can be represented by core/image using
         // a data:image/svg+xml source; the rest stay faithful core/html.
-        if ( $this->isSafeDecorativeSvgElement($element) ) {
+        if ( $this->svgMaterializer->isSafeDecorativeSvgElement($element) ) {
             // Faithfully preserve any inline SVG that carries real drawable
             // artwork — icons, diagrams, illustrations — even when it is
             // marked aria-hidden / role=presentation. aria-hidden hides the
@@ -226,13 +226,13 @@ trait ElementConversionTrait
             // recreated elsewhere; preserve drawable stretched SVGs.
             $isDecorativeChrome = $this->isVisualLayerElement($element);
             if ( ! $isDecorativeChrome && $this->svgHasDrawableContent($element) ) {
-                if ( $this->svgNeedsPhrasingHost($element) ) {
-                    $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+                if ( $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
+                    $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
                     if ( null !== $imageMarkup ) {
                         return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
                     }
                 }
-                $svgBlock = $this->inlineSvgBlockFromElement($element);
+                $svgBlock = $this->svgMaterializer->inlineSvgBlockFromElement($element);
                 if ( null !== $svgBlock ) {
                     return $svgBlock;
                 }
@@ -243,14 +243,14 @@ trait ElementConversionTrait
             return null;
         }
 
-        if ( $this->svgNeedsPhrasingHost($element) ) {
-            $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+        if ( $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
+            $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
                 return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
             }
         }
 
-        $svgBlock = $this->inlineSvgBlockFromElement($element);
+        $svgBlock = $this->svgMaterializer->inlineSvgBlockFromElement($element);
         if ( null !== $svgBlock ) {
             return $svgBlock;
         }

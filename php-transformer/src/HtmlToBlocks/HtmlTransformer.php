@@ -91,7 +91,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrai
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -116,7 +117,6 @@ final class HtmlTransformer
     use DomHelpersTrait;
     use ElementConversionTrait;
     use FormDispatchTrait;
-    use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
@@ -250,6 +250,8 @@ final class HtmlTransformer
     private readonly StyleResolver $styleResolver;
 
     private readonly NavigationStyleProjector $navigationStyleProjector;
+
+    private readonly SvgMaterializer $svgMaterializer;
 
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
@@ -386,6 +388,11 @@ final class HtmlTransformer
             $this->createNavigationToggleSuppressionContext(),
             $this->styleResolver
         );
+        $this->svgMaterializer = new SvgMaterializer(
+            $this->createSvgMaterializationContext(),
+            $this->styleResolver,
+            $this->runtime
+        );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
@@ -482,6 +489,34 @@ final class HtmlTransformer
             fn (): NavigationProjectionState => $this->navigationProjection(),
             fn (): PatternRecognizerRegistry => $this->patternRecognizers,
             fn (): PatternContext => $this->probePatternContext()
+        );
+    }
+
+    /**
+     * Collaborator surface for {@see SvgMaterializer}. Per-transform state is
+     * resolved lazily so the materializer always sees the running transform.
+     */
+    private function createSvgMaterializationContext(): SvgMaterializationContext
+    {
+        return new SvgMaterializationContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
+                => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->htmlAttributes($element),
+            fn (DOMElement $element, array $excludedTags): string => $this->innerHtmlWithoutTags($element, $excludedTags),
+            fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+            fn (string $content): bool => $this->isSafeSvgContent($content),
+            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (): LayoutGeometryState => $this->layoutGeometry(),
+            fn (): AssetMaterializationState => $this->materializedAssets(),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
+            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
+            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            fn (): TransformationProvenanceState => $this->transformationProvenance()
         );
     }
 
@@ -3551,7 +3586,7 @@ final class HtmlTransformer
             ),
             new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             new GalleryPatternContext(
@@ -3608,7 +3643,7 @@ final class HtmlTransformer
             ),
             logoContext: new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             galleryContext: new GalleryPatternContext(
@@ -3690,8 +3725,8 @@ final class HtmlTransformer
 
         // Handle a safe SVG at a phrasing-to-block boundary before generic
         // preservation rules see the SVG as an unsupported document fragment.
-        if ( 'svg' === $tagName && $this->svgNeedsPhrasingHost($element) ) {
-            $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+        if ( 'svg' === $tagName && $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
+            $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
                 return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
             }
@@ -7448,7 +7483,7 @@ if ( 'svg' === $tagName ) {
                 continue;
             }
 
-            $image = $this->inlineSvgRichTextImageMarkup($child);
+            $image = $this->svgMaterializer->inlineSvgRichTextImageMarkup($child);
             if ( null === $image ) {
                 $this->materializedAssets()->restore($generatedAssets);
                 return null;
@@ -7477,7 +7512,7 @@ if ( 'svg' === $tagName ) {
             if ( ! $svg instanceof DOMElement ) {
                 continue;
             }
-            $image = $this->inlineSvgRichTextImageMarkup($svg, false);
+            $image = $this->svgMaterializer->inlineSvgRichTextImageMarkup($svg, false);
             if ( null === $image ) {
                 $this->materializedAssets()->restore($generatedAssets);
                 return null;
