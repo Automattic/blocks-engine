@@ -9,8 +9,10 @@ use DOMElement;
 /** Converts static search controls into native core/search blocks. */
 final class SearchBlockConverter
 {
-    public function __construct(private readonly SearchBlockConversionContext $context)
-    {
+    public function __construct(
+        private readonly SearchBlockConversionContext $context,
+        private readonly FormControlMetadataBuilder $formControlMetadataBuilder
+    ) {
     }
 
     /** @return array<string, mixed>|null */
@@ -57,7 +59,7 @@ final class SearchBlockConverter
             return null;
         }
 
-        $label = $this->context->formControlLabel($textInput);
+        $label = $this->formControlMetadataBuilder->label($textInput);
         $showLabel = '' !== $label;
         if ( '' === $label ) {
             $label = trim($this->context->attr($form, 'aria-label'));
@@ -73,7 +75,7 @@ final class SearchBlockConverter
         ));
         if ( $submitControl instanceof DOMElement ) {
             $attrs['buttonPosition'] = 'button-outside';
-            $attrs['buttonText'] = $this->context->submitButtonText($submitControl);
+            $attrs['buttonText'] = $this->formControlMetadataBuilder->submitText($submitControl, 'Search');
             if ( $this->isIconOnlySearchControl($submitControl) ) {
                 $attrs['buttonUseIcon'] = true;
             }
@@ -363,7 +365,7 @@ final class SearchBlockConverter
             return null;
         }
 
-        $label = $this->context->formControlLabel($searchInput);
+        $label = $this->formControlMetadataBuilder->label($searchInput);
         if ( '' === $label ) {
             $label = $this->context->attr($searchInput, 'aria-label');
         }

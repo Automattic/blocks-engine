@@ -16,8 +16,10 @@ use DOMElement;
  */
 final class UnsupportedElementRecorder
 {
-    public function __construct(private readonly UnsupportedElementContext $context)
-    {
+    public function __construct(
+        private readonly UnsupportedElementContext $context,
+        private readonly FormControlMetadataBuilder $formControlMetadataBuilder
+    ) {
     }
 
     /**
@@ -63,7 +65,7 @@ final class UnsupportedElementRecorder
             'html'            => $this->context->safeFallbackHtml($element),
         );
 
-        $control = $this->context->formControlMetadata($element);
+        $control = $this->formControlMetadataBuilder->control($element);
         if ( array() !== $control ) {
             $fallback['control'] = $control;
         }

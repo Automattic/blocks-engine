@@ -78,60 +78,15 @@ trait FormDispatchTrait
      */
     private function recordFormRuntimeIsland(DOMElement $element, ?array $readableFormBlock): void
     {
-        $controls = $this->formControls($element);
+        $controls = $this->formControlMetadataBuilder->controls($element);
         $this->runtimeIslands->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
-            'form'             => $this->formMetadata($element),
+            'form'             => $this->formControlMetadataBuilder->form($element),
             'controls'         => $controls,
             'control_count'    => count($controls),
             'events'           => $this->eventMetadata($element),
             'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
             'required_scripts' => $this->requiredScriptsForElement($element),
         ));
-    }
-
-    private function formControls(DOMElement $form): array
-    {
-        $controls = array();
-        $order = 0;
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            $metadata = $this->formControlMetadata($control);
-            if ( array() !== $metadata ) {
-                $metadata['order'] = $order;
-                $controls[] = $metadata;
-                ++$order;
-            }
-        }
-
-        return $controls;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function formMetadata(DOMElement $form): array
-    {
-        $metadata = array_filter(
-            array(
-                'id'         => $this->attr($form, 'id'),
-                'name'       => $this->attr($form, 'name'),
-                'class'      => $this->attr($form, 'class'),
-                'aria_label' => $this->attr($form, 'aria-label'),
-                'action'     => $this->attr($form, 'action'),
-                'method'     => strtolower($this->attr($form, 'method')),
-                'enctype'    => $this->attr($form, 'enctype'),
-                'target'     => $this->attr($form, 'target'),
-                'autocomplete' => $this->attr($form, 'autocomplete'),
-            ),
-            static fn (string $value): bool => '' !== $value
-        );
-
-        foreach ( array( 'novalidate' ) as $attribute ) {
-            if ( $form->hasAttribute($attribute) ) {
-                $metadata[$attribute] = true;
-            }
-        }
-
-        return $metadata;
     }
 
     /**
@@ -152,14 +107,14 @@ trait FormDispatchTrait
 
             if ( FormControlClassifier::isSubmitLikeControl($control) ) {
                 $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->styleResolver->presentationAttributes($control), array(
-                    'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
+                    'text' => $this->runtime->escapeHtml($this->formControlMetadataBuilder->submitText($control, 'Submit')),
                 )), array(), $control);
                 continue;
             }
 
             if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
                 $this->runtimeIslands->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
-                    'control'          => $this->formControlMetadata($control),
+                    'control'          => $this->formControlMetadataBuilder->control($control),
                     'events'           => $this->eventMetadata($control),
                     'required_scripts' => $this->requiredScriptsForElement($control),
                 ));
@@ -171,7 +126,7 @@ trait FormDispatchTrait
             }
 
             $fieldBlocks = array();
-            $associatedLabel = $this->associatedLabelElement($control);
+            $associatedLabel = $this->formControlMetadataBuilder->associatedLabel($control);
             if ( $associatedLabel instanceof DOMElement && AuthoredInputBlockGenerator::NAME === ($readableControlBlock['blockName'] ?? '') ) {
                 $labelBlock = $this->readableFormControlBlockFromElement($associatedLabel);
                 if ( null !== $labelBlock ) {
@@ -286,7 +241,7 @@ trait FormDispatchTrait
                 return array() !== $blocks ? $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $blocks, $element) : null;
             }
 
-            $label = $this->normalizedControlLabelText($element);
+            $label = $this->formControlMetadataBuilder->labelText($element);
             if ( '' === $label ) {
                 $label = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
             }
@@ -299,7 +254,7 @@ trait FormDispatchTrait
         }
 
         if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
-            $label = $this->formControlLabel($element);
+            $label = $this->formControlMetadataBuilder->label($element);
             if ( '' === $label ) {
                 $label = $this->attr($element, 'aria-label');
             }
@@ -340,7 +295,7 @@ trait FormDispatchTrait
     private function recordRuntimeControlIsland(DOMElement $element): void
     {
         $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
-            'control'          => $this->formControlMetadata($element),
+            'control'          => $this->formControlMetadataBuilder->control($element),
             'events'           => $this->eventMetadata($element),
             'required_scripts' => $this->requiredScriptsForElement($element),
         ));
@@ -368,7 +323,7 @@ trait FormDispatchTrait
         }
 
         $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
-            'control'          => $this->formControlMetadata($element),
+            'control'          => $this->formControlMetadataBuilder->control($element),
             'events'           => $this->eventMetadata($element),
             'required_scripts' => $this->requiredScriptsForElement($element),
         ));
@@ -381,9 +336,9 @@ trait FormDispatchTrait
      */
     private function readableSelectBlockFromElement(DOMElement $select): ?array
     {
-        $label = $this->readableFormControlLabel($select);
+        $label = $this->formControlMetadataBuilder->readableLabel($select);
         $this->registerFormControlEcho($label);
-        $options = $this->selectOptions($select);
+        $options = $this->formControlMetadataBuilder->options($select);
         if ( array() === $options ) {
             return null;
         }
@@ -586,7 +541,7 @@ trait FormDispatchTrait
      */
     private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
     {
-        $controls = $this->formControls($element);
+        $controls = $this->formControlMetadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
         $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStyles()->stylesheetAssets(), $this->sourceStyles()->formLayoutCss());
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
@@ -604,7 +559,7 @@ trait FormDispatchTrait
             'tag'             => strtolower($element->tagName),
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->htmlAttributes($element),
-            'form'            => $this->formMetadata($element),
+            'form'            => $this->formControlMetadataBuilder->form($element),
             'success_panel'   => $this->formSuccessPanelMetadata($element),
             'context'         => $this->sourceContext($element),
             'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
@@ -762,7 +717,7 @@ trait FormDispatchTrait
         foreach ( FormControlClassifier::controlElements($element) as $control ) {
             if ( FormControlClassifier::isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
-                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlLabel($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
+                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlMetadataBuilder->label($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
             } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array(FormControlClassifier::controlType($control), array( 'reset', 'button' ), true) ) ) {
                 $hasActionControl = true;
                 $hasSubmit = $hasSubmit || FormControlClassifier::isPseudoFormSubmitControl($control);
@@ -816,7 +771,7 @@ trait FormDispatchTrait
 
     private function readableFormControlText(DOMElement $control): string
     {
-        $label = $this->readableFormControlLabel($control);
+        $label = $this->formControlMetadataBuilder->readableLabel($control);
 
         $type = FormControlClassifier::controlType($control);
         if ( '' === $label ) {
@@ -827,7 +782,7 @@ trait FormDispatchTrait
         if ( 'select' === strtolower($control->tagName) ) {
             $options = array();
             $selected = array();
-            foreach ( $this->selectOptions($control) as $option ) {
+            foreach ( $this->formControlMetadataBuilder->options($control) as $option ) {
                 $optionLabel = (string) ($option['label'] ?? '');
                 if ( '' === $optionLabel ) {
                     continue;
@@ -895,61 +850,6 @@ trait FormDispatchTrait
         $this->transformationEvidence()->recordFormControlEcho($text);
     }
 
-    private function readableFormControlLabel(DOMElement $control): string
-    {
-        $label = $this->formControlLabel($control);
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'aria-label');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'placeholder');
-        }
-        if ( '' === $label ) {
-            $label = $this->attr($control, 'name');
-        }
-
-        $type = FormControlClassifier::controlType($control);
-        if ( '' === $label && FormControlClassifier::isSubmitLikeControl($control) ) {
-            $label = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
-        }
-        if ( '' === $label ) {
-            return 'select' === $type ? 'Select option' : ucfirst($type);
-        }
-
-        return $label;
-    }
-
-    /**
-     * Label associated by `for`, not a wrapping parent label. Wrapping labels
-     * are converted with the control they contain.
-     */
-    private function associatedLabelElement(DOMElement $control): ?DOMElement
-    {
-        $id = $this->attr($control, 'id');
-        if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
-        }
-
-        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
-                return $label;
-            }
-        }
-
-        return null;
-    }
-
-    private function readableSubmitText(DOMElement $control): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
-        if ( '' !== $text ) {
-            return $text;
-        }
-
-        $value = trim($this->attr($control, 'value'));
-        return '' !== $value ? $value : 'Submit';
-    }
-
     private function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
         if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
@@ -989,189 +889,6 @@ trait FormDispatchTrait
         )));
 
         return str_contains($haystack, 'search');
-    }
-
-    private function submitButtonText(DOMElement $control): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
-        if ( '' !== $text ) {
-            return $text;
-        }
-
-        $value = trim($this->attr($control, 'value'));
-        return '' !== $value ? $value : 'Search';
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function formControlMetadata(DOMElement $control): array
-    {
-        if ( ! FormControlClassifier::isControlElement($control) ) {
-            return array();
-        }
-
-        $tagName = strtolower($control->tagName);
-        $type = FormControlClassifier::controlType($control);
-        if ( 'button' === $type && FormControlClassifier::isSubmitLikeControl($control) ) {
-            $type = 'submit';
-        }
-        $metadata = array_filter(array(
-            'tag'         => $tagName,
-            'selector'    => $this->elementSelector($control),
-            'id'          => $this->attr($control, 'id'),
-            'name'        => $this->attr($control, 'name'),
-            'type'        => $type,
-            'label'       => $this->formControlLabel($control),
-            'placeholder' => $this->attr($control, 'placeholder'),
-            'autocomplete' => $this->attr($control, 'autocomplete'),
-            'pattern'     => $this->attr($control, 'pattern'),
-            'min'         => $this->attr($control, 'min'),
-            'max'         => $this->attr($control, 'max'),
-            'step'        => $this->attr($control, 'step'),
-            'maxlength'   => $this->attr($control, 'maxlength'),
-            'rows'        => $this->attr($control, 'rows'),
-        ), static fn (string $value): bool => '' !== $value);
-
-        if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
-            $text = $this->formButtonText($control);
-            if ( '' !== $text ) {
-                $metadata['text'] = $text;
-            }
-        }
-
-        if ( $control->hasAttribute('required') || 'true' === strtolower(trim($this->attr($control, 'aria-required'))) ) {
-            $metadata['required'] = true;
-        }
-        if ( $control->hasAttribute('disabled') ) {
-            $metadata['disabled'] = true;
-        }
-        if ( $control->hasAttribute('readonly') ) {
-            $metadata['readonly'] = true;
-        }
-        if ( $control->hasAttribute('checked') ) {
-            $metadata['checked'] = true;
-        }
-        if ( $control->hasAttribute('multiple') ) {
-            $metadata['multiple'] = true;
-        }
-
-        $value = $this->attr($control, 'value');
-        if ( '' !== $value && 'select' !== $tagName ) {
-            $metadata['value'] = $value;
-        }
-
-        if ( 'select' === $tagName ) {
-            $options = $this->selectOptions($control);
-            if ( array() !== $options ) {
-                $metadata['options'] = $options;
-            }
-        }
-
-        return $metadata;
-    }
-
-    private function formControlLabel(DOMElement $control): string
-    {
-        $ariaLabel = trim($this->attr($control, 'aria-label'));
-        if ( '' !== $ariaLabel ) {
-            return $ariaLabel;
-        }
-
-        $id = $this->attr($control, 'id');
-        if ( '' !== $id && $control->ownerDocument instanceof DOMDocument ) {
-            foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-                if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
-                    return $this->normalizedControlLabelText($label);
-                }
-            }
-        }
-
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'label' === strtolower($parent->tagName) ) {
-                return $this->normalizedControlLabelText($parent);
-            }
-        }
-
-        return '';
-    }
-
-    private function normalizedControlLabelText(DOMElement $label): string
-    {
-        return trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '');
-    }
-
-    private function labelTextWithoutControls(DOMNode $node): string
-    {
-        if ( XML_TEXT_NODE === $node->nodeType ) {
-            return $node->textContent ?? '';
-        }
-
-        if ( $node instanceof DOMElement && 'true' === strtolower($this->attr($node, 'aria-hidden')) ) {
-            return '';
-        }
-
-        if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
-            return '';
-        }
-
-        $text = '';
-        foreach ( $node->childNodes as $child ) {
-            $text .= $this->labelTextWithoutControls($child);
-        }
-
-        return $text;
-    }
-
-    private function formButtonText(DOMElement $control): string
-    {
-        foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $label = trim($this->attr($control, $attribute));
-            if ( '' !== $label ) {
-                return $label;
-            }
-        }
-
-        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
-        if ( '' !== $text ) {
-            return $text;
-        }
-
-        return trim($this->attr($control, 'value'));
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function selectOptions(DOMElement $select): array
-    {
-        $options = array();
-        foreach ( $select->getElementsByTagName('option') as $option ) {
-            if ( ! $option instanceof DOMElement ) {
-                continue;
-            }
-
-            $value = $this->attr($option, 'value');
-            $optionMetadata = array(
-                'label' => trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? ''),
-                // An explicit empty value is a select placeholder semantic, not
-                // a missing value to replace with the visible option label.
-                'value' => $option->hasAttribute('value') ? $value : trim($option->textContent ?? ''),
-            );
-            if ( $option->hasAttribute('selected') ) {
-                $optionMetadata['selected'] = true;
-            }
-            if ( $option->hasAttribute('disabled') ) {
-                $optionMetadata['disabled'] = true;
-            }
-            if ( '' === trim($this->attr($option, 'value')) && ( $option->hasAttribute('disabled') || $option->hasAttribute('selected') ) ) {
-                $optionMetadata['placeholder'] = true;
-            }
-
-            $options[] = $optionMetadata;
-        }
-
-        return $options;
     }
 
 }

@@ -21,7 +21,6 @@ final class UnsupportedElementContext
      * @param Closure(DOMElement): array<string, mixed>   $eventMetadata
      * @param Closure(DOMElement): int                    $childElementCount
      * @param Closure(DOMElement): string                 $safeFallbackHtml
-     * @param Closure(DOMElement): array<string, mixed>   $formControlMetadata
      * @param Closure(array<string, mixed>): array<string, mixed> $buildFallbackDiagnostic
      */
     public function __construct(
@@ -34,7 +33,6 @@ final class UnsupportedElementContext
         private readonly Closure $eventMetadata,
         private readonly Closure $childElementCount,
         private readonly Closure $safeFallbackHtml,
-        private readonly Closure $formControlMetadata,
         private readonly Closure $buildFallbackDiagnostic
     ) {
     }
@@ -101,14 +99,6 @@ final class UnsupportedElementContext
     public function safeFallbackHtml(DOMElement $element): string
     {
         return ($this->safeFallbackHtml)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function formControlMetadata(DOMElement $element): array
-    {
-        return ($this->formControlMetadata)($element);
     }
 
     /**

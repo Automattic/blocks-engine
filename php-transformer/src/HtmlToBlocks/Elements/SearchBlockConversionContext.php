@@ -14,8 +14,6 @@ final class SearchBlockConversionContext
      * @param Closure(DOMElement, string): string                                                    $attr
      * @param Closure(DOMElement): array<string, mixed>                                              $eventMetadata
      * @param Closure(DOMElement, DOMElement): bool                                                  $hasSearchFormSignal
-     * @param Closure(DOMElement): string                                                            $formControlLabel
-     * @param Closure(DOMElement): string                                                            $submitButtonText
      * @param Closure(DOMElement): array<string, mixed>                                              $presentationAttributes
      * @param Closure(DOMElement): array<string, string>                                             $presentationDeclarations
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
@@ -31,8 +29,6 @@ final class SearchBlockConversionContext
         private readonly Closure $attr,
         private readonly Closure $eventMetadata,
         private readonly Closure $hasSearchFormSignal,
-        private readonly Closure $formControlLabel,
-        private readonly Closure $submitButtonText,
         private readonly Closure $presentationAttributes,
         private readonly Closure $presentationDeclarations,
         private readonly Closure $createBlock,
@@ -60,16 +56,6 @@ final class SearchBlockConversionContext
     public function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
         return ($this->hasSearchFormSignal)($form, $input);
-    }
-
-    public function formControlLabel(DOMElement $element): string
-    {
-        return ($this->formControlLabel)($element);
-    }
-
-    public function submitButtonText(DOMElement $element): string
-    {
-        return ($this->submitButtonText)($element);
     }
 
     /** @return array<string, mixed> */
