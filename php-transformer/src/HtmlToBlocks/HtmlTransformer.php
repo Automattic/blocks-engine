@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -480,6 +481,7 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->hasSourceNavigationSignal($element),
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
             fn (): RuntimeSelectorState => $this->runtimeSelectors(),
+            fn (): NavigationProjectionState => $this->navigationProjection(),
             fn (): PatternRecognizerRegistry => $this->patternRecognizers,
             fn (): PatternContext => $this->probePatternContext()
         );
@@ -715,6 +717,11 @@ final class HtmlTransformer
     private function runtimeSelectors(): RuntimeSelectorState
     {
         return $this->session->runtimeSelectorState();
+    }
+
+    private function navigationProjection(): NavigationProjectionState
+    {
+        return $this->session->navigationProjectionState();
     }
 
     private function sourceStyles(): SourceStyleResolutionState

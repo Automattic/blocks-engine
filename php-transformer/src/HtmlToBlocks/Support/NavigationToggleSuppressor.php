@@ -17,9 +17,8 @@ use DOMNode;
  * {@see NavigationToggleSuppressionContext}, so this class has no $this access
  * to the transformer and can be exercised without constructing one.
  *
- * The three projection maps below are per-transformer rather than per-transform,
- * preserving the lifetime they had as trait properties. That lifetime is the
- * subject of a separate defect report; this class does not change it.
+ * Projection state lives on the per-transform session rather than on this
+ * collaborator, so it resets with every transform.
  */
 final class NavigationToggleSuppressor
 {
@@ -28,15 +27,6 @@ final class NavigationToggleSuppressor
         private readonly StyleResolver $styleResolver
     ) {
     }
-    /** @var array<string, DOMElement> */
-    private array $projectedNavigationTargetsByControlPath = array();
-
-    /** @var array<string, true> */
-    private array $projectedNavigationSuppressedPaths = array();
-
-    /** @var array<string, true> */
-    private array $implicitDialogNavigationControlPaths = array();
-
     /**
      * Bind a hidden dialog/menu to its source hamburger before recursive
      * conversion. The responsive core/navigation must occupy the control's
@@ -66,14 +56,14 @@ final class NavigationToggleSuppressor
                 break;
             }
 
-            if ( isset($this->projectedNavigationTargetsByControlPath[$control->getNodePath()])
+            if ( $this->context->navigationProjection()->hasTargetForControl($control)
                 || ! $this->hasDialogPopupSemantics($control) ) {
                 continue;
             }
 
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
-                $this->implicitDialogNavigationControlPaths[$control->getNodePath()] = true;
+                $this->context->navigationProjection()->markImplicitDialogControl($control);
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
         }
@@ -81,13 +71,13 @@ final class NavigationToggleSuppressor
 
     private function recordProjectedNavigationRelationship(DOMElement $control, DOMElement $target, DOMElement $navigation): void
     {
-        if ( isset($this->projectedNavigationSuppressedPaths[$navigation->getNodePath()]) ) {
+        if ( $this->context->navigationProjection()->isSuppressed($navigation) ) {
             return;
         }
 
-        $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] = $navigation;
-        $this->projectedNavigationSuppressedPaths[$target->getNodePath()] = true;
-        $this->projectedNavigationSuppressedPaths[$navigation->getNodePath()] = true;
+        $this->context->navigationProjection()->projectTarget($control, $navigation);
+        $this->context->navigationProjection()->suppress($target);
+        $this->context->navigationProjection()->suppress($navigation);
     }
 
     private function hasDialogPopupSemantics(DOMElement $control): bool
@@ -169,17 +159,17 @@ final class NavigationToggleSuppressor
 
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
     {
-        return $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] ?? null;
+        return $this->context->navigationProjection()->targetForControl($control);
     }
 
     public function isImplicitDialogNavigationControl(DOMElement $control): bool
     {
-        return isset($this->implicitDialogNavigationControlPaths[$control->getNodePath()]);
+        return $this->context->navigationProjection()->isImplicitDialogControl($control);
     }
 
     public function isProjectedNavigationSuppressed(DOMElement $element): bool
     {
-        return isset($this->projectedNavigationSuppressedPaths[$element->getNodePath()]);
+        return $this->context->navigationProjection()->isSuppressed($element);
     }
 
     /**
