@@ -138,6 +138,50 @@ final class StaticStyleParityRunner
      */
     public static function candidateHtmlFromSerializedBlocks(string $serializedBlocks): string
     {
+        // Navigation blocks also save as a comment-only tree. Reconstruct only
+        // the stable server-rendered structure needed for selector/style probes;
+        // responsive overlays and behavior remain WordPress runtime concerns.
+        $serializedBlocks = preg_replace_callback(
+            '/<!--\s*(\/?)wp:(navigation(?:-submenu|-link)?)(?:\s+(\{(?:(?!-->).)*\}))?\s*(\/?)-->/s',
+            static function (array $match): string {
+                $closing = '/' === ($match[1] ?? '');
+                $name = (string) ($match[2] ?? '');
+                if ($closing) {
+                    return array(
+                        'navigation' => '</ul></nav>',
+                        'navigation-submenu' => '</ul></li>',
+                        'navigation-link' => '</li>',
+                    )[$name] ?? '';
+                }
+
+                $attrs = json_decode((string) ($match[3] ?? ''), true);
+                $attrs = is_array($attrs) ? $attrs : array();
+                $className = htmlspecialchars(trim((string) ($attrs['className'] ?? '')), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $selfClosing = '/' === ($match[4] ?? '');
+
+                if ('navigation' === $name) {
+                    $navigation = '<nav class="' . trim('wp-block-navigation ' . $className) . '"><ul class="'
+                        . trim('wp-block-navigation__container wp-block-navigation ' . $className) . '">';
+                    return $navigation . ($selfClosing ? '</ul></nav>' : '');
+                }
+
+                $url = htmlspecialchars((string) ($attrs['url'] ?? '#'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $label = strip_tags((string) ($attrs['label'] ?? ''), '<span><strong><em><small><mark>');
+                $itemClasses = htmlspecialchars(trim('wp-block-navigation-item ' . $className), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $link = '<a class="wp-block-navigation-item__content" href="' . $url . '">'
+                    . '<span class="wp-block-navigation-item__label">' . $label . '</span></a>';
+
+                if ('navigation-link' === $name) {
+                    return '<li class="' . $itemClasses . '">' . $link . '</li>';
+                }
+
+                $submenu = '<li class="' . trim($itemClasses . ' has-child') . '">' . $link
+                    . '<ul class="wp-block-navigation__submenu-container">';
+                return $submenu . ($selfClosing ? '</ul></li>' : '');
+            },
+            $serializedBlocks
+        ) ?? $serializedBlocks;
+
         // Dynamic social-link children save only block comments. Materialize the
         // stable server-rendered structure so the render-free proxy can compare
         // the source controls and icons without embedding WordPress icon data.
