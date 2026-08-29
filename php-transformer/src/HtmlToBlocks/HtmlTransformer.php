@@ -4429,6 +4429,10 @@ if ( 'svg' === $tagName ) {
             return $transparentCustomElement;
         }
 
+        if ( $this->isInertRuntimeMediaPlaceholder($element) ) {
+            return null;
+        }
+
         if ( $captureUnsupported ) {
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
@@ -4514,6 +4518,44 @@ if ( 'svg' === $tagName ) {
     {
         if ( $this->runtimeIslands->isRuntimeDomTarget($element) || array() !== $this->eventMetadata($element) || $this->hasMotionStructureToken($element) ) {
             return false;
+        }
+
+        return true;
+    }
+
+    private function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
+    {
+        if ( ! $this->isRuntimeMediaSurfaceElement($element)
+            || ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+        ) {
+            return false;
+        }
+
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isSafeTransparentCustomElement($candidate)
+                || '' !== trim($this->attr($candidate, 'role'))
+                || '' !== trim($this->attr($candidate, 'aria-label'))
+            ) {
+                return false;
+            }
+
+            foreach ( array( 'src', 'srcset', 'href', 'data-src', 'data-url' ) as $attribute ) {
+                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
+                    return false;
+                }
+            }
+
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-') && '' !== trim($attribute->value) ) {
+                    return false;
+                }
+            }
+
+            if ( $candidate !== $element && ! $this->isStructuralTransparentCustomWrapperChild($candidate) ) {
+                return false;
+            }
         }
 
         return true;

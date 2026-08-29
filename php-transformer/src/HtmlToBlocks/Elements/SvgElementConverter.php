@@ -42,6 +42,10 @@ final class SvgElementConverter
             }
         }
 
+        if ( $this->isSafeEmptyMediaPlaceholder($element) ) {
+            return ConversionOutcome::handled(null);
+        }
+
         if ( $this->materializer->isSafeDecorativeSvgElement($element) ) {
             $isDecorativeChrome = $this->context->isVisualLayerElement($element);
             if ( ! $isDecorativeChrome && $this->context->hasDrawableContent($element) ) {
@@ -69,6 +73,32 @@ final class SvgElementConverter
 
         $this->context->captureFallback($element, $fallbacks);
         return ConversionOutcome::handled(null);
+    }
+
+    private function isSafeEmptyMediaPlaceholder(DOMElement $element): bool
+    {
+        if ( $element->hasChildNodes() ) {
+            return false;
+        }
+
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'on') || preg_match('/javascript\s*:/i', $attribute->value) ) {
+                return false;
+            }
+        }
+
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( array( 'img', 'picture', 'video' ) as $mediaTag ) {
+            if ( 0 < $parent->getElementsByTagName($mediaTag)->length ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed>|null */
