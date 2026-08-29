@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementRecorder;
 
@@ -45,11 +46,11 @@ $makeRecorder = static function (array $overrides = array()): UnsupportedElement
         'events'          => static fn (DOMElement $e): array => array(),
         'childCount'      => static fn (DOMElement $e): int => $e->childNodes->length,
         'safeHtml'        => static fn (DOMElement $e): string => '<safe/>',
-        'formControl'     => static fn (DOMElement $e): array => array(),
         'buildDiagnostic' => static fn (array $f): array => $f + array('built' => true),
     );
     $c = array_merge($defaults, $overrides);
 
+    $metadataBuilder = new FormControlMetadataBuilder($c['selector']);
     return new UnsupportedElementRecorder(new UnsupportedElementContext(
         $c['maybeGenerate'],
         $c['generatedBlock'],
@@ -60,9 +61,8 @@ $makeRecorder = static function (array $overrides = array()): UnsupportedElement
         $c['events'],
         $c['childCount'],
         $c['safeHtml'],
-        $c['formControl'],
         $c['buildDiagnostic']
-    ));
+    ), $metadataBuilder);
 };
 
 // A high-confidence custom block short-circuits the fallback entirely: a block
@@ -93,9 +93,8 @@ $assert(! array_key_exists('control', $row), 'non-control-fallback-omits-control
 
 // Form-control metadata is attached only when the element actually has it.
 $fallbacks = array();
-$makeRecorder(array('formControl' => static fn (DOMElement $e): array => array('role' => 'textbox')))
-    ->record($elementFrom('<x-input></x-input>'), 'x-input', $fallbacks);
-$assert(array('role' => 'textbox') === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
+$makeRecorder()->record($elementFrom('<input aria-label="Email">'), 'input', $fallbacks);
+$assert(array('tag' => 'input', 'selector' => 'input.sel', 'type' => 'text', 'label' => 'Email') === ($fallbacks[0]['control'] ?? null), 'control-metadata-attached-when-present');
 
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

@@ -33,6 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
@@ -261,6 +262,8 @@ final class HtmlTransformer
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
+    private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
+
     private readonly SearchBlockConverter $searchBlockConverter;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -400,10 +403,11 @@ final class HtmlTransformer
             $this->runtime
         );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
-        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext());
+        $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
+        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
-        $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
+        $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
 
 
@@ -534,8 +538,6 @@ final class HtmlTransformer
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
-            fn (DOMElement $element): string => $this->formControlLabel($element),
-            fn (DOMElement $element): string => $this->submitButtonText($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -663,7 +665,6 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): int => $this->childElementCount($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
-            fn (DOMElement $element): array => $this->formControlMetadata($element),
             fn (array $fallback): array => FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback())
         );
     }
@@ -8303,7 +8304,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( 'form' === $tagName ) {
-            $metadata = $this->formMetadata($element);
+            $metadata = $this->formControlMetadataBuilder->form($element);
             $candidates[] = $this->interactionCandidate($element, 'form', 'submit', (string) ($metadata['action'] ?? ''), array_filter(array('form_element', (string) ($metadata['method'] ?? ''))), 'high', 'form_submission');
         }
 
