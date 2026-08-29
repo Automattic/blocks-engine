@@ -215,6 +215,22 @@ trait FormDispatchTrait
         }
         if ( array() !== $classes ) $presentation['class'] = implode(' ', $classes);
 
+        if ( 'fieldset' === $tag ) {
+            $semantics = 'plain_group';
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 'legend' === strtolower($child->tagName) ) {
+                    $semantics = 'labelled_group';
+                    break;
+                }
+            }
+            if ( $element->hasAttribute('disabled') ) {
+                $semantics = 'disabled_group';
+            } elseif ( '' !== trim($this->attr($element, 'name')) || '' !== trim($this->attr($element, 'form')) ) {
+                $semantics = 'attributed_group';
+            }
+            $presentation['fieldset_semantics'] = $semantics;
+        }
+
         return $presentation;
     }
 
@@ -1691,6 +1707,9 @@ trait FormDispatchTrait
 
         $tagName = strtolower($control->tagName);
         $type = $this->formControlType($control);
+        if ( 'button' === $type && $this->isSubmitLikeControl($control) ) {
+            $type = 'submit';
+        }
         $metadata = array_filter(array(
             'tag'         => $tagName,
             'selector'    => $this->elementSelector($control),
