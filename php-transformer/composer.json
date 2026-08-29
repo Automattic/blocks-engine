@@ -146,6 +146,7 @@
       "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/inert-capture-scaffolding.php",
+      "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/geometry-chain-coalescing.php",
       "php tests/unit/pattern-recursive-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
