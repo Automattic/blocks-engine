@@ -12284,10 +12284,13 @@ if ( 'svg' === $tagName ) {
 
     private function isInertHiddenSvgStorage(DOMElement $element): bool
     {
+        $isDomStore = $element->hasAttribute('data-dom-store');
         if ( ! $this->sourceElementStartsHidden($element)
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
+            || (! $isDomStore && (
+                $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
+                || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
+                || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
+            ))
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))
             || '' !== trim($this->attr($element, 'title'))
