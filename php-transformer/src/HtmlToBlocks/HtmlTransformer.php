@@ -2051,14 +2051,13 @@ final class HtmlTransformer
                 ++$this->analysisCache->styleBuilds;
                 $ruleCss = trim($payload);
                 $ruleCss = preg_replace('@/\*.*?\*/@s', '', $ruleCss) ?? $ruleCss;
-                $topLevel = $this->styleResolver->topLevelStyleAnalysis($ruleCss);
-                $structured = $this->styleResolver->structuredStyleAnalysis($ruleCss);
+                $style = $this->styleResolver->stylesheetAnalysis($ruleCss);
                 $analysis = array(
-                    'static' => $topLevel['static'],
-                    'conditional' => $structured['conditional'],
-                    'navigation_state' => $topLevel['navigation_state'],
-                    'image_shape' => $structured['image_shape'],
-                    'pseudo' => $topLevel['pseudo'],
+                    'static' => $style['static'],
+                    'conditional' => $style['conditional'],
+                    'navigation_state' => $style['navigation_state'],
+                    'image_shape' => $style['image_shape'],
+                    'pseudo' => $style['pseudo'],
                     'custom_properties' => $this->cssCustomPropertyAnalysis($payload),
                 );
                 $this->analysisCache->rememberStyle($key, $analysis);

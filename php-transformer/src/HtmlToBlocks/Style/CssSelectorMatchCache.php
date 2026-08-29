@@ -74,12 +74,6 @@ final class CssSelectorMatchCache
         return $this->classTokens[$key] = preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($this->attribute($element, 'class') ?? '')) ?: array();
     }
 
-    public function hasClass(DOMElement $element, string $class): bool
-    {
-        $key = $this->elementKey($element);
-        return in_array($class, $this->classTokens[$key] ?? $this->classTokens($element), true);
-    }
-
     public function attribute(DOMElement $element, string $name): ?string
     {
         $key = $this->elementKey($element);
@@ -141,13 +135,7 @@ final class CssSelectorMatchCache
      */
     public function styleRuleCandidates(DOMElement $element, string $collection, array $index): array
     {
-        $classes = $this->classTokens($element);
-        $attributeNames = $this->attributeNames($element);
-        sort($classes, SORT_STRING);
-        sort($attributeNames, SORT_STRING);
-        $id = $this->attribute($element, 'id');
-        $tag = strtolower($element->tagName);
-        $key = $collection . "\0" . serialize(array($tag, $id, $classes, $attributeNames));
+        $key = $collection . "\0" . $this->elementKey($element);
         if ( isset($this->ruleCandidates[$key]) ) {
             ++$this->candidateRuleHits;
             $rules = $this->ruleCandidates[$key];
@@ -159,14 +147,15 @@ final class CssSelectorMatchCache
         ++$this->candidateRuleMisses;
 
         $candidates = $index['universal'];
+        $id = $this->attribute($element, 'id');
         if ( null !== $id ) {
             $candidates = array_merge($candidates, $index['ids'][$id] ?? array());
         }
-        foreach ( $classes as $class ) {
+        foreach ( $this->classTokens($element) as $class ) {
             $candidates = array_merge($candidates, $index['classes'][$class] ?? array());
         }
         $candidates = array_merge($candidates, $index['tags'][strtolower($element->tagName)] ?? array());
-        foreach ( $attributeNames as $name ) {
+        foreach ( $this->attributeNames($element) as $name ) {
             $candidates = array_merge($candidates, $index['attributes'][$name] ?? array());
         }
 

@@ -60,9 +60,6 @@ final class ArtifactCompiler
     /** Observational only: counts source stylesheet discovery passes. */
     private int $stylesheetAssetDiscoveryCount = 0;
 
-    /** @var array<string,int> Observational metrics from the last prepared-page worker batch. */
-    private array $preparedPageBatchMetrics = array();
-
     public function __construct(private readonly bool $cacheHtmlAnalysis = true)
     {
     }
@@ -84,37 +81,8 @@ final class ArtifactCompiler
             'author_hits' => $cache->authorSelectorHits,
             'author_evictions' => $cache->authorSelectorEvictions,
             'author_bytes' => $cache->authorSelectorBytes,
-            'author_selector_class_token_builds' => $cache->authorSelectorClassTokenBuilds,
-            'author_selector_class_token_hits' => $cache->authorSelectorClassTokenHits,
-            'author_selector_attribute_reads' => $cache->authorSelectorAttributeReads,
-            'author_selector_match_result_builds' => $cache->authorSelectorMatchResultBuilds,
-            'author_selector_match_result_hits' => $cache->authorSelectorMatchResultHits,
-            'author_style_rule_builds' => $cache->authorStyleRuleBuilds,
-            'source_selector_match_executions' => $cache->sourceSelectorMatchExecutions,
-            'source_selector_match_hits' => $cache->sourceSelectorMatchHits,
-            'source_selector_match_misses' => $cache->sourceSelectorMatchMisses,
-            'source_selector_match_evictions' => $cache->sourceSelectorMatchEvictions,
-            'source_selector_match_peak_entries' => $cache->sourceSelectorMatchPeakEntries,
-            'source_selector_class_token_builds' => $cache->sourceSelectorClassTokenBuilds,
-            'source_selector_class_token_hits' => $cache->sourceSelectorClassTokenHits,
-            'source_selector_attribute_reads' => $cache->sourceSelectorAttributeReads,
-            'source_style_candidate_rule_checks' => $cache->sourceStyleCandidateRuleChecks,
-            'source_style_candidate_rules_skipped' => $cache->sourceStyleCandidateRulesSkipped,
-            'source_style_candidate_rule_hits' => $cache->sourceStyleCandidateRuleHits,
-            'source_style_candidate_rule_misses' => $cache->sourceStyleCandidateRuleMisses,
-            'source_style_candidate_rule_evictions' => $cache->sourceStyleCandidateRuleEvictions,
-            'source_style_candidate_rule_peak_entries' => $cache->sourceStyleCandidateRulePeakEntries,
-            'source_style_candidate_rule_peak_retained' => $cache->sourceStyleCandidateRulePeakRetained,
-            'source_structural_declaration_builds' => $cache->sourceStructuralDeclarationBuilds,
-            'source_structural_declaration_hits' => $cache->sourceStructuralDeclarationHits,
             'stylesheet_asset_discoveries' => $this->stylesheetAssetDiscoveryCount,
         );
-    }
-
-    /** @return array<string,int> */
-    public function preparedPageBatchMetrics(): array
-    {
-        return $this->preparedPageBatchMetrics;
     }
 
     private string $generatedAssetRoot = '';
@@ -311,10 +279,7 @@ final class ArtifactCompiler
     /** Compile one serialized page plan without receiving the source artifact. */
     public function compilePreparedPage(array $sharedPlan, array $pagePlan, ?PayloadReader $payloadReader = null): array
     {
-        $stageCompiler = $this->preparedPageCompiler();
-        $receipt = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader);
-        $this->preparedPageBatchMetrics = $stageCompiler->htmlAnalysisCacheMetrics();
-        return $receipt;
+        return $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $this->preparedPageCompiler(), $payloadReader);
     }
 
     /**
@@ -336,13 +301,12 @@ final class ArtifactCompiler
             }
             $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
         }
-        $this->preparedPageBatchMetrics = $stageCompiler->htmlAnalysisCacheMetrics();
         return $receipts;
     }
 
     private function preparedPageCompiler(): self
     {
-        $compiler = new self($this->cacheHtmlAnalysis);
+        $compiler = new self();
         $compiler->htmlTransformerAnalysisCache = new HtmlTransformerAnalysisCache();
         return $compiler;
     }
@@ -463,7 +427,6 @@ final class ArtifactCompiler
 
         return $pagePlan;
     }
-
 
     /**
      * Collect the uncapped, serializable facts produced by exactly one page

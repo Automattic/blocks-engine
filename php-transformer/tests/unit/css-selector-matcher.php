@@ -160,7 +160,6 @@ $candidatePressureRoot = $candidatePressureDom->getElementById('candidate-pressu
 $candidatePressureElements = array();
 for ( $index = 0; $index <= CssSelectorMatchCache::MAX_CANDIDATE_LISTS; ++$index ) {
     $element = $candidatePressureDom->createElement('i');
-    $element->setAttribute('class', 'candidate-' . $index);
     $candidatePressureRoot->appendChild($element);
     $candidatePressureElements[] = $element;
 }
@@ -173,17 +172,6 @@ $candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pre
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[CssSelectorMatchCache::MAX_CANDIDATE_LISTS], 'pressure', $emptyCandidateIndex);
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
 $assert(4097 === $candidatePressureCache->candidateRuleMisses && 2 === $candidatePressureCache->candidateRuleHits && 1 === $candidatePressureCache->candidateRuleEvictions && CssSelectorMatchCache::MAX_CANDIDATE_LISTS === $candidatePressureCache->candidateRulePeakEntries && 0 === $candidatePressureCache->candidateRulePeakRetained, 'zero-rule candidate lists remain bounded and hot lists survive capacity pressure');
-
-$equivalentCandidateCache = new CssSelectorMatchCache();
-$equivalentOne = $candidatePressureDom->createElement('section');
-$equivalentOne->setAttribute('class', 'card featured');
-$equivalentOne->setAttribute('data-state', 'one');
-$equivalentTwo = $candidatePressureDom->createElement('section');
-$equivalentTwo->setAttribute('class', 'featured card');
-$equivalentTwo->setAttribute('data-state', 'two');
-$equivalentCandidateCache->styleRuleCandidates($equivalentOne, 'equivalent', $emptyCandidateIndex);
-$equivalentCandidateCache->styleRuleCandidates($equivalentTwo, 'equivalent', $emptyCandidateIndex);
-$assert(1 === $equivalentCandidateCache->candidateRuleMisses && 1 === $equivalentCandidateCache->candidateRuleHits, 'candidate lists are shared by equivalent tag, id, class, and attribute-name inputs');
 
 $lazyClassCache = new CssSelectorMatchCache();
 $attributeOnly = $candidatePressureDom->createElement('div');

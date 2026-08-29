@@ -54,19 +54,11 @@ foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($
 $assert(ArtifactCompiler::COMPACT_RECEIPT_SCHEMA === ($compiledPages['about.html']['receipt_schema'] ?? null) && 1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
 $assert(!array_key_exists('files', $compiledPages['about.html']['terminal_reduction']) && !array_key_exists('entry_blocks', $compiledPages['index.html']['terminal_reduction']), 'Compact receipts reference canonical page files and compiled entry output instead of serializing duplicate terminal payloads.');
 $compiledBatch = $compiler->compilePreparedPages($shared, $pages);
-$batchMetrics = $compiler->preparedPageBatchMetrics();
-$assert(3 === ($batchMetrics['stylesheet_asset_discoveries'] ?? null) && 0 < ($batchMetrics['source_selector_match_executions'] ?? 0) && array_key_exists('source_style_candidate_rule_hits', $batchMetrics), 'Prepared-page batches expose bounded stylesheet and selector work without adding observations to receipts.');
 foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms']);
 unset($compiledBatchPage);
 foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_duration_ms']);
 unset($compiledPage);
 $assert($compiledPages === $compiledBatch, 'Worker-batch compilation reuses bounded analysis without changing independently compiled receipt content.');
-$uncachedCompiler = new ArtifactCompiler(false);
-$uncachedBatch = $uncachedCompiler->compilePreparedPages($shared, $pages);
-$assert(0 === ($uncachedCompiler->preparedPageBatchMetrics()['style_builds'] ?? null) && 0 === ($uncachedCompiler->preparedPageBatchMetrics()['author_builds'] ?? null), 'Prepared-page workers inherit the caller cache policy instead of silently enabling a shared analysis cache.');
-foreach ($uncachedBatch as &$uncachedPage) unset($uncachedPage['work']['compile_duration_ms']);
-unset($uncachedPage);
-$assert($compiledBatch === $uncachedBatch, 'Prepared-page cache policy changes process work without changing receipt content.');
 
 // One batch verifies its immutable shared plan once, so the batch entry point
 // stays the enforcement boundary for every shared-plan invariant.

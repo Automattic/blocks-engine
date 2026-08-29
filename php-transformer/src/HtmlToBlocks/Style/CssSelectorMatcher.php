@@ -68,7 +68,6 @@ final class CssSelectorMatcher
             'rightmost_compound_span' => $rightmost,
             'pseudo_state_suffix_span' => $suffix,
             'rightmost_rewrite_end' => $suffix['start'] ?? $rightmost['end'],
-            'unmodeled_html_attribute_value_semantics' => self::hasUnmodeledHtmlAttributeValueSemantics($compounds),
         );
     }
 
@@ -120,7 +119,7 @@ final class CssSelectorMatcher
         if ( null !== ($selector['pseudo_state_suffix_span'] ?? null) && ! $accountForPseudoStateSuffix ) {
             return array( 'supported' => false, 'matches' => false );
         }
-        if ( $selector['unmodeled_html_attribute_value_semantics'] ?? self::hasUnmodeledHtmlAttributeValueSemantics($selector['compounds']) ) {
+        if ( self::hasUnmodeledHtmlAttributeValueSemantics($selector['compounds']) ) {
             return array( 'supported' => false, 'matches' => false );
         }
 
@@ -506,14 +505,10 @@ final class CssSelectorMatcher
             }
         }
         if ( array() !== $compound['classes'] ) {
-            if ( null !== $cache ) {
-                foreach ( $compound['classes'] as $class ) {
-                    if ( ! $cache->hasClass($element, $class) ) return false;
-                }
-            } else {
-                $classes = array_fill_keys(preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array(), true);
-                foreach ( $compound['classes'] as $class ) {
-                    if ( ! isset($classes[$class]) ) return false;
+            $classes = $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
+            foreach ( $compound['classes'] as $class ) {
+                if ( ! in_array($class, $classes, true) ) {
+                    return false;
                 }
             }
         }
@@ -640,6 +635,6 @@ final class CssSelectorMatcher
     /** @return array{supported: false, reason: string, compounds: list<array<string, mixed>>, combinators: list<string>, type_spans: list<array{start: int, end: int, name: string, compound: int}>, rightmost_compound_span: null, pseudo_state_suffix_span: null, rightmost_rewrite_end: null} */
     private static function unsupported(string $reason): array
     {
-        return array( 'supported' => false, 'reason' => $reason, 'compounds' => array(), 'combinators' => array(), 'type_spans' => array(), 'rightmost_compound_span' => null, 'pseudo_state_suffix_span' => null, 'rightmost_rewrite_end' => null, 'unmodeled_html_attribute_value_semantics' => false );
+        return array( 'supported' => false, 'reason' => $reason, 'compounds' => array(), 'combinators' => array(), 'type_spans' => array(), 'rightmost_compound_span' => null, 'pseudo_state_suffix_span' => null, 'rightmost_rewrite_end' => null );
     }
 }
