@@ -86,7 +86,7 @@ final class CustomBlockGenerator
             'div',
             blockEditor.useBlockProps(),
             createElement( element.RawHTML, null, content ),
-            createElement( components.TextareaControl, {
+            props.isSelected && createElement( components.TextareaControl, {
                 label: 'HTML',
                 value: content,
                 onChange: function( value ) { props.setAttributes( { content: value } ); }

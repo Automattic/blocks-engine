@@ -26,10 +26,10 @@
     { "path": "fallbacks.0.controls", "assert": "count", "count": 5 },
     { "path": "fallbacks.0.controls.3.name", "assert": "equals", "value": "bounded_out" },
     { "path": "fallbacks.0.control_topology.schema", "assert": "equals", "value": "generic/form-control-topology/v1" },
-    { "path": "fallbacks.0.control_topology.max_depth", "assert": "equals", "value": 8 },
+    { "path": "fallbacks.0.control_topology.max_depth", "assert": "equals", "value": 16 },
     { "path": "fallbacks.0.control_topology.max_nodes", "assert": "equals", "value": 128 },
-    { "path": "fallbacks.0.control_topology.truncated", "assert": "equals", "value": true },
-    { "path": "fallbacks.0.control_topology.nodes", "assert": "count", "count": 17 },
+    { "path": "fallbacks.0.control_topology.truncated", "assert": "equals", "value": false },
+    { "path": "fallbacks.0.control_topology.nodes", "assert": "count", "count": 18 },
     { "path": "fallbacks.0.control_topology.nodes.0.id", "assert": "equals", "value": "wrapper-0" },
     { "path": "fallbacks.0.control_topology.nodes.0.source_id", "assert": "equals", "value": "name-row" },
     { "path": "fallbacks.0.control_topology.nodes.0.class", "assert": "equals", "value": "row row-2" },
@@ -43,6 +43,7 @@
     { "path": "fallbacks.0.control_topology.nodes.5.order", "assert": "equals", "value": 1 },
     { "path": "fallbacks.0.control_topology.nodes.5.class", "assert": "equals", "value": "field standalone" },
     { "path": "fallbacks.0.control_topology.nodes.6.control", "assert": "equals", "value": 2 },
-    { "path": "fallbacks.0.control_topology.nodes.16.control", "assert": "equals", "value": 4 }
+    { "path": "fallbacks.0.control_topology.nodes.16.control", "assert": "equals", "value": 3 },
+    { "path": "fallbacks.0.control_topology.nodes.17.control", "assert": "equals", "value": 4 }
   ]
 }

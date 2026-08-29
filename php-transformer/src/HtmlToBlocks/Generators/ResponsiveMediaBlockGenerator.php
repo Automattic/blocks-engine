@@ -34,6 +34,7 @@ final class ResponsiveMediaBlockGenerator
 ( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
     function edit( props ) {
+        if ( ! props.isSelected ) { return createElement( 'div', blockEditor.useBlockProps( { style: { display: 'none' } } ) ); }
         return createElement( 'div', blockEditor.useBlockProps(), createElement( components.TextareaControl, {
             label: 'Captured media or layout HTML',
             value: props.attributes.content || '',

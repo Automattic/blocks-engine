@@ -39,6 +39,8 @@ $form = '<main><form aria-label="Contact">'
     . '</form></main>';
 
 $serialized = $serialize($form);
+$formResult = $transformer->transform($form)->toArray();
+$runtimeSubmit = $formResult['fallbacks'][0]['controls'][3] ?? array();
 
 $assert(
     str_contains($serialized, 'Claim My Spot') && ! str_contains($serialized, '>Button<'),
@@ -49,6 +51,11 @@ $assert(
     str_contains($serialized, '<!-- wp:button') && str_contains($serialized, 'Claim My Spot'),
     '1b: submit copy lives on a core/button',
     $serialized
+);
+$assert(
+    'submit' === ($runtimeSubmit['type'] ?? '') && 'Claim My Spot' === ($runtimeSubmit['text'] ?? ''),
+    '1c: submit-like type=button exports canonical runtime submission semantics',
+    json_encode($runtimeSubmit)
 );
 $assert(
     str_contains($serialized, 'First name') && str_contains($serialized, 'Last name') && str_contains($serialized, 'Email'),

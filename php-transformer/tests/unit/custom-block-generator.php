@@ -45,7 +45,7 @@ $render = $generator->render('<p>hello</p>');
 $assert('<p>hello</p>' === $render, '2: render is the supplied sanitized static HTML');
 $assert(! str_contains($render, '<?'), '2: render contains no server code');
 $editorScript = $generator->assets('ssi-acme/collection-1234abcd')['index.js'] ?? '';
-$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'TextareaControl'), '2: editor asset registers the exact block with editable source content');
+$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'props.isSelected && createElement( components.TextareaControl'), '2: editor asset registers the exact block with source controls shown only after selection');
 
 $refAttrs = $generator->referenceAttributes('<p>hello</p>');
 $assert($refAttrs === array('content' => '<p>hello</p>'), '3: reference carries per-instance content only');

@@ -8658,8 +8658,16 @@ if ( 'svg' === $tagName ) {
     {
         foreach ( $blocks as $block ) {
             if ( ! is_array($block) ) continue;
-            $provenanceId = $block['_source_provenance_id'] ?? null;
-            if (is_int($provenanceId)) $provenanceIndexes[$provenanceId] = isset($provenanceIndexes[$provenanceId]) ? null : $index;
+            $provenanceIds = is_array($block['_source_provenance_ids'] ?? null)
+                ? $block['_source_provenance_ids']
+                : array($block['_source_provenance_id'] ?? null);
+            foreach (array_unique(array_filter($provenanceIds, 'is_int')) as $provenanceId) {
+                if (!array_key_exists($provenanceId, $provenanceIndexes)) {
+                    $provenanceIndexes[$provenanceId] = $index;
+                } elseif ($index !== $provenanceIndexes[$provenanceId]) {
+                    $provenanceIndexes[$provenanceId] = null;
+                }
+            }
             ++$index;
             $this->bindingProvenanceIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $provenanceIndexes, $index);
         }

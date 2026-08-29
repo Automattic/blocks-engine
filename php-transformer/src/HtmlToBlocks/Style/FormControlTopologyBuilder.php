@@ -9,7 +9,7 @@ use DOMElement;
 /** Builds the bounded source wrapper topology for form fallback metadata. */
 final class FormControlTopologyBuilder
 {
-    private const MAX_DEPTH = 8;
+    private const MAX_DEPTH = 16;
 
     private const MAX_NODES = 128;
 
@@ -114,6 +114,22 @@ final class FormControlTopologyBuilder
             if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
         }
         if ( array() !== $classes ) $presentation['class'] = implode(' ', $classes);
+
+        if ( 'fieldset' === $tag ) {
+            $semantics = 'plain_group';
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 'legend' === strtolower($child->tagName) ) {
+                    $semantics = 'labelled_group';
+                    break;
+                }
+            }
+            if ( $element->hasAttribute('disabled') ) {
+                $semantics = 'disabled_group';
+            } elseif ( '' !== trim($element->getAttribute('name')) || '' !== trim($element->getAttribute('form')) ) {
+                $semantics = 'attributed_group';
+            }
+            $presentation['fieldset_semantics'] = $semantics;
+        }
 
         return $presentation;
     }
