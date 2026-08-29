@@ -36,6 +36,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -266,6 +267,8 @@ final class HtmlTransformer
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
+    private readonly FormRuntimeIslandRecorder $formRuntimeIslandRecorder;
+
     private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
@@ -431,6 +434,14 @@ final class HtmlTransformer
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->formRuntimeIslandRecorder = new FormRuntimeIslandRecorder(
+            $this->formControlMetadataBuilder,
+            function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata): void {
+                $this->runtimeIslands->recordRuntimeIsland($element, $kind, $reason, $capability, $metadata);
+            },
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): array => $this->requiredScriptsForElement($element)
+        );
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
@@ -617,7 +628,7 @@ final class HtmlTransformer
         return new ButtonLinkDispatchContext(
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             function (DOMElement $element): void {
-                $this->recordRuntimeControlIsland($element);
+                $this->formRuntimeIslandRecorder->recordControl($element);
             },
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
@@ -4018,7 +4029,7 @@ if ( 'svg' === $tagName ) {
             return $readableControlBlock;
         }
 
-        if ( $this->preserveStandaloneFormControlAsRuntimeIsland($element) ) {
+        if ( $this->formRuntimeIslandRecorder->preserveStandaloneControl($element) ) {
             return null;
         }
 
