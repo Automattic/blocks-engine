@@ -25,6 +25,15 @@ trait FormDispatchTrait
             return $searchBlock;
         }
 
+        if ( FormControlClassifier::hasDataEntryControls($element) ) {
+            $composition = $this->compositionalFormBlock($element, $fallbacks);
+            if ( null !== $composition ) {
+                $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
+                $this->recordFormRuntimeIsland($element, $composition['block']);
+                return $composition['block'];
+            }
+        }
+
         $readableFormBlock = $this->readableFormBlockFromForm($element);
         if ( null !== $readableFormBlock && ! $this->formRuntimeRequirementAnalyzer->requiresPreservation($element) ) {
             if ( FormControlClassifier::hasDataEntryControls($element) ) {
@@ -35,12 +44,6 @@ trait FormDispatchTrait
         }
 
         if ( FormControlClassifier::hasDataEntryControls($element) ) {
-            $composition = $this->compositionalFormBlock($element, $fallbacks);
-            if ( null !== $composition ) {
-                $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
-                $this->recordFormRuntimeIsland($element, $composition['block']);
-                return $composition['block'];
-            }
             $preservationBlock = $this->htmlPreservationBlock($element);
             $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock, $preservationBlock);
             $this->recordFormRuntimeIsland($element, $readableFormBlock);
@@ -191,10 +194,14 @@ trait FormDispatchTrait
 
     private function formControlSlotElement(DOMElement $form): ?DOMElement
     {
-        $controls = FormControlClassifier::controlElements($form);
+        $controls = array_values(array_filter(
+            FormControlClassifier::controlElements($form),
+            static fn(DOMElement $control): bool => 'hidden' !== FormControlClassifier::controlType($control)
+        ));
         if ( array() === $controls ) return null;
 
         $formPath = $form->getNodePath();
+        $slot = null;
         for ( $candidate = $controls[0]->parentNode; $candidate instanceof DOMElement && $candidate->getNodePath() !== $formPath; $candidate = $candidate->parentNode ) {
             if ( array_filter($controls, fn(DOMElement $control): bool => !$this->elementContains($candidate, $control)) ) continue;
             foreach ( $candidate->childNodes as $child ) {
@@ -202,9 +209,9 @@ trait FormDispatchTrait
                 if ( !$child instanceof DOMElement ) continue;
                 if ( !array_filter($controls, fn(DOMElement $control): bool => $this->elementContains($child, $control)) ) continue 2;
             }
-            return $candidate;
+            $slot = $candidate;
         }
-        return null;
+        return $slot;
     }
 
     /**
