@@ -16,13 +16,18 @@ final class AccordionPattern implements PatternRecognizerInterface
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = $context->innerHtml(...);
 
-        if ( null === $converter || ! $this->hasAccordionSignal($element) || $this->hasRuntimeHeavyDescendant($element) ) {
+        if ( null === $converter || $this->hasRuntimeHeavyDescendant($element) ) {
+            return null;
+        }
+
+        $itemElements = $this->accordionItemElements($element);
+        if ( count($itemElements) < 2 ) {
             return null;
         }
 
         $fallbacks = array();
         $items = array();
-        foreach ( $this->directChildElements($element) as $child ) {
+        foreach ( $itemElements as $child ) {
             $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes);
             if ( null === $item ) {
                 return null;
@@ -65,7 +70,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $panelBlocks = $panel instanceof DOMElement
             ? $converter->children($panel, $fallbacks, true)
             : $converter->childrenWithoutTags($item, $fallbacks, array( 'summary' ));
-        if ( array() === $panelBlocks ) {
+        if ( array() === $panelBlocks && ! $panel instanceof DOMElement ) {
             return null;
         }
 
@@ -82,16 +87,38 @@ final class AccordionPattern implements PatternRecognizerInterface
         ), $item);
     }
 
-    private function hasAccordionSignal(DOMElement $element): bool
+    /**
+     * @return list<DOMElement>
+     */
+    private function accordionItemElements(DOMElement $element): array
     {
-        $tagName = strtolower($element->tagName);
-        $class = strtolower($this->trimmedAttribute($element, 'class'));
-        $role = strtolower($this->trimmedAttribute($element, 'role'));
+        $children = $this->directChildElements($element);
+        if ( 1 === count($children) ) {
+            $nested = $this->directChildElements($children[0]);
+            if ( count($nested) >= 2 && $this->allAccordionItemElements($nested) ) {
+                $children = $nested;
+            }
+        }
 
-        return str_contains($class, 'accordion')
-            || str_contains($class, 'faq')
-            || 'accordion' === $role
-            || in_array($tagName, array( 'section', 'div', 'ul', 'ol' ), true) && str_contains(strtolower($this->trimmedAttribute($element, 'aria-label')), 'faq');
+        return $this->allAccordionItemElements($children) ? $children : array();
+    }
+
+    /**
+     * @param list<DOMElement> $elements
+     */
+    private function allAccordionItemElements(array $elements): bool
+    {
+        if ( count($elements) < 2 ) {
+            return false;
+        }
+
+        foreach ( $elements as $element ) {
+            if ( ! $this->isAccordionItemElement($element) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isAccordionItemElement(DOMElement $element): bool
@@ -101,10 +128,26 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         $class = strtolower($this->trimmedAttribute($element, 'class'));
-        return str_contains($class, 'item')
+        if ( str_contains($class, 'item')
             || str_contains($class, 'accordion')
             || str_contains($class, 'faq')
-            || str_contains($class, 'question');
+            || str_contains($class, 'question')
+        ) {
+            return true;
+        }
+
+        $title = $this->titleElement($element);
+
+        return $title instanceof DOMElement && $this->isDisclosureTitle($title);
+    }
+
+    private function isDisclosureTitle(DOMElement $title): bool
+    {
+        $tagName = strtolower($title->tagName);
+
+        return 'summary' === $tagName
+            || $title->hasAttribute('aria-expanded')
+            || $title->hasAttribute('aria-controls');
     }
 
     private function titleElement(DOMElement $item): ?DOMElement

@@ -64,6 +64,17 @@ trait PatternDomHelpersTrait
         return false;
     }
 
+    private function containsNode(DOMElement $ancestor, DOMElement $node): bool
+    {
+        for ( $current = $node; $current instanceof DOMElement; $current = $current->parentNode ) {
+            if ( $current->isSameNode($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @return array<int, DOMElement>
      */

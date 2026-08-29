@@ -32,6 +32,8 @@ final class StyleResolver
 
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
 
+    private ?ClosedStateNormalizer $closedStateNormalizer = null;
+
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -460,6 +462,7 @@ final class StyleResolver
         $declarations = $carrierOwnsInlineGeometry
             ? $this->mediaTextInlineCascadeDeclarations($this->context->attr($element, 'style'))
             : $this->cssDeclarations($this->context->attr($element, 'style'));
+        $declarations = $this->stripFrozenHiddenState($element, $declarations);
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {
@@ -1622,10 +1625,9 @@ final class StyleResolver
     }
 
     /**
-     * Remove responsive/JS-revealed hidden base states (display:none /
-     * visibility:hidden / opacity:0) from content-bearing or interactive
-     * elements so they are not frozen permanently invisible (#259). Genuinely
-     * decorative / aria-hidden nodes keep their hidden declarations.
+     * Remove JS-gated closed states from content-bearing or interactive
+     * elements so they are not frozen permanently invisible (#259, #1353, #1354).
+     * Decorative nodes keep their hidden declarations.
      *
      * @param array<string, string> $declarations
      * @return array<string, string>
@@ -1636,30 +1638,25 @@ final class StyleResolver
             return $declarations;
         }
 
-        $stripped = array();
-        if ( isset($declarations['display']) && 'none' === strtolower(trim($declarations['display'])) ) {
-            unset($declarations['display']);
-            $stripped[] = 'display:none';
-        }
-        if ( isset($declarations['visibility']) && 'hidden' === strtolower(trim($declarations['visibility'])) ) {
-            unset($declarations['visibility']);
-            $stripped[] = 'visibility:hidden';
-        }
-        if ( isset($declarations['opacity']) && is_numeric(trim($declarations['opacity'])) && 0.0 === (float) trim($declarations['opacity']) ) {
-            unset($declarations['opacity']);
-            $stripped[] = 'opacity:0';
-        }
-
-        if ( array() !== $stripped ) {
+        $normalized = $this->closedStateNormalizer()->strip($declarations);
+        if ( array() !== $normalized['stripped'] ) {
             $this->context->transformationEvidence()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
                 'selector'     => $this->context->elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
-                'declarations' => $stripped,
+                'declarations' => $normalized['stripped'],
             ));
         }
 
-        return $declarations;
+        return $normalized['declarations'];
+    }
+
+    /** @return list<string> */
+    public function closedStateRepairCssRules(): array
+    {
+        return $this->closedStateNormalizer()->repairRules(
+            $this->context->transformationEvidence()->frozenHiddenStateFindings()
+        );
     }
 
     public function collectEditorHiddenStateFindings(DOMElement $body): void
@@ -1689,7 +1686,7 @@ final class StyleResolver
                 if (array() !== $conditions) {
                     return;
                 }
-                $declarations = array_intersect_key($this->cssDeclarations($body), array('display' => true, 'opacity' => true, 'visibility' => true));
+                $declarations = array_intersect_key($this->cssDeclarations($body), $this->closedStateNormalizer()->hiddenStateProperties());
                 foreach (explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
@@ -1728,33 +1725,21 @@ final class StyleResolver
 
     /**
      * An element is treated as genuinely (decoratively) hidden when it carries
-     * no real content or interactivity, or it is explicitly aria-hidden /
-     * presentational. Such nodes may stay hidden; everything else is assumed to
-     * be a responsive/JS-revealed element captured in its base-hidden state.
+     * no real content or interactivity, or it is presentational. Collapsible
+     * regions that still hold content stay content-bearing even when the source
+     * marked them `aria-hidden` in the closed capture.
      */
     private function isDecorativeHiddenElement(DOMElement $element): bool
     {
-        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) ) {
-            return true;
-        }
-        if ( in_array(strtolower(trim($this->context->attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
-            return true;
-        }
-        if ( in_array(strtolower($element->tagName), array( 'svg', 'canvas' ), true) ) {
-            return true;
-        }
+        return $this->closedStateNormalizer()->isDecorativeHiddenElement(
+            $element,
+            fn (DOMElement $source, string $name): string => $this->context->attr($source, $name)
+        );
+    }
 
-        if ( '' !== trim($element->textContent ?? '') ) {
-            return false;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'a', 'button', 'input', 'select', 'textarea', 'img', 'picture', 'video', 'audio', 'iframe', 'nav', 'form' ), true) ) {
-                return false;
-            }
-        }
-
-        return true;
+    private function closedStateNormalizer(): ClosedStateNormalizer
+    {
+        return $this->closedStateNormalizer ??= new ClosedStateNormalizer();
     }
 
     public function mergedPresentationStyle(DOMElement $element): string

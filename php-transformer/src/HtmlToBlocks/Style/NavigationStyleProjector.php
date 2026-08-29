@@ -93,31 +93,8 @@ final class NavigationStyleProjector
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
 
-        $repairs = array();
-        foreach ( $this->context->transformationEvidence()->frozenHiddenStateFindings() as $finding ) {
-            $selector = (string) ($finding['editor_selector'] ?? '');
-            if ( '' === $selector ) {
-                continue;
-            }
-            foreach ( (array) ($finding['declarations'] ?? array()) as $declaration ) {
-                if ( 'display:none' === $declaration ) {
-                    $repairs[$selector]['display'] = 'revert!important';
-                } elseif ( 'visibility:hidden' === $declaration ) {
-                    $repairs[$selector]['visibility'] = 'visible!important';
-                } elseif ( 'opacity:0' === $declaration ) {
-                    $repairs[$selector]['opacity'] = '1!important';
-                    $repairs[$selector]['transform'] = 'none!important';
-                }
-            }
-        }
-        ksort($repairs, SORT_STRING);
-        foreach ( $repairs as $selector => $declarations ) {
-            ksort($declarations, SORT_STRING);
-            $body = '';
-            foreach ( $declarations as $property => $value ) {
-                $body .= $property . ':' . $value . ';';
-            }
-            $rules[] = ':root ' . $selector . '{' . rtrim($body, ';') . '}';
+        foreach ( $this->styleResolver->closedStateRepairCssRules() as $repairRule ) {
+            $rules[] = $repairRule;
         }
 
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
