@@ -71,11 +71,6 @@ final class LayoutShellBlockGenerator
         } );
         return props;
     }
-    function sourceBlockProps( props ) {
-        props = useBlockProps( props );
-        props.className = String( props.className || '' ).split( /\s+/ ).filter( function( className ) { return className && className !== 'block-editor-block-list__block'; } ).join( ' ' );
-        return props;
-    }
     function wrappedContent( wrappers, content, outerProps ) {
         for ( var index = ( wrappers || [] ).length - 1; index >= 0; index-- ) {
             var props = wrapperProps( wrappers[ index ].attributes );
@@ -126,7 +121,8 @@ final class LayoutShellBlockGenerator
     function edit( props ) {
         var wrappers = props.attributes.wrappers || [];
         var content = createElement( InnerBlocks );
-        return wrappers.length ? wrappedContent( wrappers, content, sourceBlockProps ) : createElement( 'div', useBlockProps(), content );
+        if ( wrappers.length ) { content = wrappedContent( wrappers, content ); }
+        return createElement( 'div', useBlockProps( { style: { display: 'contents' } } ), content );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { wrappers: { type: 'array', default: [] } },
