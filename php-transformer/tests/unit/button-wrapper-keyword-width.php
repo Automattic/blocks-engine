@@ -43,6 +43,11 @@ $assert(
     '3: min-content does not shrink-wrap the buttons wrapper',
     $css
 );
+$assert(
+    ! str_contains($css, 'min-content'),
+    '4: min-content is not reapplied to the inner button link',
+    $css
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "button wrapper keyword width tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

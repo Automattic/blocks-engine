@@ -40,6 +40,12 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -300,6 +306,12 @@ final class HtmlTransformer
 
     private readonly TableElementConverter $tableConverter;
 
+    private readonly FigureElementConverter $figureConverter;
+
+    private readonly ListElementConverter $listConverter;
+
+    private readonly DescriptionListElementConverter $descriptionListConverter;
+
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
     private readonly PatternContext $patternContext;
@@ -536,6 +548,62 @@ final class HtmlTransformer
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
+        $this->figureConverter = new FigureElementConverter(new FigureElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaGalleryBlockFromElement($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
+            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+            fn (DOMElement $figure, string $tagName): ?DOMElement => $this->figureMediaElement($figure, $tagName),
+            function (DOMElement $figure, array &$fallbacks): ?array {
+                return $this->convertFigureGeneric($figure, $fallbacks);
+            },
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $this->listConverter = new ListElementConverter(new ListElementContext(
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            fn (DOMElement $element): bool => $this->isStructuredCardList($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuredCardList($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->listContainsStructuralItemContent($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuralList($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->listItems($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $this->descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
+            fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
+            fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
+            fn (DOMElement $element): array => $this->definitionListItems($element),
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
+        ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
 
@@ -2617,19 +2685,22 @@ final class HtmlTransformer
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude);
-            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
-            if ( '' === $directWrapperPrelude || '' === $geometry ) {
+            if ( '' === $directWrapperPrelude ) {
                 return $projectedPrelude . '{' . $body . '}';
+            }
+            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            if ( '' === $geometry ) {
+                return '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}';
             }
             return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
         if ( '' === $layout ) {
-            return $projectedPrelude . '{' . $body . '}';
+            return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
         }
         if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $body);
+            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
         }
 
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
@@ -2723,6 +2794,9 @@ final class HtmlTransformer
                 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
                 'align-self', 'justify-self', 'order',
             );
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                continue;
+            }
             if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value)
             ) {
@@ -2755,6 +2829,9 @@ final class HtmlTransformer
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
             if ( '' === $name || false === $colon ) {
                 $control[] = $declaration;
+                continue;
+            }
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
             if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
@@ -2800,7 +2877,7 @@ final class HtmlTransformer
                 continue;
             }
             $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
-            if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
                 continue;
             }
 
@@ -2823,6 +2900,24 @@ final class HtmlTransformer
         $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
 
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /**
+     * Inline min-content widths plus Gutenberg's word-break:break-word collapse
+     * the label to one character. Drop those widths, including custom
+     * properties that only exist to feed min-width.
+     */
+    private function isCollapsedButtonKeywordWidth(string $property, string $value): bool
+    {
+        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+        if ( 'min-content' !== $value ) {
+            return false;
+        }
+        if ( in_array($property, array( 'width', 'min-width', 'max-width' ), true) ) {
+            return true;
+        }
+
+        return str_starts_with($property, '--') && str_contains($property, 'width');
     }
 
     private function isButtonWrapperLayoutProperty(string $property): bool
@@ -4069,16 +4164,23 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->convertInlineContentElement($element, $fallbacks);
         }
 
-        if ( in_array( $tagName, array( 'ul', 'ol', 'dl', 'dt', 'dd' ), true ) ) {
-            return $this->convertListElement($element, $fallbacks);
+        $listDispatch = $this->listConverter->convert($element, $tagName, $fallbacks);
+        if ( $listDispatch->handled ) {
+            return $listDispatch->block;
+        }
+
+        $descriptionListDispatch = $this->descriptionListConverter->convert($element, $tagName, $fallbacks);
+        if ( $descriptionListDispatch->handled ) {
+            return $descriptionListDispatch->block;
         }
 
         if ( 'blockquote' === $tagName ) {
             return $this->recognizePatterns($element, $fallbacks, array(QuotePattern::class));
         }
 
-        if ( 'figure' === $tagName || 'figcaption' === $tagName ) {
-            return $this->convertFigureElement($element, $fallbacks);
+        $figureDispatch = $this->figureConverter->convert($element, $tagName, $fallbacks);
+        if ( $figureDispatch->handled ) {
+            return $figureDispatch->block;
         }
 
         if ( 'noscript' === $tagName ) {
