@@ -151,6 +151,22 @@ $notSpecificity = 'a:not(.x) { font-size: 3rem; } a { font-size: 4rem; }';
 $result = $resolve($marked, $notSpecificity, '//a', array( 'font-size' ));
 $assert('3rem' === ( $result['font-size'] ?? '' ), ':not() contributes its argument to specificity');
 
+// Broad type selectors that also match promoted controls are emitted with a
+// zero-specificity exclusion guard. The ordinary anchor must match it; a control
+// marker named in the guard must not.
+$guarded = 'a:not(:where(.control-a,.control-b)) { text-decoration: none; }';
+$result = $resolve($marked, $guarded, '//a', array( 'text-decoration' ));
+$assert('none' === ( $result['text-decoration'] ?? '' ), 'a generated nested :not(:where()) guard admits ordinary anchors');
+
+$controlled = '<html><body><a class="control-a" href="#">Control</a></body></html>';
+$result = $resolve($controlled, $guarded, '//a', array( 'text-decoration' ));
+$assert(! isset($result['text-decoration']), 'a generated nested :not(:where()) guard excludes projected controls');
+
+$guardSpecificity = '.ordinary { font-size: 1rem; } a:not(:where(.control-a,.control-b)) { font-size: 2rem; }';
+$ordinary = '<html><body><a class="ordinary" href="#">Ordinary</a></body></html>';
+$result = $resolve($ordinary, $guardSpecificity, '//a', array( 'font-size' ));
+$assert('1rem' === ( $result['font-size'] ?? '' ), ':not(:where()) adds zero specificity');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "StaticCssCascade unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

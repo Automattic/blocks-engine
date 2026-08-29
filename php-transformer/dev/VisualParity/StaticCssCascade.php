@@ -375,6 +375,7 @@ final class StaticCssCascade
     private function specificity(string $selector): int
     {
         $selector = trim(preg_replace('/::?(hover|focus|active|visited|before|after)\b[^ ]*/', '', $selector) ?? $selector);
+        $selector = $this->normalizeGeneratedFunctionalGuard($selector, true);
         if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
             $parsed = CssSelectorMatcher::parse($selector);
             if ( $parsed['supported'] ) {
@@ -463,6 +464,8 @@ final class StaticCssCascade
             return null !== $element->ownerDocument && $element === $element->ownerDocument->documentElement;
         }
 
+        $selector = $this->normalizeGeneratedFunctionalGuard($selector, false);
+
         // `:is()`, `:where()` and `:not()` are the grammar the transformer's own
         // author-stylesheet projection emits to preserve author specificity, e.g.
         // `.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`. Without
@@ -519,6 +522,30 @@ final class StaticCssCascade
         }
 
         return strtolower($selector) === strtolower($element->tagName);
+    }
+
+    /**
+     * Normalize the zero-specificity exclusion guard emitted by author-selector
+     * projection into the conservative production matcher's supported grammar.
+     *
+     * `:not(:where(.a,.b))` is equivalent for matching to
+     * `:not(.a):not(.b)`, but its specificity remains zero because every class
+     * is inside :where(). For specificity calculation the whole guard therefore
+     * disappears; for matching it expands to the equivalent conjunction.
+     */
+    private function normalizeGeneratedFunctionalGuard(string $selector, bool $forSpecificity): string
+    {
+        return preg_replace_callback(
+            '/:not\(\s*:where\(\s*((?:\.[A-Za-z0-9_-]+\s*,\s*)*\.[A-Za-z0-9_-]+)\s*\)\s*\)/i',
+            static function (array $match) use ($forSpecificity): string {
+                if ( $forSpecificity ) {
+                    return '';
+                }
+                $classes = array_values(array_filter(array_map('trim', explode(',', $match[1]))));
+                return implode('', array_map(static fn (string $class): string => ':not(' . $class . ')', $classes));
+            },
+            $selector
+        ) ?? $selector;
     }
 
     /**
