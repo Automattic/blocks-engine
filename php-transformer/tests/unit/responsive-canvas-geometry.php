@@ -47,6 +47,20 @@ $assert(
     'mixed shell and content minimum-width selectors remain intact and emit a diagnostic'
 );
 
+$percentageHeight = (new HtmlTransformer())->transform(
+    '<style>footer{height:auto}.footer-frame{height:100%!important}.footer-grid{display:grid;grid-template-rows:1fr min-content;height:100%}.footer-background{position:absolute;inset:0;height:100%}.definite-frame{height:320px}.definite-frame>.fill{height:100%}.media-fill{height:100%;object-fit:cover}.mixed-fill{height:100%}@media(max-width:600px){.mobile-footer-frame{height:100%}}</style>'
+    . '<footer><div class="footer-frame"><div class="footer-grid"><nav>Links</nav><p>Copyright</p></div><div class="footer-background"></div></div></footer>'
+    . '<section><div class="mobile-footer-frame"><p>Mobile links</p><p>Mobile copyright</p></div></section>'
+    . '<div class="definite-frame"><div class="fill">Card</div><img class="media-fill" src="card.jpg" alt=""></div>'
+    . '<footer><div class="mixed-fill">Safe shell</div></footer><div class="definite-frame"><div class="mixed-fill">Definite fill</div></div>'
+)->toArray();
+$percentageHeightCss = $css($percentageHeight);
+$assert(str_contains($percentageHeightCss, '.footer-frame{height:auto!important}') && str_contains($percentageHeightCss, '.footer-grid{display:grid;grid-template-rows:1fr min-content;height:auto}'), 'indefinite-height footer wrappers collapse without changing grid tracks or declaration priority');
+$assert(str_contains($percentageHeightCss, '@media(max-width:600px){.mobile-footer-frame{height:auto}}'), 'responsive structural variants receive the same percentage-height projection');
+$assert(str_contains($percentageHeightCss, '.footer-background{position:absolute;inset:0;height:100%}') && str_contains($percentageHeightCss, '.definite-frame>.fill{height:100%}') && str_contains($percentageHeightCss, '.media-fill{height:100%;object-fit:cover}'), 'positioned layers, definite-height components, and replaced media retain authored fill geometry');
+$assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
+$assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Responsive canvas geometry unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
