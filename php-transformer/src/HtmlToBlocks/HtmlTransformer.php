@@ -2109,6 +2109,21 @@ final class HtmlTransformer
                 }
             }
 
+            $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
+            $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
+            if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
+                foreach ( $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed) as $element ) {
+                    if ( '' !== $this->safeAnchor($this->attr($element, 'id')) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($element);
+                    if ( '' !== $path ) {
+                        $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
+                        $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+                    }
+                }
+            }
+
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = $compounds[array_key_last($compounds)] ?? array();
             $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
@@ -3104,10 +3119,16 @@ final class HtmlTransformer
         }
         foreach ( $matches as $element ) {
             $id = trim($this->attr($element, 'id'));
-            if ( ! preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
-                return null;
+            if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
+                $target = '#' . $id;
+            } else {
+                $marker = $this->authorSelectorProjections()->attributeMarker($this->sourceElementIdentity($element));
+                if ( '' === $marker ) {
+                    return null;
+                }
+                $target = '.' . $marker;
             }
-            $projected[] = $scope . ':where(#' . $id . ')' . $this->selectorSpecificityShims($parsed);
+            $projected[] = $scope . ':where(' . $target . ')' . $this->selectorSpecificityShims($parsed);
         }
 
         return array_values(array_unique($projected));

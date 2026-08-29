@@ -2653,7 +2653,13 @@ final class ArtifactCompiler
             }
             $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
             if ( array() === $authoritativeContent ) {
-                $authoritativeContent[] = (string) ($file['content'] ?? '');
+                if ( array() !== $pathProjections ) {
+                    $authoritativeProjection = array_key_last($pathProjections);
+                    $authoritativeContent[] = (string) $authoritativeProjection;
+                    unset($pathProjections[$authoritativeProjection]);
+                } else {
+                    $authoritativeContent[] = (string) ($file['content'] ?? '');
+                }
             }
             $preambles = array();
             $stylesheets = array();
