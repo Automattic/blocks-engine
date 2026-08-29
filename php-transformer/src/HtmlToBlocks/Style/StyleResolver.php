@@ -295,7 +295,7 @@ final class StyleResolver
         $declarations = $this->classOwnedBackgroundPaintDeclarations($element, $declarations);
         $mapped       = $this->styleAttributeMapper()->map(
             $declarations,
-            fn (string $value): string => $this->context->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
         );
         $forcedGeometryDeclarations = array() === $forcedGeometryProperties
             ? array()
@@ -762,7 +762,7 @@ final class StyleResolver
     ): array {
         $candidates = $this->styleAttributeMapper()->map(
             $inlineDeclarations,
-            fn (string $value): string => $this->context->resolveCssVariablesInValue($value, $element)
+            fn (string $value): string => $this->resolveCssVariablesInValue($value, $element)
         )['leftover'] ?? array();
         if ( isset($inlineDeclarations['box-shadow']) ) {
             $candidates['box-shadow'] = $inlineDeclarations['box-shadow'];
@@ -1884,7 +1884,7 @@ final class StyleResolver
                 return '';
             }
 
-            return $this->context->resolveCssVariablesInValue($value);
+            return $this->resolveCssVariablesInValue($value);
         }
 
         return '';
@@ -2823,5 +2823,53 @@ final class StyleResolver
         $tokens = preg_split('/\s+/', strtolower(trim($this->context->attr($element, 'class')))) ?: array();
 
         return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
+    }
+
+    /**
+     * Expand `var(--token)` references against source custom properties, with
+     * ancestor-declared properties layered over them when an element is given.
+     *
+     * Lives here rather than beside SVG materialization because it is CSS
+     * custom-property resolution and already depends on this resolver's own
+     * structural declarations.
+     */
+    public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
+    {
+        if ( false === strpos($value, 'var(') ) {
+            return $value;
+        }
+
+        $customProperties = $this->context->sourceStyles()->customProperties();
+        if ( $element instanceof DOMElement ) {
+            $ancestors = array();
+            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+                $ancestors[] = $current;
+            }
+            foreach ( array_reverse($ancestors) as $ancestor ) {
+                foreach ( $this->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
+                    if ( str_starts_with($name, '--') ) {
+                        $customProperties[$name] = $propertyValue;
+                    }
+                }
+            }
+        }
+
+        for ( $pass = 0; $pass < 5; ++$pass ) {
+            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
+                $name = (string) $matches[1];
+                if ( isset($customProperties[$name]) && '' !== $customProperties[$name] ) {
+                    return $customProperties[$name];
+                }
+
+                return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
+            }, $value);
+
+            if ( ! is_string($expanded) || $expanded === $value ) {
+                break;
+            }
+            $value = $expanded;
+        }
+
+        return trim($value);
     }
 }

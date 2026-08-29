@@ -422,7 +422,6 @@ final class HtmlTransformer
             fn (string $value): string => $this->cssComparableValue($value),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
-            fn (string $value, ?DOMElement $element = null): string => $this->resolveCssVariablesInValue($value, $element),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
             fn (string $id): string => $this->safeAnchor($id)
         );
@@ -3519,7 +3518,7 @@ final class HtmlTransformer
             new NavigationPatternContext(
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement)
             ),
@@ -3539,7 +3538,7 @@ final class HtmlTransformer
             ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content),
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
@@ -3606,7 +3605,7 @@ final class HtmlTransformer
             navigationContext: new NavigationPatternContext(
                 null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement))
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement))
             ),
             markupContext: new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
@@ -4483,12 +4482,12 @@ if ( 'svg' === $tagName ) {
         foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
             $value = trim((string) ($direct[$property] ?? ''));
             if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
             }
         }
         foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
             if ( ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->resolveCssVariablesInValue($value);
+                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
             }
         }
         if ( array() === $declarations ) {
@@ -4792,7 +4791,7 @@ if ( 'svg' === $tagName ) {
     {
         $decorationLine = null;
         foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($anchor)) as $property => $value ) {
-            $value = $this->cssComparableValue($this->resolveCssVariablesInValue($value));
+            $value = $this->cssComparableValue($this->styleResolver->resolveCssVariablesInValue($value));
             if ( 'text-decoration' === $property ) {
                 if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
                     $decorationLine = 'line';
@@ -6981,7 +6980,7 @@ if ( 'svg' === $tagName ) {
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
@@ -7162,8 +7161,8 @@ if ( 'svg' === $tagName ) {
         if ( array() !== $paint['style'] ) {
             $attrs['style'] = array_replace_recursive($attrs['style'] ?? array(), $paint['style']);
         }
-        $attrs['height'] = $this->resolveCssVariablesInValue($declarations['height']);
-        $attrs['width'] = $this->resolveCssVariablesInValue($declarations['width']);
+        $attrs['height'] = $this->styleResolver->resolveCssVariablesInValue($declarations['height']);
+        $attrs['width'] = $this->styleResolver->resolveCssVariablesInValue($declarations['width']);
 
         return $this->createBlock('core/spacer', $attrs, array(), $element);
     }
@@ -7200,7 +7199,7 @@ if ( 'svg' === $tagName ) {
             }
 
             $height = SpacerPattern::heightFromStyle($this->attr($flank, 'style'));
-            if ( '' === $height || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($height, $flank)) ) {
+            if ( '' === $height || ! $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($height, $flank)) ) {
                 return null;
             }
             $margins[ $side ] = $height;
@@ -7227,7 +7226,7 @@ if ( 'svg' === $tagName ) {
     private function hasExplicitEmptyVisualDimensions(array $declarations): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            if ( ! isset($declarations[$property]) || ! $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property])) ) {
+            if ( ! isset($declarations[$property]) || ! $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property])) ) {
                 return false;
             }
         }
@@ -7248,20 +7247,20 @@ if ( 'svg' === $tagName ) {
     private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
     {
         foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         return isset($declarations['border-color'], $declarations['border-width'])
-            && $this->isVisibleEmptyVisualPaint($this->resolveCssVariablesInValue($declarations['border-color'], $element))
-            && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations['border-width'], $element));
+            && $this->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations['border-color'], $element))
+            && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations['border-width'], $element));
     }
 
     private function isVisibleEmptyVisualPaint(string $value): bool
@@ -9414,7 +9413,7 @@ if ( 'svg' === $tagName ) {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
         $hasBoundedHeight = false;
         foreach ( array( 'height', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
+            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
                 $hasBoundedHeight = true;
                 break;
             }

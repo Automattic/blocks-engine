@@ -30,7 +30,6 @@ final class StyleResolutionContext
      * @param Closure(string): string                  $cssComparableValue
      * @param Closure(string): array<string, mixed>    $parsedCssSelector
      * @param Closure(string): string                  $promotedClassName
-     * @param Closure(string, ?DOMElement): string     $resolveCssVariablesInValue
      * @param Closure(string): string                  $resolvedAssetImageUrl
      * @param Closure(string): string                  $safeAnchor
      */
@@ -47,7 +46,6 @@ final class StyleResolutionContext
         private readonly Closure $cssComparableValue,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $promotedClassName,
-        private readonly Closure $resolveCssVariablesInValue,
         private readonly Closure $resolvedAssetImageUrl,
         private readonly Closure $safeAnchor
     ) {
@@ -114,11 +112,6 @@ final class StyleResolutionContext
     public function promotedClassName(string $className): string
     {
         return ($this->promotedClassName)($className);
-    }
-
-    public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
-    {
-        return ($this->resolveCssVariablesInValue)($value, $element);
     }
 
     public function resolvedAssetImageUrl(string $url): string

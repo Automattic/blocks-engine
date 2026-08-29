@@ -482,7 +482,7 @@ trait SvgMaterializationTrait
 
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
-        $html = $this->resolveCssVariablesInValue($html);
+        $html = $this->styleResolver->resolveCssVariablesInValue($html);
         if ( false === stripos($html, 'currentColor') ) {
             return $html;
         }
@@ -498,7 +498,7 @@ trait SvgMaterializationTrait
                 continue;
             }
 
-            $color = $this->resolveCssVariablesInValue(trim((string) $declarations['color']));
+            $color = $this->styleResolver->resolveCssVariablesInValue(trim((string) $declarations['color']));
             if ( '' !== $color && ! preg_match('/\bcurrentColor\b|var\s*\(|[<>]/i', $color) ) {
                 return $color;
             }
@@ -507,45 +507,6 @@ trait SvgMaterializationTrait
         return '#000000';
     }
 
-    private function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
-    {
-        if ( false === strpos($value, 'var(') ) {
-            return $value;
-        }
-
-        $customProperties = $this->sourceStyles()->customProperties();
-        if ( $element instanceof DOMElement ) {
-            $ancestors = array();
-            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-                $ancestors[] = $current;
-            }
-            foreach ( array_reverse($ancestors) as $ancestor ) {
-                foreach ( $this->styleResolver->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
-                    if ( str_starts_with($name, '--') ) {
-                        $customProperties[$name] = $propertyValue;
-                    }
-                }
-            }
-        }
-
-        for ( $pass = 0; $pass < 5; ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
-                $name = (string) $matches[1];
-                if ( isset($customProperties[$name]) && '' !== $customProperties[$name] ) {
-                    return $customProperties[$name];
-                }
-
-                return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
-            }, $value);
-
-            if ( ! is_string($expanded) || $expanded === $value ) {
-                break;
-            }
-            $value = $expanded;
-        }
-
-        return trim($value);
-    }
 
     /**
      * @return array<string, string>
