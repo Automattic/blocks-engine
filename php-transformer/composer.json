@@ -144,6 +144,7 @@
       "php tests/unit/reusable-component-recognition.php",
       "php tests/unit/compile-fragment-author-stylesheet.php",
       "php tests/unit/responsive-canvas-geometry.php",
+      "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/geometry-chain-coalescing.php",
