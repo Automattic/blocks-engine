@@ -4139,7 +4139,7 @@ final class ArtifactCompiler
                     'source_path'    => $path,
                     'kind'           => 'html',
                     'role'           => $file['role'] ?? 'document',
-                    'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
+                    'entrypoint'     => $path === $entryPath,
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
