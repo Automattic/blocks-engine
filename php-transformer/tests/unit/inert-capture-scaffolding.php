@@ -40,5 +40,6 @@ $assert('https://forms.hsforms.com/widget' === ($iframeFallbacks[0]['attributes'
 
 $hiddenSourcedIframe = $transform('<main><iframe title="third-party embed" style="display:none" src="https://example.test/embed"></iframe></main>');
 $assert(1 === count($hiddenSourcedIframe['fallbacks'] ?? array()), 'hidden sourced iframe remains preserved');
+$assert(! str_contains((string) ($hiddenSourcedIframe['serialized_blocks'] ?? ''), '<iframe'), 'hidden sourced iframe remains a suppressed runtime island');
 
 echo "OK: inert capture scaffolding passed ({$assertions} assertions)\n";

@@ -12450,7 +12450,97 @@ if ( 'svg' === $tagName ) {
             'html_truncated'  => $boundedHtml['truncated'],
         ), $this->transformationProvenance()->fallback());
 
-        return null;
+        $visualIframe = $this->boundedVisualIframeHtml($iframe, $url);
+        return '' === $visualIframe
+            ? null
+            : $this->createBlock('core/html', array( 'content' => $visualIframe ), array(), $iframe);
+    }
+
+    /**
+     * Unknown iframe providers can only be retained when source presentation
+     * proves they occupy a visible, finite surface. The emitted markup is built
+     * from an iframe-specific allowlist rather than carrying source HTML.
+     */
+    private function boundedVisualIframeHtml(DOMElement $iframe, string $url): string
+    {
+        if ( ! $this->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
+            return '';
+        }
+
+        $attributes = $this->safeEmbedAttributes($iframe);
+        $width = $this->boundedVisualIframeDimension($iframe, 'width');
+        $height = $this->boundedVisualIframeDimension($iframe, 'height');
+        if ( null === $width || null === $height ) {
+            return '';
+        }
+
+        $attributes['src'] = $url;
+        $attributes['width'] = $this->attr($iframe, 'width') ?: $width;
+        $attributes['height'] = $this->attr($iframe, 'height') ?: $height;
+        $markup = '<iframe';
+        foreach ( $attributes as $name => $value ) {
+            $markup .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+
+        return $markup . '></iframe>';
+    }
+
+    private function isSafeVisualIframeUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        return is_array($parts)
+            && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
+            && '' !== trim((string) ($parts['host'] ?? ''));
+    }
+
+    private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string
+    {
+        $attribute = trim($this->attr($iframe, $dimension));
+        if ( $this->isPositiveIframeDimension($attribute) ) {
+            return $attribute;
+        }
+
+        if ( $this->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe) ) {
+            return $attribute;
+        }
+
+        $declaration = trim((string) ($this->styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
+        if ( $this->isPositiveIframeDimension($declaration) ) {
+            return $declaration;
+        }
+
+        return $this->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe)
+            ? $declaration
+            : null;
+    }
+
+    private function isPositiveIframeDimension(string $value): bool
+    {
+        if ( ! preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/i', $value, $matches) ) {
+            return false;
+        }
+
+        return (float) $matches[0] > 0;
+    }
+
+    private function isRelativeIframeDimension(string $value): bool
+    {
+        return (bool) preg_match('/^(?:\d+|\d*\.\d+)%$/', $value)
+            && (float) $value > 0;
+    }
+
+    private function iframeHasBoundedAncestor(DOMElement $iframe): bool
+    {
+        for ( $ancestor = $iframe->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $width = trim($this->attr($ancestor, 'width')) ?: trim((string) ($declarations['width'] ?? ''));
+            $height = trim($this->attr($ancestor, 'height')) ?: trim((string) ($declarations['height'] ?? ''));
+            if ( $this->isPositiveIframeDimension($width) && $this->isPositiveIframeDimension($height) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function safeImageUrl(string $url): string

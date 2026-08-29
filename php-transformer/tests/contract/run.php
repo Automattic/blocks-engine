@@ -2720,7 +2720,7 @@ $assert('facebook' === ($facebookProviderBlock['attrs']['providerNameSlug'] ?? '
 $assert(array() === ($facebookProviderIframe['fallbacks'] ?? array()), 'Facebook plugin iframe does not emit fallback metadata');
 
 $unknownIframe = ( new HtmlTransformer() )->transform(
-    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
+    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen" loading="lazy" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><p>After embed.</p></section></main>'
 )->toArray();
 $unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
@@ -2732,10 +2732,27 @@ $assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtim
 $assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
 $unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
 $assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert(str_contains($unknownSerialized, '<!-- wp:html'), 'bounded visible unknown iframe is materialized as an editable HTML block');
+$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive HTML-block serialization');
+$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive HTML-block serialization');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+$assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe HTML-block save shape is Gutenberg-valid');
+
+$visualIframeGeometry = ( new HtmlTransformer() )->transform(
+    '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'
+)->toArray();
+$visualIframeGeometryMarkup = (string) ($visualIframeGeometry['serialized_blocks'] ?? '');
+$visualIframeGeometryCss = (string) ($visualIframeGeometry['css'] ?? '');
+$assert(str_contains($visualIframeGeometryMarkup, 'width="100%"') && str_contains($visualIframeGeometryMarkup, 'height="100%"') && str_contains($visualIframeGeometryMarkup, 'title="Map surface"'), 'bounded iframe retains source sizing and title within its geometry-owning wrapper');
+$assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_contains($visualIframeGeometryCss, 'margin-bottom:10px')) && str_contains($visualIframeGeometryMarkup, 'Following content'), 'iframe wrapper margins and following content layout remain serialized');
+
+$suppressedIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="https://example.test/worker" width="1" height="1" style="visibility:hidden"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
+)->toArray();
+$suppressedIframeMarkup = (string) ($suppressedIframe['serialized_blocks'] ?? '');
+$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'hidden, zero-size, unsafe, and unbounded iframes remain suppressed');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
