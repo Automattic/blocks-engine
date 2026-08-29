@@ -20,6 +20,9 @@ final class TransformationEvidenceState
     /** @var array<string, array{selector: string, min_width: string}> */
     private array $responsiveGeometryAmbiguities = array();
 
+    /** @var array<string, array{selector: string, height: string}> */
+    private array $responsiveHeightAmbiguities = array();
+
     /** @var list<array{selector: string, direct_child_count: int, block_child_count: int, source_tags: list<string>, block_tags: list<string>}> */
     private array $authorLayoutTopologies = array();
 
@@ -91,6 +94,20 @@ final class TransformationEvidenceState
     public function responsiveGeometryAmbiguities(): array
     {
         return array_values($this->responsiveGeometryAmbiguities);
+    }
+
+    public function recordResponsiveHeightAmbiguity(string $selector, string $height): void
+    {
+        $this->responsiveHeightAmbiguities[$selector . "\0" . $height] = array(
+            'selector' => $selector,
+            'height' => $height,
+        );
+    }
+
+    /** @return list<array{selector: string, height: string}> */
+    public function responsiveHeightAmbiguities(): array
+    {
+        return array_values($this->responsiveHeightAmbiguities);
     }
 
     /**

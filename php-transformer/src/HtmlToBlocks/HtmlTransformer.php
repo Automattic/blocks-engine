@@ -1087,6 +1087,16 @@ final class HtmlTransformer
                 'min_width' => $ambiguity['min_width'],
             );
         }
+        foreach ( $this->transformationEvidence()->responsiveHeightAmbiguities() as $ambiguity ) {
+            $diagnostics[] = array(
+                'code' => 'responsive_geometry_ambiguous_percentage_height',
+                'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $ambiguity['selector'],
+                'height' => $ambiguity['height'],
+            );
+        }
         $headMetadata = $this->headMetadataReport($html);
         if ( array() !== $headMetadata ) {
             $diagnostics[] = array(
@@ -2383,6 +2393,7 @@ final class HtmlTransformer
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
+            $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -2472,6 +2483,89 @@ final class HtmlTransformer
             $pixels *= self::ROOT_FONT_SIZE_PX;
         }
         return $pixels >= 640;
+    }
+
+    /**
+     * A percentage height computes to auto when its containing block has an
+     * indefinite height. Preserve that source behavior after block wrappers are
+     * introduced, because those wrappers can otherwise make the height definite.
+     */
+    private function projectAutoSizedStructuralPercentageHeight(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        $height = (string) ($declarations['height'] ?? '');
+        if ( '100%' !== strtolower($this->cssValueWithoutImportant($height)) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element));
+            if ( count($autoSizedMatches) !== count($matches) ) {
+                if ( array() !== $autoSizedMatches ) {
+                    $this->transformationEvidence()->recordResponsiveHeightAmbiguity($selector, $height);
+                }
+                return $body;
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($height) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'height' !== strtolower(trim(strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'height:auto' . $important;
+        return implode(';', $retained);
+    }
+
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
+            return false;
+        }
+
+        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        $ancestor = $element->parentNode;
+        while ( $ancestor instanceof DOMElement && $ancestor !== $this->authorStyles()->sourceBody() ) {
+            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
+            if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+            $ancestorHeight = strtolower($this->cssValueWithoutImportant((string) ($style['height'] ?? '')));
+            if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
+                return false;
+            }
+            if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
+                return in_array($ancestorHeight, array( '', 'auto' ), true);
+            }
+            $ancestor = $ancestor->parentNode;
+        }
+
+        return false;
     }
 
     private function isPageShellOrSectionSurface(DOMElement $element): bool
