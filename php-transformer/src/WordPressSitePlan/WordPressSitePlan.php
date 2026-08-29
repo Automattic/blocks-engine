@@ -17,6 +17,7 @@ final class WordPressSitePlan
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
+    public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     private string $sourceOrigin = '';
     /** @var array<string,string> */
     private array $routeSources = array();
@@ -1292,6 +1293,7 @@ final class WordPressSitePlan
             $lines[] = "    return \$settings;";
             $lines[] = "}, 10, 2 );";
         }
+        $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
