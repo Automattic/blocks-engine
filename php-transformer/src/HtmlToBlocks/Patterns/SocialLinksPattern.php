@@ -53,7 +53,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $showLabels = false;
         $iconOnly = true;
         $structuralItems = true;
-        $explicit = $this->isExplicitSocialCluster($element);
+        $explicit = self::isExplicitSocialCluster($element);
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             $label = trim($this->attr($anchor, 'aria-label'));
@@ -108,7 +108,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     /** @param array<int,DOMElement> $anchors */
     private function isSocialCluster(DOMElement $element, array $anchors): bool
     {
-        if ( $this->isExplicitSocialCluster($element) ) {
+        if ( self::isExplicitSocialCluster($element) ) {
             return true;
         }
 
@@ -123,9 +123,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return true;
     }
 
-    private function isExplicitSocialCluster(DOMElement $element): bool
+    public static function isExplicitSocialCluster(DOMElement $element): bool
     {
-        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label') . ' ' . $this->attr($element, 'role'));
+        $identity = strtolower($element->getAttribute('class') . ' ' . $element->getAttribute('aria-label') . ' ' . $element->getAttribute('role'));
         return 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
     }
 

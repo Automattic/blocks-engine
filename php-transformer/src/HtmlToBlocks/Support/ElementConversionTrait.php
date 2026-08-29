@@ -401,9 +401,11 @@ trait ElementConversionTrait
         // author-owned layout preservation and carries the source presentation
         // attributes itself, so recognize it before `display:flex` sends the
         // container down the generic layout path.
-        $socialLinks = $this->recognizePatterns($element, $fallbacks, array(SocialLinksPattern::class));
-        if ( null !== $socialLinks ) {
-            return $socialLinks;
+        if ( SocialLinksPattern::isExplicitSocialCluster($element) ) {
+            $socialLinks = $this->recognizePatterns($element, $fallbacks, array(SocialLinksPattern::class));
+            if ( null !== $socialLinks ) {
+                return $socialLinks;
+            }
         }
 
         $flankedSeparator = $this->flankedSeparatorBlockFromElement($element);
