@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -167,7 +168,7 @@ final class RuntimeIslandAnalyzer
 
         foreach ( $this->context->descendantElements($element) as $descendant ) {
             $tagName = strtolower($descendant->tagName);
-            if ( 'form' === $tagName && $this->context->formHasDataEntryControls($descendant) ) {
+            if ( 'form' === $tagName && FormControlClassifier::hasDataEntryControls($descendant) ) {
                 return true;
             }
             if ( in_array($tagName, array( 'canvas', 'template' ), true) ) {
@@ -239,7 +240,7 @@ final class RuntimeIslandAnalyzer
 
     public function textareaIsRuntimeWorkspaceSurface(DOMElement $textarea, DOMElement $root): bool
     {
-        if ( ! $this->isRuntimeDomTarget($textarea) || $this->context->hasFormAncestor($textarea) ) {
+        if ( ! $this->isRuntimeDomTarget($textarea) || FormControlClassifier::hasFormAncestor($textarea) ) {
             return false;
         }
 
@@ -261,7 +262,7 @@ final class RuntimeIslandAnalyzer
     public function hasNonFormControlRuntimeTarget(DOMElement $element): bool
     {
         foreach ( $this->context->descendantElements($element) as $descendant ) {
-            if ( $this->isRuntimeDomTarget($descendant) && ! $this->context->isFormControlElement($descendant) ) {
+            if ( $this->isRuntimeDomTarget($descendant) && ! FormControlClassifier::isControlElement($descendant) ) {
                 return true;
             }
         }
@@ -294,7 +295,7 @@ final class RuntimeIslandAnalyzer
     public function shouldPreserveDataAttributeRuntimeTarget(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || $this->context->isFormControlElement($element) ) {
+        if ( in_array($tagName, array( 'canvas', 'form', 'script' ), true) || FormControlClassifier::isControlElement($element) ) {
             return false;
         }
 
