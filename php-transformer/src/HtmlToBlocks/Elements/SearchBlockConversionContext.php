@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Closure;
 use DOMElement;
@@ -13,7 +14,6 @@ final class SearchBlockConversionContext
     /**
      * @param Closure(DOMElement, string): string                                                    $attr
      * @param Closure(DOMElement): array<string, mixed>                                              $eventMetadata
-     * @param Closure(DOMElement, DOMElement): bool                                                  $hasSearchFormSignal
      * @param Closure(DOMElement): array<string, mixed>                                              $presentationAttributes
      * @param Closure(DOMElement): array<string, string>                                             $presentationDeclarations
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
@@ -27,7 +27,6 @@ final class SearchBlockConversionContext
     public function __construct(
         private readonly Closure $attr,
         private readonly Closure $eventMetadata,
-        private readonly Closure $hasSearchFormSignal,
         private readonly Closure $presentationAttributes,
         private readonly Closure $presentationDeclarations,
         private readonly Closure $createBlock,
@@ -53,7 +52,23 @@ final class SearchBlockConversionContext
 
     public function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
-        return ($this->hasSearchFormSignal)($form, $input);
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
+            return true;
+        }
+
+        $queryName = strtolower(trim($this->attr($input, 'name')));
+        if ( in_array($queryName, array( 's', 'q', 'query', 'search' ), true) ) {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array(
+            $this->attr($form, 'action'),
+            $this->attr($form, 'aria-label'),
+            $this->attr($form, 'id'),
+            $this->attr($form, 'class'),
+        )));
+
+        return str_contains($haystack, 'search');
     }
 
     /** @return array<string, mixed> */
