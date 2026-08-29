@@ -3,11 +3,25 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
 
-trait NavigationStyleProjectionTrait
+/**
+ * Projects author navigation styling onto the emitted navigation blocks.
+ *
+ * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
+ * dependency it needs from the transformer is declared on
+ * {@see NavigationStyleProjectionContext}, so this class has no $this access to
+ * the transformer and can be exercised without constructing one.
+ */
+final class NavigationStyleProjector
 {
-    private function directNavigationSupportCss(string $serializedBlocks): string
+    public function __construct(
+        private readonly NavigationStyleProjectionContext $context,
+        private readonly StyleResolver $styleResolver
+    ) {
+    }
+    public function directNavigationSupportCss(string $serializedBlocks): string
     {
         if ( ! str_contains($serializedBlocks, 'blocks-engine-direct-navigation') ) {
             return '';
@@ -58,60 +72,29 @@ trait NavigationStyleProjectionTrait
         return implode("\n", array_values($rules));
     }
 
-    /** @param array<int, string> $cssParts */
-    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
-    {
-        $css = trim(implode("\n\n", $cssParts));
-        if ( '' === $css ) {
-            return;
-        }
 
-        $content = $css . "\n";
-        $hash = hash('sha256', $content);
-        $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
-
-        $this->materializedAssets()->register($path, array(
-            'source'      => $source,
-            'source_path' => '',
-            'path'        => $path,
-            'target_path' => $path,
-            'kind'        => 'css',
-            'role'        => 'stylesheet',
-            'stylesheet_placement' => $placement,
-            'stylesheet_target' => $target,
-            'mime_type'   => 'text/css',
-            'media_type'  => 'text/css',
-            'content'     => $content,
-            'bytes'       => strlen($content),
-            'encoding'    => 'utf-8',
-            'binary'      => false,
-            'hash'        => $hash,
-            'source_hash' => $hash,
-        ));
-    }
-
-    private function materializeEditorStaticStateStylesheet(): void
+    public function materializeEditorStaticStateStylesheet(): void
     {
         $rules = array();
         $anchorProjectionCss = $this->editorAnchorProjectionCss();
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
         }
-        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->authorStyles()->combinedCss()) ) {
+        if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
         }
-        if ( $this->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
-            $selector = ':root .' . self::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
+        if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
+            $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
             $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
-        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->authorStyles()->combinedCss()) ) {
+        if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
 
         $repairs = array();
-        foreach ( $this->transformationEvidence()->frozenHiddenStateFindings() as $finding ) {
+        foreach ( $this->context->transformationEvidence()->frozenHiddenStateFindings() as $finding ) {
             $selector = (string) ($finding['editor_selector'] ?? '');
             if ( '' === $selector ) {
                 continue;
@@ -137,21 +120,21 @@ trait NavigationStyleProjectionTrait
             $rules[] = ':root ' . $selector . '{' . rtrim($body, ';') . '}';
         }
 
-        $this->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
+        $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
     }
 
     private function editorAnchorProjectionCss(): string
     {
         $ids = array_fill_keys(array_filter(
-            $this->authorStyles()->sourceElementIds(),
-            fn (string $id): bool => '' !== $this->safeAnchor($id)
+            $this->context->authorStyles()->sourceElementIds(),
+            fn (string $id): bool => '' !== $this->context->safeAnchor($id)
         ), true);
         if ( array() === $ids ) {
             return '';
         }
 
         return trim(( new CssStylesheetTransformer() )->transform(
-            $this->authorStyles()->combinedCss(),
+            $this->context->authorStyles()->combinedCss(),
             static function (string $prelude, string $body) use ($ids): array {
                 $projected = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
@@ -194,7 +177,7 @@ trait NavigationStyleProjectionTrait
      *
      * @return array<int, string>
      */
-    private function listNavigationInlineMarginRules(string $serializedBlocks): array
+    public function listNavigationInlineMarginRules(string $serializedBlocks): array
     {
         if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             return array();
@@ -206,7 +189,7 @@ trait NavigationStyleProjectionTrait
         }
 
         $rules = array();
-        foreach ( array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()) as $rule ) {
+        foreach ( array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()) as $rule ) {
             $selector = trim((string) ($rule['selector'] ?? ''));
             if ( 1 !== preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
                 continue;
@@ -239,7 +222,7 @@ trait NavigationStyleProjectionTrait
     }
 
     /** @return array<int, string> */
-    private function listNavigationPaddingRules(string $serializedBlocks): array
+    public function listNavigationPaddingRules(string $serializedBlocks): array
     {
         if ( ! preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
             return array();
@@ -262,7 +245,7 @@ trait NavigationStyleProjectionTrait
                 : array();
             if ( array() === $padding ) {
                 foreach ( $classes as $class ) {
-                    $fallbackPadding = $this->generatedSupportStyles()->listNavigationPadding($class);
+                    $fallbackPadding = $this->context->generatedSupportStyles()->listNavigationPadding($class);
                     if ( array() !== $fallbackPadding ) {
                         $padding = $fallbackPadding;
                         break;
@@ -332,7 +315,7 @@ trait NavigationStyleProjectionTrait
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<int, string>
      */
-    private function listNavigationItemAnchorRules(string $serializedBlocks, array $sourceProvenance): array
+    public function listNavigationItemAnchorRules(string $serializedBlocks, array $sourceProvenance): array
     {
         if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             return array();
@@ -477,7 +460,7 @@ trait NavigationStyleProjectionTrait
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<int, string>
      */
-    private function navigationItemStateAnchorRules(string $serializedBlocks, array $sourceProvenance): array
+    public function navigationItemStateAnchorRules(string $serializedBlocks, array $sourceProvenance): array
     {
         $hasListNavigation = str_contains($serializedBlocks, 'blocks-engine-list-navigation');
         if ( ! str_contains($serializedBlocks, '<!-- wp:navigation ') ) {
@@ -585,14 +568,14 @@ trait NavigationStyleProjectionTrait
      */
     private function navigationAuthorStyleRules(): array
     {
-        if ( '' === trim($this->authorStyles()->combinedCss()) ) {
+        if ( '' === trim($this->context->authorStyles()->combinedCss()) ) {
             return array();
         }
 
         $rules = array();
         $order = 0;
         ( new CssStylesheetTransformer() )->visitStyleRules(
-            $this->authorStyles()->combinedCss(),
+            $this->context->authorStyles()->combinedCss(),
             function (string $prelude, string $body, array $conditions) use (&$rules, &$order): void {
                 $this->collectNavigationAuthorStyleRule($prelude, $body, $conditions, $rules, $order);
             }
@@ -619,7 +602,7 @@ trait NavigationStyleProjectionTrait
             if ( '' === $selector || str_starts_with($selector, '@') ) {
                 continue;
             }
-            $parsed = $this->parsedCssSelector($selector);
+            $parsed = $this->context->parsedCssSelector($selector);
             if ( ! ($parsed['supported'] ?? false) ) {
                 continue;
             }
@@ -691,10 +674,10 @@ trait NavigationStyleProjectionTrait
         }
 
         $anchors = array();
-        foreach ( $this->authorStyles()->sourceElementsByClass($class) as $element ) {
+        foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $element ) {
             if ( $element instanceof DOMElement
                 && 'a' === strtolower($element->tagName)
-                && isset($selectors[$this->elementSelector($element)])
+                && isset($selectors[$this->context->elementSelector($element)])
             ) {
                 $anchors[] = $element;
             }
@@ -721,14 +704,14 @@ trait NavigationStyleProjectionTrait
         }
 
         $anchors = array();
-        foreach ( $this->authorStyles()->sourceElementsByClass($class) as $item ) {
+        foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $item ) {
             if ( ! $item instanceof DOMElement ) {
                 continue;
             }
             foreach ( $item->childNodes as $child ) {
                 if ( $child instanceof DOMElement
                     && 'a' === strtolower($child->tagName)
-                    && isset($selectors[$this->elementSelector($child)])
+                    && isset($selectors[$this->context->elementSelector($child)])
                 ) {
                     $anchors[] = $child;
                 }
@@ -769,7 +752,7 @@ trait NavigationStyleProjectionTrait
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($this->attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($this->context->attr($anchor, 'style')));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -911,7 +894,7 @@ trait NavigationStyleProjectionTrait
                 return null;
             }
 
-            $itemClasses = preg_split('/\s+/', trim($this->attr($item, 'class'))) ?: array();
+            $itemClasses = preg_split('/\s+/', trim($this->context->attr($item, 'class'))) ?: array();
             if ( in_array($class, $itemClasses, true) ) {
                 // The class also belonged to the source item. Its item paint is
                 // authored, not an artifact of core moving the anchor class.
@@ -999,10 +982,10 @@ trait NavigationStyleProjectionTrait
     }
 
     /** @return list<string> */
-    private function navigationColorInteractionStates(DOMElement $element): array
+    public function navigationColorInteractionStates(DOMElement $element): array
     {
         $matched = array();
-        foreach ( $this->sourceStyles()->navigationStateRules() as $rule ) {
+        foreach ( $this->context->sourceStyles()->navigationStateRules() as $rule ) {
             if ( ! isset($rule['declarations']['color'])
                 || ! $this->styleResolver->matchesCssSelector($element, $rule['base_selector'])
             ) {
@@ -1036,7 +1019,7 @@ trait NavigationStyleProjectionTrait
      *
      * @return array<int, string>
      */
-    private function navigationLinkTextColorRules(string $serializedBlocks): array
+    public function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';
         $currentPrefix = 'blocks-engine-navigation-current-color-';
@@ -1059,7 +1042,7 @@ trait NavigationStyleProjectionTrait
             $color = trim((string) ($attrs['style']['color']['text'] ?? ''));
             if ( '' === $color ) {
                 foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
-                    $fallbackColor = $this->generatedSupportStyles()->navigationLinkColor($class);
+                    $fallbackColor = $this->context->generatedSupportStyles()->navigationLinkColor($class);
                     if ( '' !== $fallbackColor ) {
                         $color = $fallbackColor;
                         break;
@@ -1297,10 +1280,10 @@ trait NavigationStyleProjectionTrait
         return $carried;
     }
 
-    private function sourceMobileNavigationOverlayBackground(): string
+    public function sourceMobileNavigationOverlayBackground(): string
     {
         $background = '';
-        foreach ( array_merge($this->sourceStyles()->staticRules(), $this->sourceStyles()->conditionalRules()) as $rule ) {
+        foreach ( array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()) as $rule ) {
             $selector = strtolower((string) ($rule['selector'] ?? ''));
             if ( ! str_contains($selector, 'nav') || ! preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $selector) ) {
                 continue;
@@ -1316,4 +1299,13 @@ trait NavigationStyleProjectionTrait
         return $background;
     }
 
+    /**
+     * @param array<string, mixed> $entry
+     * @return list<string>
+     */
+    private function navigationSourceOwnershipClasses(array $entry, string $kind): array
+    {
+        $className = (string) ($entry['navigation_source_ownership'][$kind]['class_name'] ?? '');
+        return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array()));
+    }
 }
