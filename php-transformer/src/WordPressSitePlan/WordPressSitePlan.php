@@ -19,6 +19,7 @@ final class WordPressSitePlan
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
+    public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     private string $sourceOrigin = '';
     /** @var array<string,string> */
     private array $routeSources = array();
@@ -1407,7 +1408,7 @@ final class WordPressSitePlan
             $lines[] = "    return \$settings;";
             $lines[] = "}, 10, 2 );";
         }
-        $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
+        $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
         foreach ($scripts as $script) {
             $handle = 'blocks-engine-script-' . substr(hash('sha256', $script['identity']), 0, 12);
             foreach ($script['scopes'] as $scope) {
