@@ -2716,6 +2716,14 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallba
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
+$emptySvgPlaceholder = ( new HtmlTransformer() )->transform(
+    '<main><div role="button" aria-label="Open gallery image"><svg class="zoom-mask" viewBox="0 0 10000 10000"></svg><img src="portrait.jpg" alt="Portrait"></div></main>'
+)->toArray();
+$assert(array() === ($emptySvgPlaceholder['fallbacks'] ?? array()), 'a structurally empty SVG placeholder does not emit fallback metadata');
+$assert(str_contains((string) ($emptySvgPlaceholder['serialized_blocks'] ?? ''), 'portrait.jpg'), 'discarding an empty SVG placeholder preserves its independent image sibling');
+$unsafeEmptySvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"></svg></main>')->toArray();
+$assert('html_unsafe_inline_svg' === ($unsafeEmptySvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'an unsafe empty SVG retains its fallback diagnostic');
+
 $coffeeFixturePath = dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html';
 $coffeeFixtureHtml = (string) file_get_contents($coffeeFixturePath);
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeFixtureHtml)->toArray();
@@ -2768,6 +2776,12 @@ $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
 $assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe companion save shape is Gutenberg-valid');
+
+$responsiveIframeWrapper = ( new HtmlTransformer() )->transform(
+    '<main><wix-iframe data-src=""><div class="map-container"><iframe title="Map" src="https://example.test/map" width="1280" height="350"></iframe></div></wix-iframe><wix-iframe data-src=""><div class="map-container"></div></wix-iframe></main>'
+)->toArray();
+$assert(array() === ($responsiveIframeWrapper['fallbacks'] ?? array()), 'an inactive custom media placeholder does not emit an unsupported-element fallback');
+$assert(1 === substr_count((string) ($responsiveIframeWrapper['serialized_blocks'] ?? ''), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
 
 $visualIframeGeometry = ( new HtmlTransformer() )->transform(
     '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'
