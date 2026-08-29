@@ -35,6 +35,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -279,6 +282,10 @@ final class HtmlTransformer
 
     private readonly ReadableFormBlockBuilder $readableFormBlockBuilder;
 
+    private readonly FormCompositionPlanner $formCompositionPlanner;
+
+    private readonly FormFallbackFindingBuilder $formFallbackFindingBuilder;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -472,6 +479,15 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         );
+        $this->formCompositionPlanner = new FormCompositionPlanner(
+            fn (): TransformationProvenanceState => $this->transformationProvenance(),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
+        );
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
@@ -480,6 +496,26 @@ final class HtmlTransformer
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
             fn (DOMElement $element): string => $this->innerHtml($element)
+        );
+        $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder(
+            new FormFallbackFindingContext(
+                fn (): array => $this->authorStyles()->stylesheetAssets(),
+                fn (): string => $this->sourceStyles()->formLayoutCss(),
+                fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+                fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
+                fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
+                fn (DOMElement $element): string => $this->elementSelector($element),
+                fn (DOMElement $element): array => $this->htmlAttributes($element),
+                fn (DOMElement $element): array => $this->sourceContext($element),
+                fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
+                fn (DOMElement $element): array => $this->eventMetadata($element),
+                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
+                fn (DOMElement $element): int => $this->childElementCount($element),
+                fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback())
+            ),
+            $this->formControlMetadataBuilder,
+            $this->formSuccessPanelMetadataBuilder,
+            $this->pseudoFormAnalyzer
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());

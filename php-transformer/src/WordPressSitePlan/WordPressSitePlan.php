@@ -123,9 +123,16 @@ final class WordPressSitePlan
         // canonical plan rebuilds them from full page shell candidates.
         $compiledParts = is_array($compiled['template_parts'] ?? null) ? array_values(array_filter($compiled['template_parts'], static fn(mixed $part): bool => !is_array($part) || 'entry_shell' !== ($part['placement']['kind'] ?? null))) : null;
         $existingParts = $this->documents($compiledParts, true, $tokens, $references, $routeMap);
-        $shells = $this->sharedShells($pages, array_fill_keys(array_column($existingParts, 'slug'), true), $runtimeDeclarations);
+        $reservedPartSlugs = array_fill_keys(array_column($existingParts, 'slug'), true);
+        $canonicalInlineParts = $this->documents(is_array($compiled['inline_shell_artifacts'] ?? null) ? $compiled['inline_shell_artifacts'] : array(), true, $tokens, $references, $routeMap);
+        $inlineShells = $this->inlineSharedShells($pages, $reservedPartSlugs, $runtimeDeclarations, $canonicalInlineParts);
+        $reservedPartSlugs += array_fill_keys(array_column($inlineShells['parts'], 'slug'), true);
+        $shells = $this->sharedShells($inlineShells['pages'], $reservedPartSlugs, $inlineShells['runtime_declarations']);
+        $inlineAreas = array_fill_keys(array_column($inlineShells['parts'], 'area'), true);
+        $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
         $pages = $shells['pages'];
-        $parts = array_merge($existingParts, $shells['parts']);
+        $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
+        if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
         foreach ($pages as &$page) unset($page['_projected_source_block_markup']); unset($page);
@@ -148,12 +155,12 @@ final class WordPressSitePlan
             'routes' => $routes,
             'navigation_links' => $materialization['navigation_links'] ?? null,
             'menus' => $materialization['menus'] ?? null,
-            'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts']) ? 'functions.php' : null, 'design_token_provenance' => $themeProjection['provenance']),
+            'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts'], $parts) ? 'functions.php' : null, 'design_token_provenance' => $themeProjection['provenance']),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
-            'diagnostics' => array_merge($data['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
+            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'editability_policy' => $editabilityPolicy ?? array()),
-            'reporting' => $this->reporting($pages, $data, array_merge($shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
+            'reporting' => $this->reporting($pages, $data, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -513,6 +520,106 @@ final class WordPressSitePlan
             return array(array('area' => 'header', 'markup' => $chrome, 'inner_markup' => $chrome, 'template_part_markup' => self::withoutCurrentNavigationState($chrome), 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $chrome), 'legacy_container_opening' => $opening, 'legacy_container_closing' => '<!-- /wp:group -->', 'legacy_content_markup' => $content, 'legacy_content_range' => array('offset' => $contentOffset, 'length' => $contentRange['length']), 'legacy_page_markup' => $markup));
         }
         return array();
+    }
+
+    /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
+    private function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array()): array
+    {
+        if (count(array_filter($pages, static fn(array $page): bool => empty($page['synthetic']))) < 2) return array('pages' => $pages, 'parts' => array(), 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => array());
+        $parts = array(); $diagnostics = array();
+        foreach (array('header', 'footer') as $area) {
+            $applicable = array_filter($pages, static fn(array $page): bool => empty($page['synthetic']));
+            $sourcePaths = array_values(array_map(static fn(array $page): string => $page['source_path'], $applicable));
+            $areaArtifacts = array_values(array_filter($canonicalArtifacts, static fn(array $artifact): bool => $area === ($artifact['area'] ?? null)));
+            usort($areaArtifacts, static fn(array $left, array $right): int => ($left['variant'] ?? 0) <=> ($right['variant'] ?? 0));
+            $candidates = array(); $variantCount = null; $rejected = false;
+            foreach ($applicable as $index => $page) {
+                $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
+                if (array() === $rows || (null !== $variantCount && $variantCount !== count($rows))) { $rejected = true; break; }
+                $variantCount = count($rows); $candidates[$index] = $rows;
+                foreach ($rows as $candidate) if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
+            }
+            if ($rejected || null === $variantCount) continue;
+            $expectedSources = $sourcePaths; sort($expectedSources, SORT_STRING);
+            $canonical = count($areaArtifacts) === $variantCount;
+            foreach ($areaArtifacts as $artifact) {
+                $artifactSources = $artifact['placement']['source_paths'] ?? array();
+                if (!is_array($artifactSources)) { $canonical = false; break; }
+                sort($artifactSources, SORT_STRING);
+                if ($artifactSources !== $expectedSources) { $canonical = false; break; }
+            }
+            $variants = array();
+            for ($variant = 0; $variant < $variantCount; ++$variant) {
+                if ($canonical) {
+                    $variants[] = (string) ($areaArtifacts[$variant]['content_hash'] ?? '');
+                    continue;
+                }
+                $identities = array(); foreach ($candidates as $rows) $identities[] = $rows[$variant]['identity_markup'];
+                if (1 !== count(array_unique($identities))) { $rejected = true; break; }
+                $variants[] = $identities[0];
+            }
+            if ($rejected) continue;
+            $slugs = array();
+            for ($variant = 0; $variant < $variantCount; ++$variant) {
+                $slug = 1 === $variantCount ? $area : $area . '-' . ($variant + 1);
+                if (isset($reservedSlugs[$slug])) { $rejected = true; break; }
+                $slugs[] = $slug;
+            }
+            if ($rejected) continue;
+            foreach ($candidates as $index => $rows) foreach ($rows as $candidate) {
+                if ($candidate['markup'] !== substr($pages[$index]['canonical_block_markup'], $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
+            }
+            if ($rejected) continue;
+            foreach ($candidates as $index => $rows) {
+                usort($rows, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+                $markup = $pages[$index]['canonical_block_markup'];
+                foreach ($rows as $candidate) {
+                    $variant = $candidate['variant']; $slug = $slugs[$variant];
+                    $reference = '<!-- wp:template-part {"slug":"' . $slug . '","area":"' . $area . '","tagName":"div"} /-->';
+                    $markup = substr($markup, 0, $candidate['offset']) . $reference . substr($markup, $candidate['offset'] + $candidate['length']);
+                }
+                $pages[$index]['canonical_block_markup'] = $markup;
+                $pages[$index]['content_hash'] = self::contentHash($markup);
+            }
+            foreach ($slugs as $variant => $slug) {
+                $first = $candidates[array_key_first($candidates)][$variant];
+                $artifact = $canonical ? $areaArtifacts[$variant] : array();
+                $sourcePath = 'wordpress-site-plan/shared/' . $slug;
+                $candidateRows = array(); foreach ($candidates as $index => $rows) $candidateRows[$index] = array($rows[$variant]);
+                $title = ucfirst($area) . (1 === $variantCount ? '' : ' Variant ' . ($variant + 1));
+                $partMarkup = $canonical ? (string) ($artifact['canonical_block_markup'] ?? '') : $first['markup'];
+                $partMarkup = self::withoutCurrentNavigationState($partMarkup);
+                $parts[] = array('source_path' => $sourcePath . '#' . $area, 'slug' => $slug, 'title' => $title, 'post_type' => 'wp_template_part', 'parent_source_path' => '', 'entrypoint' => false, 'area' => $area, 'tag_name' => ShellLandmarkPolicy::templatePartAreaTagName($area), 'placement' => array('kind' => 'inline_shared_shell', 'source_path' => $sourcePath, 'source_paths' => $sourcePaths, 'variant' => $variant + 1), 'canonical_block_markup' => $partMarkup, 'metadata' => array(), 'document_metadata' => array('source_context' => array('source_path' => $sourcePath . '#' . $area, 'kind' => 'template_part'), 'title' => $title, 'title_declaration' => array('order' => 0, 'placement' => 'head'), 'meta' => array(), 'links' => array(), 'scripts' => array()), 'provenance' => $this->shellProvenance($area, 'extracted', 'inline_responsive_variant', $candidateRows, hash('sha256', $variants[$variant])), 'reconciliation_identity' => self::identity('template-part', $sourcePath . '#' . $area, 'parts/' . $slug . '.html'), 'content_hash' => self::contentHash($partMarkup));
+            }
+            $diagnostics[] = array('code' => 'wordpress_site_plan_shell_inline_extracted', 'severity' => 'info', 'message' => "Extracted nested responsive {$area} variants at their authored page positions.", 'area' => $area, 'variant_count' => $variantCount, 'page_count' => count($applicable), 'source_paths' => $sourcePaths);
+        }
+        return array('pages' => $pages, 'parts' => $parts, 'runtime_declarations' => $runtimeDeclarations, 'diagnostics' => $diagnostics);
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function nestedLandmarkCandidates(string $markup, string $sourcePath, string $area): array
+    {
+        $rows = array(); $stack = array();
+        if (!preg_match_all('/<!--\s*(\/?)wp:([^\s]+)(?:\s+([^>]*?))?\s*(\/?)-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $rows;
+        foreach ($matches[0] as $index => $match) {
+            $token = $match[0]; $offset = $match[1]; $closing = '' !== $matches[1][$index][0]; $selfClosing = '' !== $matches[4][$index][0] || str_ends_with(rtrim($token), '/-->');
+            if ($closing) {
+                $open = array_pop($stack);
+                if (!is_array($open) || empty($open['candidate'])) continue;
+                $length = $offset + strlen($token) - $open['offset']; $candidateMarkup = substr($markup, $open['offset'], $length);
+                $rows[] = array('area' => $area, 'markup' => $candidateMarkup, 'identity_markup' => self::normalizeNestedChromeMarkup($candidateMarkup), 'source_path' => $sourcePath, 'source_hash' => hash('sha256', $candidateMarkup), 'offset' => $open['offset'], 'length' => $length);
+                continue;
+            }
+            $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? ''); $attrs = '' === $attributes ? array() : json_decode($attributes, true);
+            $disallowedAncestor = false;
+            foreach ($stack as $ancestor) if (in_array($ancestor['tag_name'] ?? null, array('main', 'article', 'section', 'aside'), true)) { $disallowedAncestor = true; break; }
+            $tagName = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
+            $candidate = 0 < count($stack) && !$disallowedAncestor && 'group' === $name && $area === $tagName;
+            if (!$selfClosing) $stack[] = array('offset' => $offset, 'tag_name' => $tagName, 'candidate' => $candidate);
+        }
+        usort($rows, static fn(array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ($rows as $variant => &$row) $row['variant'] = $variant; unset($row);
+        return $rows;
     }
 
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
@@ -1348,14 +1455,14 @@ final class WordPressSitePlan
     private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        if ( self::needsBootstrap($assets, $scripts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts));
+        if ( self::needsBootstrap($assets, $scripts, $parts) ) $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function needsBootstrap(array $assets, array $scripts = array()): bool { foreach ($assets as $asset) if (in_array($asset['kind'], array('css', 'js'), true)) return true; return array() !== $scripts; }
+    private static function needsBootstrap(array $assets, array $scripts = array(), array $parts = array()): bool { foreach ($assets as $asset) if (in_array($asset['kind'], array('css', 'js'), true)) return true; foreach ($parts as $part) if ('inline_shared_shell' === ($part['placement']['kind'] ?? null)) return true; return array() !== $scripts; }
     /** @param array<int,array<string,mixed>> $assets */
     private static function bootstrap(array $assets, array $scripts = array(), array $parts = array()): string
     {
@@ -1383,8 +1490,8 @@ final class WordPressSitePlan
         $editorStyles = array();
         $partSlugsBySource = array();
         foreach ($parts as $part) {
-            $sourcePath = (string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? '')));
-            if ('' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
+            $sourcePaths = is_array($part['placement']['source_paths'] ?? null) ? $part['placement']['source_paths'] : array((string) ($part['placement']['source_path'] ?? preg_replace('/#.*$/', '', (string) ($part['source_path'] ?? ''))));
+            foreach ($sourcePaths as $sourcePath) if (is_string($sourcePath) && '' !== $sourcePath && '' !== (string) ($part['slug'] ?? '')) $partSlugsBySource[$sourcePath][] = (string) $part['slug'];
         }
         foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
             $partSlugs = array();
@@ -1406,6 +1513,14 @@ final class WordPressSitePlan
             $lines[] = "        if ( false !== \$css ) { if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css, '__unstableType' => 'theme' ); }";
             $lines[] = "    }";
             $lines[] = "    return \$settings;";
+            $lines[] = "}, 10, 2 );";
+        }
+        $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
+        if (array() !== $inlineShellSlugs) {
+            $lines[] = "add_filter( 'render_block_core/template-part', static function ( string \$content, array \$block ): string {";
+            $lines[] = '    $slugs = ' . var_export($inlineShellSlugs, true) . ';';
+            $lines[] = "    if ( ! in_array( (string) ( \$block['attrs']['slug'] ?? '' ), \$slugs, true ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>$/s', \$content, \$match ) ) return \$content;";
+            $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
@@ -1655,7 +1770,7 @@ final class WordPressSitePlan
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'])) {
+        if (self::needsBootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'])) {
             if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
         } elseif (null !== ($plan['theme']['bootstrap'] ?? null) || isset($bootstrap)) throw new InvalidArgumentException('WordPress site plan declares an unnecessary bootstrap.');
     }

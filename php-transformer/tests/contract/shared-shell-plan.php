@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
 $pages = static function (array $plan): array { $rows = array(); foreach ($plan['pages'] as $page) $rows[$page['source_path']] = $page; return $rows; };
@@ -68,6 +69,50 @@ $mixedShells = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.ht
 $mixedWrites = $writes($mixedShells);
 $assert(str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($mixedWrites['templates/page-contact.html']['payload']['data'] ?? '', '"slug":"footer"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($mixedWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'A footer-only exclusion creates a route template that retains the globally shared header and excludes only the divergent footer.');
 $assert(!array_filter($multiple['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && in_array('wordpress_site_plan_shell_retained_incomplete', array_column($multiple['diagnostics'], 'code'), true), 'Multiple shell candidates remain page-local with bounded incomplete diagnostics.');
+
+$responsiveLandmark = static function (string $area, string $id, string $class, string $content): string {
+    return '<!-- wp:group {"anchor":"' . $id . '","className":"site-' . $area . ' ' . $class . '","tagName":"' . $area . '"} --><' . $area . ' id="' . $id . '" class="wp-block-group site-' . $area . ' ' . $class . '"><!-- wp:paragraph --><p>' . $content . '</p><!-- /wp:paragraph --></' . $area . '><!-- /wp:group -->';
+};
+$responsiveMarkup = static function (string $title, string $mobileHeader = 'Mobile header') use ($responsiveLandmark): string {
+    $document = static function (string $variant, string $title, string $header, string $footer) use ($responsiveLandmark): string {
+        return '<!-- wp:group {"className":"' . $variant . '-document"} --><div class="wp-block-group ' . $variant . '-document">'
+            . $responsiveLandmark('header', $variant . '-header', $variant . '-header', $header)
+            . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->'
+            . $responsiveLandmark('footer', $variant . '-footer', $variant . '-footer', $footer)
+            . '</div><!-- /wp:group -->';
+    };
+    return $document('desktop', $title, 'Desktop header', 'Desktop footer') . $document('mobile', $title . ' mobile', $mobileHeader, 'Mobile footer');
+};
+$responsiveResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'about.html' => '<main><h1>About</h1></main>')))->toArray();
+foreach ($responsiveResult['source_reports']['compiled_site']['pages'] as &$responsivePage) $responsivePage['block_markup'] = $responsiveMarkup('index.html' === $responsivePage['source_path'] ? 'Home' : 'About'); unset($responsivePage);
+$responsive = (new WordPressSitePlan())->fromResult($responsiveResult);
+$responsivePages = $pages($responsive); $responsiveWrites = $writes($responsive);
+$responsiveParts = array_column($responsive['template_parts'], null, 'slug');
+$assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_keys($responsiveParts) && array() === array_filter($responsiveParts, static fn(array $part): bool => 'inline_shared_shell' !== ($part['placement']['kind'] ?? null)), 'Nested desktop and mobile landmarks become distinct inline shared template parts.');
+foreach ($responsivePages as $source => $page) {
+    $markup = $page['canonical_block_markup'] ?? '';
+    $assert(1 === substr_count($markup, '"slug":"header-1"') && 1 === substr_count($markup, '"slug":"header-2"') && 1 === substr_count($markup, '"slug":"footer-1"') && 1 === substr_count($markup, '"slug":"footer-2"') && !str_contains($markup, 'desktop-header') && !str_contains($markup, 'mobile-header') && str_contains($markup, $source === 'index.html' ? '>Home</h2>' : '>About</h2>'), "{$source} retains route content and exact inline shell reference cardinality.");
+}
+$assert(str_contains($responsiveParts['header-1']['canonical_block_markup'] ?? '', 'desktop-header') && str_contains($responsiveParts['header-2']['canonical_block_markup'] ?? '', 'mobile-header') && str_contains($responsiveParts['footer-1']['canonical_block_markup'] ?? '', 'desktop-footer') && str_contains($responsiveParts['footer-2']['canonical_block_markup'] ?? '', 'mobile-footer'), 'Every responsive template part retains its authored landmark wrapper and presentation hooks.');
+$assert(array() === array_filter($responsive['templates'], static fn(array $template): bool => str_contains($template['canonical_block_markup'] ?? '', '"slug":"header-1"')) && str_contains($responsiveWrites['functions.php']['payload']['data'] ?? '', "render_block_core/template-part") && str_contains($responsiveWrites['functions.php']['payload']['data'] ?? '', "'header-1'"), 'Inline shell references remain page-positioned while generated bootstrap removes only the Core transport wrapper.');
+$responsiveTheme = json_decode($responsiveWrites['theme.json']['payload']['data'] ?? '', true);
+$assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_column($responsiveTheme['templateParts'] ?? array(), 'name') && array('header', 'header', 'footer', 'footer') === array_column($responsiveTheme['templateParts'] ?? array(), 'area'), 'Generated theme metadata exposes responsive shell parts in their Site Editor header and footer areas.');
+$responsiveDiagnostic = current(array_filter($responsive['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_inline_extracted' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
+$assert(2 === ($responsiveDiagnostic['variant_count'] ?? null) && 2 === ($responsiveDiagnostic['page_count'] ?? null) && array('about.html', 'index.html') === array_keys($responsiveParts['header-1']['provenance']['sources'] ?? array()), 'Inline extraction reports bounded variant counts and non-empty source provenance.');
+
+$sourceResponsiveHtml = static fn(string $title): string => '<div class="desktop-document"><header class="desktop-header"><nav><a href="/">Home</a></nav></header><main><h1>' . $title . '</h1></main><footer class="desktop-footer">Desktop footer</footer></div><div class="mobile-document"><header class="mobile-header">Mobile header</header><main><h1>' . $title . ' mobile</h1></main><footer class="mobile-footer">Mobile footer</footer></div>';
+$sourceResponsiveResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceResponsiveHtml('Home'), 'about.html' => $sourceResponsiveHtml('About'))))->toArray();
+$sourceResponsiveArtifacts = $sourceResponsiveResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
+$assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_column($sourceResponsiveArtifacts, 'slug'), 'Source-identical nested shell variants are compiled once before route-specific page projection.');
+$assert(array() === array_filter($sourceResponsiveArtifacts, static fn(array $artifact): bool => array('index.html', 'about.html') !== ($artifact['source_paths'] ?? array())), 'Canonical source-level shell artifacts retain every contributing route.');
+$sourceDivergentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceResponsiveHtml('Home'), 'about.html' => str_replace('Mobile header', 'Different mobile header', $sourceResponsiveHtml('About')))))->toArray();
+$sourceDivergentArtifacts = $sourceDivergentResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
+$assert(!array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null)) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant rejects the complete area bundle while an independently shared area remains canonical.');
+
+$responsiveDivergentResult = $responsiveResult;
+foreach ($responsiveDivergentResult['source_reports']['compiled_site']['pages'] as &$responsivePage) $responsivePage['block_markup'] = $responsiveMarkup('index.html' === $responsivePage['source_path'] ? 'Home' : 'About', 'about.html' === $responsivePage['source_path'] ? 'Different mobile header' : 'Mobile header'); unset($responsivePage);
+$responsiveDivergent = (new WordPressSitePlan())->fromResult($responsiveDivergentResult);
+$assert(!array_filter($responsiveDivergent['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($pages($responsiveDivergent)['index.html']['canonical_block_markup'] ?? '', 'desktop-header') && str_contains($pages($responsiveDivergent)['about.html']['canonical_block_markup'] ?? '', 'Different mobile header'), 'A divergent responsive variant keeps every header variant page-owned instead of partially extracting the bundle.');
 
 $waveShell = static function (string $identity, string $current, string $content): string {
     $sourceClass = 'blocks-engine-source-div-' . $identity . '-4';
