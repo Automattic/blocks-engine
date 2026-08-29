@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -73,7 +74,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPatt
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
@@ -87,7 +89,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -113,8 +116,6 @@ final class HtmlTransformer
     use DomHelpersTrait;
     use ElementConversionTrait;
     use FormDispatchTrait;
-    use NavigationStyleProjectionTrait;
-    use NavigationToggleSuppressionTrait;
     use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
@@ -248,6 +249,10 @@ final class HtmlTransformer
 
     private readonly StyleResolver $styleResolver;
 
+    private readonly NavigationStyleProjector $navigationStyleProjector;
+
+    private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
+
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -289,7 +294,12 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
-    private const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
+    /**
+     * Marks an emptied block that exists only as a runtime target. Emitted
+     * here and read back by {@see NavigationStyleProjector}, which projects the
+     * editor static-state CSS that hides it.
+     */
+    public const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
 
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
@@ -368,6 +378,14 @@ final class HtmlTransformer
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
+        $this->navigationStyleProjector = new NavigationStyleProjector(
+            $this->createNavigationStyleProjectionContext(),
+            $this->styleResolver
+        );
+        $this->navigationToggleSuppressor = new NavigationToggleSuppressor(
+            $this->createNavigationToggleSuppressionContext(),
+            $this->styleResolver
+        );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
@@ -406,6 +424,88 @@ final class HtmlTransformer
             fn (string $value, ?DOMElement $element = null): string => $this->resolveCssVariablesInValue($value, $element),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
             fn (string $id): string => $this->safeAnchor($id)
+        );
+    }
+
+    /**
+     * Materializes a stylesheet into the transform's asset set.
+     *
+     * Transformer-owned rather than a navigation concern: engine-support and
+     * author stylesheets are materialized through here too. The navigation
+     * projector reaches it through {@see NavigationStyleProjectionContext}.
+     *
+     * @param array<int, string> $cssParts
+     */
+    private function materializeStylesheetAsset(array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void
+    {
+        $css = trim(implode("\n\n", $cssParts));
+        if ( '' === $css ) {
+            return;
+        }
+
+        $content = $css . "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/' . $pathPrefix . '-' . substr($hash, 0, 16) . '.css';
+
+        $this->materializedAssets()->register($path, array(
+            'source'      => $source,
+            'source_path' => '',
+            'path'        => $path,
+            'target_path' => $path,
+            'kind'        => 'css',
+            'role'        => 'stylesheet',
+            'stylesheet_placement' => $placement,
+            'stylesheet_target' => $target,
+            'mime_type'   => 'text/css',
+            'media_type'  => 'text/css',
+            'content'     => $content,
+            'bytes'       => strlen($content),
+            'encoding'    => 'utf-8',
+            'binary'      => false,
+            'hash'        => $hash,
+            'source_hash' => $hash,
+        ));
+    }
+
+    /**
+     * Collaborator surface for {@see NavigationToggleSuppressor}. Per-transform
+     * state is resolved lazily so the suppressor always sees the running
+     * transform.
+     */
+    private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
+    {
+        return new NavigationToggleSuppressionContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element),
+            fn (DOMElement $element): bool => $this->hasSourceNavigationSignal($element),
+            fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
+            fn (): RuntimeSelectorState => $this->runtimeSelectors(),
+            fn (): NavigationProjectionState => $this->navigationProjection(),
+            fn (): PatternRecognizerRegistry => $this->patternRecognizers,
+            fn (): PatternContext => $this->probePatternContext()
+        );
+    }
+
+    /**
+     * Collaborator surface for {@see NavigationStyleProjector}. Per-transform
+     * state is resolved lazily so the projector always sees the running
+     * transform.
+     */
+    private function createNavigationStyleProjectionContext(): NavigationStyleProjectionContext
+    {
+        return new NavigationStyleProjectionContext(
+            fn (): AuthorStyleAnalysis => $this->authorStyles(),
+            fn (): SourceStyleResolutionState => $this->sourceStyles(),
+            fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
+            fn (): RuntimeBehaviorState => $this->runtimeBehavior(),
+            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (string $selector): array => $this->parsedCssSelector($selector),
+            fn (string $id): string => $this->safeAnchor($id),
+            function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
+                $this->materializeStylesheetAsset($cssParts, $source, $placement, $pathPrefix, $target);
+            }
         );
     }
 
@@ -618,6 +718,11 @@ final class HtmlTransformer
         return $this->session->runtimeSelectorState();
     }
 
+    private function navigationProjection(): NavigationProjectionState
+    {
+        return $this->session->navigationProjectionState();
+    }
+
     private function sourceStyles(): SourceStyleResolutionState
     {
         return $this->session->sourceStyleResolutionState();
@@ -759,8 +864,8 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
-        $this->collectProjectedNavigationRelationships($body);
-        $this->collectSupersededNavToggleSelectors($body);
+        $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
+        $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
@@ -785,7 +890,7 @@ final class HtmlTransformer
             $serializedBlocks,
             $sourceProvenance
         );
-        $this->materializeEditorStaticStateStylesheet();
+        $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
@@ -1475,7 +1580,7 @@ final class HtmlTransformer
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
-        foreach ( $this->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
+        foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
@@ -1503,7 +1608,7 @@ final class HtmlTransformer
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
             if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
-                $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
+                $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
                 $fallbackTextColor = '';
                 if ( '' === $mobileOverlayBackground ) {
                     $mobileOverlayBackground = '#fff';
@@ -1530,16 +1635,16 @@ final class HtmlTransformer
             // block shrinkable, so a narrow viewport still hands over to core's
             // responsive overlay rather than overflowing the page.
             $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
-            foreach ( $this->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
+            foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
             }
-            foreach ( $this->listNavigationPaddingRules($serializedBlocks) as $paddingRule ) {
+            foreach ( $this->navigationStyleProjector->listNavigationPaddingRules($serializedBlocks) as $paddingRule ) {
                 $afterAuthorCssParts[] = $paddingRule;
             }
-            foreach ( $this->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
+            foreach ( $this->navigationStyleProjector->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
                 $afterAuthorCssParts[] = $itemAnchorRule;
             }
-            $mobileOverlayBackground = $this->sourceMobileNavigationOverlayBackground();
+            $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
             if ( '' !== $mobileOverlayBackground ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
             }
@@ -1561,10 +1666,10 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, 'blocks-engine-source-social-item-spacing') ) {
             $afterAuthorCssParts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
         }
-        foreach ( $this->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
+        foreach ( $this->navigationStyleProjector->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
             $afterAuthorCssParts[] = $itemAnchorRule;
         }
-        $directNavigationCss = $this->directNavigationSupportCss($serializedBlocks);
+        $directNavigationCss = $this->navigationStyleProjector->directNavigationSupportCss($serializedBlocks);
         if ( '' !== $directNavigationCss ) {
             $afterAuthorCssParts[] = $directNavigationCss;
         }
@@ -3407,8 +3512,8 @@ final class HtmlTransformer
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
-                fn (DOMElement $sourceElement): array => $this->navigationColorInteractionStates($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
+                fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -3562,13 +3667,13 @@ final class HtmlTransformer
             return $block;
         }
 
-        $projectedNavigation = $this->projectedNavigationTargetForControl($element);
+        $projectedNavigation = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
                 $controlAttrs = $this->styleResolver->presentationAttributes($element);
                 $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
-                if ( $this->isImplicitDialogNavigationControl($element) ) {
+                if ( $this->navigationToggleSuppressor->isImplicitDialogNavigationControl($element) ) {
                     $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
                 }
                 $block['attrs']['className'] = $this->mergeClassNames(
@@ -3581,7 +3686,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( $this->isProjectedNavigationSuppressed($element) || $this->isRedundantMenuToggleControl($element) ) {
+        if ( $this->navigationToggleSuppressor->isProjectedNavigationSuppressed($element) || $this->navigationToggleSuppressor->isRedundantMenuToggleControl($element) ) {
             return null;
         }
 
@@ -3728,6 +3833,11 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'details' === $tagName ) {
+            $capturedDisclosureDialog = $this->capturedDisclosureDialog($element);
+            if ( $capturedDisclosureDialog instanceof DOMElement ) {
+                return $this->capturedDialogBlock($capturedDisclosureDialog, $fallbacks);
+            }
+
             return $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
         }
 
@@ -4079,6 +4189,61 @@ if ( 'svg' === $tagName ) {
             'innerHTML' => $opening . '</dialog>',
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * An empty native details summary is sometimes capture scaffolding for an
+     * adjacent dialog. A core/details block gives that otherwise invisible
+     * trigger WordPress's default summary geometry, so preserve the bounded
+     * dialog as a closed native dialog instead.
+     */
+    private function capturedDisclosureDialog(DOMElement $element): ?DOMElement
+    {
+        $summary = null;
+        $dialog = null;
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) ) {
+                    return null;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'summary' === $tagName && ! $summary instanceof DOMElement ) {
+                $summary = $child;
+                continue;
+            }
+
+            if ( 'dialog' === strtolower($this->attr($child, 'role')) && ! $dialog instanceof DOMElement ) {
+                $dialog = $child;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $summary instanceof DOMElement || ! $dialog instanceof DOMElement ) {
+            return null;
+        }
+
+        $label = str_replace("\xc2\xa0", ' ', html_entity_decode($this->innerHtml($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' !== trim(strip_tags($label)) ) {
+            return null;
+        }
+
+        foreach ( $dialog->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
+                return null;
+            }
+        }
+
+        return $dialog;
     }
 
     /**
@@ -6109,12 +6274,6 @@ if ( 'svg' === $tagName ) {
         return array() === $ownership ? array() : array( 'navigation_source_ownership' => $ownership );
     }
 
-    /** @return list<string> */
-    private function navigationSourceOwnershipClasses(array $entry, string $kind): array
-    {
-        $className = (string) ($entry['navigation_source_ownership'][$kind]['class_name'] ?? '');
-        return array_values(array_filter(preg_split('/\s+/', trim($className)) ?: array()));
-    }
 
     /**
      * @return array{conversion_classification: string, preservation_strategy: string}
@@ -8891,7 +9050,7 @@ if ( 'svg' === $tagName ) {
         }
 
         // Behavior is preserved or rebuilt elsewhere — not lost.
-        if ( $this->isRedundantMenuToggleControl($element) ) {
+        if ( $this->navigationToggleSuppressor->isRedundantMenuToggleControl($element) ) {
             return false;
         }
 
@@ -8968,7 +9127,7 @@ if ( 'svg' === $tagName ) {
     private function isFoldedIntoCoreNavigation(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $this->isNavigationMenuCandidate($node) && $this->convertsToCoreNavigation($node) ) {
+            if ( $this->navigationToggleSuppressor->isNavigationMenuCandidate($node) && $this->navigationToggleSuppressor->convertsToCoreNavigation($node) ) {
                 return true;
             }
         }
@@ -10873,7 +11032,7 @@ if ( 'svg' === $tagName ) {
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $overlayMenu = $this->navigationOverlayMenu($element);
+        $overlayMenu = $this->navigationToggleSuppressor->navigationOverlayMenu($element);
         $navigationAttrs = array( 'overlayMenu' => $overlayMenu );
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';

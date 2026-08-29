@@ -21,8 +21,13 @@ if ( ! $body instanceof DOMElement ) {
 $session = $reflection->getProperty('session')->getValue($transformer);
 $session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($css, $css, array(), $body));
 
-$collect = $reflection->getMethod('navigationAuthorStyleRules');
-$rules = $collect->invoke($transformer);
+// Author-rule collection moved to NavigationStyleProjector. Reach it through
+// the transformer's collaborator so this still exercises the real wiring —
+// including the context closure that resolves the running transform's session
+// state — rather than a projector built in isolation.
+$projector = $reflection->getProperty('navigationStyleProjector')->getValue($transformer);
+$collect = ( new ReflectionClass($projector) )->getMethod('navigationAuthorStyleRules');
+$rules = $collect->invoke($projector);
 $rule = is_array($rules) ? ($rules[0] ?? array()) : array();
 
 $valid = 1 === count($rules)

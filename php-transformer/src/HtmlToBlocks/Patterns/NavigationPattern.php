@@ -753,6 +753,13 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement ) {
+                if ( $hasListBackedMenu ) {
+                    // Once a list established the menu, a sibling wrapper is
+                    // support only when the explicit inert proof above accepts
+                    // it. Promoting an ambiguous companion would silently add
+                    // its meaningful content to the menu.
+                    return array();
+                }
                 if ( ! $allowsDirectItems ) {
                     return array();
                 }
@@ -783,10 +790,9 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * A list-backed menu can carry direct support nodes that cannot render.
-     * Attribute-only accessibility and interaction state is insufficient:
-     * authors can keep aria-hidden or inert content visible. Limit this
-     * exception to a recognized list and structural or presentation proof.
+     * A list-backed menu can carry direct support nodes that cannot render. A
+     * neutral wrapper is equally safe only when every descendant is hidden from
+     * assistive technology and cannot receive focus or navigate anywhere.
      */
     private function isInertNavigationSupportChild(DOMElement $element, ?NavigationPatternContext $navigationContext): bool
     {
@@ -802,12 +808,67 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $style = strtolower($navigationContext->resolvedStyle($element));
-        return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style)
+        if ( 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style)
             || (
                 1 === preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)\s*(?:!important)?\s*(?:;|$)/', $style)
                 && 1 === preg_match('/(?:^|;)\s*overflow\s*:\s*hidden\s*(?:!important)?\s*(?:;|$)/', $style)
                 && 1 === preg_match('/(?:^|;)\s*clip(?:-path)?\s*:/', $style)
-            );
+            )
+        ) {
+            return true;
+        }
+
+        return $this->isInertNavigationSupportWrapper($element);
+    }
+
+    private function isInertNavigationSupportWrapper(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
+            || '' !== trim($element->textContent ?? '') && 0 === $element->childElementCount
+        ) {
+            return false;
+        }
+
+        return $this->inertNavigationSupportDescendants($element, false);
+    }
+
+    private function inertNavigationSupportDescendants(DOMElement $element, bool $hidden): bool
+    {
+        $hidden = $hidden || 'true' === strtolower(trim($this->attr($element, 'aria-hidden')));
+        if ( $element->hasAttribute('href') || $element->hasAttribute('src')
+            || '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
+            || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
+        ) {
+            return false;
+        }
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'on') ) {
+                return false;
+            }
+        }
+
+        $tabindex = trim($this->attr($element, 'tabindex'));
+        if ( '' !== $tabindex && ( ! $hidden || ! is_numeric($tabindex) || -1 < (int) $tabindex ) ) {
+            return false;
+        }
+
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
+            && ( ! $hidden || 'button' !== $tagName || '-1' !== $tabindex )
+        ) {
+            return false;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') && ! $hidden ) {
+                return false;
+            }
+            if ( $child instanceof DOMElement && ! $this->inertNavigationSupportDescendants($child, $hidden) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
