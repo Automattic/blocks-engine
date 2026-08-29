@@ -46,6 +46,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementCont
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -274,6 +276,8 @@ final class HtmlTransformer
 
     private readonly SvgMaterializer $svgMaterializer;
 
+    private readonly SvgElementConverter $svgConverter;
+
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
@@ -444,6 +448,19 @@ final class HtmlTransformer
             $this->styleResolver,
             $this->runtime
         );
+        $this->svgConverter = new SvgElementConverter(new SvgElementContext(
+            fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (string $html): bool => $this->isSafeSvgContent($html),
+            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            function (DOMElement $element, array &$fallbacks): void {
+                $this->captureInlineSvgFallback($element, $fallbacks);
+            }
+        ), $this->svgMaterializer);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -4238,7 +4255,7 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
 if ( 'svg' === $tagName ) {
-            return $this->convertSvgElement($element, $fallbacks);
+            return $this->svgConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'canvas' === $tagName ) {
