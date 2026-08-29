@@ -28,7 +28,7 @@ trait FormDispatchTrait
             $composition = $this->compositionalFormBlock($element, $fallbacks);
             if ( null !== $composition ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
-                $this->recordFormRuntimeIsland($element, $composition['block']);
+                $this->formRuntimeIslandRecorder->recordForm($element, $composition['block']);
                 return $composition['block'];
             }
         }
@@ -45,13 +45,13 @@ trait FormDispatchTrait
         if ( FormControlClassifier::hasDataEntryControls($element) ) {
             $preservationBlock = $this->htmlPreservationBlock($element);
             $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock, $preservationBlock);
-            $this->recordFormRuntimeIsland($element, $readableFormBlock);
+            $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
 
             return $preservationBlock;
         }
 
         $readableFormBlock = $this->readableFormBlockFromForm($element, true);
-        $this->recordFormRuntimeIsland($element, $readableFormBlock);
+        $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
 
         // Surface a form fallback finding so a downstream consumer can map the
         // preserved control structure onto a working form provider.
@@ -72,22 +72,6 @@ trait FormDispatchTrait
         if ( $this->pseudoFormAnalyzer->isPseudoForm($element) ) {
             $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
         }
-    }
-
-    /**
-     * @param array<string, mixed>|null $readableFormBlock
-     */
-    private function recordFormRuntimeIsland(DOMElement $element, ?array $readableFormBlock): void
-    {
-        $controls = $this->formControlMetadataBuilder->controls($element);
-        $this->runtimeIslands->recordRuntimeIsland($element, 'form', 'form_requires_runtime', 'server_or_client_form_handler', array(
-            'form'             => $this->formControlMetadataBuilder->form($element),
-            'controls'         => $controls,
-            'control_count'    => count($controls),
-            'events'           => $this->eventMetadata($element),
-            'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'required_scripts' => $this->requiredScriptsForElement($element),
-        ));
     }
 
     /**
@@ -114,11 +98,7 @@ trait FormDispatchTrait
             }
 
             if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
-                $this->runtimeIslands->recordRuntimeIsland($control, 'control', 'runtime_dom_target', 'client_script_execution', array(
-                    'control'          => $this->formControlMetadataBuilder->control($control),
-                    'events'           => $this->eventMetadata($control),
-                    'required_scripts' => $this->requiredScriptsForElement($control),
-                ));
+                $this->formRuntimeIslandRecorder->recordControl($control);
             }
 
             $readableControlBlock = $this->readableFormControlBlockFromElement($control);
@@ -229,7 +209,7 @@ trait FormDispatchTrait
                     }
 
                     if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
-                        $this->recordRuntimeControlIsland($control);
+                        $this->formRuntimeIslandRecorder->recordControl($control);
                         return $this->htmlPreservationBlock($element);
                     }
 
@@ -271,7 +251,7 @@ trait FormDispatchTrait
         }
 
         if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
-            $this->recordRuntimeControlIsland($element);
+            $this->formRuntimeIslandRecorder->recordControl($element);
             return $this->htmlPreservationBlock($element);
         }
 
@@ -295,45 +275,6 @@ trait FormDispatchTrait
         }
 
         return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
-    }
-
-    private function recordRuntimeControlIsland(DOMElement $element): void
-    {
-        $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'runtime_dom_target', 'client_script_execution', array(
-            'control'          => $this->formControlMetadataBuilder->control($element),
-            'events'           => $this->eventMetadata($element),
-            'required_scripts' => $this->requiredScriptsForElement($element),
-        ));
-    }
-
-    /**
-     * Preserve a standalone form control that has no faithful native block or
-     * readable static approximation as a bounded runtime island instead of an
-     * unsupported-element loss.
-     *
-     * Reached only after the readable-control and search paths decline, so the
-     * control is one whose behavior depends on a client runtime: file/hidden/
-     * color/date-style inputs core blocks cannot represent, or any control
-     * carrying inline event handlers. The source markup is carried in the
-     * island snippet so the behavior can be re-attached, and no misleading
-     * static text is emitted for controls (often hidden) that have no visual
-     * representation. This yields a `preserved_runtime_island` outcome rather
-     * than an `unsupported_element_loss`.
-     */
-    private function preserveStandaloneFormControlAsRuntimeIsland(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( ! in_array($tagName, array( 'input', 'select', 'textarea' ), true) ) {
-            return false;
-        }
-
-        $this->runtimeIslands->recordRuntimeIsland($element, 'control', 'form_control_requires_runtime', 'client_form_control_runtime', array(
-            'control'          => $this->formControlMetadataBuilder->control($element),
-            'events'           => $this->eventMetadata($element),
-            'required_scripts' => $this->requiredScriptsForElement($element),
-        ));
-
-        return true;
     }
 
     /**
