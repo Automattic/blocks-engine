@@ -38,6 +38,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMeta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
@@ -273,6 +274,8 @@ final class HtmlTransformer
 
     private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
 
+    private readonly ReadableFormControlBlockConverter $readableFormControlBlockConverter;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -441,6 +444,20 @@ final class HtmlTransformer
             },
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element)
+        );
+        $this->readableFormControlBlockConverter = new ReadableFormControlBlockConverter(
+            $this->formControlMetadataBuilder,
+            $this->authoredFormControlBlockConverter,
+            $this->formRuntimeIslandRecorder,
+            $this->runtime,
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            function (string $text): void {
+                $this->registerFormControlEcho($text);
+            }
         );
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
@@ -3914,7 +3931,7 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'label' === $tagName ) {
-            return $this->readableFormControlBlockFromElement($element);
+            return $this->readableFormControlBlockConverter->convert($element);
         }
 
         if ( 'pre' === $tagName || 'plaintext' === $tagName ) {
@@ -4024,7 +4041,7 @@ if ( 'svg' === $tagName ) {
             }
         }
 
-        $readableControlBlock = $this->readableFormControlBlockFromElement($element);
+        $readableControlBlock = $this->readableFormControlBlockConverter->convert($element);
         if ( null !== $readableControlBlock ) {
             return $readableControlBlock;
         }
