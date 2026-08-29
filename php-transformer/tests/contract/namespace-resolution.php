@@ -29,7 +29,11 @@ declare(strict_types=1);
 // noise someone silences.
 
 $root = dirname(__DIR__, 2);
-$src = $root . '/src';
+// dev/ shares the package namespace but is mapped through autoload-dev, so it
+// is subject to exactly the same bare-reference breakage as src/ and is scanned
+// with it. Keeping both roots here is what stops the harness from silently
+// losing this guarantee when it moved out of src/.
+$roots = array( $root . '/src', $root . '/dev' );
 $prefix = 'Automattic\\BlocksEngine\\PhpTransformer\\';
 
 /** @return iterable<string> */
@@ -39,6 +43,19 @@ $phpFiles = static function (string $dir): iterable {
         if ($file->isFile() && 'php' === $file->getExtension()) {
             yield $file->getPathname();
         }
+    }
+};
+
+/**
+ * @param list<string> $dirs
+ * @return iterable<string>
+ */
+$allFiles = static function (array $dirs) use ($phpFiles): iterable {
+    foreach ($dirs as $dir) {
+        if (!is_dir($dir)) {
+            continue;
+        }
+        yield from $phpFiles($dir);
     }
 };
 
@@ -90,7 +107,7 @@ $declaredIn = static function (array $tokens): array {
 // Pass one: every class-like this package declares.
 $declared = array();       // FQN => true
 $shortNames = array();     // short name => list of FQN
-foreach ($phpFiles($src) as $path) {
+foreach ($allFiles($roots) as $path) {
     $tokens = token_get_all((string) file_get_contents($path));
     list($ns, $classes) = $declaredIn($tokens);
     foreach ($classes as $class) {
@@ -107,7 +124,7 @@ $reserved = array(
 
 $problems = array();
 
-foreach ($phpFiles($src) as $path) {
+foreach ($allFiles($roots) as $path) {
     $tokens = token_get_all((string) file_get_contents($path));
     $count = count($tokens);
     $rel = substr($path, strlen($root) + 1);

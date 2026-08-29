@@ -1,13 +1,27 @@
-# Keep Packagist dist archives lean. docs/ and tools/visual-parity/ are
-# intentionally NOT excluded: tests/packaging/install-proof.php declares
-# docs/contracts/* and tools/visual-parity/* as required package files.
+# Keep Packagist dist archives lean.
+#
+# The rule: the dist carries what a consumer can call, plus the contracts that
+# describe what those calls return. Everything that only ever runs from a
+# monorepo checkout — the diagnostic and parity harness, its runners, its
+# Node/Playwright tooling, and migration evidence — stays out.
+#
+# dev/ holds harness code that is deliberately mapped through autoload-dev in
+# composer.json rather than the shipped autoload block, so a dist install
+# cannot resolve it even by accident.
+#
+# docs/contracts/* stays in the dist: install-proof.php declares those schema
+# files as required, and consumers exchange reports against them.
 /.gitattributes export-ignore
 /.gitignore export-ignore
 /composer.lock export-ignore
 /homeboy.json export-ignore
+/dev/ export-ignore
 /tests/ export-ignore
+/docs/consumer-prs/ export-ignore
+/tools/benchmarks/ export-ignore
 /tools/content-round-trip/ export-ignore
 /tools/corpus-diagnostics/ export-ignore
 /tools/live-wp-parity/ export-ignore
 /tools/static-parity/ export-ignore
 /tools/packagist-split/ export-ignore
+/tools/visual-parity/ export-ignore

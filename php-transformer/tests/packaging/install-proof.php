@@ -42,16 +42,25 @@ $requiredFiles = array(
     'docs/contracts/visual-parity-report.md',
     'resources/wordpress-latest-core-block-attributes.json',
     'resources/wordpress-latest-core-block-supports.json',
-    'tools/visual-parity/package-lock.json',
-    'tools/visual-parity/package.json',
-    'tools/visual-parity/bin/visual-parity.mjs',
-    'tools/visual-parity/tests/fixtures/source.html',
-    'tools/visual-parity/tests/fixtures/target.html',
-    'tools/visual-parity/tests/smoke.mjs',
 );
 foreach ( $requiredFiles as $requiredFile ) {
     if ( ! is_file($packageRoot . '/' . $requiredFile) ) {
         fwrite(STDERR, "php-transformer install proof missing package file: {$requiredFile}\n");
+        exit(1);
+    }
+}
+// The harness is mapped through autoload-dev, and Composer never registers a
+// dependency's autoload-dev block. An installed package must therefore be
+// unable to resolve these names even though a path-repository install copies
+// the working tree verbatim. File-level dist shape is proven separately, in
+// tests/packaging/dist-shape.php, against `git archive`.
+$harnessClasses = array(
+    'Automattic\\BlocksEngine\\PhpTransformer\\VisualParity\\StaticStyleParityRunner',
+    'Automattic\\BlocksEngine\\PhpTransformer\\CorpusDiagnostics\\CorpusDiagnosticsRunner',
+);
+foreach ( $harnessClasses as $harnessClass ) {
+    if ( class_exists($harnessClass) ) {
+        fwrite(STDERR, "php-transformer install proof resolved a monorepo-only class from an installed package: {$harnessClass}\n");
         exit(1);
     }
 }
