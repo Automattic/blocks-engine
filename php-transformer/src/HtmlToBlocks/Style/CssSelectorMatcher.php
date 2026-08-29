@@ -498,16 +498,18 @@ final class CssSelectorMatcher
         if ( null !== $compound['type'] && 0 !== strcasecmp($element->tagName, $compound['type']) ) {
             return false;
         }
+        $actualId = array() !== $compound['ids'] ? (null !== $cache ? ($cache->attribute($element, 'id') ?? '') : $element->getAttribute('id')) : '';
         foreach ( $compound['ids'] as $id ) {
-            $actualId = null !== $cache ? ($cache->attribute($element, 'id') ?? '') : $element->getAttribute('id');
             if ( $actualId !== $id ) {
                 return false;
             }
         }
-        $classes = $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
-        foreach ( $compound['classes'] as $class ) {
-            if ( ! in_array($class, $classes, true) ) {
-                return false;
+        if ( array() !== $compound['classes'] ) {
+            $classes = $cache?->classTokens($element) ?? (preg_split('/[\x09\x0A\x0C\x0D\x20]+/', trim($element->getAttribute('class'))) ?: array());
+            foreach ( $compound['classes'] as $class ) {
+                if ( ! in_array($class, $classes, true) ) {
+                    return false;
+                }
             }
         }
         foreach ( $compound['attributes'] as $attribute ) {

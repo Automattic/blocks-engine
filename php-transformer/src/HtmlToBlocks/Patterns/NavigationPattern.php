@@ -140,20 +140,22 @@ final class NavigationPattern implements PatternRecognizerInterface
     }
 
     /**
-     * A nav container that holds a branding anchor beside its link cluster
-     * authors THREE elements — the landmark, the brand, and the menu — each with
-     * its own CSS rule. Folding all three into one core/navigation makes the
-     * brand a menu item: the landmark's own box rules then compete with the
-     * menu list's rules on a single element, and would require a source-only
-     * attribute that core/navigation-link does not register.
+     * A nav container that holds a brand beside its link cluster authors THREE
+     * elements — the landmark, the brand, and the menu — each with its own CSS
+     * rule. Folding all three into one core/navigation makes the brand a menu
+     * item: the landmark's own box rules then compete with the menu list's rules
+     * on a single element, and would require a source-only attribute that
+     * core/navigation-link does not register.
      *
      * Emit the landmark as a carrier group instead, holding the brand block and
      * a core/navigation built from the link cluster alone. Structural position
-     * does the work a class allowlist used to do — a direct-child anchor outside
+     * does the work a class allowlist used to do — a direct-child brand outside
      * the cluster — but position alone cannot tell a brand from an ordinary menu
-     * item that happens to sit outside the list, so the anchor must also read as
+     * item that happens to sit outside the list, so the brand must also read as
      * a brand: a lockup (element children) or a brand/logo cue. A bare
-     * `<a>Home</a>` beside the list stays a menu item.
+     * `<a>Home</a>` beside the list stays a menu item. A non-anchor wordmark
+     * such as `<span class="brand">Northwind</span>` qualifies by that same cue
+     * and is emitted as its own native block rather than a synthetic paragraph.
      *
      * Not covered: an anchor holding only an image with no accessible name is
      * classified as navigation chrome before it reaches the brand test, so an
@@ -189,7 +191,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         $extras = array();
         $order = array();
         $buttonSignals = new ButtonSignalClassifier();
-        foreach ( $element->childNodes as $child ) {
+        $nonAnchorShape = $this->nonAnchorBrandNavigationShape($element);
+        if ( null !== $nonAnchorShape ) {
+            $anchor = $nonAnchorShape['brand'];
+            $cluster = $nonAnchorShape['cluster'];
+            $brandLeads = $nonAnchorShape['brand_leads'];
+            $order = $brandLeads
+                ? array( array( 'kind' => 'brand' ), array( 'kind' => 'cluster' ) )
+                : array( array( 'kind' => 'cluster' ), array( 'kind' => 'brand' ) );
+        }
+
+        foreach ( null === $nonAnchorShape ? $element->childNodes : array() as $child ) {
             if ( XML_COMMENT_NODE === $child->nodeType ) {
                 continue;
             }
@@ -267,14 +279,31 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true);
+        $links = array();
+        if ( $cluster->isSameNode($element) ) {
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== $this->anchorLabel($child, $innerHtml) ) {
+                    $links[] = $this->navigationLinkBlock($child, $presentationAttributes, $innerHtml, $createBlock, $child, $navigationContext);
+                }
+            }
+        } else {
+            $links = $this->navigationBlocks($cluster, $presentationAttributes, $innerHtml, $createBlock, $navigationContext, false, true);
+        }
         if ( 2 > count($links) ) {
             return null;
         }
 
         // An anchor that only converts to an HTML fallback would trade a menu
         // item for raw markup; keep today's shape rather than lose the block.
-        $brand = $converter->element($anchor, $fallbacks, true);
+        // A phrasing wordmark is created without a source element so the
+        // inline-to-paragraph path does not attach the synthetic wrapper class.
+        $brand = null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
+            ? $createBlock(
+                'core/paragraph',
+                array_merge($presentationAttributes($anchor), array( 'content' => $innerHtml($anchor) )),
+                array()
+            )
+            : $converter->element($anchor, $fallbacks, true);
         $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
         if ( '' === $brandName || 'core/html' === $brandName ) {
             return null;
@@ -283,7 +312,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         // The link cluster owns the navigation block's presentation: it is the
         // element core/navigation stands in for, so the menu list's className
         // stays with the menu instead of being copied onto the landmark.
-        $navigationAttrs = $this->navigationContainerAttributes($cluster, $presentationAttributes);
+        $navigationAttrs = $cluster->isSameNode($element)
+            ? array()
+            : $this->navigationContainerAttributes($cluster, $presentationAttributes);
         if ( null !== $navigationContext && $this->isListNavigationSource($cluster) ) {
             $clusterSpacing = $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($cluster));
             $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
@@ -505,6 +536,55 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $this->hasBrandAnchorSignal($anchor);
+    }
+
+    /**
+     * Recognize an explicitly named non-link brand beside one unambiguous menu.
+     *
+     * @return array{brand: DOMElement, cluster: DOMElement, brand_leads: bool}|null
+     */
+    private function nonAnchorBrandNavigationShape(DOMElement $element): ?array
+    {
+        $children = array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn ($child): bool => $child instanceof DOMElement
+        ));
+        $brands = array_values(array_filter(
+            $children,
+            function (DOMElement $child): bool {
+                $tagName = strtolower($child->tagName);
+                return 'a' !== $tagName
+                    && ! in_array($tagName, array( 'ul', 'ol' ), true)
+                    && 0 === $child->getElementsByTagName('a')->length
+                    && '' !== trim($child->textContent ?? '')
+                    && $this->hasBrandAnchorSignal($child);
+            }
+        ));
+        if ( 1 !== count($brands) ) {
+            return null;
+        }
+
+        $brand = $brands[0];
+        $menuChildren = array_values(array_filter($children, static fn (DOMElement $child): bool => ! $child->isSameNode($brand)));
+        $directAnchors = array_values(array_filter($menuChildren, static fn (DOMElement $child): bool => 'a' === strtolower($child->tagName)));
+        if ( count($directAnchors) === count($menuChildren) && 2 <= count($directAnchors) ) {
+            $firstMenu = $directAnchors[0];
+            return array(
+                'brand'       => $brand,
+                'cluster'     => $element,
+                'brand_leads' => array_search($brand, $children, true) < array_search($firstMenu, $children, true),
+            );
+        }
+
+        if ( 1 !== count($menuChildren) || 2 > $menuChildren[0]->getElementsByTagName('a')->length ) {
+            return null;
+        }
+
+        return array(
+            'brand'       => $brand,
+            'cluster'     => $menuChildren[0],
+            'brand_leads' => array_search($brand, $children, true) < array_search($menuChildren[0], $children, true),
+        );
     }
 
     private function directSectionLabel(DOMElement $element): ?DOMElement

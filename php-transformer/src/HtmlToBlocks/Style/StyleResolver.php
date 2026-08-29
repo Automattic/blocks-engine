@@ -1682,28 +1682,22 @@ final class StyleResolver
     /** @return array<int, array{selector:string,declarations:array<string,string>}> */
     private function hiddenStateStyleRules(): array
     {
-        $css = preg_replace('@/\*.*?\*/@s', '', $this->context->authorStyles()->combinedCss()) ?? $this->context->authorStyles()->combinedCss();
-        $css = $this->topLevelCssRules($css);
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
         $rules = array();
-        foreach ( $matches as $match ) {
-            $declarations = array_intersect_key(
-                $this->cssDeclarations((string) $match[2]),
-                array('display' => true, 'opacity' => true, 'visibility' => true)
-            );
-            if ( array() === $declarations ) {
-                continue;
-            }
-            foreach ( explode(',', (string) $match[1]) as $selector ) {
-                $selector = trim($selector);
-                if ( '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector) ) {
-                    $rules[] = array('selector' => $selector, 'declarations' => $declarations);
+        (new CssStylesheetTransformer())->visitStyleRules(
+            $this->context->authorStyles()->combinedCss(),
+            function (string $prelude, string $body, array $conditions) use (&$rules): void {
+                if (array() !== $conditions) {
+                    return;
+                }
+                $declarations = array_intersect_key($this->cssDeclarations($body), array('display' => true, 'opacity' => true, 'visibility' => true));
+                foreach (explode(',', $prelude) as $selector) {
+                    $selector = trim($selector);
+                    if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
+                        $rules[] = array('selector' => $selector, 'declarations' => $declarations);
+                    }
                 }
             }
-        }
+        );
 
         return $rules;
     }
@@ -2039,177 +2033,90 @@ final class StyleResolver
         return false;
     }
 
-    /**
-     * Build immutable resting, interaction, and pseudo-element rule streams
-     * together so each payload is scanned and parsed once.
-     *
-     * @return array{
-     *     static: list<array{selector: string, declarations: array<string, string>, mediaTextDeclarations: list<array{property: string, value: string, important: bool}>, mediaTextSpecificity: array{int, int, int}}>,
-     *     navigation_state: list<array{selector: string, base_selector: string, state: string, declarations: array<string, string>}>,
-     *     pseudo: list<array{selector: string, pseudo: string, declarations: array<string, string>}>
-     * }
-     */
-    public function topLevelStyleAnalysis(string $css): array
+    /** Build every immutable source-style rule stream in one stylesheet traversal. */
+    public function stylesheetAnalysis(string $css): array
     {
-        $analysis = array('static' => array(), 'navigation_state' => array(), 'pseudo' => array());
-        if ( '' === $css ) {
-            return $analysis;
-        }
+        $analysis = array(
+            'static' => array(),
+            'conditional' => array(),
+            'navigation_state' => array(),
+            'image_shape' => array(),
+            'pseudo' => array(),
+        );
+        $imageOrder = 0;
+        (new CssStylesheetTransformer())->visitStyleRules(
+            $css,
+            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder): void {
+                $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
+                $mediaTextDeclarations = array() === $conditions
+                    ? array_values(array_filter(
+                        $this->mediaTextInlineDeclarationEntries($body),
+                        static fn (array $entry): bool => in_array($entry['property'], array(
+                            'align-items',
+                            'direction',
+                            'display',
+                            'flex-basis',
+                            'flex-direction',
+                            'flex-flow',
+                            'float',
+                            'grid-template-columns',
+                            'order',
+                            'width',
+                        ), true)
+                    ))
+                    : array();
+                $imageEntries = $this->imageShapeDeclarationEntries($body);
 
-        $css = $this->topLevelCssRules($css);
-        if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-            return $analysis;
-        }
-
-        foreach ( $matches as $match ) {
-            $body = (string) $match[2];
-            $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
-            $mediaTextDeclarations = array_values(array_filter(
-                $this->mediaTextInlineDeclarationEntries($body),
-                static fn (array $entry): bool => in_array($entry['property'], array(
-                    'align-items',
-                    'direction',
-                    'display',
-                    'flex-basis',
-                    'flex-direction',
-                    'flex-flow',
-                    'float',
-                    'grid-template-columns',
-                    'order',
-                    'width',
-                ), true)
-            ));
-            foreach ( explode(',', (string) $match[1]) as $selector ) {
-                $selector = trim($selector);
-                if ( ( array() !== $declarations || array() !== $mediaTextDeclarations )
-                    && '' !== $selector
-                    && ! $this->selectorCarriesPseudoState($selector)
-                    && $this->isSupportedCssSelector($selector)
-                ) {
-                    $analysis['static'][] = array(
-                        'selector' => $selector,
-                        'declarations' => $declarations,
-                        'mediaTextDeclarations' => $mediaTextDeclarations,
-                        'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
-                    );
-                }
-                if ( array() !== $declarations
-                    && 1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)
-                ) {
-                    $state = strtolower((string) $stateMatches[1][0][0]);
-                    $offset = (int) $stateMatches[0][0][1];
-                    $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
-                    if ( '' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector) ) {
-                        $analysis['navigation_state'][] = array(
+                foreach (explode(',', $prelude) as $selector) {
+                    $selector = trim($selector);
+                    if ('' === $selector || str_starts_with($selector, '@')) {
+                        continue;
+                    }
+                    $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
+                    if ($supportedRestingSelector && array() === $conditions && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
+                        $analysis['static'][] = array(
                             'selector' => $selector,
-                            'base_selector' => $baseSelector,
-                            'state' => $state,
                             'declarations' => $declarations,
+                            'mediaTextDeclarations' => $mediaTextDeclarations,
+                            'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                         );
                     }
-                }
-                if ( array() !== $declarations && preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch) ) {
-                    $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                    if ( '' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector) ) {
-                        $analysis['pseudo'][] = array(
-                            'selector' => $baseSelector,
-                            'pseudo' => strtolower($pseudoMatch[1]),
-                            'declarations' => $declarations,
-                        );
+                    if ($supportedRestingSelector && array() !== $conditions && array() !== $declarations) {
+                        $analysis['conditional'][] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
+                    }
+                    if ($supportedRestingSelector) {
+                        foreach ($imageEntries as $entry) {
+                            $analysis['image_shape'][] = array(
+                                'selector' => $selector,
+                                'property' => $entry['property'],
+                                'value' => $entry['value'],
+                                'conditions' => $conditions,
+                                'order' => $imageOrder++,
+                            );
+                        }
+                    }
+                    if (array() !== $conditions || array() === $declarations) {
+                        continue;
+                    }
+                    if (1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                        $state = strtolower((string) $stateMatches[1][0][0]);
+                        $offset = (int) $stateMatches[0][0][1];
+                        $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
+                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
+                            $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
+                        }
+                    }
+                    if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
+                        $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
+                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $declarations);
+                        }
                     }
                 }
             }
-        }
+        );
 
         return $analysis;
-    }
-
-    /**
-     * Collect nested class-owned rules and ordered image-crop declarations from
-     * one recursive at-rule traversal.
-     *
-     * @return array{
-     *     conditional: list<array{selector: string, declarations: array<string, string>, conditions: list<string>}>,
-     *     image_shape: list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
-     * }
-     */
-    public function structuredStyleAnalysis(string $css): array
-    {
-        $analysis = array('conditional' => array(), 'image_shape' => array());
-        $order = 0;
-        $this->collectStructuredStyleAnalysis($css, array(), $analysis, $order);
-
-        return $analysis;
-    }
-
-    /**
-     * @param list<string> $conditions
-     * @param array{
-     *     conditional: list<array{selector: string, declarations: array<string, string>, conditions: list<string>}>,
-     *     image_shape: list<array{selector: string, property: string, value: string, conditions: list<string>, order: int}>
-     * } $analysis
-     */
-    private function collectStructuredStyleAnalysis(string $css, array $conditions, array &$analysis, int &$order): void
-    {
-        $directCss = $css;
-        $events = array();
-        for ($offset = 0, $length = strlen($css); $offset < $length; ++$offset) {
-            if ('@' !== $css[$offset]) {
-                continue;
-            }
-            $blockStart = $this->findCssToken($css, '{', $offset);
-            $statementEnd = $this->findCssToken($css, ';', $offset);
-            if (null === $blockStart || (null !== $statementEnd && $statementEnd < $blockStart)) {
-                continue;
-            }
-            $end = $this->findMatchingCssBrace($css, $blockStart);
-            if (null === $end) {
-                continue;
-            }
-            $prelude = trim(substr($css, $offset, $blockStart - $offset));
-            $directCss = substr_replace($directCss, str_repeat(' ', $end - $offset + 1), $offset, $end - $offset + 1);
-            if (preg_match('/^@(media|container|supports|layer|scope|starting-style)\b/i', $prelude)) {
-                $events[] = array(
-                    'offset' => $offset,
-                    'css' => substr($css, $blockStart + 1, $end - $blockStart - 1),
-                    'conditions' => array_merge($conditions, array($prelude)),
-                );
-            }
-            $offset = $end;
-        }
-        if (preg_match_all('/([^{}]+)\{([^{}]+)\}/', $directCss, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
-            foreach ($matches as $match) {
-                $events[] = array('offset' => $match[0][1], 'prelude' => $match[1][0], 'body' => $match[2][0]);
-            }
-        }
-        usort($events, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
-        foreach ($events as $event) {
-            if (isset($event['css'])) {
-                $this->collectStructuredStyleAnalysis($event['css'], $event['conditions'], $analysis, $order);
-                continue;
-            }
-
-            $body = (string) $event['body'];
-            $declarations = array() === $conditions
-                ? array()
-                : $this->safeVisualDeclarations($this->cssDeclarations($body));
-            $imageEntries = $this->imageShapeDeclarationEntries($body);
-            if (array() === $declarations && array() === $imageEntries) {
-                continue;
-            }
-            foreach (explode(',', (string) $event['prelude']) as $selector) {
-                $selector = trim($selector);
-                if ('' === $selector || str_starts_with($selector, '@') || $this->selectorCarriesPseudoState($selector) || ! $this->isSupportedCssSelector($selector)) {
-                    continue;
-                }
-                if (array() !== $declarations) {
-                    $analysis['conditional'][] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
-                }
-                foreach ($imageEntries as $entry) {
-                    $analysis['image_shape'][] = array('selector' => $selector, 'property' => $entry['property'], 'value' => $entry['value'], 'conditions' => $conditions, 'order' => $order++);
-                }
-            }
-        }
     }
 
     /** @return list<array{property: string, value: string}> */
@@ -2229,138 +2136,6 @@ final class StyleResolver
         }
 
         return $entries;
-    }
-
-    private function findMatchingCssBrace(string $css, int $openingBrace): ?int
-    {
-        $depth = 1;
-        $length = strlen($css);
-        for ($offset = $openingBrace + 1; $offset < $length; ++$offset) {
-            if ('"' === $css[$offset] || "'" === $css[$offset]) {
-                $quote = $css[$offset];
-                for (++$offset; $offset < $length; ++$offset) {
-                    if ('\\' === $css[$offset]) {
-                        ++$offset;
-                    } elseif ($quote === $css[$offset]) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ('{' === $css[$offset]) {
-                ++$depth;
-            } elseif ('}' === $css[$offset] && 0 === --$depth) {
-                return $offset;
-            }
-        }
-
-        return null;
-    }
-
-    private function topLevelCssRules(string $css): string
-    {
-        $output = '';
-        $length = strlen($css);
-        $depth = 0;
-
-        for ( $offset = 0; $offset < $length; ++$offset ) {
-            $char = $css[$offset];
-
-            if ( '"' === $char || "'" === $char ) {
-                $output .= $char;
-                for ( ++$offset; $offset < $length; ++$offset ) {
-                    $output .= $css[$offset];
-                    if ( '\\' === $css[$offset] ) {
-                        if ( $offset + 1 < $length ) {
-                            ++$offset;
-                            $output .= $css[$offset];
-                        }
-                        continue;
-                    }
-                    if ( $char === $css[$offset] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-
-            if ( 0 !== $depth || '@' !== $char ) {
-                if ( '{' === $char ) {
-                    ++$depth;
-                } elseif ( '}' === $char && $depth > 0 ) {
-                    --$depth;
-                }
-                $output .= $char;
-                continue;
-            }
-
-            $blockStart = $this->findCssToken($css, '{', $offset);
-            $statementEnd = $this->findCssToken($css, ';', $offset);
-            if ( null === $blockStart || ( null !== $statementEnd && $statementEnd < $blockStart ) ) {
-                if ( null === $statementEnd ) {
-                    break;
-                }
-                $offset = $statementEnd;
-                continue;
-            }
-
-            $atRuleDepth = 1;
-            for ( $innerOffset = $blockStart + 1; $innerOffset < $length; ++$innerOffset ) {
-                if ( '"' === $css[$innerOffset] || "'" === $css[$innerOffset] ) {
-                    $quote = $css[$innerOffset];
-                    for ( ++$innerOffset; $innerOffset < $length; ++$innerOffset ) {
-                        if ( '\\' === $css[$innerOffset] ) {
-                            ++$innerOffset;
-                            continue;
-                        }
-                        if ( $quote === $css[$innerOffset] ) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if ( '{' === $css[$innerOffset] ) {
-                    ++$atRuleDepth;
-                    continue;
-                }
-                if ( '}' === $css[$innerOffset] ) {
-                    --$atRuleDepth;
-                    if ( 0 === $atRuleDepth ) {
-                        $offset = $innerOffset;
-                        continue 2;
-                    }
-                }
-            }
-
-            break;
-        }
-
-        return $output;
-    }
-
-    private function findCssToken(string $css, string $token, int $offset): ?int
-    {
-        $length = strlen($css);
-        for ( ; $offset < $length; ++$offset ) {
-            if ( '"' === $css[$offset] || "'" === $css[$offset] ) {
-                $quote = $css[$offset];
-                for ( ++$offset; $offset < $length; ++$offset ) {
-                    if ( '\\' === $css[$offset] ) {
-                        ++$offset;
-                        continue;
-                    }
-                    if ( $quote === $css[$offset] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ( $token === $css[$offset] ) {
-                return $offset;
-            }
-        }
-
-        return null;
     }
 
     /**

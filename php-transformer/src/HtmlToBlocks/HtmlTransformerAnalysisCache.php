@@ -138,7 +138,7 @@ final class HtmlTransformerAnalysisCache
         return $analysis;
     }
 
-    /** @param array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} $analysis */
+    /** @param array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} $analysis */
     public function rememberAuthorSelectors(string $key, array $analysis): void
     {
         $this->remember(

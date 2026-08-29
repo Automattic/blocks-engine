@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
@@ -39,6 +40,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElem
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConversionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
@@ -91,7 +94,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrai
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -116,7 +120,6 @@ final class HtmlTransformer
     use DomHelpersTrait;
     use ElementConversionTrait;
     use FormDispatchTrait;
-    use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
@@ -251,9 +254,13 @@ final class HtmlTransformer
 
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
+    private readonly SvgMaterializer $svgMaterializer;
+
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
+
+    private readonly SearchBlockConverter $searchBlockConverter;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
@@ -386,7 +393,13 @@ final class HtmlTransformer
             $this->createNavigationToggleSuppressionContext(),
             $this->styleResolver
         );
+        $this->svgMaterializer = new SvgMaterializer(
+            $this->createSvgMaterializationContext(),
+            $this->styleResolver,
+            $this->runtime
+        );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
+        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
@@ -482,6 +495,58 @@ final class HtmlTransformer
             fn (): NavigationProjectionState => $this->navigationProjection(),
             fn (): PatternRecognizerRegistry => $this->patternRecognizers,
             fn (): PatternContext => $this->probePatternContext()
+        );
+    }
+
+    /**
+     * Collaborator surface for {@see SvgMaterializer}. Per-transform state is
+     * resolved lazily so the materializer always sees the running transform.
+     */
+    private function createSvgMaterializationContext(): SvgMaterializationContext
+    {
+        return new SvgMaterializationContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
+                => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->htmlAttributes($element),
+            fn (DOMElement $element, array $excludedTags): string => $this->innerHtmlWithoutTags($element, $excludedTags),
+            fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+            fn (string $content): bool => $this->isSafeSvgContent($content),
+            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (): LayoutGeometryState => $this->layoutGeometry(),
+            fn (): AssetMaterializationState => $this->materializedAssets(),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
+            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
+            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            fn (): TransformationProvenanceState => $this->transformationProvenance()
+        );
+    }
+
+    /** Collaborator surface for {@see SearchBlockConverter}. */
+    private function createSearchBlockConversionContext(): SearchBlockConversionContext
+    {
+        return new SearchBlockConversionContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): array => $this->formControlElements($element),
+            fn (DOMElement $element): string => $this->formControlType($element),
+            fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
+            fn (DOMElement $element): string => $this->formControlLabel($element),
+            fn (DOMElement $element): string => $this->submitButtonText($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
+            fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
+            fn (DOMElement $element): int => $this->childElementCount($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element, DOMElement $input): bool => $this->hasStandaloneSearchSignal($element, $input),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
 
@@ -1703,8 +1768,8 @@ final class HtmlTransformer
 
         $authorAnalysis = $this->composedAuthorSelectorAnalysis($this->authorStylesheetPayloads($html, $staticCss));
         $sourceTagSelectorNames = $authorAnalysis['source_tags'];
-        $authorSelectors = $authorAnalysis['selectors'];
         $authorStyleRules = $authorAnalysis['rules'];
+        $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->authorSelectorProjections()->ensureTagMarker($tagName);
         }
@@ -2051,14 +2116,13 @@ final class HtmlTransformer
                 ++$this->analysisCache->styleBuilds;
                 $ruleCss = trim($payload);
                 $ruleCss = preg_replace('@/\*.*?\*/@s', '', $ruleCss) ?? $ruleCss;
-                $topLevel = $this->styleResolver->topLevelStyleAnalysis($ruleCss);
-                $structured = $this->styleResolver->structuredStyleAnalysis($ruleCss);
+                $style = $this->styleResolver->stylesheetAnalysis($ruleCss);
                 $analysis = array(
-                    'static' => $topLevel['static'],
-                    'conditional' => $structured['conditional'],
-                    'navigation_state' => $topLevel['navigation_state'],
-                    'image_shape' => $structured['image_shape'],
-                    'pseudo' => $topLevel['pseudo'],
+                    'static' => $style['static'],
+                    'conditional' => $style['conditional'],
+                    'navigation_state' => $style['navigation_state'],
+                    'image_shape' => $style['image_shape'],
+                    'pseudo' => $style['pseudo'],
                     'custom_properties' => $this->cssCustomPropertyAnalysis($payload),
                 );
                 $this->analysisCache->rememberStyle($key, $analysis);
@@ -2113,10 +2177,10 @@ final class HtmlTransformer
         return array('root' => $root, 'fallback' => $fallback);
     }
 
-    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    /** @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
     private function composedAuthorSelectorAnalysis(array $payloads): array
     {
-        $composed = array('source_tags' => array(), 'selectors' => array(), 'rules' => array());
+        $composed = array('source_tags' => array(), 'rules' => array());
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload['content']);
             $analysis = $this->analysisCache->authorSelectors($key);
@@ -2129,7 +2193,6 @@ final class HtmlTransformer
                 ++$this->analysisCache->authorSelectorHits;
             }
             $composed['source_tags'] += $analysis['source_tags'];
-            $composed['selectors'] = array_merge($composed['selectors'], $analysis['selectors']);
             foreach ( $analysis['rules'] as $rule ) {
                 $rule['order'] = count($composed['rules']);
                 $rule['source_path'] = $payload['source_path'];
@@ -2141,17 +2204,15 @@ final class HtmlTransformer
         return $composed;
     }
 
-    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    /** @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
     private function authorSelectorAnalysis(string $css): array
     {
         $sourceTags = array();
-        $selectors = array();
         $rules = array();
-        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$selectors, &$rules): string {
+        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$rules): string {
             $ruleSelectors = array();
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                 $parsed = $this->parsedCssSelector($selector);
-                $selectors[] = array('selector' => $selector, 'parsed' => $parsed);
                 $directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
                 $ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => $this->parsedCssSelector($directSelector));
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
@@ -2168,7 +2229,7 @@ final class HtmlTransformer
             return $prelude;
         });
 
-        return array('source_tags' => $sourceTags, 'selectors' => $selectors, 'rules' => $rules);
+        return array('source_tags' => $sourceTags, 'rules' => $rules);
     }
 
     /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
@@ -3552,7 +3613,7 @@ final class HtmlTransformer
             ),
             new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             new GalleryPatternContext(
@@ -3609,7 +3670,7 @@ final class HtmlTransformer
             ),
             logoContext: new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->restoreSvgCasing($this->outerHtml($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             galleryContext: new GalleryPatternContext(
@@ -3691,8 +3752,8 @@ final class HtmlTransformer
 
         // Handle a safe SVG at a phrasing-to-block boundary before generic
         // preservation rules see the SVG as an unsupported document fragment.
-        if ( 'svg' === $tagName && $this->svgNeedsPhrasingHost($element) ) {
-            $imageMarkup = $this->inlineSvgRichTextImageMarkup($element);
+        if ( 'svg' === $tagName && $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
+            $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
                 return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
             }
@@ -3741,7 +3802,7 @@ final class HtmlTransformer
             }
         }
 
-        $wrappedSearchBlock = $this->searchBlockFromWrapper($element);
+        $wrappedSearchBlock = $this->searchBlockConverter->searchBlockFromWrapper($element);
         if ( null !== $wrappedSearchBlock ) {
             return $wrappedSearchBlock;
         }
@@ -3845,7 +3906,7 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'button' === $tagName ) {
-            if ( $this->isReplacedSearchClusterControl($element) ) {
+            if ( $this->searchBlockConverter->isReplacedSearchClusterControl($element) ) {
                 return null;
             }
             if ( $this->isImageCarrierButton($element) ) {
@@ -7449,7 +7510,7 @@ if ( 'svg' === $tagName ) {
                 continue;
             }
 
-            $image = $this->inlineSvgRichTextImageMarkup($child);
+            $image = $this->svgMaterializer->inlineSvgRichTextImageMarkup($child);
             if ( null === $image ) {
                 $this->materializedAssets()->restore($generatedAssets);
                 return null;
@@ -7478,7 +7539,7 @@ if ( 'svg' === $tagName ) {
             if ( ! $svg instanceof DOMElement ) {
                 continue;
             }
-            $image = $this->inlineSvgRichTextImageMarkup($svg, false);
+            $image = $this->svgMaterializer->inlineSvgRichTextImageMarkup($svg, false);
             if ( null === $image ) {
                 $this->materializedAssets()->restore($generatedAssets);
                 return null;
@@ -12402,6 +12463,25 @@ if ( 'svg' === $tagName ) {
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
+        $visualIframeAttributes = $this->boundedVisualIframeAttributes($iframe, $url);
+        if ( null !== $visualIframeAttributes ) {
+            $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+                'preservation_strategy' => 'typed_visual_iframe_companion',
+                'attributes' => $this->safeEmbedAttributes($iframe),
+            ));
+            $generator = new VisualIframeBlockGenerator();
+            $this->generatedBlocks()->register(VisualIframeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+            $block = $this->createBlock(
+                $this->generatedBlocks()->blockName(VisualIframeBlockGenerator::LOCAL_NAME),
+                $visualIframeAttributes,
+                array(),
+                $iframe
+            );
+            $block['innerHTML'] = $generator->markup($visualIframeAttributes);
+            $block['innerContent'] = array( $block['innerHTML'] );
+            return $block;
+        }
+
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
         $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
             'preservation_strategy' => 'sanitized_embed_markup',
@@ -12425,6 +12505,97 @@ if ( 'svg' === $tagName ) {
         ), $this->transformationProvenance()->fallback());
 
         return null;
+    }
+
+    /**
+     * Unknown iframe providers can only be retained when source presentation
+     * proves they occupy a visible, finite surface. The emitted markup is built
+     * from an iframe-specific allowlist rather than carrying source HTML.
+     */
+    /** @return array<string, mixed>|null */
+    private function boundedVisualIframeAttributes(DOMElement $iframe, string $url): ?array
+    {
+        if ( ! $this->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
+            return null;
+        }
+
+        $attributes = $this->safeEmbedAttributes($iframe);
+        $width = $this->boundedVisualIframeDimension($iframe, 'width');
+        $height = $this->boundedVisualIframeDimension($iframe, 'height');
+        if ( null === $width || null === $height ) {
+            return null;
+        }
+
+        return array_filter(array(
+            'src' => $url,
+            'title' => $attributes['title'] ?? '',
+            'width' => $this->attr($iframe, 'width') ?: $width,
+            'height' => $this->attr($iframe, 'height') ?: $height,
+            'className' => $attributes['class'] ?? '',
+            'allow' => $attributes['allow'] ?? '',
+            'loading' => $attributes['loading'] ?? '',
+            'sandbox' => $attributes['sandbox'] ?? '',
+            'referrerPolicy' => $attributes['referrerpolicy'] ?? '',
+            'allowFullScreen' => array_key_exists('allowfullscreen', $attributes),
+        ), static fn (mixed $value): bool => '' !== $value && false !== $value);
+    }
+
+    private function isSafeVisualIframeUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        return is_array($parts)
+            && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
+            && '' !== trim((string) ($parts['host'] ?? ''));
+    }
+
+    private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string
+    {
+        $attribute = trim($this->attr($iframe, $dimension));
+        if ( $this->isPositiveIframeDimension($attribute) ) {
+            return $attribute;
+        }
+
+        if ( $this->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe) ) {
+            return $attribute;
+        }
+
+        $declaration = trim((string) ($this->styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
+        if ( $this->isPositiveIframeDimension($declaration) ) {
+            return $declaration;
+        }
+
+        return $this->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe)
+            ? $declaration
+            : null;
+    }
+
+    private function isPositiveIframeDimension(string $value): bool
+    {
+        if ( ! preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/i', $value, $matches) ) {
+            return false;
+        }
+
+        return (float) $matches[0] > 0;
+    }
+
+    private function isRelativeIframeDimension(string $value): bool
+    {
+        return (bool) preg_match('/^(?:\d+|\d*\.\d+)%$/', $value)
+            && (float) $value > 0;
+    }
+
+    private function iframeHasBoundedAncestor(DOMElement $iframe): bool
+    {
+        for ( $ancestor = $iframe->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            $width = trim($this->attr($ancestor, 'width')) ?: trim((string) ($declarations['width'] ?? ''));
+            $height = trim($this->attr($ancestor, 'height')) ?: trim((string) ($declarations['height'] ?? ''));
+            if ( $this->isPositiveIframeDimension($width) && $this->isPositiveIframeDimension($height) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function safeImageUrl(string $url): string

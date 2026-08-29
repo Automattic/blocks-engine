@@ -364,7 +364,7 @@ $assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAt
 
 // Style resolution moved to StyleResolver under #242.
 $styleResolverProperty = new ReflectionProperty(HtmlTransformer::class, 'styleResolver');
-$paintRules = $styleResolverProperty->getValue(new HtmlTransformer())->topLevelStyleAnalysis($paintCss)['static'];
+$paintRules = $styleResolverProperty->getValue(new HtmlTransformer())->stylesheetAnalysis($paintCss)['static'];
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
 $assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
