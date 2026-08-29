@@ -35,6 +35,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -279,6 +282,10 @@ final class HtmlTransformer
 
     private readonly ReadableFormBlockBuilder $readableFormBlockBuilder;
 
+    private readonly FormCompositionPlanner $formCompositionPlanner;
+
+    private readonly FormFallbackFindingBuilder $formFallbackFindingBuilder;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -472,6 +479,15 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         );
+        $this->formCompositionPlanner = new FormCompositionPlanner(
+            fn (): TransformationProvenanceState => $this->transformationProvenance(),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
+        );
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
@@ -480,6 +496,26 @@ final class HtmlTransformer
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
             fn (DOMElement $element): string => $this->innerHtml($element)
+        );
+        $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder(
+            new FormFallbackFindingContext(
+                fn (): array => $this->authorStyles()->stylesheetAssets(),
+                fn (): string => $this->sourceStyles()->formLayoutCss(),
+                fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+                fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
+                fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
+                fn (DOMElement $element): string => $this->elementSelector($element),
+                fn (DOMElement $element): array => $this->htmlAttributes($element),
+                fn (DOMElement $element): array => $this->sourceContext($element),
+                fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
+                fn (DOMElement $element): array => $this->eventMetadata($element),
+                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
+                fn (DOMElement $element): int => $this->childElementCount($element),
+                fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback())
+            ),
+            $this->formControlMetadataBuilder,
+            $this->formSuccessPanelMetadataBuilder,
+            $this->pseudoFormAnalyzer
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
@@ -1049,6 +1085,16 @@ final class HtmlTransformer
                 'severity' => 'warning',
                 'selector' => $ambiguity['selector'],
                 'min_width' => $ambiguity['min_width'],
+            );
+        }
+        foreach ( $this->transformationEvidence()->responsiveHeightAmbiguities() as $ambiguity ) {
+            $diagnostics[] = array(
+                'code' => 'responsive_geometry_ambiguous_percentage_height',
+                'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $ambiguity['selector'],
+                'height' => $ambiguity['height'],
             );
         }
         $headMetadata = $this->headMetadataReport($html);
@@ -2348,6 +2394,7 @@ final class HtmlTransformer
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
+            $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -2437,6 +2484,89 @@ final class HtmlTransformer
             $pixels *= self::ROOT_FONT_SIZE_PX;
         }
         return $pixels >= 640;
+    }
+
+    /**
+     * A percentage height computes to auto when its containing block has an
+     * indefinite height. Preserve that source behavior after block wrappers are
+     * introduced, because those wrappers can otherwise make the height definite.
+     */
+    private function projectAutoSizedStructuralPercentageHeight(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        $height = (string) ($declarations['height'] ?? '');
+        if ( '100%' !== strtolower($this->cssValueWithoutImportant($height)) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element));
+            if ( count($autoSizedMatches) !== count($matches) ) {
+                if ( array() !== $autoSizedMatches ) {
+                    $this->transformationEvidence()->recordResponsiveHeightAmbiguity($selector, $height);
+                }
+                return $body;
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($height) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'height' !== strtolower(trim(strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'height:auto' . $important;
+        return implode(';', $retained);
+    }
+
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
+            return false;
+        }
+
+        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        $ancestor = $element->parentNode;
+        while ( $ancestor instanceof DOMElement && $ancestor !== $this->authorStyles()->sourceBody() ) {
+            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
+            if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+            $ancestorHeight = strtolower($this->cssValueWithoutImportant((string) ($style['height'] ?? '')));
+            if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
+                return false;
+            }
+            if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
+                return in_array($ancestorHeight, array( '', 'auto' ), true);
+            }
+            $ancestor = $ancestor->parentNode;
+        }
+
+        return false;
     }
 
     private function isPageShellOrSectionSurface(DOMElement $element): bool

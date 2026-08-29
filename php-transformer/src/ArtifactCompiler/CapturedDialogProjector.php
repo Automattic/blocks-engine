@@ -110,7 +110,12 @@ final class CapturedDialogProjector
                 $diagnostics[] = $this->diagnostic('captured_dialog_unsafe_or_truncated', 'warning', 'A captured dialog was ignored because its HTML is empty, truncated, or exceeds the byte limit.', array('source_path' => $sourcePath));
                 continue;
             }
-            $triggers = $this->findTriggers($document, $state['trigger']);
+            $found = $this->findTriggers($document, $state['trigger']);
+            if ('ambiguous' === $found['status']) {
+                $diagnostics[] = $this->diagnostic('captured_dialog_trigger_ambiguous', 'warning', 'A captured dialog trigger matched multiple source elements in the same route or responsive document scope.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
+                continue;
+            }
+            $triggers = $found['elements'];
             if (array() === $triggers) {
                 $diagnostics[] = $this->diagnostic('captured_dialog_trigger_unmatched', 'warning', 'A captured dialog trigger did not match a bounded source element set.', array('source_path' => $sourcePath, 'selector' => (string) ($state['trigger']['selector'] ?? '')));
                 continue;
@@ -153,35 +158,300 @@ final class CapturedDialogProjector
         return array('html' => is_string($output) ? $output : $html, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
     }
 
-    /** @param array<string, mixed> $trigger @return array<int, DOMElement> */
+    /**
+     * @param array<string, mixed> $trigger
+     * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
+     */
     private function findTriggers(DOMDocument $document, array $trigger): array
     {
+        $scopes = $this->documentScopes($document);
+        if (count($scopes) > self::MAX_STATES_PER_PAGE) {
+            return array('status' => 'ambiguous', 'elements' => array());
+        }
+        $elements = array();
+        foreach ($scopes as $scope) {
+            $matched = $this->matchInScope($scope, $trigger);
+            if (count($matched) > 1) {
+                return array('status' => 'ambiguous', 'elements' => array());
+            }
+            if (1 === count($matched)) {
+                $elements[] = $matched[0];
+            }
+        }
+        if (count($elements) > self::MAX_STATES_PER_PAGE) {
+            return array('status' => 'ambiguous', 'elements' => array());
+        }
+        if (array() === $elements) {
+            return array('status' => 'unmatched', 'elements' => array());
+        }
+        return array('status' => 'matched', 'elements' => $elements);
+    }
+
+    /** @return array<int, DOMElement> */
+    private function documentScopes(DOMDocument $document): array
+    {
+        $body = $document->getElementsByTagName('body')->item(0) ?? $document->documentElement;
+        if (! $body instanceof DOMElement) {
+            return array();
+        }
+        $scopes = array();
+        foreach ($body->childNodes as $child) {
+            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child)) {
+                $scopes[] = $child;
+            }
+        }
+        return array() === $scopes ? array($body) : $scopes;
+    }
+
+    private function isResponsiveDocumentWrapper(DOMElement $element): bool
+    {
+        foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
+            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $trigger
+     * @return array<int, DOMElement>
+     */
+    private function matchInScope(DOMElement $scope, array $trigger): array
+    {
+        $identity = $this->identityMatches($scope, $trigger);
+        if (array() !== $identity) {
+            return $this->filterCandidates($identity, $trigger);
+        }
+        $selector = $this->selectorMatches($scope, $trigger);
+        if (array() !== $selector) {
+            return $this->filterCandidates($selector, $trigger);
+        }
+        return $this->filterCandidates($this->evidenceMatches($scope, $trigger), $trigger);
+    }
+
+    /**
+     * @param array<string, mixed> $trigger
+     * @return array<int, DOMElement>
+     */
+    private function identityMatches(DOMElement $scope, array $trigger): array
+    {
+        $document = $scope->ownerDocument;
+        if (! $document instanceof DOMDocument) {
+            return array();
+        }
         $xpath = new DOMXPath($document);
         $selector = is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '';
         $query = '';
         if (str_starts_with($selector, '#') && 1 === preg_match('/^#[A-Za-z][A-Za-z0-9_.:-]*$/', $selector)) {
-            $query = '//*[@id=' . $this->xpathLiteral(substr($selector, 1)) . ']';
+            $query = './/*[@id=' . $this->xpathLiteral(substr($selector, 1)) . ']';
         } else {
             $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
             foreach ($bindings as $name => $value) {
                 if (is_string($name) && is_string($value) && 1 === preg_match('/^data-(?:popup|modal|dialog)(?:id|target)?$/i', $name) && '' !== $value) {
-                    $query = '//*[@' . strtolower($name) . '=' . $this->xpathLiteral($value) . ']';
+                    $query = './/*[@' . strtolower($name) . '=' . $this->xpathLiteral($value) . ']';
                     break;
                 }
             }
         }
-        if ('' === $query) return array();
-        $matches = $xpath->query($query);
-        if (false === $matches || 0 === $matches->length || $matches->length > self::MAX_STATES_PER_PAGE) return array();
-        $tag = is_string($trigger['tag'] ?? null) ? strtolower($trigger['tag']) : '';
+        if ('' === $query) {
+            return array();
+        }
+        $matches = $xpath->query($query, $scope);
+        if (false === $matches || 0 === $matches->length) {
+            return array();
+        }
         $elements = array();
         foreach ($matches as $element) {
-            if (! $element instanceof DOMElement || ('' !== $tag && $tag !== strtolower($element->tagName))) continue;
-            $popup = strtolower(trim($element->getAttribute('aria-haspopup')));
-            if (! in_array($popup, array('dialog', 'true'), true)) continue;
+            if ($element instanceof DOMElement) {
+                $elements[] = $element;
+            }
+        }
+        return $elements;
+    }
+
+    /**
+     * @param array<string, mixed> $trigger
+     * @return array<int, DOMElement>
+     */
+    private function selectorMatches(DOMElement $scope, array $trigger): array
+    {
+        $selector = is_string($trigger['selector'] ?? null) ? trim($trigger['selector']) : '';
+        if ('' === $selector || str_contains($selector, ',') || ! str_contains($selector, '>')) {
+            return array();
+        }
+        $parts = preg_split('/\s*>\s*/', $selector);
+        if (! is_array($parts) || array() === $parts) {
+            return array();
+        }
+        if ('body' === strtolower($parts[0])) {
+            array_shift($parts);
+        }
+        if (array() === $parts) {
+            return array();
+        }
+        $current = array($scope);
+        foreach ($parts as $index => $part) {
+            if (1 !== preg_match('/^([a-z][a-z0-9]*)(#([A-Za-z][A-Za-z0-9_.:-]*))?(:nth-of-type\((\d+)\))?$/i', $part, $tokens)) {
+                return array();
+            }
+            $tag = strtolower($tokens[1]);
+            $id = $tokens[3] ?? '';
+            $nth = isset($tokens[5]) && '' !== $tokens[5] ? (int) $tokens[5] : 0;
+            $isLast = $index === array_key_last($parts);
+            $next = array();
+            foreach ($current as $node) {
+                $seen = array();
+                foreach ($node->childNodes as $child) {
+                    if (! $child instanceof DOMElement) {
+                        continue;
+                    }
+                    $childTag = strtolower($child->tagName);
+                    $seen[$childTag] = ($seen[$childTag] ?? 0) + 1;
+                    $tagMatches = $childTag === $tag || ($isLast && $this->tagCompatible($tag, $childTag));
+                    if (! $tagMatches) {
+                        continue;
+                    }
+                    if ('' !== $id && $child->getAttribute('id') !== $id) {
+                        continue;
+                    }
+                    if ($nth > 0 && ($seen[$tag] ?? 0) !== $nth) {
+                        continue;
+                    }
+                    $next[] = $child;
+                }
+            }
+            if (array() === $next) {
+                return array();
+            }
+            if (count($next) > self::MAX_STATES_PER_PAGE) {
+                return $next;
+            }
+            $current = $next;
+        }
+        return $current;
+    }
+
+    /**
+     * @param array<string, mixed> $trigger
+     * @return array<int, DOMElement>
+     */
+    private function evidenceMatches(DOMElement $scope, array $trigger): array
+    {
+        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
+        if ('' === $label) {
+            return array();
+        }
+        $elements = array();
+        foreach ($scope->getElementsByTagName('*') as $element) {
+            if (! $element instanceof DOMElement || $this->insideProjectedDialog($element) || ! $this->isInteractiveControl($element)) {
+                continue;
+            }
+            if ($label !== $this->accessibleName($element)) {
+                continue;
+            }
             $elements[] = $element;
         }
         return $elements;
+    }
+
+    /**
+     * @param array<int, DOMElement> $elements
+     * @param array<string, mixed> $trigger
+     * @return array<int, DOMElement>
+     */
+    private function filterCandidates(array $elements, array $trigger): array
+    {
+        $tag = is_string($trigger['tag'] ?? null) ? strtolower(trim($trigger['tag'])) : '';
+        $label = $this->normalizedLabel(is_string($trigger['label'] ?? null) ? $trigger['label'] : '');
+        $capturedPopup = strtolower(trim(is_string($trigger['ariaHaspopup'] ?? null) ? $trigger['ariaHaspopup'] : ''));
+        $filtered = array();
+        foreach ($elements as $element) {
+            if (! $this->tagCompatible($tag, strtolower($element->tagName)) || ! $this->isInteractiveControl($element)) {
+                continue;
+            }
+            if ('' !== $label && $label !== $this->accessibleName($element)) {
+                continue;
+            }
+            $popup = strtolower(trim($element->getAttribute('aria-haspopup')));
+            if ('' !== $capturedPopup && $popup !== $capturedPopup && ! (in_array($capturedPopup, array('dialog', 'true'), true) && in_array($popup, array('dialog', 'true'), true))) {
+                continue;
+            }
+            if (! $this->bindingsCompatible($element, $trigger)) {
+                continue;
+            }
+            $filtered[] = $element;
+        }
+        return array_values($filtered);
+    }
+
+    /** @param array<string, mixed> $trigger */
+    private function bindingsCompatible(DOMElement $element, array $trigger): bool
+    {
+        $bindings = is_array($trigger['dataBindings'] ?? null) ? $trigger['dataBindings'] : array();
+        foreach ($bindings as $name => $value) {
+            if (! is_string($name) || ! is_string($value) || '' === $value || 1 !== preg_match('/^data-[a-z0-9_.:-]+$/i', $name)) {
+                if (is_string($value) && '' !== $value) {
+                    return false;
+                }
+                continue;
+            }
+            if (strtolower($element->getAttribute($name)) !== strtolower($value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function tagCompatible(string $captured, string $actual): bool
+    {
+        if ('' === $captured || $captured === $actual) {
+            return true;
+        }
+        $interactive = array('a', 'button', 'input', 'summary');
+        return in_array($captured, $interactive, true) && in_array($actual, $interactive, true);
+    }
+
+    private function isInteractiveControl(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        if (in_array($tag, array('button', 'summary'), true)) {
+            return true;
+        }
+        if ('a' === $tag) {
+            return true;
+        }
+        if ('input' === $tag && in_array(strtolower($element->getAttribute('type')), array('button', 'submit'), true)) {
+            return true;
+        }
+        if ('button' === strtolower(trim($element->getAttribute('role')))) {
+            return true;
+        }
+        return in_array(strtolower(trim($element->getAttribute('aria-haspopup'))), array('dialog', 'menu', 'true'), true);
+    }
+
+    private function accessibleName(DOMElement $element): string
+    {
+        $label = $this->normalizedLabel($element->getAttribute('aria-label'));
+        if ('' !== $label) {
+            return $label;
+        }
+        return $this->normalizedLabel($element->textContent ?? '');
+    }
+
+    private function normalizedLabel(string $value): string
+    {
+        return strtolower(trim(preg_replace('/\s+/', ' ', $value) ?? $value));
+    }
+
+    private function insideProjectedDialog(DOMElement $element): bool
+    {
+        for ($parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode) {
+            if ('dialog' === strtolower($parent->tagName) && 'true' === $parent->getAttribute('data-blocks-engine-captured-dialog')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return array{nodes:array<int, \DOMNode>, class:string, aria_label:string, aria_labelledby:string, aria_describedby:string, has_close_control:bool}|null */

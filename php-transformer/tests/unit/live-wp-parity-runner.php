@@ -110,6 +110,17 @@ $assert(
     '2: external entry reproduces the render-free proxy when fed the proxy candidate + same CSS'
 );
 
+$socialProxy = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks(
+    '<!-- wp:social-links --><ul class="wp-block-social-links"><!-- wp:social-link {"url":"#","service":"github","label":"GitHub","className":"source-item"} /--></ul><!-- /wp:social-links -->'
+);
+$assert(
+    str_contains($socialProxy, '<li class="wp-social-link wp-social-link-github source-item">')
+        && str_contains($socialProxy, '<a href="#" class="wp-block-social-link-anchor">')
+        && str_contains($socialProxy, '<svg width="24" height="24"')
+        && str_contains($socialProxy, '>GitHub</span>'),
+    '2b: render-free proxy materializes the stable structure of dynamic social-link children'
+);
+
 // ---------------------------------------------------------------------------
 // 3. Faithful live render scores perfectly (parity == 1.0, no findings).
 // ---------------------------------------------------------------------------
