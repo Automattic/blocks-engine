@@ -6056,12 +6056,18 @@ if ( 'svg' === $tagName ) {
         foreach ($element->attributes ?? array() as $attribute) {
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
-        // Core serializes style declarations differently from React's save path
-        // (notably unitless zero lengths). Keep styled wrappers as core groups.
-        if ('' !== trim((string) ($attributes['style'] ?? ''))) {
+        if (!$this->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
             return null;
         }
         return array('tagName' => $tagName, 'attributes' => $attributes, 'opening' => $opening, 'closing' => $closing);
+    }
+
+    private function isLayoutShellSerializableStyle(string $style): bool
+    {
+        // React style objects cannot express declaration priority. Other
+        // canonical serialized values remain strings and are parsed directly
+        // by layout-shell without a normalizing CSSOM round trip.
+        return !preg_match('/!\s*important/i', $style);
     }
 
     /**

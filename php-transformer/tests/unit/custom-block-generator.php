@@ -199,8 +199,16 @@ $assert('core/group' === ($twoWrapperBranch['blocks'][0]['blockName'] ?? null) &
 $importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
 $assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
 
-$styledShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="margin-top:0"><div class="blocks-engine-source-div-fixture-3"><p>Style-sensitive content</p></div></div>')->toArray();
-$assert(!str_ends_with((string) ($styledShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell leaves styled wrapper chains to core serialization');
+$styledShell = ( new HtmlTransformer() )->transform('<div id="styled-outer" class="blocks-engine-source-div-outer-3" style="margin-top:0"><div id="styled-inner" class="blocks-engine-source-div-fixture-3"><p>Style-sensitive content</p></div></div>')->toArray();
+$styledShellBlock = $styledShell['blocks'][0] ?? array();
+$styledShellDefinitions = array_values(array_filter($styledShell['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
+$styledShellScript = (string) ($styledShellDefinitions[0]['assets']['index.js'] ?? '');
+$assert(str_ends_with((string) ($styledShellBlock['blockName'] ?? ''), '/layout-shell') && 'margin-top:0' === ($styledShellBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell compresses canonical styled wrappers without changing their serialized declarations');
+$assert(str_contains((string) ($styledShell['serialized_blocks'] ?? ''), 'style="margin-top:0"') && str_contains($styledShellScript, 'appendDeclaration( declaration )'), '6: layout-shell preserves unitless zero declarations through its React save path');
+
+$normalizedStyleShell = ( new HtmlTransformer() )->transform('<div id="color-outer" class="blocks-engine-source-div-outer-3" style="color:#fff"><div id="color-inner" class="blocks-engine-source-div-fixture-3"><p>Color-sensitive content</p></div></div>')->toArray();
+$normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($normalizedStyleBlock['blockName'] ?? ''), '/layout-shell') && 'color:#fff' === ($normalizedStyleBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell bypasses CSSOM normalization and retains canonical color declarations');
 
 // ---------------------------------------------------------------------------
 // 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.

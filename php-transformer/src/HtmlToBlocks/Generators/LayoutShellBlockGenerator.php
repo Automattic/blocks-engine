@@ -15,14 +15,49 @@ final class LayoutShellBlockGenerator
     var InnerBlocks = blockEditor.InnerBlocks;
     var useBlockProps = blockEditor.useBlockProps;
     function reactStyle( value ) {
-        var probe = document.createElement( 'div' );
         var style = {};
-        probe.setAttribute( 'style', value || '' );
-        for ( var index = 0; index < probe.style.length; index++ ) {
-            var property = probe.style.item( index );
+        var declaration = '';
+        var depth = 0;
+        var quote = '';
+        function appendDeclaration( source ) {
+            var separator = -1;
+            var innerDepth = 0;
+            var innerQuote = '';
+            for ( var index = 0; index < source.length; index++ ) {
+                var character = source.charAt( index );
+                if ( innerQuote ) {
+                    if ( character === '\\' ) { index++; }
+                    else if ( character === innerQuote ) { innerQuote = ''; }
+                    continue;
+                }
+                if ( character === '"' || character === "'" ) { innerQuote = character; }
+                else if ( character === '(' ) { innerDepth++; }
+                else if ( character === ')' && innerDepth ) { innerDepth--; }
+                else if ( character === ':' && ! innerDepth ) { separator = index; break; }
+            }
+            if ( separator < 1 ) { return; }
+            var property = source.slice( 0, separator ).trim();
+            var propertyValue = source.slice( separator + 1 ).trim();
+            if ( ! property || ! propertyValue ) { return; }
             var key = property.indexOf( '--' ) === 0 ? property : property.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } );
-            style[ key ] = probe.style.getPropertyValue( property );
+            style[ key ] = propertyValue;
         }
+        value = value || '';
+        for ( var index = 0; index < value.length; index++ ) {
+            var character = value.charAt( index );
+            if ( quote ) {
+                declaration += character;
+                if ( character === '\\' && index + 1 < value.length ) { declaration += value.charAt( ++index ); }
+                else if ( character === quote ) { quote = ''; }
+                continue;
+            }
+            if ( character === '"' || character === "'" ) { quote = character; declaration += character; }
+            else if ( character === '(' ) { depth++; declaration += character; }
+            else if ( character === ')' && depth ) { depth--; declaration += character; }
+            else if ( character === ';' && ! depth ) { appendDeclaration( declaration ); declaration = ''; }
+            else { declaration += character; }
+        }
+        appendDeclaration( declaration );
         return style;
     }
     function wrapperProps( attributes ) {
