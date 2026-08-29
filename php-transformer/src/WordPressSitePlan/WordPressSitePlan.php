@@ -600,9 +600,12 @@ final class WordPressSitePlan
             if ($closing) { --$depth; if (is_array($candidate) && null === $candidate['end'] && $depth === $candidate['depth']) $candidate['end'] = $offset + strlen($full); continue; }
             $selfClosing = str_ends_with(trim($full), '/-->');
             $name = $matches[2][$index][0]; $attributes = trim($matches[3][$index][0] ?? '');
-            if (0 === $depth && 'group' === $name) {
+            if (0 === $depth && ('group' === $name || str_ends_with($name, '/layout-shell'))) {
                 $decoded = json_decode($attributes, true);
-                if (is_array($decoded) && $area === ($decoded['tagName'] ?? null)) {
+                $tagName = 'group' === $name
+                    ? ($decoded['tagName'] ?? null)
+                    : ($decoded['wrappers'][0]['tagName'] ?? null);
+                if (is_array($decoded) && $area === $tagName) {
                     if (null !== $candidate) return null;
                     $candidate = array('start' => $offset, 'depth' => $depth, 'end' => $selfClosing ? $offset + strlen($full) : null);
                 }

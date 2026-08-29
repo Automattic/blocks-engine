@@ -267,13 +267,15 @@ $externalLayouts = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $externalLayoutPage = (string) ($externalLayouts['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
-$externalLayoutCard = $externalLayouts['blocks'][0]['innerBlocks'][0] ?? array();
+$externalLayoutCard = $externalLayouts['blocks'][0] ?? array();
 $externalLayoutCardChildren = $externalLayoutCard['innerBlocks'] ?? array();
 $externalLayoutCss = implode("\n", array_column($externalLayouts['assets'] ?? array(), 'content'));
 $assert(
     str_contains($externalLayoutPage, 'hero-visual blocks-engine-css-owned-layout blocks-engine-css-owned-grid')
     && str_contains($externalLayoutPage, 'artifact-card blocks-engine-css-owned-layout')
     && ! str_contains($externalLayoutPage, 'is-layout-grid')
+    && str_ends_with((string) ($externalLayoutCard['blockName'] ?? ''), '/layout-shell')
+    && 2 === count($externalLayoutCard['attrs']['wrappers'] ?? array())
     && 4 === count($externalLayoutCard['innerBlocks'] ?? array())
     && 'core/paragraph' === ($externalLayoutCardChildren[0]['blockName'] ?? '')
     && 'core/paragraph' === ($externalLayoutCardChildren[1]['blockName'] ?? '')

@@ -18,15 +18,14 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "anchor": "features", "className": "blocks-engine-editor-anchor-features", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "wrap" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "reveal" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Native sections", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-grid", "layout": { "type": "grid" } } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "One", "level": 3 } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } }
+    { "path": "blocks.0", "name": "custom/layout-shell", "attrs": { "wrappers": [ { "tagName": "section", "attributes": { "id": "features", "class": "wp-block-group blocks-engine-editor-anchor-features" } }, { "tagName": "div", "attributes": { "class": "wp-block-group wrap" } } ] } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "reveal" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Native sections", "level": 2 } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-grid", "layout": { "type": "grid" } } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "One", "level": 3 } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "feature-card reveal", "tagName": "article" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -34,7 +33,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "source_reports.runtime_islands", "assert": "count", "count": 1 },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "script" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"anchor\":\"features\",\"className\":\"blocks-engine-editor-anchor-features\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/layout-shell {\"wrappers\":[{\"tagName\":\"section\",\"attributes\":{\"id\":\"features\",\"class\":\"wp-block-group blocks-engine-editor-anchor-features\"}},{\"tagName\":\"div\",\"attributes\":{\"class\":\"wp-block-group wrap\"}}]} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"feature-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<article class=\"wp-block-group feature-card reveal\">" },
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
