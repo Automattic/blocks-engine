@@ -34,11 +34,13 @@ $generatedRender = implode("\n", array_map(static fn (array $block): string => (
 $assert('' !== $generatedRender && ! str_contains($generatedRender, '<link'), 'generated custom blocks strip captured stylesheet links from nested SVG markup');
 
 $visibleIframe = $transform('<main><iframe title="HubSpot form" src="https://forms.hsforms.com/widget" width="600" height="400"></iframe></main>');
-$iframeFallbacks = array_values(array_filter($visibleIframe['fallbacks'] ?? array(), static fn (array $fallback): bool => 'iframe' === ($fallback['tag'] ?? '')));
-$assert(1 === count($iframeFallbacks), 'visible HubSpot iframe remains a bounded external embed');
-$assert('https://forms.hsforms.com/widget' === ($iframeFallbacks[0]['attributes']['src'] ?? ''), 'visible HubSpot iframe source is retained');
+$visibleIframeBlock = $visibleIframe['blocks'][0] ?? array();
+$assert('custom/visual-iframe' === ($visibleIframeBlock['blockName'] ?? ''), 'visible HubSpot iframe becomes a bounded companion embed');
+$assert('https://forms.hsforms.com/widget' === ($visibleIframeBlock['attrs']['src'] ?? ''), 'visible HubSpot iframe source is retained structurally');
+$assert(array() === ($visibleIframe['fallbacks'] ?? array()), 'visible bounded iframe does not add a fallback');
 
 $hiddenSourcedIframe = $transform('<main><iframe title="third-party embed" style="display:none" src="https://example.test/embed"></iframe></main>');
 $assert(1 === count($hiddenSourcedIframe['fallbacks'] ?? array()), 'hidden sourced iframe remains preserved');
+$assert(! str_contains((string) ($hiddenSourcedIframe['serialized_blocks'] ?? ''), '<iframe'), 'hidden sourced iframe remains a suppressed runtime island');
 
 echo "OK: inert capture scaffolding passed ({$assertions} assertions)\n";
