@@ -136,6 +136,7 @@ final class AccordionPattern implements PatternRecognizerInterface
             return false;
         }
 
+        $hasNonNativeDisclosure = false;
         foreach ( $elements as $element ) {
             if ( 'details' === strtolower($element->tagName) ) {
                 continue;
@@ -145,9 +146,10 @@ final class AccordionPattern implements PatternRecognizerInterface
             if ( ! $title instanceof DOMElement || ! $this->isDisclosureTitle($title) ) {
                 return false;
             }
+            $hasNonNativeDisclosure = true;
         }
 
-        return true;
+        return $hasNonNativeDisclosure;
     }
 
     /**

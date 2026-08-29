@@ -196,6 +196,21 @@ $assert(
     $productsMarkup
 );
 
+$nativeDetails = <<<'HTML'
+<div class="questions">
+  <details open><summary>How does this work?</summary><p>The first answer.</p></details>
+  <details><summary>Can I inspect it?</summary><p>The second answer.</p></details>
+</div>
+HTML;
+
+$nativeDetailsMarkup = (string) ( ( new HtmlTransformer() )->transform($nativeDetails)->toArray()['serialized_blocks'] ?? '' );
+$assert(
+    2 === substr_count($nativeDetailsMarkup, '<!-- wp:details')
+        && ! str_contains($nativeDetailsMarkup, '<!-- wp:accordion'),
+    'an ordinary group of native details keeps independently styleable details markup',
+    $nativeDetailsMarkup
+);
+
 $emptyCollapsed = <<<'HTML'
 <div>
   <div>
