@@ -15,7 +15,7 @@ use DOMNode;
 trait FormDispatchTrait
 {
     /** Bounds for the reported form topology, owned by the dispatch that reads them. */
-    private const MAX_FORM_TOPOLOGY_DEPTH = 8;
+    private const MAX_FORM_TOPOLOGY_DEPTH = 16;
 
     private const MAX_FORM_TOPOLOGY_NODES = 128;
 
