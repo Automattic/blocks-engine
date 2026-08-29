@@ -187,6 +187,17 @@ foreach ($sourceShared['analysis']['page_ids'] as $pageId) $sourceReceipts[] = $
 $sourceInline = $compiler->compile($sourceArtifact)->toArray();
 $sourceStaged = $compiler->compose($sourceShared, array_reverse($sourceReceipts))->toArray();
 $assert($canonical($sourceInline) === $canonical($sourceStaged), 'Compiled receipts exactly cover HTML, Markdown, and MDX sources and preserve their complete canonical result.');
+$nestedEntryArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
+    array('path' => 'website/about.html', 'content' => '<main>About</main>'),
+    array('path' => 'website/blog/post/index.html', 'content' => '<main>Post</main>', 'entrypoint' => true),
+    array('path' => 'website/index.html', 'content' => '<main>Home</main>'),
+));
+$nestedEntryShared = $compiler->prepareShared($nestedEntryArtifact);
+$nestedEntryReceipts = array();
+foreach ($nestedEntryShared['analysis']['page_ids'] as $pageId) $nestedEntryReceipts[] = $compiler->compilePage($nestedEntryArtifact, $nestedEntryShared, $pageId);
+$nestedEntryStaged = $compiler->compose($nestedEntryShared, array_reverse($nestedEntryReceipts))->toArray();
+$nestedEntryPages = array_column($nestedEntryStaged['source_reports']['compiled_site']['pages'] ?? array(), 'entrypoint', 'source_path');
+$assert(isset($nestedEntryStaged['source_reports']['wordpress_site_plan']) && array('website/about.html' => false, 'website/blog/post/index.html' => false, 'website/index.html' => true) === $nestedEntryPages, 'Nested index candidates remain ordinary routes when the artifact selects a shallower canonical entrypoint.');
 $throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
