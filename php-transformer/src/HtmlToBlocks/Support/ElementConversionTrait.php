@@ -231,6 +231,11 @@ trait ElementConversionTrait
             }
         }
 
+        $carousel = $this->authoredCarouselBlock($element);
+        if ( null !== $carousel ) {
+            return $carousel;
+        }
+
         if ( $this->isGeneratedComponentCandidate($element) ) {
             $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
             if ( null !== $generated ) {
