@@ -48,6 +48,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionList
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -278,6 +280,8 @@ final class HtmlTransformer
 
     private readonly SvgElementConverter $svgConverter;
 
+    private readonly InlineContentElementConverter $inlineContentConverter;
+
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
@@ -461,6 +465,28 @@ final class HtmlTransformer
                 $this->captureInlineSvgFallback($element, $fallbacks);
             }
         ), $this->svgMaterializer);
+        $this->inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
+            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): ?array => $this->inlineSvgTextGroupBlockFromElement($element),
+            fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
+            fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (string $content): bool => $this->richTextContentHasStructuralHtml($content),
+            fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (DOMElement $element): array => $this->richTextInlineVisualDeclarations($element),
+            fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
+            fn (DOMElement $element): bool => $this->isStructuralListItem($element),
+            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
+        ), $this->styleResolver, $this->runtime);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -4247,8 +4273,8 @@ final class HtmlTransformer
             return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
-if ( $this->isInlineContentElement($tagName) ) {
-            return $this->convertInlineContentElement($element, $fallbacks);
+        if ( $this->inlineContentConverter->handles($tagName) ) {
+            return $this->inlineContentConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         $listDispatch = $this->listConverter->convert($element, $tagName, $fallbacks);
@@ -7761,7 +7787,7 @@ if ( 'svg' === $tagName ) {
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
+        return InlineContentElementConverter::handlesTag($tagName);
     }
 
     private function isInlineSourceElement(string $tagName): bool
