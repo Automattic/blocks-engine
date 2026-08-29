@@ -26,6 +26,7 @@ final class HtmlTransformerSession
     private readonly TransformationEvidenceState $transformationEvidenceState;
     private readonly TransformationProvenanceState $transformationProvenanceState;
     private readonly RuntimeBehaviorState $runtimeBehaviorState;
+    private readonly NavigationProjectionState $navigationProjectionState;
     private readonly RuntimeDomState $runtimeDomState;
     private readonly ReusableComponentState $reusableComponentState;
     private ?GeneratedBlockRegistry $generatedBlockRegistry = null;
@@ -54,6 +55,7 @@ final class HtmlTransformerSession
         $this->transformationProvenanceState = new TransformationProvenanceState();
         $this->transformationEvidenceState = new TransformationEvidenceState();
         $this->runtimeBehaviorState = new RuntimeBehaviorState();
+        $this->navigationProjectionState = new NavigationProjectionState();
         $this->runtimeSelectorState = new RuntimeSelectorState(array(), array(), array());
     }
 
@@ -146,6 +148,11 @@ final class HtmlTransformerSession
     public function runtimeBehaviorState(): RuntimeBehaviorState
     {
         return $this->runtimeBehaviorState;
+    }
+
+    public function navigationProjectionState(): NavigationProjectionState
+    {
+        return $this->navigationProjectionState;
     }
 
     public function configurePolicy(bool $preserveShellLandmarks, bool $fallbackReductionMode): void
