@@ -385,7 +385,8 @@ final class BlockFactory
             $sizeClass = in_array($size, array( 'small', 'normal', 'large', 'huge' ), true)
                 ? $size . ' has-' . $size . '-icon-size'
                 : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $sizeClass)) . '>', 'closing' => '</ul>' );
+            $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {

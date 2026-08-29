@@ -138,6 +138,30 @@ final class StaticStyleParityRunner
      */
     public static function candidateHtmlFromSerializedBlocks(string $serializedBlocks): string
     {
+        // Dynamic social-link children save only block comments. Materialize the
+        // stable server-rendered structure so the render-free proxy can compare
+        // the source controls and icons without embedding WordPress icon data.
+        $serializedBlocks = preg_replace_callback(
+            '/<!--\s+wp:social-link(?:\s+({.*?}))?\s+\/-->/s',
+            static function (array $match): string {
+                $attrs = json_decode((string) ($match[1] ?? ''), true);
+                if (! is_array($attrs) || '' === trim((string) ($attrs['url'] ?? ''))) {
+                    return '';
+                }
+
+                $url = htmlspecialchars((string) $attrs['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $service = preg_replace('/[^a-z0-9-]+/', '-', strtolower((string) ($attrs['service'] ?? 'share'))) ?? 'share';
+                $label = htmlspecialchars(trim((string) ($attrs['label'] ?? $service)), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                $className = trim((string) ($attrs['className'] ?? ''));
+                $classes = htmlspecialchars(trim('wp-social-link wp-social-link-' . $service . ' ' . $className), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+                return '<li class="' . $classes . '"><a href="' . $url . '" class="wp-block-social-link-anchor">'
+                    . '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false"></svg>'
+                    . '<span class="wp-block-social-link-label screen-reader-text">' . $label . '</span></a></li>';
+            },
+            $serializedBlocks
+        ) ?? $serializedBlocks;
+
         return preg_replace('/<!--\s*\/?wp:[^>]*-->/', '', $serializedBlocks) ?? $serializedBlocks;
     }
 }
