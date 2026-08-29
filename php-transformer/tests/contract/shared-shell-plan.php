@@ -109,6 +109,15 @@ $sourceDivergentResult = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $sourceDivergentArtifacts = $sourceDivergentResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(!array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null)) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant rejects the complete area bundle while an independently shared area remains canonical.');
 
+$styledSvg = '<svg viewBox="0 0 16 16"><path fill="#123456" d="M1 1h14v14H1z"/></svg>';
+$styledSvgDocument = static fn(string $title): string => '<style>.logo svg{width:100%;height:100%}</style><div class="desktop-document"><header class="desktop-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . '</h1></main></div><div class="mobile-document"><header class="mobile-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . ' mobile</h1></main></div>';
+$styledSvgResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $styledSvgDocument('Home'), 'about.html' => $styledSvgDocument('About'))))->toArray();
+$styledSvgCompiled = $styledSvgResult['source_reports']['compiled_site'] ?? array();
+$styledSvgAssetPaths = array_column(array_filter($styledSvgCompiled['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)), 'path');
+$styledSvgShellPaths = array();
+foreach ($styledSvgCompiled['inline_shell_artifacts'] ?? array() as $artifact) if (preg_match_all('@assets/materialized-svg/[^" ]+@', $artifact['block_markup'] ?? '', $matches)) $styledSvgShellPaths = array_merge($styledSvgShellPaths, $matches[0]);
+$assert('failed' !== ($styledSvgResult['status'] ?? null) && 2 === count($styledSvgAssetPaths) && array() === array_diff($styledSvgShellPaths, $styledSvgAssetPaths), 'Shared shell compilation declares its CSS-context-specific materialized SVG asset instead of leaving an unresolved local browser reference.');
+
 $responsiveDivergentResult = $responsiveResult;
 foreach ($responsiveDivergentResult['source_reports']['compiled_site']['pages'] as &$responsivePage) $responsivePage['block_markup'] = $responsiveMarkup('index.html' === $responsivePage['source_path'] ? 'Home' : 'About', 'about.html' === $responsivePage['source_path'] ? 'Different mobile header' : 'Mobile header'); unset($responsivePage);
 $responsiveDivergent = (new WordPressSitePlan())->fromResult($responsiveDivergentResult);

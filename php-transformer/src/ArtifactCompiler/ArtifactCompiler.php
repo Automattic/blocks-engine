@@ -4165,9 +4165,7 @@ final class ArtifactCompiler
                     'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1),
                 ));
                 foreach ($compiled['assets'] as $asset) {
-                    // Binary assets are already materialized by the full page
-                    // compilation. Only shell-specific support CSS is new here.
-                    if (!is_array($asset) || 'css' !== ($asset['kind'] ?? null)) continue;
+                    if (!is_array($asset)) continue;
                     $asset['compilation'] = array('scope' => 'shared');
                     $assets[] = $asset;
                 }
