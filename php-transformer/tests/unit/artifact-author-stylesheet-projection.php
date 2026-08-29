@@ -166,19 +166,19 @@ $assert(str_contains((string) ($siblingSettledState['source_reports']['wordpress
 $sharedSettledState = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
-        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>Home settled</p></div></main>' ),
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Home settled</p></div></main>' ),
         array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>About settled</p></div></main>' ),
+        array( 'path' => 'contact.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Contact settled</p></div></main>' ),
         array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+        array( 'path' => 'about.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
     ),
 ) )->toArray();
-$sharedSettledCss = (string) (array_column($sharedSettledState['assets'] ?? array(), null, 'path')['shared.css']['content'] ?? '');
-$sharedSettledMarkers = array();
-foreach ($sharedSettledState['source_reports']['wordpress_site_plan']['pages'] ?? array() as $page) {
-    preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', (string) ($page['canonical_block_markup'] ?? ''), $markerMatch);
-    if (isset($markerMatch[0])) $sharedSettledMarkers[$markerMatch[0]] = true;
-}
+$sharedSettledAssets = array_column($sharedSettledState['assets'] ?? array(), null, 'path');
+$sharedSettledCss = (string) ($sharedSettledAssets['shared.css']['content'] ?? '') . (string) ($sharedSettledAssets['about.css']['content'] ?? '');
 preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
-$assert(2 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker so one route projection cannot reactivate another route animation.');
+preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', implode('', $sharedSettledSelectors[0] ?? array()), $sharedSettledMarkerMatches);
+$sharedSettledMarkers = array_fill_keys($sharedSettledMarkerMatches[0] ?? array(), true);
+$assert(3 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker across stylesheet paths so one route projection cannot reactivate another route animation.');
 
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

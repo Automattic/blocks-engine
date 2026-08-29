@@ -2636,19 +2636,17 @@ final class ArtifactCompiler
     {
         $attributeStateMarkers = array();
         foreach ($projections as $projection) {
-            $path = $projection['path'] ?? null;
             $markers = $projection['attribute_state_markers'] ?? null;
-            if (!is_string($path) || !is_array($markers)) continue;
+            if (!is_array($markers)) continue;
             foreach ($markers as $selector => $marker) {
-                if (is_string($selector) && is_string($marker) && '' !== $marker) $attributeStateMarkers[$path][$selector][$marker] = true;
+                if (is_string($selector) && is_string($marker) && '' !== $marker) $attributeStateMarkers[$selector][$marker] = true;
             }
         }
         $reconcileAttributeStateMarkers = static function (array $projection) use ($attributeStateMarkers): array {
-            $path = $projection['path'] ?? null;
             $markers = $projection['attribute_state_markers'] ?? null;
-            if (!is_string($path) || !is_string($projection['content'] ?? null) || !is_array($markers)) return $projection;
+            if (!is_string($projection['content'] ?? null) || !is_array($markers)) return $projection;
             foreach ($markers as $selector => $marker) {
-                $allMarkers = array_keys($attributeStateMarkers[$path][$selector] ?? array());
+                $allMarkers = array_keys($attributeStateMarkers[$selector] ?? array());
                 if (!is_string($marker) || '' === $marker || count($allMarkers) < 2) continue;
                 $replacement = implode('', array_map(static fn(string $candidate): string => ':not(.' . $candidate . ')', $allMarkers));
                 $projection['content'] = str_replace(':not(.' . $marker . ')', $replacement, $projection['content']);
