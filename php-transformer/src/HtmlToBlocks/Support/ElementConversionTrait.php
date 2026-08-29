@@ -535,7 +535,7 @@ trait ElementConversionTrait
             return $inlineContent;
         }
 
-        $standaloneSearch = $this->searchBlockFromStandaloneControl($element);
+        $standaloneSearch = $this->searchBlockConverter->searchBlockFromStandaloneControl($element);
         if ( null !== $standaloneSearch ) {
             return $standaloneSearch;
         }
