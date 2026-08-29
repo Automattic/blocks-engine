@@ -34,6 +34,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
@@ -264,6 +265,8 @@ final class HtmlTransformer
 
     private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
 
+    private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
+
     private readonly SearchBlockConverter $searchBlockConverter;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -402,9 +405,10 @@ final class HtmlTransformer
             $this->styleResolver,
             $this->runtime
         );
-        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
-        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder);
+        $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
+        $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
@@ -546,7 +550,6 @@ final class HtmlTransformer
             fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
             fn (DOMElement $element): int => $this->childElementCount($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            fn (DOMElement $element, DOMElement $input): bool => $this->hasStandaloneSearchSignal($element, $input),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
@@ -623,7 +626,6 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
-            fn (DOMElement $element): bool => $this->isDivBasedPseudoForm($element),
             fn (string $tagName): bool => $this->isInlineContentElement($tagName),
             fn (string $selector): bool => $this->isPresentationalAnimationSelector($selector),
             fn (array $rows): array => $this->dedupeArrayRows($rows)

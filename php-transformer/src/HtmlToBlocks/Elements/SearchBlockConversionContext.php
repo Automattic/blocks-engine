@@ -22,7 +22,6 @@ final class SearchBlockConversionContext
      * @param Closure(): GeneratedSupportStylesheetState                                             $generatedSupportStyles
      * @param Closure(DOMElement): int                                                               $childElementCount
      * @param Closure(DOMElement): bool                                                              $isRuntimeDomTarget
-     * @param Closure(DOMElement, DOMElement): bool                                                  $hasStandaloneSearchSignal
      * @param Closure(DOMElement): array<string, mixed>                                              $htmlPreservationBlock
      */
     public function __construct(
@@ -37,7 +36,6 @@ final class SearchBlockConversionContext
         private readonly Closure $generatedSupportStyles,
         private readonly Closure $childElementCount,
         private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $hasStandaloneSearchSignal,
         private readonly Closure $htmlPreservationBlock
     ) {
     }
@@ -103,11 +101,6 @@ final class SearchBlockConversionContext
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
         return ($this->isRuntimeDomTarget)($element);
-    }
-
-    public function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
-    {
-        return ($this->hasStandaloneSearchSignal)($element, $input);
     }
 
     /** @return array<string, mixed> */
