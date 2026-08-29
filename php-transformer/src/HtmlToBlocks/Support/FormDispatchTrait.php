@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInput
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use DOMDocument;
 use DOMElement;
@@ -14,20 +15,6 @@ use DOMNode;
 
 trait FormDispatchTrait
 {
-    /** Bounds for the reported form topology, owned by the dispatch that reads them. */
-    private const MAX_FORM_TOPOLOGY_DEPTH = 8;
-
-    private const MAX_FORM_TOPOLOGY_NODES = 128;
-
-    private const MAX_FORM_TOPOLOGY_CLASSES = 8;
-
-    /** @var array<int, string> */
-    private const FORM_TOPOLOGY_WRAPPER_TAGS = array(
-        'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
-        'label', 'li', 'main', 'nav', 'ol', 'p', 'section', 'span', 'table', 'tbody',
-        'td', 'tfoot', 'th', 'thead', 'tr', 'ul',
-    );
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -116,106 +103,6 @@ trait FormDispatchTrait
         }
 
         return $controls;
-    }
-
-    /**
-     * Preserve only control-bearing wrapper ancestry. The node table is bounded,
-     * source ordered, and references the compatibility controls by flat index.
-     *
-     * @return array<string, mixed>
-     */
-    private function formControlTopology(DOMElement $form): array
-    {
-        $controlIndexes = array();
-        $relevantElements = array();
-        foreach ( $this->formControlElements($form) as $index => $control ) {
-            $controlIndexes[$control->getNodePath()] = $index;
-            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && $ancestor !== $form; $ancestor = $ancestor->parentNode ) {
-                $relevantElements[$ancestor->getNodePath()] = true;
-            }
-        }
-
-        $nodes = array();
-        $wrapperIndex = 0;
-        $truncated = false;
-        $order = 0;
-        foreach ( $form->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) continue;
-            if ( $this->appendFormTopologyNode($child, null, $order, 0, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$order;
-        }
-
-        return array(
-            'schema'    => 'generic/form-control-topology/v1',
-            'max_depth' => self::MAX_FORM_TOPOLOGY_DEPTH,
-            'max_nodes' => self::MAX_FORM_TOPOLOGY_NODES,
-            'nodes'     => $nodes,
-            'truncated' => $truncated,
-        );
-    }
-
-    /**
-     * @param array<string, int> $controlIndexes
-     * @param array<string, bool> $relevantElements
-     * @param array<int, array<string, mixed>> $nodes
-     */
-    private function appendFormTopologyNode(DOMElement $element, ?string $parent, int $order, int $depth, array $controlIndexes, array $relevantElements, array &$nodes, int &$wrapperIndex, bool &$truncated): bool
-    {
-        $nodePath = $element->getNodePath();
-        if ( ! isset($controlIndexes[$nodePath]) && ! isset($relevantElements[$nodePath]) ) return false;
-        if ( $depth > self::MAX_FORM_TOPOLOGY_DEPTH || count($nodes) >= self::MAX_FORM_TOPOLOGY_NODES ) {
-            $truncated = true;
-            return false;
-        }
-
-        if ( isset($controlIndexes[$nodePath]) ) {
-            $controlIndex = $controlIndexes[$nodePath];
-            $nodes[] = array_filter(array(
-                'id'      => 'control-' . $controlIndex,
-                'kind'    => 'control',
-                'parent'  => $parent,
-                'order'   => $order,
-                'depth'   => $depth,
-                'control' => $controlIndex,
-            ), static fn (mixed $value): bool => null !== $value);
-            return true;
-        }
-
-        $id = 'wrapper-' . $wrapperIndex++;
-        $nodes[] = array_filter(array_merge(array(
-            'id'     => $id,
-            'kind'   => 'wrapper',
-            'parent' => $parent,
-            'order'  => $order,
-            'depth'  => $depth,
-        ), $this->formTopologyPresentation($element)), static fn (mixed $value): bool => null !== $value && '' !== $value);
-
-        $childOrder = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) continue;
-            if ( $this->appendFormTopologyNode($child, $id, $childOrder, $depth + 1, $controlIndexes, $relevantElements, $nodes, $wrapperIndex, $truncated) ) ++$childOrder;
-        }
-
-        return true;
-    }
-
-    /** @return array<string, string> */
-    private function formTopologyPresentation(DOMElement $element): array
-    {
-        $tag = strtolower($element->tagName);
-        $presentation = array();
-        if ( in_array($tag, self::FORM_TOPOLOGY_WRAPPER_TAGS, true) ) $presentation['tag'] = $tag;
-
-        $id = trim($this->attr($element, 'id'));
-        if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $id) ) $presentation['source_id'] = $id;
-
-        $classes = array();
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( count($classes) >= self::MAX_FORM_TOPOLOGY_CLASSES ) break;
-            if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
-        }
-        if ( array() !== $classes ) $presentation['class'] = implode(' ', $classes);
-
-        return $presentation;
     }
 
     /**
@@ -700,7 +587,7 @@ trait FormDispatchTrait
     private function formFallbackFinding(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
     {
         $controls = $this->formControls($element);
-        $controlTopology = $this->formControlTopology($element);
+        $controlTopology = (new FormControlTopologyBuilder())->build($element);
         $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->authorStyles()->stylesheetAssets(), $this->sourceStyles()->formLayoutCss());
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
         $replacesRuntimeIsland = null !== $bindingBlock;
