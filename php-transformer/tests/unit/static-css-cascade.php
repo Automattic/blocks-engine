@@ -122,6 +122,35 @@ $assert('0.92rem' === ( $result['font-size'] ?? '' ), 'a list item inherits font
 $result = $resolve($page, $inherited, '//footer//a', array( 'font-size' ), array( 'font-size' ));
 $assert('0.9rem' === ( $result['font-size'] ?? '' ), 'a more specific descendant rule still wins over inheritance');
 
+// :is()/:where()/:not() are the grammar the transformer's own author-stylesheet
+// projection emits to preserve author specificity. Without support the probe
+// cannot match the candidate's generated rules and blames the transformer for a
+// declaration it carried correctly.
+$marked = '<html><body><div class="footer-col"><ul><li class="src-li"><a href="#">Link</a></li></ul></div></body></html>';
+
+$projected = '.footer-col ul :where(.src-li):not(be-specificity-0) a { font-size: 0.9rem; }';
+$result = $resolve($marked, $projected, '//a', array( 'font-size' ));
+$assert('0.9rem' === ( $result['font-size'] ?? '' ), 'a projected :where()/:not() rule matches');
+
+$result = $resolve($marked, '.footer-col :is(ul) li a { font-size: 0.8rem; }', '//a', array( 'font-size' ));
+$assert('0.8rem' === ( $result['font-size'] ?? '' ), ':is() matches its argument');
+
+$result = $resolve($marked, 'li:not(.src-li) a { font-size: 0.7rem; }', '//a', array( 'font-size' ));
+$assert(! isset($result['font-size']), ':not() excludes a matching element');
+
+$result = $resolve($marked, 'li:not(.other) a { font-size: 0.6rem; }', '//a', array( 'font-size' ));
+$assert('0.6rem' === ( $result['font-size'] ?? '' ), ':not() admits a non-matching element');
+
+// :where() contributes no specificity, which is the whole reason the projection
+// uses it: the author's own rule must still win.
+$specificity = '.footer-col a { font-size: 1rem; } :where(.footer-col) a { font-size: 2rem; }';
+$result = $resolve($marked, $specificity, '//a', array( 'font-size' ));
+$assert('1rem' === ( $result['font-size'] ?? '' ), ':where() adds no specificity');
+
+$notSpecificity = 'a:not(.x) { font-size: 3rem; } a { font-size: 4rem; }';
+$result = $resolve($marked, $notSpecificity, '//a', array( 'font-size' ));
+$assert('3rem' === ( $result['font-size'] ?? '' ), ':not() contributes its argument to specificity');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "StaticCssCascade unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

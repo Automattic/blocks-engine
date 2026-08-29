@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use DOMDocument;
 use DOMElement;
 
@@ -210,7 +212,9 @@ final class StaticCssCascade
                 if ( array() === $declarations ) {
                     continue;
                 }
-                foreach ( explode(',', (string) $match[1]) as $selector ) {
+                // Parenthesis-aware: a comma inside functional notation is not
+                // a selector-list separator.
+                foreach ( CssStylesheetTransformer::splitSelectorList((string) $match[1]) ?? array() as $selector ) {
                     $selector = trim($selector);
                     if ( '' === $selector ) {
                         continue;
@@ -371,12 +375,49 @@ final class StaticCssCascade
     private function specificity(string $selector): int
     {
         $selector = trim(preg_replace('/::?(hover|focus|active|visited|before|after)\b[^ ]*/', '', $selector) ?? $selector);
+        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
+            $parsed = CssSelectorMatcher::parse($selector);
+            if ( $parsed['supported'] ) {
+                return $this->parsedSpecificity($parsed['compounds']);
+            }
+        }
         $ids = preg_match_all('/#[A-Za-z0-9_-]+/', $selector);
         $classes = preg_match_all('/\.[A-Za-z0-9_-]+|\[[^\]]+\]/', $selector);
         $bare = preg_replace('/[#.][A-Za-z0-9_-]+|\[[^\]]+\]|[>+~]/', ' ', $selector) ?? $selector;
         $elements = preg_match_all('/[A-Za-z][A-Za-z0-9_-]*/', $bare);
 
         return ( (int) $ids * 100 ) + ( (int) $classes * 10 ) + (int) $elements;
+    }
+
+    /**
+     * Specificity for selectors parsed by the production matcher.
+     *
+     * CssSelectorMatcher records which simple selectors came from :where() so
+     * rewriting can preserve their zero specificity. Account for that metadata
+     * here rather than maintaining a second functional-selector parser.
+     *
+     * @param list<array<string, mixed>> $compounds
+     */
+    private function parsedSpecificity(array $compounds): int
+    {
+        $specificity = 0;
+        foreach ( $compounds as $compound ) {
+            $zero = $compound['zero_specificity'] ?? array();
+            $specificity += 100 * (count($compound['ids']) - (int) ($zero['ids'] ?? 0));
+            $specificity += 10 * (
+                count($compound['classes']) - (int) ($zero['classes'] ?? 0)
+                + count($compound['attributes']) - (int) ($zero['attributes'] ?? 0)
+                + (int) (null !== $compound['nth_child'])
+                + (int) $compound['first_child']
+                + (int) $compound['last_child']
+            );
+            $specificity += (int) (null !== $compound['type']) - (int) ($zero['types'] ?? 0);
+            foreach ( $compound['not'] as $negated ) {
+                $specificity += $this->parsedSpecificity(array( $negated ));
+            }
+        }
+
+        return $specificity;
     }
 
     /**
@@ -420,6 +461,17 @@ final class StaticCssCascade
         // carries values the transformer already resolved.
         if ( ':root' === strtolower($selector) ) {
             return null !== $element->ownerDocument && $element === $element->ownerDocument->documentElement;
+        }
+
+        // `:is()`, `:where()` and `:not()` are the grammar the transformer's own
+        // author-stylesheet projection emits to preserve author specificity, e.g.
+        // `.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`. Without
+        // support here the probe cannot match the candidate's own generated rules,
+        // so it reports the inherited value and blames the transformer for a
+        // declaration it carried correctly.
+        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
+            $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
+            return $match['supported'] && $match['matches'];
         }
 
         if ( '' === $selector || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
