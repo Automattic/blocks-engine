@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
@@ -33,7 +32,7 @@ trait FormDispatchTrait
             }
         }
 
-        $readableFormBlock = $this->readableFormBlockFromForm($element);
+        $readableFormBlock = $this->readableFormBlockBuilder->build($element);
         if ( null !== $readableFormBlock && ! $this->formRuntimeRequirementAnalyzer->requiresPreservation($element) ) {
             if ( FormControlClassifier::hasDataEntryControls($element) ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
@@ -50,7 +49,7 @@ trait FormDispatchTrait
             return $preservationBlock;
         }
 
-        $readableFormBlock = $this->readableFormBlockFromForm($element, true);
+        $readableFormBlock = $this->readableFormBlockBuilder->build($element, true);
         $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
 
         // Surface a form fallback finding so a downstream consumer can map the
@@ -70,65 +69,8 @@ trait FormDispatchTrait
         // Some signup/contact widgets pair data-entry controls with a submit-like
         // control inside a plain container. Emit the same finding as a real form.
         if ( $this->pseudoFormAnalyzer->isPseudoForm($element) ) {
-            $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
+            $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockBuilder->build($element, true));
         }
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function readableFormBlockFromForm(DOMElement $form, bool $allowFormEvents = false): ?array
-    {
-        if ( 0 < $form->getElementsByTagName('script')->length || ( ! $allowFormEvents && array() !== $this->eventMetadata($form) ) ) {
-            return null;
-        }
-
-        $contentBlocks = array();
-        $buttonBlocks = array();
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( array() !== $this->eventMetadata($control) || ! FormControlClassifier::isReadableControl($control) ) {
-                return null;
-            }
-
-            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
-                $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->styleResolver->presentationAttributes($control), array(
-                    'text' => $this->runtime->escapeHtml($this->formControlMetadataBuilder->submitText($control, 'Submit')),
-                )), array(), $control);
-                continue;
-            }
-
-            if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
-                $this->formRuntimeIslandRecorder->recordControl($control);
-            }
-
-            $readableControlBlock = $this->readableFormControlBlockConverter->convert($control);
-            if ( null === $readableControlBlock ) {
-                continue;
-            }
-
-            $fieldBlocks = array();
-            $associatedLabel = $this->formControlMetadataBuilder->associatedLabel($control);
-            if ( $associatedLabel instanceof DOMElement && AuthoredInputBlockGenerator::NAME === ($readableControlBlock['blockName'] ?? '') ) {
-                $labelBlock = $this->readableFormControlBlockConverter->convert($associatedLabel);
-                if ( null !== $labelBlock ) {
-                    $fieldBlocks[] = $labelBlock;
-                }
-            }
-            $fieldBlocks[] = $readableControlBlock;
-            $contentBlocks[] = ( 1 === count($fieldBlocks) && AuthoredInputBlockGenerator::NAME !== ($readableControlBlock['blockName'] ?? '') )
-                ? $fieldBlocks[0]
-                : $this->createBlock('core/group', array(), $fieldBlocks, $control);
-        }
-
-        if ( array() !== $buttonBlocks ) {
-            $contentBlocks[] = $this->createBlock('core/buttons', array(), $buttonBlocks, $form);
-        }
-
-        if ( array() === $contentBlocks ) {
-            return null;
-        }
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($form), $contentBlocks, $form);
     }
 
     /**
