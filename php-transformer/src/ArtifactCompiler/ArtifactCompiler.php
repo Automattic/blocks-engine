@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use DOMDocument;
 use DOMElement;
@@ -698,6 +699,10 @@ final class ArtifactCompiler
             );
         }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
+        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
+        foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
+            $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
+        }
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
         $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'editability_report' => $entryBlocks['editability_report'] ?? null, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
@@ -779,7 +784,7 @@ final class ArtifactCompiler
         );
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.
-        if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) {
+        if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) ) {
             $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
@@ -800,6 +805,10 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
                 $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $sourceReports['wordpress_site_plan']['templates']);
+            } catch (DocumentIdentityException $exception) {
+                foreach ( $exception->diagnostics() as $identityDiagnostic ) {
+                    $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
+                }
             } catch (\InvalidArgumentException $exception) {
                 $diagnostics[] = $exception instanceof ValidationException
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))

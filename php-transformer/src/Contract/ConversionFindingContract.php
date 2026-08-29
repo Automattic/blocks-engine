@@ -286,6 +286,7 @@ final class ConversionFindingContract
             'preserved_runtime_island'          => 'runtime_island',
             'html_static_script_metadata'       => 'static_script_metadata',
             'html_to_blocks_core_slice'         => 'conversion_summary',
+            'wordpress_site_plan_not_self_contained' => 'site_plan_document',
             default                             => '' !== $tag ? 'html_' . $tag : ( '' !== $code ? $code : 'html_fallback' ),
         };
     }
@@ -345,6 +346,7 @@ final class ConversionFindingContract
             'inert_template_metadata', 'static_script_metadata' => 'preserve_static_metadata',
             'inline_svg'                    => 'materialize_static_asset',
             'conversion_summary'            => 'no_repair_needed',
+            'site_plan_document'            => 'restore_compiled_document_identity',
             default                         => str_starts_with($patternFamily, 'unsupported_')
                 ? 'add_generic_pattern_recognizer'
                 : 'review_generic_mapping',

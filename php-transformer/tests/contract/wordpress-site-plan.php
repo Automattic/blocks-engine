@@ -6,8 +6,10 @@ require __DIR__ . '/support/ResolvedPlanProjection.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\AssetReferenceCanonicalizer;
 
@@ -581,6 +583,72 @@ $assert('/about' === ($wrappedPages['website/about/index.html']['route']['path']
 $routeCollision = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'nested/about.html' => '<main>One</main>', 'nested/about.htm' => '<main>Two</main>')))->toArray();
 $routeCollisionDiagnostics = array_values(array_filter($routeCollision['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
 $assert('failed' === ($routeCollision['status'] ?? null) && !isset($routeCollision['source_reports']['wordpress_site_plan']) && 1 === count($routeCollisionDiagnostics) && 'error' === ($routeCollisionDiagnostics[0]['severity'] ?? null) && ArtifactCompiler::class === ($routeCollisionDiagnostics[0]['source'] ?? null) && count($routeCollision['diagnostics']) === ($routeCollision['metrics']['diagnostic_count'] ?? null) && count($routeCollision['diagnostics']) === ($routeCollision['source_reports']['conversion_report']['metrics']['diagnostic_count'] ?? null) && count($routeCollision['diagnostics']) === ($routeCollision['source_reports']['conversion_report']['source_summary']['diagnostic_count'] ?? null) && $routeCollisionDiagnostics === ($routeCollision['source_reports']['wordpress_site_plan_diagnostics'] ?? null), 'Route collisions fail closed with one canonical plan diagnostic shared by status, metrics, and conversion-report projections.');
+$emptyIdentityFiles = array();
+$emptyIdentityPaths = array();
+for ($emptyPage = 0; $emptyPage < 16; ++$emptyPage) {
+    $emptyPath = 0 === $emptyPage ? 'website/index.html' : 'website/page-' . $emptyPage . '.html';
+    $emptyIdentityPaths[] = $emptyPath;
+    $emptyIdentityFiles[$emptyPath] = '';
+}
+$emptyIdentityFiles['parts/sidebar.html'] = '';
+$emptyIdentity = (new ArtifactCompiler())->compile(array('entrypoint' => 'website/index.html', 'files' => $emptyIdentityFiles))->toArray();
+$emptyIdentityDiagnostics = array_values(array_filter($emptyIdentity['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
+$emptyIdentityByPath = array();
+foreach ($emptyIdentityDiagnostics as $diagnostic) {
+    if (is_string($diagnostic['source_path'] ?? null) && '' !== $diagnostic['source_path']) {
+        $emptyIdentityByPath[$diagnostic['source_path']] = $diagnostic;
+    }
+}
+ConversionFindingContract::assertFindings($emptyIdentityDiagnostics, 'empty document identity diagnostics');
+$assert('failed' === ($emptyIdentity['status'] ?? null) && !isset($emptyIdentity['source_reports']['wordpress_site_plan']) && 17 === count($emptyIdentityDiagnostics) && 17 === count($emptyIdentityByPath) && $emptyIdentityDiagnostics === ($emptyIdentity['source_reports']['wordpress_site_plan_diagnostics'] ?? null), 'Empty compiled documents fail closed with one diagnostic per page and template part.');
+foreach ($emptyIdentityPaths as $emptyPath) {
+    $diagnostic = $emptyIdentityByPath[$emptyPath] ?? array();
+    $assert('empty_block_markup' === ($diagnostic['reason'] ?? null) && 'page' === ($diagnostic['document_kind'] ?? null) && 17 === ($diagnostic['document_count'] ?? null) && str_contains((string) ($diagnostic['message'] ?? ''), $emptyPath) && str_contains((string) ($diagnostic['message'] ?? ''), 'empty block markup') && 'site_plan_document' === ($diagnostic['pattern_family'] ?? null) && ArtifactCompiler::class === ($diagnostic['source'] ?? null) && '' === (string) ($emptyIdentity['source_reports']['compiled_site']['pages'][array_search($emptyPath, array_column($emptyIdentity['source_reports']['compiled_site']['pages'], 'source_path'), true)]['block_markup'] ?? 'missing'), 'Empty page diagnostics name the source path, empty-markup condition, and total document count.');
+}
+$emptyPartDiagnostic = $emptyIdentityByPath['parts/sidebar.html'] ?? array();
+$assert('empty_block_markup' === ($emptyPartDiagnostic['reason'] ?? null) && 'template_part' === ($emptyPartDiagnostic['document_kind'] ?? null) && str_contains((string) ($emptyPartDiagnostic['message'] ?? ''), 'parts/sidebar.html'), 'Empty template parts are named with the markup condition and document kind.');
+$mixedIdentity = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'about.html' => '', 'contact.html' => '')))->toArray();
+$mixedIdentityDiagnostics = array_values(array_filter($mixedIdentity['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
+$assert(array('about.html', 'contact.html') === array_column($mixedIdentityDiagnostics, 'source_path') && array('empty_block_markup', 'empty_block_markup') === array_column($mixedIdentityDiagnostics, 'reason') && 2 === ($mixedIdentityDiagnostics[0]['document_count'] ?? null), 'Identity diagnostics name every empty document and omit pages that compiled to block markup.');
+$unsafeIdentityInput = $first;
+$unsafeIdentityInput['source_reports']['compiled_site']['pages'][0]['source_path'] = '../escape.html';
+$unsafeIdentityInput['source_reports']['compiled_site']['pages'][1]['source_path'] = '/absolute.html';
+try {
+    (new WordPressSitePlan())->fromResult($unsafeIdentityInput);
+    $assert(false, 'Unsafe compiled identities fail closed before site-plan assembly.');
+} catch (DocumentIdentityException $unsafeIdentityException) {
+    $unsafeIdentityDiagnostics = $unsafeIdentityException->diagnostics();
+    ConversionFindingContract::assertFindings($unsafeIdentityDiagnostics, 'unsafe document identity diagnostics');
+    $assert(array('../escape.html', '/absolute.html') === array_column($unsafeIdentityDiagnostics, 'source_path') && array('unsafe_identity', 'unsafe_identity') === array_column($unsafeIdentityDiagnostics, 'reason') && 2 === ($unsafeIdentityDiagnostics[0]['document_count'] ?? null) && str_contains((string) ($unsafeIdentityDiagnostics[0]['message'] ?? ''), 'safe source path') && str_contains($unsafeIdentityException->getMessage(), '2 compiled site document'), 'Unsafe identities name every offending source path and the unsafe-identity condition.');
+}
+$emptyPlanInput = $first;
+foreach ($emptyPlanInput['source_reports']['compiled_site']['pages'] as &$emptyPlanPage) {
+    $emptyPlanPage['block_markup'] = '';
+}
+unset($emptyPlanPage);
+try {
+    (new WordPressSitePlan())->fromResult($emptyPlanInput);
+    $assert(false, 'Empty compiled markup fails closed during site-plan assembly.');
+} catch (DocumentIdentityException $emptyPlanException) {
+    $emptyPlanDiagnostics = $emptyPlanException->diagnostics();
+    $assert(count($emptyPlanInput['source_reports']['compiled_site']['pages']) === count($emptyPlanDiagnostics) && array('empty_block_markup') === array_values(array_unique(array_column($emptyPlanDiagnostics, 'reason'))) && $emptyPlanInput['source_reports']['compiled_site']['pages'][0]['source_path'] === ($emptyPlanDiagnostics[0]['source_path'] ?? null), 'Site-plan assembly reports every empty compiled page, not only the first.');
+}
+$boundedIdentityInput = $first;
+$boundedIdentityPages = array();
+for ($boundedPage = 0; $boundedPage < WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS + 10; ++$boundedPage) {
+    $boundedIdentityPages[] = array('source_path' => 'page-' . $boundedPage . '.html', 'block_markup' => '', 'slug' => 'page-' . $boundedPage, 'title' => 'Page ' . $boundedPage);
+}
+$boundedIdentityInput['source_reports']['compiled_site']['pages'] = $boundedIdentityPages;
+$boundedIdentityInput['source_reports']['compiled_site']['template_parts'] = array();
+try {
+    (new WordPressSitePlan())->fromResult($boundedIdentityInput);
+    $assert(false, 'Oversized empty-document sets fail closed with bounded diagnostics.');
+} catch (DocumentIdentityException $boundedIdentityException) {
+    $boundedIdentityDiagnostics = $boundedIdentityException->diagnostics();
+    $boundedRetained = array_values(array_filter($boundedIdentityDiagnostics, static fn(array $diagnostic): bool => 'truncated' !== ($diagnostic['reason'] ?? null)));
+    $boundedTruncation = array_values(array_filter($boundedIdentityDiagnostics, static fn(array $diagnostic): bool => 'truncated' === ($diagnostic['reason'] ?? null)));
+    $assert(WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS === count($boundedRetained) && 1 === count($boundedTruncation) && (WordPressSitePlan::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS + 10) === ($boundedTruncation[0]['document_count'] ?? null) && 10 === ($boundedTruncation[0]['omitted_count'] ?? null) && !isset($boundedIdentityDiagnostics[0]['block_markup']), 'Identity diagnostics stay bounded by document count and omit compiled markup payloads.');
+}
 $encodedRoute = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'nested%2fabout.html' => '<main>Encoded</main>')))->toArray();
 $assert(isset($encodedRoute['source_reports']['wordpress_site_plan_diagnostics']), 'Encoded source paths fail closed before they can become ambiguous page routes.');
 $routeLinks = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'about.html' => '<main>About</main>', 'nested/about.html' => '<!doctype html><head><link rel="alternate" href="../about.html?from=nested#bio"></head><body><main><a href="../about.html?from=nested#bio">Root about</a><form action="../about.html?from=form#submit" method="post"><label>Email <input name="email" type="email"></label><button type="submit">Submit</button></form></main></body>', 'nested/deep/about.html' => '<main><a href="/nested/about.html?from=root#top">Nested about</a></main>')))->toArray();

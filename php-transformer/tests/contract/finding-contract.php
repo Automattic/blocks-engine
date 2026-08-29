@@ -287,6 +287,23 @@ $assert(
     'artifact runtime dependency parity records the shared-script dependency row'
 );
 
+$emptyDocumentResult = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files'      => array(
+        'website/index.html' => '',
+        'website/about.html' => '',
+    ),
+))->toArray();
+$totalFindings += $walk($emptyDocumentResult, 'artifact:empty-documents');
+$emptyDocumentFindings = array_values(array_filter(
+    $emptyDocumentResult['diagnostics'],
+    static fn (array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ConversionFindingContract::findingCode($diagnostic)
+));
+$assert(2 === count($emptyDocumentFindings), 'empty compiled documents emit per-document identity findings');
+$emptyDocumentClassified = ConversionFindingContract::classify(array('code' => 'wordpress_site_plan_not_self_contained'));
+$assert('site_plan_document' === ($emptyDocumentClassified['pattern_family'] ?? null), 'empty-document findings cluster under site_plan_document');
+$assert('restore_compiled_document_identity' === ($emptyDocumentClassified['repair_bucket'] ?? null), 'empty-document findings route to a concrete identity repair bucket');
+
 $assert($totalFindings > 0, 'the contract walk validated a non-empty set of real conversion findings');
 
 fwrite(STDOUT, "Conversion finding contract passed: {$totalFindings} finding(s) validated.\n");
