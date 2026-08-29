@@ -614,6 +614,7 @@ final class ArtifactCompiler
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $inlineShellCompilation = $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
@@ -637,6 +638,13 @@ final class ArtifactCompiler
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
+        $generatedAssetIdentities = array();
+        foreach ($generatedAssets as $asset) $generatedAssetIdentities[hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''))] = true;
+        foreach ($inlineShellCompilation['assets'] as $asset) {
+            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''));
+            if (isset($generatedAssetIdentities[$identity])) continue;
+            $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
+        }
         $projectedAdminBarAsset = $this->projectedAdminBarAccommodationAsset($normalized['files']);
         if (null !== $projectedAdminBarAsset) {
             $generatedAssets[] = $projectedAdminBarAsset;
@@ -698,7 +706,7 @@ final class ArtifactCompiler
                 'projected_dialog_count' => $capturedDialogs['projected_count'],
             );
         }
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
         foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -4087,13 +4095,145 @@ final class ArtifactCompiler
     }
 
     /**
+     * Compile route-shared nested shell landmarks in isolation so generated
+     * support classes and CSS are canonical rather than page-seeded.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array{artifacts:array<int,array<string,mixed>>,assets:array<int,array<string,mixed>>}
+     */
+    private function compileSharedInlineShells(array $files, string $entryPath, string $generatedBlockNamespace): array
+    {
+        $documents = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? null) || $this->isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
+            $dom = new \DOMDocument();
+            $previous = libxml_use_internal_errors(true);
+            $loaded = $dom->loadHTML((string) $file['content']);
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+            if (!$loaded) continue;
+            $rows = array('header' => array(), 'footer' => array());
+            $body = $dom->getElementsByTagName('body')->item(0);
+            if (!$body instanceof \DOMElement) continue;
+            $walk = static function (\DOMElement $parent, bool $insideContent = false) use (&$walk, &$rows, $dom): void {
+                foreach ($parent->childNodes as $child) {
+                    if (!$child instanceof \DOMElement) continue;
+                    $tag = strtolower($child->tagName);
+                    $content = $insideContent || in_array($tag, array('main', 'article', 'section', 'aside'), true);
+                    $area = ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
+                    if (!$content && isset($rows[$area])) {
+                        $markup = $dom->saveHTML($child);
+                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup));
+                    }
+                    $walk($child, $content);
+                }
+            };
+            $walk($body);
+            $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
+        }
+        if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array());
+
+        $artifacts = array();
+        $assets = array();
+        foreach (array('header', 'footer') as $area) {
+            $variantCount = null; $canonicalMarkups = array();
+            $sourcePath = isset($documents[$entryPath]) ? $entryPath : (string) array_key_first($documents);
+            foreach ($documents as $document) {
+                $count = count($document['rows'][$area]);
+                if (0 === $count || (null !== $variantCount && $variantCount !== $count)) { $variantCount = null; break; }
+                $variantCount = $count;
+            }
+            if (null === $variantCount) continue;
+            for ($variant = 0; $variant < $variantCount; ++$variant) {
+                $identities = self::normalizeSourceShellRootClasses(array_map(static fn(array $document): string => $document['rows'][$area][$variant]['identity'], $documents));
+                if (1 !== count(array_unique($identities))) continue 2;
+                $canonicalMarkups[$variant] = $identities[$sourcePath];
+            }
+            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $documents[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
+            foreach ($documents[$sourcePath]['rows'][$area] as $variant => $row) {
+                $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkups[$variant] . '</body></html>';
+                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true);
+                $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
+                if (!is_array($shell)) { $artifacts = array(); $assets = array(); break 2; }
+                $slug = 1 === $variantCount ? $area : $area . '-' . ($variant + 1);
+                $artifacts[] = array_merge($shell, array(
+                    'slug' => $slug,
+                    'source_path' => $sourcePath . '#' . $slug,
+                    'source_paths' => array_keys($documents),
+                    'source_hash' => hash('sha256', $canonicalMarkups[$variant]),
+                    'variant' => $variant + 1,
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1),
+                ));
+                foreach ($compiled['assets'] as $asset) {
+                    // Binary assets are already materialized by the full page
+                    // compilation. Only shell-specific support CSS is new here.
+                    if (!is_array($asset) || 'css' !== ($asset['kind'] ?? null)) continue;
+                    $asset['compilation'] = array('scope' => 'shared');
+                    $assets[] = $asset;
+                }
+            }
+        }
+        return array('artifacts' => $artifacts, 'assets' => $assets);
+    }
+
+    private static function normalizeSourceShellIdentity(string $markup): string
+    {
+        $dom = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $dom->loadHTML('<body>' . $markup . '</body>');
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        if (!$loaded) return $markup;
+        $xpath = new \DOMXPath($dom);
+        $currentNodes = array();
+        foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
+        foreach ($currentNodes as $node) {
+            for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+                if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
+                $classes = preg_split('/\s+/', trim($cursor->getAttribute('class'))) ?: array();
+                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                    $siblingClasses = array();
+                    foreach ($cursor->parentNode->childNodes as $sibling) {
+                        if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        foreach (preg_split('/\s+/', trim($sibling->getAttribute('class'))) ?: array() as $class) $siblingClasses[$class] = true;
+                    }
+                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                }
+                if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
+            }
+        }
+        foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
+        $body = $dom->getElementsByTagName('body')->item(0);
+        $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
+        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+    }
+
+    /** @param array<int,string> $markups @return array<int,string> */
+    private static function normalizeSourceShellRootClasses(array $markups): array
+    {
+        $classSets = array();
+        foreach ($markups as $markup) {
+            preg_match('/^<[^>]+\sclass="([^"]*)"/i', $markup, $match);
+            $classSets[] = array_values(array_filter(preg_split('/\s+/', trim($match[1] ?? '')) ?: array()));
+        }
+        if (count($markups) < 3 && 1 !== count(array_unique(array_map(static fn(array $classes): string => implode("\0", $classes), $classSets)))) return $markups;
+        $counts = array(); $order = array();
+        foreach ($classSets as $classes) foreach (array_unique($classes) as $class) {
+            if (!isset($counts[$class])) $order[] = $class;
+            $counts[$class] = ($counts[$class] ?? 0) + 1;
+        }
+        $threshold = intdiv(count($markups), 2) + 1;
+        $consensus = array_values(array_filter($order, static fn(string $class): bool => ($counts[$class] ?? 0) >= $threshold));
+        return array_map(static fn(string $markup): string => preg_replace('/^(<[^>]+\sclass=")[^"]*(")/i', '$1' . implode(' ', $consensus) . '$2', $markup, 1) ?? $markup, $markups);
+    }
+
+    /**
      * @param array{files: array<int, array<string, mixed>>, bytes: int, source_hash: string} $artifact
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array()): array
     {
         $pages = array();
         $assetPayloadsByPath = array();
@@ -4214,6 +4354,7 @@ final class ArtifactCompiler
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $templateParts,
+            'inline_shell_artifacts' => $inlineShellArtifacts,
             'visual_repair' => $this->compiledSiteVisualRepair($assets, $artifact['files']),
             'runtime_declarations' => $artifact['runtime_declarations'],
             'theme'       => array_filter(
