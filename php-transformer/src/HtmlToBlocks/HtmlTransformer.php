@@ -35,6 +35,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -279,6 +280,8 @@ final class HtmlTransformer
 
     private readonly ReadableFormBlockBuilder $readableFormBlockBuilder;
 
+    private readonly FormCompositionPlanner $formCompositionPlanner;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -471,6 +474,15 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        );
+        $this->formCompositionPlanner = new FormCompositionPlanner(
+            fn (): TransformationProvenanceState => $this->transformationProvenance(),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element)
         );
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
