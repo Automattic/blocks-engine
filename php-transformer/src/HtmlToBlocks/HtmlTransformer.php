@@ -33,6 +33,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -267,6 +268,8 @@ final class HtmlTransformer
 
     private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
 
+    private readonly AuthoredFormControlBlockConverter $authoredFormControlBlockConverter;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -412,6 +415,20 @@ final class HtmlTransformer
             $this->runtime
         );
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
+        $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
+            $this->formControlMetadataBuilder,
+            fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            function (string $identity, array $definition): void {
+                $this->generatedBlocks()->register($identity, $definition);
+            },
+            function (string $text): void {
+                $this->registerFormControlEcho($text);
+            },
+            fn (string $text): string => $this->runtime->escapeHtml($text),
+            fn (string $id): string => $this->safeAnchor($id)
+        );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
