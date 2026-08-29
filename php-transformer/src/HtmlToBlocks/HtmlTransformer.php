@@ -2471,19 +2471,22 @@ final class HtmlTransformer
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude);
-            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
-            if ( '' === $directWrapperPrelude || '' === $geometry ) {
+            if ( '' === $directWrapperPrelude ) {
                 return $projectedPrelude . '{' . $body . '}';
+            }
+            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            if ( '' === $geometry ) {
+                return '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}';
             }
             return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
         if ( '' === $layout ) {
-            return $projectedPrelude . '{' . $body . '}';
+            return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
         }
         if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $body);
+            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
         }
 
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
@@ -2577,6 +2580,9 @@ final class HtmlTransformer
                 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
                 'align-self', 'justify-self', 'order',
             );
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                continue;
+            }
             if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value)
             ) {
@@ -2609,6 +2615,9 @@ final class HtmlTransformer
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
             if ( '' === $name || false === $colon ) {
                 $control[] = $declaration;
+                continue;
+            }
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
             if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
@@ -2654,7 +2663,7 @@ final class HtmlTransformer
                 continue;
             }
             $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
-            if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
                 continue;
             }
 
@@ -2677,6 +2686,24 @@ final class HtmlTransformer
         $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
 
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /**
+     * Inline min-content widths plus Gutenberg's word-break:break-word collapse
+     * the label to one character. Drop those widths, including custom
+     * properties that only exist to feed min-width.
+     */
+    private function isCollapsedButtonKeywordWidth(string $property, string $value): bool
+    {
+        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+        if ( 'min-content' !== $value ) {
+            return false;
+        }
+        if ( in_array($property, array( 'width', 'min-width', 'max-width' ), true) ) {
+            return true;
+        }
+
+        return str_starts_with($property, '--') && str_contains($property, 'width');
     }
 
     private function isButtonWrapperLayoutProperty(string $property): bool

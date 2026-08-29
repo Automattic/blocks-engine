@@ -133,6 +133,7 @@
       "php tests/unit/form-associated-label-submit.php",
       "php tests/unit/named-fragment-target-geometry.php",
       "php tests/unit/button-wrapper-keyword-width.php",
+      "php tests/unit/button-link-min-content.php",
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/button-wrapper-fill-selector-list.php",
       "php tests/unit/button-grid-item-placement.php",
