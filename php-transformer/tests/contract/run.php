@@ -2724,21 +2724,22 @@ $unknownIframe = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
-$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
-$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
-$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
+$assert(array() === $unknownIframeDiagnostics, 'bounded visual iframe does not emit a fallback diagnostic');
+$assert(array() === ($unknownIframe['fallbacks'] ?? array()), 'bounded visual iframe does not increase fallback count');
 $unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
 $assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
 $assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownVisualIframeBlock = array_values(array_filter($unknownIframe['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? array();
 $unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
 $assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert(str_contains($unknownSerialized, '<!-- wp:html'), 'bounded visible unknown iframe is materialized as an editable HTML block');
-$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive HTML-block serialization');
-$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive HTML-block serialization');
+$assert('custom/visual-iframe' === ($unknownVisualIframeBlock['blockName'] ?? ''), 'bounded visible unknown iframe is materialized as the typed visual-iframe companion');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html') && str_contains($unknownSerialized, '<!-- wp:custom/visual-iframe'), 'bounded visual iframe does not use a core HTML fallback');
+$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive companion save serialization');
+$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive companion save serialization');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
-$assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe HTML-block save shape is Gutenberg-valid');
+$assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe companion save shape is Gutenberg-valid');
 
 $visualIframeGeometry = ( new HtmlTransformer() )->transform(
     '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'

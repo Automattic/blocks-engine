@@ -27,6 +27,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
@@ -12428,6 +12429,25 @@ if ( 'svg' === $tagName ) {
             )), static fn ($value): bool => '' !== $value), array(), $iframe);
         }
 
+        $visualIframeAttributes = $this->boundedVisualIframeAttributes($iframe, $url);
+        if ( null !== $visualIframeAttributes ) {
+            $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
+                'preservation_strategy' => 'typed_visual_iframe_companion',
+                'attributes' => $this->safeEmbedAttributes($iframe),
+            ));
+            $generator = new VisualIframeBlockGenerator();
+            $this->generatedBlocks()->register(VisualIframeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+            $block = $this->createBlock(
+                $this->generatedBlocks()->blockName(VisualIframeBlockGenerator::LOCAL_NAME),
+                $visualIframeAttributes,
+                array(),
+                $iframe
+            );
+            $block['innerHTML'] = $generator->markup($visualIframeAttributes);
+            $block['innerContent'] = array( $block['innerHTML'] );
+            return $block;
+        }
+
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
         $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
             'preservation_strategy' => 'sanitized_embed_markup',
@@ -12450,10 +12470,7 @@ if ( 'svg' === $tagName ) {
             'html_truncated'  => $boundedHtml['truncated'],
         ), $this->transformationProvenance()->fallback());
 
-        $visualIframe = $this->boundedVisualIframeHtml($iframe, $url);
-        return '' === $visualIframe
-            ? null
-            : $this->createBlock('core/html', array( 'content' => $visualIframe ), array(), $iframe);
+        return null;
     }
 
     /**
@@ -12461,28 +12478,32 @@ if ( 'svg' === $tagName ) {
      * proves they occupy a visible, finite surface. The emitted markup is built
      * from an iframe-specific allowlist rather than carrying source HTML.
      */
-    private function boundedVisualIframeHtml(DOMElement $iframe, string $url): string
+    /** @return array<string, mixed>|null */
+    private function boundedVisualIframeAttributes(DOMElement $iframe, string $url): ?array
     {
         if ( ! $this->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
-            return '';
+            return null;
         }
 
         $attributes = $this->safeEmbedAttributes($iframe);
         $width = $this->boundedVisualIframeDimension($iframe, 'width');
         $height = $this->boundedVisualIframeDimension($iframe, 'height');
         if ( null === $width || null === $height ) {
-            return '';
+            return null;
         }
 
-        $attributes['src'] = $url;
-        $attributes['width'] = $this->attr($iframe, 'width') ?: $width;
-        $attributes['height'] = $this->attr($iframe, 'height') ?: $height;
-        $markup = '<iframe';
-        foreach ( $attributes as $name => $value ) {
-            $markup .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-
-        return $markup . '></iframe>';
+        return array_filter(array(
+            'src' => $url,
+            'title' => $attributes['title'] ?? '',
+            'width' => $this->attr($iframe, 'width') ?: $width,
+            'height' => $this->attr($iframe, 'height') ?: $height,
+            'className' => $attributes['class'] ?? '',
+            'allow' => $attributes['allow'] ?? '',
+            'loading' => $attributes['loading'] ?? '',
+            'sandbox' => $attributes['sandbox'] ?? '',
+            'referrerPolicy' => $attributes['referrerpolicy'] ?? '',
+            'allowFullScreen' => array_key_exists('allowfullscreen', $attributes),
+        ), static fn (mixed $value): bool => '' !== $value && false !== $value);
     }
 
     private function isSafeVisualIframeUrl(string $url): bool
