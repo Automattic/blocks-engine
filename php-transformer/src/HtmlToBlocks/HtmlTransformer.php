@@ -2430,7 +2430,8 @@ final class HtmlTransformer
 
         $hasBoxChrome = false;
         foreach ( $declarations as $property => $value ) {
-            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || 'border' === $property || str_starts_with($property, 'border-') )
+            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
+            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
                 && $this->cssValueIsNonZero($value)
             ) {
                 $hasBoxChrome = true;
