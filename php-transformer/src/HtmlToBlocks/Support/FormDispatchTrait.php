@@ -1013,7 +1013,7 @@ trait FormDispatchTrait
 
         $tagName = strtolower($control->tagName);
         $type = FormControlClassifier::controlType($control);
-        if ( 'button' === $type && $this->isSubmitLikeControl($control) ) {
+        if ( 'button' === $type && FormControlClassifier::isSubmitLikeControl($control) ) {
             $type = 'submit';
         }
         $metadata = array_filter(array(
