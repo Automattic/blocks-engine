@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
@@ -4492,6 +4493,11 @@ if ( 'svg' === $tagName ) {
 
         if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
             return $this->convertFlowContainerElement($element, $fallbacks);
+        }
+
+        $carousel = $this->authoredCarouselBlock($element);
+        if ( null !== $carousel ) {
+            return $carousel;
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
@@ -12444,6 +12450,178 @@ if ( 'svg' === $tagName ) {
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function authoredCarouselBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->hasCarouselIdentity($element) ) {
+            return null;
+        }
+
+        $hasPrevious = false;
+        $hasNext = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(
+                $this->attr($candidate, 'aria-label'),
+                $this->attr($candidate, 'title'),
+                $this->attr($candidate, 'class'),
+                $this->attr($candidate, 'data-hook'),
+                $candidate->textContent ?? '',
+            )));
+            $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
+            $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
+        }
+        if ( ! $hasPrevious || ! $hasNext ) {
+            return null;
+        }
+
+        $list = null;
+        $items = array();
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->isCarouselList($candidate) || $this->isExpandedCarouselState($candidate, $element) ) {
+                continue;
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) >= 2 && $this->carouselItemsHaveImages($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+                break;
+            }
+        }
+        if ( ! $list instanceof DOMElement ) {
+            return null;
+        }
+
+        $slides = array();
+        foreach ( $items as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( ! $image instanceof DOMElement ) {
+                return null;
+            }
+            $slide = $this->convertImageElement($image);
+            if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                return null;
+            }
+            $caption = $this->carouselItemCaption($item);
+            if ( '' !== $caption ) {
+                $slide['attrs']['caption'] = $caption;
+                $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+            }
+            $slides[] = $slide;
+        }
+
+        $generator = new AuthoredCarouselBlockGenerator();
+        $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $attributes = array(
+            'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
+            'itemsPerView' => min(4, count($slides)),
+            'wrap' => true,
+        );
+        $shell = $generator->shell($attributes);
+        $innerContent = array($shell['opening']);
+        foreach ( $slides as $_ ) {
+            $innerContent[] = null;
+        }
+        $innerContent[] = $shell['closing'];
+
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredCarouselBlockGenerator::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => $slides,
+            'innerHTML' => $shell['opening'] . $shell['closing'],
+            'innerContent' => $innerContent,
+        );
+    }
+
+    private function hasCarouselIdentity(DOMElement $element): bool
+    {
+        $identity = strtolower(implode(' ', array(
+            $element->tagName,
+            $this->attr($element, 'id'),
+            $this->attr($element, 'class'),
+            $this->attr($element, 'role'),
+            $this->attr($element, 'data-hook'),
+            $this->attr($element, 'data-testid'),
+        )));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    private function isCarouselList(DOMElement $element): bool
+    {
+        return 'list' === strtolower(trim($this->attr($element, 'role')))
+            || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
+    }
+
+    /** @return array<int, DOMElement> */
+    private function carouselListItems(DOMElement $list): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ('listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName)) ) {
+                $items[] = $child;
+            }
+        }
+
+        return $items;
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function carouselItemsHaveImages(array $items): bool
+    {
+        foreach ( $items as $item ) {
+            if ( 0 === $item->getElementsByTagName('img')->length ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+            $identity = strtolower(implode(' ', array(
+                $ancestor->tagName,
+                $this->attr($ancestor, 'class'),
+                $this->attr($ancestor, 'role'),
+                $this->attr($ancestor, 'data-hook'),
+            )));
+            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:dialog|expanded|lightbox|modal)(?:[^a-z0-9]|$)/', $identity) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function carouselItemCaption(DOMElement $item): string
+    {
+        $title = '';
+        $description = '';
+        foreach ( $item->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $identity = strtolower($this->attr($candidate, 'class') . ' ' . $this->attr($candidate, 'data-hook'));
+            if ( '' === $title && 1 === preg_match('/(?:^|[^a-z0-9])title(?:[^a-z0-9]|$)/', $identity) ) {
+                $title = trim($candidate->textContent ?? '');
+            }
+            if ( '' === $description && 1 === preg_match('/(?:^|[^a-z0-9])description(?:[^a-z0-9]|$)/', $identity) ) {
+                $description = trim($candidate->textContent ?? '');
+            }
+        }
+        if ( '' === $title ) {
+            $title = trim($this->attr($item, 'aria-label'));
+        }
+
+        $title = '' === $title ? '' : '<strong>' . $this->runtime->escapeHtml($title) . '</strong>';
+        $description = $this->runtime->escapeHtml($description);
+        return trim($title . ('' !== $title && '' !== $description ? '<br>' : '') . $description);
     }
 
     /**
