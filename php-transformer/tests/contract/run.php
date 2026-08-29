@@ -576,10 +576,25 @@ $spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toA
 $spanSocialBlock = $spanSocialResult['blocks'][0] ?? array();
 $spanSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $spanSocialBlock['innerBlocks'] ?? array());
 $assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
-$assert(array( 'facebook', 'instagram', 'mail' ) === $spanSocialServices, 'placeholder social hrefs are skipped and mailto maps to the mail service', json_encode($spanSocialServices));
+$assert(array( 'facebook', 'twitter', 'instagram', 'mail' ) === $spanSocialServices, 'explicit labeled social placeholders infer their service while mailto maps to mail', json_encode($spanSocialServices));
 $assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
 $assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
 $assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
+
+$placeholderSocialSource = '<style>.footer-social{display:flex;gap:14px}.footer-social a{display:inline-flex;width:32px;height:32px}</style><div class="footer-social"><a href="#" aria-label="LinkedIn"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="X / Twitter"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="YouTube"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="GitHub"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a></div>';
+$placeholderSocialResult = ( new HtmlTransformer() )->transform($placeholderSocialSource)->toArray();
+$placeholderSocialBlock = $placeholderSocialResult['blocks'][0] ?? array();
+$placeholderSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$placeholderSocialUrls = array_map(static fn(array $link): string => (string) ($link['attrs']['url'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$placeholderSocialLabels = array_map(static fn(array $link): string => (string) ($link['attrs']['label'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$assert('core/social-links' === ($placeholderSocialBlock['blockName'] ?? null), 'explicit labeled social placeholders convert to core/social-links');
+$assert(array( 'linkedin', 'x', 'youtube', 'github' ) === $placeholderSocialServices, 'social placeholder services infer from accessible labels', json_encode($placeholderSocialServices));
+$assert(array( '#', '#', '#', '#' ) === $placeholderSocialUrls, 'social placeholder URLs survive unchanged', json_encode($placeholderSocialUrls));
+$assert(array( 'LinkedIn', 'X / Twitter', 'YouTube', 'GitHub' ) === $placeholderSocialLabels, 'social placeholder accessible labels survive', json_encode($placeholderSocialLabels));
+$assert(str_contains((string) ($placeholderSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'labeled SVG placeholders retain logos-only presentation');
+
+$unknownPlaceholderSocial = ( new HtmlTransformer() )->transform('<div class="footer-social"><a href="#" aria-label="Community"><svg aria-hidden="true"></svg></a></div>')->toArray();
+$assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockName'] ?? null), 'unknown placeholder labels do not fabricate social services');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');

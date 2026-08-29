@@ -24,6 +24,19 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         'x.com' => 'x', 'youtube.com' => 'youtube', 'youtu.be' => 'youtube',
     );
 
+    /** @var array<string,string> */
+    private const LABEL_SERVICES = array(
+        'behance' => 'behance', 'bluesky' => 'bluesky', 'discord' => 'discord',
+        'dribbble' => 'dribbble', 'facebook' => 'facebook', 'github' => 'github',
+        'gitlab' => 'gitlab', 'instagram' => 'instagram', 'linkedin' => 'linkedin',
+        'mastodon' => 'mastodon', 'pinterest' => 'pinterest', 'reddit' => 'reddit',
+        'soundcloud' => 'soundcloud', 'spotify' => 'spotify', 'telegram' => 'telegram',
+        'threads' => 'threads', 'tiktok' => 'tiktok', 'tumblr' => 'tumblr',
+        'twitch' => 'twitch', 'twitter' => 'twitter', 'vimeo' => 'vimeo',
+        'whatsapp' => 'whatsapp', 'x' => 'x', 'x twitter' => 'x',
+        'youtube' => 'youtube', 'email' => 'mail', 'mail' => 'mail',
+    );
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         // A source navigation landmark carries menu semantics that core/social-links
@@ -40,12 +53,9 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         $showLabels = false;
         $iconOnly = true;
         $structuralItems = true;
+        $explicit = $this->isExplicitSocialCluster($element);
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-            if ( '' === $url || ! $this->isUsableSocialUrl($url) ) {
-                continue;
-            }
-
             $label = trim($this->attr($anchor, 'aria-label'));
             if ( '' === $label ) {
                 $label = trim($this->attr($anchor, 'title'));
@@ -53,6 +63,13 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             $text = trim((string) $anchor->textContent);
             if ( '' === $label ) {
                 $label = $text;
+            }
+            $service = $this->service($url) ?? $this->serviceFromLabel($label);
+            $labeledPlaceholder = $explicit
+                && $this->isLocalPlaceholderUrl($url)
+                && null !== $service;
+            if ( '' === $url || (! $this->isUsableSocialUrl($url) && ! $labeledPlaceholder) ) {
+                continue;
             }
             $showLabels = $showLabels || '' !== $text;
             $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
@@ -62,7 +79,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
                 $context->presentationAttributes($sourceElement),
                 array_filter(array(
                 'url' => $url,
-                'service' => $this->service($url) ?? 'chain',
+                'service' => $service ?? 'chain',
                 'label' => $label,
                 ), static fn(string $value): bool => '' !== $value)
             ), array(), $sourceElement);
@@ -91,9 +108,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     /** @param array<int,DOMElement> $anchors */
     private function isSocialCluster(DOMElement $element, array $anchors): bool
     {
-        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label') . ' ' . $this->attr($element, 'role'));
-        $explicit = 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
-        if ( $explicit ) {
+        if ( $this->isExplicitSocialCluster($element) ) {
             return true;
         }
 
@@ -106,6 +121,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return true;
+    }
+
+    private function isExplicitSocialCluster(DOMElement $element): bool
+    {
+        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label') . ' ' . $this->attr($element, 'role'));
+        return 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
     }
 
     /** @return array<int,DOMElement> */
@@ -155,6 +176,18 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return null;
+    }
+
+    private function serviceFromLabel(string $label): ?string
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', ' ', $label)));
+        $normalized = preg_replace('/^(?:follow us on|follow|visit)\s+/', '', $normalized) ?? $normalized;
+        return self::LABEL_SERVICES[$normalized] ?? null;
+    }
+
+    private function isLocalPlaceholderUrl(string $url): bool
+    {
+        return str_starts_with(ltrim(trim($url), '/'), '#');
     }
 
     private function structuralItem(DOMElement $anchor, DOMElement $cluster): DOMElement

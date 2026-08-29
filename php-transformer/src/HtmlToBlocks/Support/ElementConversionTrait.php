@@ -396,6 +396,16 @@ trait ElementConversionTrait
             return $spacer;
         }
 
+        // Explicit social clusters are commonly authored as flex rows. Their
+        // core/social-links representation is more specific than generic
+        // author-owned layout preservation and carries the source presentation
+        // attributes itself, so recognize it before `display:flex` sends the
+        // container down the generic layout path.
+        $socialLinks = $this->recognizePatterns($element, $fallbacks, array(SocialLinksPattern::class));
+        if ( null !== $socialLinks ) {
+            return $socialLinks;
+        }
+
         $flankedSeparator = $this->flankedSeparatorBlockFromElement($element);
         if ( null !== $flankedSeparator ) {
             return $flankedSeparator;
