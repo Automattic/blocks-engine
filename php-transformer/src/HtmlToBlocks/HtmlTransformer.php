@@ -36,6 +36,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
@@ -102,7 +104,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolut
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
@@ -131,7 +132,6 @@ final class HtmlTransformer
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use DomHelpersTrait;
     use ElementConversionTrait;
-    use FormDispatchTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
@@ -285,6 +285,8 @@ final class HtmlTransformer
     private readonly FormCompositionPlanner $formCompositionPlanner;
 
     private readonly FormFallbackFindingBuilder $formFallbackFindingBuilder;
+
+    private readonly FormDispatcher $formDispatcher;
 
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
@@ -440,7 +442,7 @@ final class HtmlTransformer
                 $this->generatedBlocks()->register($identity, $definition);
             },
             function (string $text): void {
-                $this->registerFormControlEcho($text);
+                $this->transformationEvidence()->recordFormControlEcho($text);
             },
             fn (string $text): string => $this->runtime->escapeHtml($text),
             fn (string $id): string => $this->safeAnchor($id)
@@ -466,7 +468,7 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             function (string $text): void {
-                $this->registerFormControlEcho($text);
+                $this->transformationEvidence()->recordFormControlEcho($text);
             }
         );
         $this->readableFormBlockBuilder = new ReadableFormBlockBuilder(
@@ -518,6 +520,20 @@ final class HtmlTransformer
             $this->pseudoFormAnalyzer
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
+        $this->formDispatcher = new FormDispatcher(new FormDispatchContext(
+            fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromForm($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->formCompositionPlanner->compose($element, $fallbacks);
+            },
+            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $this->formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock),
+            function (DOMElement $element, ?array $readableFormBlock): void {
+                $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
+            },
+            fn (DOMElement $element, bool $allowFormEvents = false): ?array => $this->readableFormBlockBuilder->build($element, $allowFormEvents),
+            fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
+        ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
@@ -650,7 +666,6 @@ final class HtmlTransformer
         return new SearchBlockConversionContext(
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): array => $this->eventMetadata($element),
-            fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -4158,7 +4173,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( 'form' === $tagName ) {
-            return $this->convertFormDispatchElement($element, $fallbacks);
+            return $this->formDispatcher->convert($element, $fallbacks);
         }
 
         if ( 'nav' === $tagName ) {

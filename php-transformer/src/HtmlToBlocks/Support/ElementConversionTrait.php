@@ -389,7 +389,7 @@ trait ElementConversionTrait
             return null;
         }
 
-        $this->captureDivBasedPseudoFormFallback($element, $fallbacks);
+        $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks);
 
         $spacer = $this->recognizePatterns($element, $fallbacks, array(SpacerPattern::class));
         if ( null !== $spacer ) {
