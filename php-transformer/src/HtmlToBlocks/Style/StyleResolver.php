@@ -810,11 +810,11 @@ final class StyleResolver
      *
      * KNOWN LIMITATION, load-bearing: `staticStyleRules` and
      * `conditionalStyleRules` are filtered through `safeVisualDeclarations()`
-     * before they are stored, so only properties on that 85-entry allowlist are
+     * before they are stored, so only properties on that 86-entry allowlist are
      * visible here. `position`, `z-index` and `direction` are on it; `overflow`,
      * `overflow-x/y`, `top`, `right`, `bottom`, `left`, `transform`,
      * `transition`, `animation`, `opacity`, `visibility`, `float`, `clear`,
-     * `align-self`, `justify-self`, `white-space`, `pointer-events` and `cursor`
+     * `align-self`, `justify-self`, `white-space` and `cursor`
      * are NOT. For those, an author declaration cannot register, the inline
      * override falls into the "no author rule declares it" branch, and it is
      * dropped unless it is on the narrow unmatched allowlist — while the
@@ -2225,6 +2225,7 @@ final class StyleResolver
             'padding-right',
             'padding-top',
             'place-items',
+            'pointer-events',
             'position',
             'row-gap',
             'text-align',
