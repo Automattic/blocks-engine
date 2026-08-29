@@ -154,6 +154,7 @@
             "php tests/unit/rich-text-element-converter.php",
             "php tests/unit/table-element-converter.php",
             "php tests/unit/unsupported-element-recorder.php",
+            "php tests/unit/authored-form-control-block-converter.php",
             "php tests/unit/form-runtime-requirement-analyzer.php",
             "php tests/unit/form-success-panel-metadata-builder.php",
             "php tests/unit/pseudo-form-analyzer.php",

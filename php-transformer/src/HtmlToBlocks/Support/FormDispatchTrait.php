@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
@@ -277,14 +276,14 @@ trait FormDispatchTrait
         }
 
         if ( 'select' === $tagName ) {
-            $selectBlock = $this->readableSelectBlockFromElement($element);
+            $selectBlock = $this->authoredFormControlBlockConverter->select($element);
             if ( null !== $selectBlock ) {
                 return $selectBlock;
             }
         }
 
         if ( 'input' === $tagName ) {
-            $inputBlock = $this->readableInputBlockFromElement($element);
+            $inputBlock = $this->authoredFormControlBlockConverter->input($element);
             if ( null !== $inputBlock ) {
                 return $inputBlock;
             }
@@ -335,124 +334,6 @@ trait FormDispatchTrait
         ));
 
         return true;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function readableSelectBlockFromElement(DOMElement $select): ?array
-    {
-        $label = $this->formControlMetadataBuilder->readableLabel($select);
-        $this->registerFormControlEcho($label);
-        $options = $this->formControlMetadataBuilder->options($select);
-        if ( array() === $options ) {
-            return null;
-        }
-        // Form controls are below the general high-value style boundary, so use
-        // the selector-resolved author cascade directly as the representation
-        // gate. Class/id presence alone is never sufficient.
-        if ( array() === $this->styleResolver->structuralPresentationDeclarations($select) ) {
-            $optionBlocks = array();
-            foreach ( $options as $option ) {
-                $optionLabel = trim((string) ($option['label'] ?? ''));
-                if ( '' === $optionLabel ) {
-                    continue;
-                }
-                if ( true === ($option['selected'] ?? false) ) {
-                    $optionLabel .= ' (selected)';
-                }
-                $this->registerFormControlEcho($optionLabel);
-                $optionBlocks[] = $this->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
-            }
-
-            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($select), array(
-                $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
-                $this->createBlock('core/list', array(), $optionBlocks, $select),
-            ), $select);
-        }
-        $this->generatedBlocks()->register(AuthoredSelectBlockGenerator::class, ( new AuthoredSelectBlockGenerator() )->definition());
-        $attrs = array_filter(array(
-            'id' => $this->attr($select, 'id'),
-            'name' => $this->attr($select, 'name'),
-            'ariaLabel' => $this->attr($select, 'aria-label'),
-            'placeholder' => $this->attr($select, 'placeholder'),
-            'className' => $this->attr($select, 'class'),
-            'style' => $this->attr($select, 'style'),
-            'options' => $options,
-            'selectedSummary' => $this->selectedOptionSummary($options),
-        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
-        $markup = ( new AuthoredSelectBlockGenerator() )->markup($attrs);
-        $controlBlock = array(
-            'blockName' => AuthoredSelectBlockGenerator::NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-
-        // Keep the long-standing group/anchor contract for callers that address
-        // the converted field structurally. Source identity lives on the native
-        // control, so authored select selectors never style this transparent shell.
-        return $this->createBlock('core/group', array_filter(array(
-            'anchor' => $this->safeAnchor($this->attr($select, 'id')),
-            'className' => 'blocks-engine-authored-select-wrapper',
-        )), array( $controlBlock ));
-    }
-
-    /**
-     * Return a compact native input only when authored presentation is proven by
-     * the resolved CSS cascade. The direct save shape preserves flex-child and
-     * selector semantics that a readable paragraph cannot represent.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function readableInputBlockFromElement(DOMElement $input): ?array
-    {
-        if ( array() === $this->styleResolver->structuralPresentationDeclarations($input) ) {
-            return null;
-        }
-        $this->generatedBlocks()->register(AuthoredInputBlockGenerator::class, ( new AuthoredInputBlockGenerator() )->definition());
-        $attrs = array_filter(array(
-            'type' => FormControlClassifier::controlType($input),
-            'id' => $this->attr($input, 'id'),
-            'name' => $this->attr($input, 'name'),
-            'value' => $this->attr($input, 'value'),
-            'placeholder' => $this->attr($input, 'placeholder'),
-            'ariaLabel' => $this->attr($input, 'aria-label'),
-            'className' => $this->attr($input, 'class'),
-            'style' => $this->attr($input, 'style'),
-            'min' => $this->attr($input, 'min'),
-            'max' => $this->attr($input, 'max'),
-            'step' => $this->attr($input, 'step'),
-            'required' => $input->hasAttribute('required'),
-            'disabled' => $input->hasAttribute('disabled'),
-            'readOnly' => $input->hasAttribute('readonly'),
-            'checked' => $input->hasAttribute('checked'),
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
-        $markup = ( new AuthoredInputBlockGenerator() )->markup($attrs);
-
-        return array(
-            'blockName' => AuthoredInputBlockGenerator::NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $options
-     */
-    private function selectedOptionSummary(array $options): string
-    {
-        $selected = array();
-        foreach ( $options as $option ) {
-            if ( ! empty($option['selected']) && '' !== trim((string) ($option['label'] ?? '')) ) {
-                $selected[] = (string) $option['label'];
-            }
-        }
-
-        return array() === $selected ? '' : implode(', ', $selected) . ' (selected)';
     }
 
     /**
