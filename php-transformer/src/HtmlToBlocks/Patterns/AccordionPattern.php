@@ -92,15 +92,62 @@ final class AccordionPattern implements PatternRecognizerInterface
      */
     private function accordionItemElements(DOMElement $element): array
     {
+        $signalRoots = array( $element );
         $children = $this->directChildElements($element);
         if ( 1 === count($children) ) {
+            $signalRoots[] = $children[0];
             $nested = $this->directChildElements($children[0]);
-            if ( count($nested) >= 2 && $this->allAccordionItemElements($nested) ) {
+            if ( count($nested) >= 2 ) {
                 $children = $nested;
             }
         }
 
-        return $this->allAccordionItemElements($children) ? $children : array();
+        if ( $this->allDisclosureItemElements($children) ) {
+            return $children;
+        }
+
+        foreach ( $signalRoots as $root ) {
+            if ( $this->hasAccordionSignal($root) && $this->allAccordionItemElements($children) ) {
+                return $children;
+            }
+        }
+
+        return array();
+    }
+
+    private function hasAccordionSignal(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        $class = strtolower($this->trimmedAttribute($element, 'class'));
+        $role = strtolower($this->trimmedAttribute($element, 'role'));
+
+        return str_contains($class, 'accordion')
+            || str_contains($class, 'faq')
+            || 'accordion' === $role
+            || in_array($tagName, array( 'section', 'div', 'ul', 'ol' ), true) && str_contains(strtolower($this->trimmedAttribute($element, 'aria-label')), 'faq');
+    }
+
+    /**
+     * @param list<DOMElement> $elements
+     */
+    private function allDisclosureItemElements(array $elements): bool
+    {
+        if ( count($elements) < 2 ) {
+            return false;
+        }
+
+        foreach ( $elements as $element ) {
+            if ( 'details' === strtolower($element->tagName) ) {
+                continue;
+            }
+
+            $title = $this->titleElement($element);
+            if ( ! $title instanceof DOMElement || ! $this->isDisclosureTitle($title) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -153,15 +200,40 @@ final class AccordionPattern implements PatternRecognizerInterface
     private function titleElement(DOMElement $item): ?DOMElement
     {
         foreach ( $this->directChildElements($item) as $child ) {
-            $tagName = strtolower($child->tagName);
-            if ( 'summary' === $tagName || 'button' === $tagName || preg_match('/^h[1-6]$/', $tagName) ) {
-                return $child;
+            $title = $this->asTitleElement($child);
+            if ( $title instanceof DOMElement ) {
+                return $title;
             }
 
-            $class = strtolower($this->trimmedAttribute($child, 'class'));
-            if ( str_contains($class, 'title') || str_contains($class, 'heading') || str_contains($class, 'question') || str_contains($class, 'trigger') ) {
-                return $child;
+            if ( ! in_array(strtolower($child->tagName), array( 'div', 'span', 'header' ), true) ) {
+                continue;
             }
+
+            foreach ( $this->directChildElements($child) as $grandchild ) {
+                $title = $this->asTitleElement($grandchild);
+                if ( $title instanceof DOMElement ) {
+                    return $title;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function asTitleElement(DOMElement $element): ?DOMElement
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'summary' === $tagName || 'button' === $tagName || preg_match('/^h[1-6]$/', $tagName) ) {
+            return $element;
+        }
+
+        if ( $this->isDisclosureTitle($element) ) {
+            return $element;
+        }
+
+        $class = strtolower($this->trimmedAttribute($element, 'class'));
+        if ( str_contains($class, 'title') || str_contains($class, 'heading') || str_contains($class, 'question') || str_contains($class, 'trigger') ) {
+            return $element;
         }
 
         return null;

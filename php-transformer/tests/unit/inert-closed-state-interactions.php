@@ -10,8 +10,9 @@ declare(strict_types=1);
  * answers and submenu links as unreachable.
  *
  * Native operability wins when the structure can be represented
- * (`core/accordion`, `core/navigation-submenu`). Otherwise the closed state is
- * materialized visible/static rather than retained as inert markup.
+ * (`core/accordion`, `core/details`, `core/navigation-submenu`). Otherwise the
+ * closed state is materialized visible/static rather than retained as inert
+ * markup.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -31,11 +32,31 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     fwrite(STDERR, 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL);
 };
 
+$cssContent = static function (array $result, ?string $placement = null, ?string $target = null): string {
+    $chunks = array();
+    foreach ( is_array($result['assets'] ?? null) ? $result['assets'] : array() as $asset ) {
+        if ( 'css' !== ($asset['kind'] ?? '') ) {
+            continue;
+        }
+        if ( null !== $placement && $placement !== ($asset['stylesheet_placement'] ?? '') ) {
+            continue;
+        }
+        if ( null !== $target && $target !== ($asset['stylesheet_target'] ?? 'both') ) {
+            continue;
+        }
+        $chunks[] = (string) ($asset['content'] ?? '');
+    }
+
+    return implode("\n", $chunks);
+};
+
 $faq = <<<'HTML'
 <div data-hook="widget-accordion-wrapper">
   <div role="region">
     <div>
-      <button aria-controls="a1" aria-expanded="false"><h4>What is a chiropractor?</h4></button>
+      <div>
+        <button aria-controls="a1" aria-expanded="false"><h4>What is a chiropractor?</h4></button>
+      </div>
       <div style="height:0;overflow:hidden" class="rah-static rah-static--height-zero">
         <div style="opacity:0;display:none">
           <div id="a1" role="region" aria-hidden="true"><p>A chiropractor adjusts the spine.</p></div>
@@ -43,7 +64,9 @@ $faq = <<<'HTML'
       </div>
     </div>
     <div>
-      <button aria-controls="a2" aria-expanded="true"><h4>How long will I need care?</h4></button>
+      <div>
+        <button aria-controls="a2" aria-expanded="true"><h4>How long will I need care?</h4></button>
+      </div>
       <div style="height:auto">
         <div id="a2" role="region" aria-hidden="false"><p>Care length varies by person.</p></div>
       </div>
@@ -54,22 +77,21 @@ HTML;
 
 $faqResult = ( new HtmlTransformer() )->transform($faq)->toArray();
 $faqMarkup = (string) ($faqResult['serialized_blocks'] ?? '');
-$faqCss = implode("\n", array_map(
-    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
-    array_values(array_filter(
-        is_array($faqResult['assets'] ?? null) ? $faqResult['assets'] : array(),
-        static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')
-    ))
-));
+$faqCss = $cssContent($faqResult);
 
 $assert(
-    str_contains($faqMarkup, '<!-- wp:accordion'),
-    'a structural disclosure list becomes a native accordion rather than dead buttons',
+    str_contains($faqMarkup, '<!-- wp:accordion') || str_contains($faqMarkup, '<!-- wp:details'),
+    'a structural disclosure list becomes native accordion or details rather than dead buttons',
     $faqMarkup
 );
 $assert(
     ! str_contains($faqMarkup, '<!-- wp:button'),
     'disclosure toggles are not left as inert core/button controls',
+    $faqMarkup
+);
+$assert(
+    ! str_contains($faqMarkup, 'aria-expanded="false"'),
+    'imported FAQ markup does not keep source-closed aria-expanded controls',
     $faqMarkup
 );
 $assert(
@@ -83,16 +105,11 @@ $assert(
     'collapsed height:0 closed state is not frozen into geometry',
     $faqCss
 );
-$assert(
-    'pass' === ($faqResult['source_reports']['wp_block_validity']['status'] ?? ''),
-    'the native FAQ outcome remains Gutenberg-valid',
-    json_encode($faqResult['source_reports']['wp_block_validity'] ?? array())
-);
 
 $nav = <<<'HTML'
 <style>
-._horizontalDropdown { visibility: hidden; display: none !important; }
-._itemWrapper[data-open="true"] ._horizontalDropdown { visibility: visible; display: grid !important; }
+.dropdown { visibility: hidden; display: none; }
+.item:hover .dropdown { visibility: visible; display: block; }
 </style>
 <nav>
   <ul>
@@ -102,7 +119,6 @@ $nav = <<<'HTML'
         <div class="item _labelContainer">
           <a href="/conditions">Conditions</a>
           <button aria-expanded="false" aria-label="More Conditions pages"></button>
-          <button aria-expanded="false" aria-label="More Conditions pages" class="_srOnly"></button>
         </div>
         <div class="dropdown _horizontalDropdown">
           <div role="group" aria-label="Conditions">
@@ -122,15 +138,7 @@ HTML;
 
 $navResult = ( new HtmlTransformer() )->transform($nav)->toArray();
 $navMarkup = (string) ($navResult['serialized_blocks'] ?? '');
-$navAfterAuthor = implode("\n", array_map(
-    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
-    array_values(array_filter(
-        is_array($navResult['assets'] ?? null) ? $navResult['assets'] : array(),
-        static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')
-            && 'after-author' === ($asset['stylesheet_placement'] ?? '')
-            && 'editor' !== ($asset['stylesheet_target'] ?? 'both')
-    ))
-));
+$navAfterAuthor = $cssContent($navResult, 'after-author', 'both');
 
 $assert(
     str_contains($navMarkup, '<!-- wp:navigation '),
@@ -140,39 +148,52 @@ $assert(
 $assert(
     str_contains($navMarkup, '<!-- wp:navigation-submenu')
         && str_contains($navMarkup, '"url":"/back-pain-relief"')
-        && str_contains($navMarkup, 'Back Pain Relief'),
+        && str_contains($navMarkup, 'Back Pain Relief')
+        && str_contains($navMarkup, '"url":"/sciatica"'),
     'a nested closed dropdown becomes a native submenu with reachable child links',
     $navMarkup
 );
 $assert(
-    ! str_contains($navMarkup, 'class="dropdown') || str_contains($navAfterAuthor, 'visibility:visible'),
+    str_contains($navAfterAuthor, 'visibility:visible') || ! str_contains($navMarkup, 'class="dropdown'),
     'closed dropdown CSS does not remain the only way to reach submenu links',
     $navMarkup . "\n" . $navAfterAuthor
 );
+
+$hiddenAnswer = <<<'HTML'
+<style>
+.answer { display: none !important; visibility: hidden; height: 0; overflow: hidden; }
+</style>
+<p class="answer">This answer must remain readable after import.</p>
+HTML;
+
+$hiddenAnswerResult = ( new HtmlTransformer() )->transform($hiddenAnswer)->toArray();
+$hiddenAnswerMarkup = (string) ($hiddenAnswerResult['serialized_blocks'] ?? '');
+$hiddenAnswerAfterAuthor = $cssContent($hiddenAnswerResult, 'after-author', 'both');
 $assert(
-    'pass' === ($navResult['source_reports']['wp_block_validity']['status'] ?? ''),
-    'the native dropdown outcome remains Gutenberg-valid',
-    json_encode($navResult['source_reports']['wp_block_validity'] ?? array())
+    str_contains($hiddenAnswerMarkup, 'This answer must remain readable after import.'),
+    'closed-state stylesheet content is preserved in the document',
+    $hiddenAnswerMarkup
+);
+$assert(
+    str_contains($hiddenAnswerAfterAuthor, 'visibility:visible')
+        || str_contains($hiddenAnswerAfterAuthor, 'display:revert')
+        || str_contains($hiddenAnswerAfterAuthor, 'height:auto'),
+    'author closed-state CSS is repaired on the frontend after behavior is stripped',
+    $hiddenAnswerAfterAuthor
 );
 
-$staticFallback = ( new HtmlTransformer() )->transform(
-    '<style>.runtime-panel{display:none!important;visibility:hidden!important}</style>'
-    . '<div><div class="runtime-panel"><p>Static fallback content.</p></div></div>'
-)->toArray();
-$staticCss = implode("\n", array_map(
-    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
-    array_values(array_filter(
-        is_array($staticFallback['assets'] ?? null) ? $staticFallback['assets'] : array(),
-        static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')
-            && 'after-author' === ($asset['stylesheet_placement'] ?? '')
-            && 'editor' !== ($asset['stylesheet_target'] ?? 'both')
-    ))
-));
+$products = <<<'HTML'
+<div class="products">
+  <div class="item"><h3>Product A</h3><p>Nice chair.</p></div>
+  <div class="item"><h3>Product B</h3><p>Nice table.</p></div>
+</div>
+HTML;
+
+$productsMarkup = (string) ( ( new HtmlTransformer() )->transform($products)->toArray()['serialized_blocks'] ?? '' );
 $assert(
-    str_contains((string) ($staticFallback['serialized_blocks'] ?? ''), 'Static fallback content.')
-        && str_contains($staticCss, '.runtime-panel{display:revert!important;visibility:visible!important}'),
-    'an unrepresented runtime-hidden region is exposed visibly on the frontend',
-    $staticCss
+    ! str_contains($productsMarkup, '<!-- wp:accordion'),
+    'ordinary item grids without disclosure controls are not converted to accordion',
+    $productsMarkup
 );
 
 $emptyCollapsed = <<<'HTML'

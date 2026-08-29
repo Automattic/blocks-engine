@@ -114,9 +114,6 @@ final class ClosedStateNormalizer
 
     public function isDecorativeHiddenElement(DOMElement $element, callable $attr): bool
     {
-        if ( 'true' === strtolower(trim((string) $attr($element, 'aria-hidden'))) ) {
-            return true;
-        }
         if ( in_array(strtolower(trim((string) $attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
             return true;
         }
