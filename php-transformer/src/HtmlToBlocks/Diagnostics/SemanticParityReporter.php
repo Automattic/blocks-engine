@@ -162,6 +162,9 @@ final class SemanticParityReporter
     private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors, array &$seenNavigation): void
     {
         $landmark = $this->landmarkKindForElement($element);
+        if ( 'nav' === $landmark && $this->isSourceChromeOnlyNavigation($element) ) {
+            $landmark = '';
+        }
         if ( '' !== $landmark ) {
             if ( 'nav' === $landmark ) {
                 $signature = $this->sourceNavigationMenuSignature($this->sourceNavigationMenuItems($element));
@@ -279,7 +282,9 @@ final class SemanticParityReporter
      */
     private function collectSourceNavigationMenus(DOMElement $element, array &$menus, array &$seen): void
     {
-        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+        if ( ('nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')))
+            && ! $this->isSourceChromeOnlyNavigation($element)
+        ) {
             $items = $this->sourceNavigationMenuItems($element);
 
             $signature = $this->sourceNavigationMenuSignature($items);
@@ -460,6 +465,35 @@ final class SemanticParityReporter
         }
 
         return false;
+    }
+
+    private function isSourceChromeOnlyNavigation(DOMElement $element): bool
+    {
+        $hasToggle = false;
+        return $this->isSourceChromeOnlyNavigationContents($element, $hasToggle) && $hasToggle;
+    }
+
+    private function isSourceChromeOnlyNavigationContents(DOMElement $element, bool &$hasToggle): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'button' === strtolower($child->tagName) && $this->isSourceMenuToggleControl($child) ) {
+                $hasToggle = true;
+                continue;
+            }
+            if ( ! in_array(strtolower($child->tagName), array( 'div', 'span' ), true)
+                || ! $this->isSourceChromeOnlyNavigationContents($child, $hasToggle)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isSourceMenuToggleControl(DOMElement $element): bool

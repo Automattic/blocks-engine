@@ -32,6 +32,24 @@ $assert(str_contains($markup, '"url":"/about"') && str_contains($markup, '"url":
 $assert('pass' === ($result['source_reports']['semantic_parity']['status'] ?? ''), 'inert support children retain semantic navigation parity', json_encode($result['source_reports']['semantic_parity'] ?? array()));
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'promoted navigation remains Gutenberg-valid', json_encode($result['source_reports']['wp_block_validity'] ?? array()));
 
+$nestedSupport = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Site"><ul><li><a href="#features">Features</a></li><li><a href="#benefits">Benefits</a></li><li><a href="#signup">Signup</a></li></ul><div class="scroll-support"><div aria-hidden="true"><button tabindex="-1">Previous</button></div><div aria-hidden="true"><button tabindex="-1">Next</button></div></div></nav>'
+)->toArray();
+$nestedSupportMarkup = (string) ($nestedSupport['serialized_blocks'] ?? '');
+$assert(1 === substr_count($nestedSupportMarkup, '<!-- wp:navigation '), 'a neutral wrapper containing only hidden unfocusable controls promotes navigation', $nestedSupportMarkup);
+$assert(str_contains($nestedSupportMarkup, '"url":"#features"') && str_contains($nestedSupportMarkup, '"url":"#benefits"') && str_contains($nestedSupportMarkup, '"url":"#signup"'), 'nested inert support preserves every list destination', $nestedSupportMarkup);
+$assert(! str_contains($nestedSupportMarkup, 'scroll-support'), 'nested inert support does not become a companion block', $nestedSupportMarkup);
+
+$nestedFocusable = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Site"><ul><li><a href="#features">Features</a></li><li><a href="#benefits">Benefits</a></li></ul><div class="scroll-support"><div aria-hidden="true"><button>Next</button></div></div></nav>'
+)->toArray();
+$assert(! str_contains((string) ($nestedFocusable['serialized_blocks'] ?? ''), '<!-- wp:navigation '), 'a nested focusable control still rejects navigation promotion', (string) ($nestedFocusable['serialized_blocks'] ?? ''));
+
+$nestedDestination = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Site"><ul><li><a href="#features">Features</a></li><li><a href="#benefits">Benefits</a></li></ul><div class="scroll-support"><div aria-hidden="true"><a href="#next" tabindex="-1">Next</a></div></div></nav>'
+)->toArray();
+$assert(! str_contains((string) ($nestedDestination['serialized_blocks'] ?? ''), '<!-- wp:navigation '), 'a nested destination-bearing control still rejects navigation promotion', (string) ($nestedDestination['serialized_blocks'] ?? ''));
+
 $visible = ( new HtmlTransformer() )->transform(
     '<nav aria-label="Primary">' . $menu . '<span>Menu updated daily</span></nav>'
 )->toArray();
