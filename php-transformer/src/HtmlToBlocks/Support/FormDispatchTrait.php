@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopolog
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use DOMDocument;
 use DOMElement;
-use DOMNode;
 
 trait FormDispatchTrait
 {
@@ -480,7 +479,7 @@ trait FormDispatchTrait
             'selector'        => $this->elementSelector($element),
             'attributes'      => $this->htmlAttributes($element),
             'form'            => $this->formControlMetadataBuilder->form($element),
-            'success_panel'   => $this->formSuccessPanelMetadata($element),
+            'success_panel'   => $this->formSuccessPanelMetadataBuilder->build($element),
             'context'         => $this->sourceContext($element),
             'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($element),
             'events'          => $this->eventMetadata($element),
@@ -501,74 +500,6 @@ trait FormDispatchTrait
         }
 
         return FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback());
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function formSuccessPanelMetadata(DOMElement $form): array
-    {
-        if ( 'form' !== strtolower($form->tagName) ) {
-            foreach ( $this->descendantElements($form) as $descendant ) {
-                if ( $this->hasSuccessPanelSignal($descendant) ) {
-                    return $this->successPanelMetadata($descendant);
-                }
-            }
-
-            return array();
-        }
-
-        for ( $sibling = $form->nextSibling; $sibling instanceof DOMNode; $sibling = $sibling->nextSibling ) {
-            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( ! $sibling instanceof DOMElement ) {
-                return array();
-            }
-
-            if ( ! $this->hasSuccessPanelSignal($sibling) ) {
-                return array();
-            }
-
-            return $this->successPanelMetadata($sibling);
-        }
-
-        return array();
-    }
-
-    /** @return array<string, mixed> */
-    private function successPanelMetadata(DOMElement $element): array
-    {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
-        return array_filter(array(
-            'selector'       => $this->elementSelector($element),
-            'id'             => $this->attr($element, 'id'),
-            'class'          => $this->attr($element, 'class'),
-            'role'           => $this->attr($element, 'role'),
-            'aria_live'      => $this->attr($element, 'aria-live'),
-            'text'           => $this->normalizedSuccessPanelText($element),
-            'html'           => $boundedHtml['html'],
-            'html_bytes'     => $boundedHtml['bytes'],
-            'html_truncated' => $boundedHtml['truncated'],
-        ), static fn (mixed $value): bool => is_bool($value) || is_int($value) || '' !== trim((string) $value));
-    }
-
-    private function normalizedSuccessPanelText(DOMElement $element): string
-    {
-        $html = preg_replace('/<\/?[a-z][a-z0-9]*\b[^>]*>/i', ' ', $this->innerHtml($element)) ?? $element->textContent ?? '';
-        return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
-    }
-
-    private function hasSuccessPanelSignal(DOMElement $element): bool
-    {
-        $role = strtolower($this->attr($element, 'role'));
-        if ( in_array($role, array( 'status', 'alert' ), true) ) {
-            return true;
-        }
-
-        $tokens = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-live')));
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:success|sent|submitted|thank|thanks|confirmation|confirmed)(?:[^a-z0-9]|$)/', $tokens);
     }
 
     private function readableFormControlText(DOMElement $control): string

@@ -35,6 +35,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispa
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
@@ -270,6 +271,8 @@ final class HtmlTransformer
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
 
+    private readonly FormSuccessPanelMetadataBuilder $formSuccessPanelMetadataBuilder;
+
     private readonly SearchBlockConverter $searchBlockConverter;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -414,6 +417,11 @@ final class HtmlTransformer
         $this->formRuntimeRequirementAnalyzer = new FormRuntimeRequirementAnalyzer(
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element)
+        );
+        $this->formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+            fn (DOMElement $element): string => $this->innerHtml($element)
         );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
