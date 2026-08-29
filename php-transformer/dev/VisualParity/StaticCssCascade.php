@@ -29,6 +29,15 @@ use DOMElement;
 final class StaticCssCascade
 {
     /**
+     * Viewport width @media conditions are resolved against, matching the
+     * desktop reference the transformer itself uses for responsive decisions.
+     */
+    private const REFERENCE_VIEWPORT_WIDTH_PX = 1440;
+
+    /** Root font size used to convert rem/em media-query widths to pixels. */
+    private const ROOT_FONT_SIZE_PX = 16;
+
+    /**
      * @var array<int, array{selector: string, declarations: array<string, string>, specificity: int, order: int}>
      */
     private array $rules;
@@ -183,6 +192,15 @@ final class StaticCssCascade
         }
 
         foreach ( $cssBlocks as $css ) {
+            // Comments must go before anything reads the rule grammar. The flat
+            // `selector { declarations }` scan treats everything between the
+            // previous `}` and the next `{` as the selector, so a section header
+            // comment is glued onto the selector of the rule that follows it and
+            // that rule then matches nothing. It is silent, and it lands on the
+            // first rule after every comment — which in a hand-authored
+            // stylesheet is typically the structural one (`:root`, `*`, `body`,
+            // a layout container, a landmark).
+            $css = $this->stripComments($css);
             $css = $this->stripAtRuleBlocks($css);
             if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
                 continue;
@@ -210,12 +228,24 @@ final class StaticCssCascade
         return $rules;
     }
 
+    /** Remove `/* … *&#47;` comments so they cannot be absorbed into a selector. */
+    private function stripComments(string $css): string
+    {
+        return preg_replace('#/\*.*?\*/#s', '', $css) ?? $css;
+    }
+
     /**
      * Remove at-rule prelude tokens (@media/@supports/@font-face headers and
      * @keyframes blocks) that would otherwise corrupt the flat rule grammar.
-     * The nested rules inside @media/@supports are intentionally kept (flattened)
-     * because they still declare effective style; @keyframes interiors are dropped
-     * because their "selectors" (0%, to, from) are not element selectors.
+     *
+     * @media blocks are resolved against {@see REFERENCE_VIEWPORT_WIDTH_PX}
+     * rather than flattened unconditionally. Flattening every block makes a
+     * `@media (max-width: 1080px) { .main-nav { display: none } }` rule declare
+     * `display: none` on the desktop nav in base state, which is the opposite of
+     * what the stylesheet says at the reference width. @supports and @layer are
+     * still unwrapped: they carry no viewport condition, so their rules do
+     * declare effective style. @keyframes interiors are dropped because their
+     * "selectors" (0%, to, from) are not element selectors.
      */
     private function stripAtRuleBlocks(string $css): string
     {
@@ -224,10 +254,113 @@ final class StaticCssCascade
         // Drop @font-face / @import / @charset prelude+block which carry no element rules.
         $css = preg_replace('/@font-face\b[^{]*\{[^{}]*\}/i', '', $css) ?? $css;
         $css = preg_replace('/@(?:import|charset)\b[^;]*;/i', '', $css) ?? $css;
-        // Unwrap @media/@supports/@layer wrappers, keeping their inner rules.
-        $css = preg_replace('/@(?:media|supports|layer)\b[^{]*\{/i', '', $css) ?? $css;
+        // Resolve @media against the reference viewport, keeping only the blocks
+        // that apply there.
+        $css = $this->resolveMediaBlocks($css);
+        // Unwrap @supports/@layer wrappers, keeping their inner rules.
+        $css = preg_replace('/@(?:supports|layer)\b[^{]*\{/i', '', $css) ?? $css;
 
         return $css;
+    }
+
+    /**
+     * Inline the contents of every @media block that applies at the reference
+     * viewport and drop the rest, brace-balanced so nested rules survive intact.
+     */
+    private function resolveMediaBlocks(string $css): string
+    {
+        $out = '';
+        $offset = 0;
+        $length = strlen($css);
+
+        while ( $offset < $length ) {
+            if ( ! preg_match('/@media\b/i', $css, $match, PREG_OFFSET_CAPTURE, $offset) ) {
+                $out .= substr($css, $offset);
+                break;
+            }
+
+            $start = (int) $match[0][1];
+            $out  .= substr($css, $offset, $start - $offset);
+
+            $bracePos = strpos($css, '{', $start);
+            if ( false === $bracePos ) {
+                // Truncated at-rule with no block: nothing further to resolve.
+                break;
+            }
+
+            $condition = trim(substr($css, $start + strlen('@media'), $bracePos - $start - strlen('@media')));
+
+            $depth = 0;
+            $end   = $bracePos;
+            for ( $index = $bracePos; $index < $length; $index++ ) {
+                if ( '{' === $css[$index] ) {
+                    $depth++;
+                    continue;
+                }
+                if ( '}' === $css[$index] ) {
+                    $depth--;
+                    if ( 0 === $depth ) {
+                        $end = $index;
+                        break;
+                    }
+                }
+            }
+
+            if ( 0 !== $depth ) {
+                // Unbalanced block: keep the remainder verbatim rather than guessing.
+                $out .= substr($css, $bracePos + 1);
+                break;
+            }
+
+            if ( $this->mediaConditionApplies($condition) ) {
+                $out .= "\n" . substr($css, $bracePos + 1, $end - $bracePos - 1) . "\n";
+            }
+
+            $offset = $end + 1;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Does a media condition hold at the reference viewport?
+     *
+     * Width features are evaluated numerically. Non-visual media types are
+     * rejected. Anything else this resolver does not model (orientation,
+     * prefers-*, hover) is kept, so an unmodelled condition degrades to the
+     * previous flattening behaviour rather than silently deleting author style.
+     */
+    private function mediaConditionApplies(string $condition): bool
+    {
+        $condition = strtolower(trim($condition));
+
+        if ( '' === $condition ) {
+            return true;
+        }
+
+        if ( preg_match('/\b(?:print|speech|aural|braille|embossed|tty)\b/', $condition) ) {
+            return false;
+        }
+
+        foreach ( array( 'min' => '>=', 'max' => '<=' ) as $bound => $comparison ) {
+            if ( ! preg_match_all('/\(\s*' . $bound . '-width\s*:\s*([0-9.]+)\s*(px|rem|em)?\s*\)/', $condition, $matches, PREG_SET_ORDER) ) {
+                continue;
+            }
+            foreach ( $matches as $widthMatch ) {
+                $value = (float) $widthMatch[1];
+                if ( in_array($widthMatch[2] ?? 'px', array( 'rem', 'em' ), true) ) {
+                    $value *= self::ROOT_FONT_SIZE_PX;
+                }
+                $holds = '>=' === $comparison
+                    ? self::REFERENCE_VIEWPORT_WIDTH_PX >= $value
+                    : self::REFERENCE_VIEWPORT_WIDTH_PX <= $value;
+                if ( ! $holds ) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -268,7 +401,27 @@ final class StaticCssCascade
 
     private function matchesSimpleSelector(DOMElement $element, string $selector): bool
     {
-        $selector = trim(preg_replace('/:(hover|focus|active|visited|before|after)\b.*/', '', $selector) ?? $selector);
+        $selector = trim($selector);
+
+        // A rule gated on interaction state, or one targeting a pseudo-element,
+        // does not style the element in its resting state. Rewriting it into a
+        // base-state rule (by deleting the pseudo-class and matching what is
+        // left) lets `a:hover { color: red }` outrank the real `a { color: blue }`
+        // on source order, so the probe reports the hover colour as the base
+        // colour and every such link becomes a false parity finding.
+        if ( $this->isNonBaseStateSelector($selector) ) {
+            return false;
+        }
+
+        // `:root` is the document element. Without this it falls through every
+        // branch below and returns false, so `:root { --token: … }` never matches
+        // and no custom property is ever collected — leaving every `var(--token)`
+        // reference unresolved on the source side while the candidate side
+        // carries values the transformer already resolved.
+        if ( ':root' === strtolower($selector) ) {
+            return null !== $element->ownerDocument && $element === $element->ownerDocument->documentElement;
+        }
+
         if ( '' === $selector || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
             return false;
         }
@@ -314,6 +467,29 @@ final class StaticCssCascade
         }
 
         return strtolower($selector) === strtolower($element->tagName);
+    }
+
+    /**
+     * Does this selector depend on interaction state or target a pseudo-element?
+     *
+     * Structural pseudo-classes (`:first-child`, `:nth-of-type()`, `:not()`) are
+     * deliberately absent: they describe the resting document, so they belong in
+     * base state. They are unsupported by the matcher for other reasons and fail
+     * closed further down rather than being silently rewritten.
+     */
+    private function isNonBaseStateSelector(string $selector): bool
+    {
+        return 1 === preg_match(
+            '/::?(?:hover|focus|focus-within|focus-visible|focus-visible-within|active|visited|target|any-link|checked|indeterminate|placeholder-shown|user-invalid)\b/i',
+            $selector
+        ) || 1 === preg_match(
+            '/::(?:before|after|placeholder|selection|marker|backdrop|first-line|first-letter)\b/i',
+            $selector
+        ) || 1 === preg_match(
+            // Single-colon legacy pseudo-element syntax (`:before`, `:after`).
+            '/:(?:before|after|first-line|first-letter)\b/i',
+            $selector
+        );
     }
 
     private function matchesChildSelector(DOMElement $element, string $selector): bool
