@@ -73,6 +73,7 @@
        "php tests/unit/visual-iframe-block.php",
        "php tests/unit/authored-marquee-block.php",
        "php tests/unit/responsive-document-variants.php",
+       "php tests/unit/captured-dialog-projector.php",
        "php tests/unit/editability-report.php",
       "php tests/unit/projected-branch-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
