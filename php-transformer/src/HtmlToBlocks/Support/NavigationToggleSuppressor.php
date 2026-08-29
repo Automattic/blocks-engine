@@ -3,12 +3,31 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
 
-trait NavigationToggleSuppressionTrait
+/**
+ * Decides which source menu toggles and overlay menus are superseded by the
+ * emitted core/navigation, and which source nodes the projection suppresses.
+ *
+ * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
+ * dependency it needs from the transformer is declared on
+ * {@see NavigationToggleSuppressionContext}, so this class has no $this access
+ * to the transformer and can be exercised without constructing one.
+ *
+ * The three projection maps below are per-transformer rather than per-transform,
+ * preserving the lifetime they had as trait properties. That lifetime is the
+ * subject of a separate defect report; this class does not change it.
+ */
+final class NavigationToggleSuppressor
 {
+    public function __construct(
+        private readonly NavigationToggleSuppressionContext $context,
+        private readonly StyleResolver $styleResolver
+    ) {
+    }
     /** @var array<string, DOMElement> */
     private array $projectedNavigationTargetsByControlPath = array();
 
@@ -23,12 +42,12 @@ trait NavigationToggleSuppressionTrait
      * conversion. The responsive core/navigation must occupy the control's
      * layout slot, not the hidden overlay's document position.
      */
-    private function collectProjectedNavigationRelationships(DOMElement $root): void
+    public function collectProjectedNavigationRelationships(DOMElement $root): void
     {
         $elementsById = array();
         foreach ( $root->getElementsByTagName('*') as $element ) {
-            if ( $element instanceof DOMElement && '' !== trim($this->attr($element, 'id')) ) {
-                $elementsById[trim($this->attr($element, 'id'))] = $element;
+            if ( $element instanceof DOMElement && '' !== trim($this->context->attr($element, 'id')) ) {
+                $elementsById[trim($this->context->attr($element, 'id'))] = $element;
             }
         }
 
@@ -37,7 +56,7 @@ trait NavigationToggleSuppressionTrait
                 continue;
             }
 
-            foreach ( preg_split('/\s+/', trim($this->attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( preg_split('/\s+/', trim($this->context->attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
                 $navigation = $target instanceof DOMElement ? $this->hiddenNavigationInControlledTarget($target) : null;
                 if ( ! $target instanceof DOMElement || ! $navigation instanceof DOMElement ) {
@@ -73,7 +92,7 @@ trait NavigationToggleSuppressionTrait
 
     private function hasDialogPopupSemantics(DOMElement $control): bool
     {
-        return in_array('dialog', preg_split('/\s+/', strtolower(trim($this->attr($control, 'aria-haspopup')))) ?: array(), true)
+        return in_array('dialog', preg_split('/\s+/', strtolower(trim($this->context->attr($control, 'aria-haspopup')))) ?: array(), true)
             && $control->hasAttribute('aria-expanded');
     }
 
@@ -110,7 +129,7 @@ trait NavigationToggleSuppressionTrait
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
         $tagName = strtolower($target->tagName);
-        $role = strtolower($this->attr($target, 'role'));
+        $role = strtolower($this->context->attr($target, 'role'));
         if ( ! $this->sourceElementIsHidden($target)
             || ( ! in_array($tagName, array( 'dialog', 'nav' ), true)
                 && ! in_array($role, array( 'dialog', 'alertdialog', 'navigation' ), true) ) ) {
@@ -137,28 +156,28 @@ trait NavigationToggleSuppressionTrait
     private function isSemanticDialog(DOMElement $element): bool
     {
         return 'dialog' === strtolower($element->tagName)
-            || in_array(strtolower($this->attr($element, 'role')), array( 'dialog', 'alertdialog' ), true);
+            || in_array(strtolower($this->context->attr($element, 'role')), array( 'dialog', 'alertdialog' ), true);
     }
 
     private function sourceElementIsHidden(DOMElement $element): bool
     {
-        return $this->sourceElementStartsHidden($element)
+        return $this->context->sourceElementStartsHidden($element)
             || $element->hasAttribute('hidden')
-            || 'true' === strtolower($this->attr($element, 'aria-hidden'))
-            || 'false' === strtolower($this->attr($element, 'data-visible'));
+            || 'true' === strtolower($this->context->attr($element, 'aria-hidden'))
+            || 'false' === strtolower($this->context->attr($element, 'data-visible'));
     }
 
-    private function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
+    public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement
     {
         return $this->projectedNavigationTargetsByControlPath[$control->getNodePath()] ?? null;
     }
 
-    private function isImplicitDialogNavigationControl(DOMElement $control): bool
+    public function isImplicitDialogNavigationControl(DOMElement $control): bool
     {
         return isset($this->implicitDialogNavigationControlPaths[$control->getNodePath()]);
     }
 
-    private function isProjectedNavigationSuppressed(DOMElement $element): bool
+    public function isProjectedNavigationSuppressed(DOMElement $element): bool
     {
         return isset($this->projectedNavigationSuppressedPaths[$element->getNodePath()]);
     }
@@ -181,7 +200,7 @@ trait NavigationToggleSuppressionTrait
      * labeled buttons, and toggle-shaped controls with no associated navigation,
      * still convert to core/button normally.
      */
-    private function isRedundantMenuToggleControl(DOMElement $element): bool
+    public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
         if ( ! $this->isHamburgerMenuToggleControl($element) ) {
             return false;
@@ -200,7 +219,7 @@ trait NavigationToggleSuppressionTrait
      * predicate captures the superseded selectors independently of which drop
      * path executed, with no per-path bookkeeping.
      */
-    private function collectSupersededNavToggleSelectors(DOMElement $root): void
+    public function collectSupersededNavToggleSelectors(DOMElement $root): void
     {
         foreach ( $root->getElementsByTagName('*') as $element ) {
             if ( $element instanceof DOMElement && $this->isRedundantMenuToggleControl($element) ) {
@@ -224,13 +243,13 @@ trait NavigationToggleSuppressionTrait
     {
         $this->recordSupersededSelectorsForElement($toggle);
 
-        foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+        foreach ( preg_split('/\s+/', trim($this->context->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
             $controlledId = ltrim(trim($controlledId), '#');
             if ( '' === $controlledId ) {
                 continue;
             }
 
-            $this->runtimeSelectors()->supersede('#' . $controlledId);
+            $this->context->runtimeSelectors()->supersede('#' . $controlledId);
 
             $target = $this->elementWithId($toggle, $controlledId);
             if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) ) {
@@ -290,25 +309,25 @@ trait NavigationToggleSuppressionTrait
             return false;
         }
 
-        $label = strtolower($this->attr($element, 'aria-label'));
+        $label = strtolower($this->context->attr($element, 'aria-label'));
         if ( str_contains($label, 'navigation') || str_contains($label, 'menu') || str_contains($label, 'mobile') ) {
             return true;
         }
 
-        $role = strtolower($this->attr($element, 'role'));
+        $role = strtolower($this->context->attr($element, 'role'));
         return 'navigation' === $role;
     }
 
     private function recordSupersededSelectorsForElement(DOMElement $element): void
     {
-        $id = trim($this->attr($element, 'id'));
+        $id = trim($this->context->attr($element, 'id'));
         if ( '' !== $id ) {
-            $this->runtimeSelectors()->supersede('#' . $id);
+            $this->context->runtimeSelectors()->supersede('#' . $id);
         }
 
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array() as $class ) {
             if ( '' !== $class ) {
-                $this->runtimeSelectors()->supersede('.' . $class);
+                $this->context->runtimeSelectors()->supersede('.' . $class);
             }
         }
     }
@@ -324,7 +343,7 @@ trait NavigationToggleSuppressionTrait
         }
 
         $isButton = 'button' === $tagName;
-        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->attr($element, 'role'));
+        $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->context->attr($element, 'role'));
         if ( ! $isButton && ! $isButtonRoleAnchor ) {
             return false;
         }
@@ -351,7 +370,7 @@ trait NavigationToggleSuppressionTrait
 
     private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
     {
-        $controlId = trim($this->attr($element, 'for'));
+        $controlId = trim($this->context->attr($element, 'for'));
         if ( '' === $controlId || '' !== $this->visibleMenuToggleLabel($element) ) {
             return false;
         }
@@ -359,7 +378,7 @@ trait NavigationToggleSuppressionTrait
         $control = $this->elementWithId($element, $controlId);
         if ( ! $control instanceof DOMElement
             || 'input' !== strtolower($control->tagName)
-            || 'checkbox' !== strtolower($this->attr($control, 'type'))
+            || 'checkbox' !== strtolower($this->context->attr($control, 'type'))
             || ! $this->hasCheckboxNavigationToggleSignal($element, $control)
         ) {
             return false;
@@ -381,7 +400,7 @@ trait NavigationToggleSuppressionTrait
         $identity = array();
         foreach ( array( $label, $control ) as $element ) {
             foreach ( array( 'id', 'class', 'aria-label', 'aria-controls', 'title' ) as $attribute ) {
-                $identity[] = $this->attr($element, $attribute);
+                $identity[] = $this->context->attr($element, $attribute);
             }
         }
 
@@ -390,8 +409,8 @@ trait NavigationToggleSuppressionTrait
 
     private function isCheckboxWithEmptyBoundLabel(DOMElement $element): bool
     {
-        $controlId = trim($this->attr($element, 'id'));
-        if ( '' === $controlId || 'checkbox' !== strtolower($this->attr($element, 'type')) ) {
+        $controlId = trim($this->context->attr($element, 'id'));
+        if ( '' === $controlId || 'checkbox' !== strtolower($this->context->attr($element, 'type')) ) {
             return false;
         }
 
@@ -402,7 +421,7 @@ trait NavigationToggleSuppressionTrait
 
         foreach ( $document->getElementsByTagName('label') as $label ) {
             if ( $label instanceof DOMElement
-                && $controlId === trim($this->attr($label, 'for'))
+                && $controlId === trim($this->context->attr($label, 'for'))
                 && $this->isCheckboxBoundEmptyLabel($label)
             ) {
                 return true;
@@ -510,7 +529,7 @@ trait NavigationToggleSuppressionTrait
 
         if ( ! $node instanceof DOMElement
             || 'svg' === strtolower($node->tagName)
-            || 'true' === strtolower($this->attr($node, 'aria-hidden'))
+            || 'true' === strtolower($this->context->attr($node, 'aria-hidden'))
             || $this->hasHiddenDisplay($node) ) {
             return '';
         }
@@ -539,7 +558,7 @@ trait NavigationToggleSuppressionTrait
      */
     private function hasAssociatedNavigationMenu(DOMElement $toggle): bool
     {
-        $controlledIds = preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array();
+        $controlledIds = preg_split('/\s+/', trim($this->context->attr($toggle, 'aria-controls'))) ?: array();
         foreach ( $controlledIds as $controlledId ) {
             if ( '' === $controlledId ) {
                 continue;
@@ -573,7 +592,7 @@ trait NavigationToggleSuppressionTrait
      * Preserve a responsive overlay only when the source declares equivalent
      * desktop/mobile menus or an associated hamburger control.
      */
-    private function navigationOverlayMenu(DOMElement $navigation): string
+    public function navigationOverlayMenu(DOMElement $navigation): string
     {
         if ( $this->hasEquivalentSourceNavigationVariant($navigation) ) {
             return 'mobile';
@@ -600,27 +619,27 @@ trait NavigationToggleSuppressionTrait
                 continue;
             }
 
-            if ( $this->elementContains($navigation, $toggle) ) {
+            if ( $this->context->elementContains($navigation, $toggle) ) {
                 return 'mobile';
             }
 
-            foreach ( preg_split('/\s+/', trim($this->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
+            foreach ( preg_split('/\s+/', trim($this->context->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
                 $target = '' === $controlledId ? null : $this->elementWithId($toggle, $controlledId);
                 if ( $target instanceof DOMElement
-                    && ($this->elementContains($target, $navigation) || $this->elementContains($navigation, $target))
+                    && ($this->context->elementContains($target, $navigation) || $this->context->elementContains($navigation, $target))
                 ) {
                     return 'mobile';
                 }
             }
 
             for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
-                if ( $this->elementContains($container, $navigation) ) {
+                if ( $this->context->elementContains($container, $navigation) ) {
                     return 'mobile';
                 }
             }
 
             $scope = $this->menuToggleScope($toggle);
-            if ( 'body' !== strtolower($scope->tagName) && $this->elementContains($scope, $navigation) ) {
+            if ( 'body' !== strtolower($scope->tagName) && $this->context->elementContains($scope, $navigation) ) {
                 return 'mobile';
             }
         }
@@ -645,8 +664,8 @@ trait NavigationToggleSuppressionTrait
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
                 || $this->isProjectedNavigationSuppressed($candidate)
-                || $this->elementContains($navigationRoot, $candidate)
-                || $this->elementContains($candidate, $navigationRoot)
+                || $this->context->elementContains($navigationRoot, $candidate)
+                || $this->context->elementContains($candidate, $navigationRoot)
             ) {
                 continue;
             }
@@ -663,7 +682,7 @@ trait NavigationToggleSuppressionTrait
     private function hasMobileNavigationSignal(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement && 'body' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            $identity = strtolower(trim($this->attr($node, 'id') . ' ' . $this->attr($node, 'class') . ' ' . $this->attr($node, 'aria-label')));
+            $identity = strtolower(trim($this->context->attr($node, 'id') . ' ' . $this->context->attr($node, 'class') . ' ' . $this->context->attr($node, 'aria-label')));
             if ( preg_match('/(?:^|[\s_-])(?:mobile|drawer|offcanvas|overlay|menu-panel|nav-panel)(?:$|[\s_-])/', $identity) ) {
                 return true;
             }
@@ -688,23 +707,13 @@ trait NavigationToggleSuppressionTrait
         $links = array();
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
             if ( $anchor instanceof DOMElement && '' !== trim($anchor->textContent ?? '') ) {
-                $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim($this->attr($anchor, 'href'));
+                $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim($this->context->attr($anchor, 'href'));
             }
         }
 
         return 2 > count($links) ? '' : implode("\n", $links);
     }
 
-    private function elementContains(DOMElement $container, DOMElement $element): bool
-    {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($container) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
 
     /**
      * Whether an element is a navigation menu the toggle can be bound to: a
@@ -719,7 +728,7 @@ trait NavigationToggleSuppressionTrait
 
     private function isNavigationLandmark(DOMElement $element): bool
     {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role'));
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->context->attr($element, 'role'));
     }
 
     /**
@@ -734,7 +743,7 @@ trait NavigationToggleSuppressionTrait
                 return $node;
             }
 
-            if ( in_array($tagName, array( 'header', 'nav' ), true) || in_array(strtolower($this->attr($node, 'role')), array( 'banner', 'navigation' ), true) ) {
+            if ( in_array($tagName, array( 'header', 'nav' ), true) || in_array(strtolower($this->context->attr($node, 'role')), array( 'banner', 'navigation' ), true) ) {
                 return $node;
             }
         }
@@ -742,21 +751,21 @@ trait NavigationToggleSuppressionTrait
         return $toggle;
     }
 
-    private function isNavigationMenuCandidate(DOMElement $element): bool
+    public function isNavigationMenuCandidate(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
-        if ( 'nav' === $tagName || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+        if ( 'nav' === $tagName || 'navigation' === strtolower($this->context->attr($element, 'role')) ) {
             return true;
         }
 
-        return in_array($tagName, array( 'ul', 'ol' ), true) && $this->hasSourceNavigationSignal($element);
+        return in_array($tagName, array( 'ul', 'ol' ), true) && $this->context->hasSourceNavigationSignal($element);
     }
 
-    private function convertsToCoreNavigation(DOMElement $element): bool
+    public function convertsToCoreNavigation(DOMElement $element): bool
     {
-        $navigation = $this->patternRecognizers->firstMatch(
+        $navigation = $this->context->patternRecognizers()->firstMatch(
             $element,
-            $this->probePatternContext(),
+            $this->context->probePatternContext(),
             array( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern::class )
         );
 
