@@ -1738,8 +1738,8 @@ final class HtmlTransformer
 
         $authorAnalysis = $this->composedAuthorSelectorAnalysis($this->authorStylesheetPayloads($html, $staticCss));
         $sourceTagSelectorNames = $authorAnalysis['source_tags'];
-        $authorSelectors = $authorAnalysis['selectors'];
         $authorStyleRules = $authorAnalysis['rules'];
+        $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
         foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
             $this->authorSelectorProjections()->ensureTagMarker($tagName);
         }
@@ -2147,10 +2147,10 @@ final class HtmlTransformer
         return array('root' => $root, 'fallback' => $fallback);
     }
 
-    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    /** @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
     private function composedAuthorSelectorAnalysis(array $payloads): array
     {
-        $composed = array('source_tags' => array(), 'selectors' => array(), 'rules' => array());
+        $composed = array('source_tags' => array(), 'rules' => array());
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload['content']);
             $analysis = $this->analysisCache->authorSelectors($key);
@@ -2163,7 +2163,6 @@ final class HtmlTransformer
                 ++$this->analysisCache->authorSelectorHits;
             }
             $composed['source_tags'] += $analysis['source_tags'];
-            $composed['selectors'] = array_merge($composed['selectors'], $analysis['selectors']);
             foreach ( $analysis['rules'] as $rule ) {
                 $rule['order'] = count($composed['rules']);
                 $rule['source_path'] = $payload['source_path'];
@@ -2175,17 +2174,15 @@ final class HtmlTransformer
         return $composed;
     }
 
-    /** @return array{source_tags: array<string, bool>, selectors: list<array{selector: string, parsed: array<string, mixed>}>, rules: list<array<string, mixed>>} */
+    /** @return array{source_tags: array<string, bool>, rules: list<array<string, mixed>>} */
     private function authorSelectorAnalysis(string $css): array
     {
         $sourceTags = array();
-        $selectors = array();
         $rules = array();
-        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$selectors, &$rules): string {
+        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$rules): string {
             $ruleSelectors = array();
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                 $parsed = $this->parsedCssSelector($selector);
-                $selectors[] = array('selector' => $selector, 'parsed' => $parsed);
                 $directSelector = preg_replace('/::[a-z-]+(?:\([^)]*\))?$/i', '', trim($selector)) ?? $selector;
                 $ruleSelectors[] = array('selector' => $selector, 'parsed' => $parsed, 'direct_child_parsed' => $this->parsedCssSelector($directSelector));
                 foreach ( $parsed['type_spans'] ?? array() as $typeSpan ) {
@@ -2202,7 +2199,7 @@ final class HtmlTransformer
             return $prelude;
         });
 
-        return array('source_tags' => $sourceTags, 'selectors' => $selectors, 'rules' => $rules);
+        return array('source_tags' => $sourceTags, 'rules' => $rules);
     }
 
     /** @param array<string, mixed> $options @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string}> */
