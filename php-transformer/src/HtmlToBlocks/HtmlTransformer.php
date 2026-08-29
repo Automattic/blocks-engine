@@ -40,6 +40,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -300,6 +302,8 @@ final class HtmlTransformer
 
     private readonly TableElementConverter $tableConverter;
 
+    private readonly FigureElementConverter $figureConverter;
+
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
     private readonly PatternContext $patternContext;
@@ -536,6 +540,26 @@ final class HtmlTransformer
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
+        $this->figureConverter = new FigureElementConverter(new FigureElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaGalleryBlockFromElement($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
+            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+            fn (DOMElement $figure, string $tagName): ?DOMElement => $this->figureMediaElement($figure, $tagName),
+            function (DOMElement $figure, array &$fallbacks): ?array {
+                return $this->convertFigureGeneric($figure, $fallbacks);
+            },
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
 
@@ -4103,8 +4127,9 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->recognizePatterns($element, $fallbacks, array(QuotePattern::class));
         }
 
-        if ( 'figure' === $tagName || 'figcaption' === $tagName ) {
-            return $this->convertFigureElement($element, $fallbacks);
+        $figureDispatch = $this->figureConverter->convert($element, $tagName, $fallbacks);
+        if ( $figureDispatch->handled ) {
+            return $figureDispatch->block;
         }
 
         if ( 'noscript' === $tagName ) {

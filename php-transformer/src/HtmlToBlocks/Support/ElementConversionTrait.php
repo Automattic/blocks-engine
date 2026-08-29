@@ -9,7 +9,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CoverPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
@@ -26,70 +25,6 @@ use DOMElement;
  */
 trait ElementConversionTrait
 {
-    /**
-     * Convert one figure or its caption: the media the figure carries, or the caption paragraph that accompanies it.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function convertFigureElement(DOMElement $element, array &$fallbacks): ?array
-    {
-        $tagName = strtolower($element->tagName);
-
-    if ( 'figure' === $tagName ) {
-        $gallery = $this->mediaGalleryBlockFromElement($element, $fallbacks);
-        if ( null !== $gallery ) {
-            return $gallery;
-        }
-
-        $codeWindow = $this->recognizePatterns($element, $fallbacks, array(CodeWindowPattern::class));
-        if ( null !== $codeWindow ) {
-            return $codeWindow;
-        }
-
-        $linkedMedia = $this->figureLinkedMediaAnchor($element);
-        if ( $linkedMedia instanceof DOMElement ) {
-            $linkedPicture = $this->firstChildElement($linkedMedia, 'picture');
-            if ( $linkedPicture instanceof DOMElement ) {
-                return $this->convertPictureElement($linkedPicture, $element, $linkedMedia);
-            }
-
-            $linkedImage = $this->firstChildElement($linkedMedia, 'img');
-            if ( $linkedImage instanceof DOMElement ) {
-                return $this->convertImageElement($linkedImage, $element, null, $linkedMedia);
-            }
-        }
-
-        $image = $this->figureMediaElement($element, 'img');
-        if ( $image instanceof DOMElement ) {
-            return $this->convertImageElement($image, $element);
-        }
-
-        $picture = $this->figureMediaElement($element, 'picture');
-        if ( $picture instanceof DOMElement ) {
-            return $this->convertPictureElement($picture, $element);
-        }
-
-        $blockquote = $this->firstChildElement($element, 'blockquote');
-        if ( $blockquote instanceof DOMElement ) {
-            return $this->recognizePatterns($element, $fallbacks, array(FigureQuotePattern::class));
-        }
-
-        return $this->convertFigureGeneric($element, $fallbacks);
-    }
-
-    if ( 'figcaption' === $tagName ) {
-        $content = $this->innerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
-            return null;
-        }
-
-        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )), array(), $element);
-    }
-
-        return null;
-    }
-
     /**
      * Convert one list structure: ordered and unordered lists, description lists, and the terms and details they contain.
      *
