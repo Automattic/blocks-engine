@@ -17,6 +17,7 @@ final class WordPressSitePlan
     public const SCHEMA = 'blocks-engine/wordpress-site-plan/v2';
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
+    public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     private string $sourceOrigin = '';
     /** @var array<string,string> */
@@ -66,6 +67,10 @@ final class WordPressSitePlan
         $materialization = $data['source_reports']['materialization_plan'] ?? null;
         if ( ! is_array($compiled) || ! is_array($materialization) ) {
             throw new InvalidArgumentException('WordPress site plan requires compiled-site and materialization-plan reports.');
+        }
+        $identityFailures = self::compiledSiteIdentityFailures($compiled);
+        if ( array() !== $identityFailures ) {
+            throw new DocumentIdentityException($identityFailures);
         }
 
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
@@ -328,17 +333,126 @@ final class WordPressSitePlan
         }
     }
 
+    /**
+     * Collect every compiled page or template part that cannot become a site-plan document.
+     *
+     * @param array<string,mixed> $compiledSite
+     * @return array<int,array{source_path:string,reason:string,document_kind:string}>
+     */
+    public static function compiledSiteIdentityFailures(array $compiledSite): array
+    {
+        $pages = is_array($compiledSite['pages'] ?? null) ? $compiledSite['pages'] : array();
+        $parts = is_array($compiledSite['template_parts'] ?? null) ? $compiledSite['template_parts'] : array();
+        $parts = array_values(array_filter($parts, static fn (mixed $part): bool => is_array($part) && 'entry_shell' !== ($part['placement']['kind'] ?? null)));
+
+        return array_merge(
+            self::documentIdentityFailures($pages, 'page'),
+            self::documentIdentityFailures($parts, 'template_part')
+        );
+    }
+
+    /**
+     * @param mixed $documents
+     * @return array<int,array{source_path:string,reason:string,document_kind:string}>
+     */
+    public static function documentIdentityFailures(mixed $documents, string $documentKind): array
+    {
+        if ( ! is_array($documents) ) {
+            return array();
+        }
+        $failures = array();
+        foreach ( $documents as $document ) {
+            if ( ! is_array($document) || ! self::safePath($document['source_path'] ?? null) ) {
+                $failures[] = array(
+                    'source_path' => is_array($document) && is_string($document['source_path'] ?? null) ? $document['source_path'] : '',
+                    'reason' => 'unsafe_identity',
+                    'document_kind' => $documentKind,
+                );
+                continue;
+            }
+            if ( ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
+                $failures[] = array(
+                    'source_path' => $document['source_path'],
+                    'reason' => 'empty_block_markup',
+                    'document_kind' => $documentKind,
+                );
+            }
+        }
+
+        return $failures;
+    }
+
+    /**
+     * @param array<int,array{source_path:string,reason:string,document_kind:string}> $failures
+     * @return array<int,array<string,mixed>>
+     */
+    public static function documentIdentityDiagnostics(array $failures): array
+    {
+        $total = count($failures);
+        if ( 0 === $total ) {
+            return array();
+        }
+        $retained = array_slice($failures, 0, self::MAX_DOCUMENT_IDENTITY_DIAGNOSTICS);
+        $diagnostics = array();
+        foreach ( $retained as $failure ) {
+            $diagnostics[] = self::documentIdentityDiagnostic($failure, $total);
+        }
+        if ( $total > count($retained) ) {
+            $diagnostics[] = array(
+                'code' => 'wordpress_site_plan_not_self_contained',
+                'severity' => 'error',
+                'message' => sprintf('%d compiled site documents lack a safe identity or block markup; %d omitted from this diagnostic list.', $total, $total - count($retained)),
+                'reason' => 'truncated',
+                'document_count' => $total,
+                'omitted_count' => $total - count($retained),
+                'reason_code' => 'wordpress_site_plan_not_self_contained',
+                'pattern_family' => 'site_plan_document',
+                'repair_bucket' => 'restore_compiled_document_identity',
+            );
+        }
+
+        return $diagnostics;
+    }
+
+    /**
+     * @param array{source_path:string,reason:string,document_kind:string} $failure
+     * @return array<string,mixed>
+     */
+    private static function documentIdentityDiagnostic(array $failure, int $documentCount): array
+    {
+        $path = substr($failure['source_path'], 0, 256);
+        $kind = 'template_part' === $failure['document_kind'] ? 'template part' : 'page';
+        $named = '' === $path ? 'Compiled ' . $kind : 'Compiled ' . $kind . ' "' . $path . '"';
+        $message = 'unsafe_identity' === $failure['reason']
+            ? $named . ' lacks a safe source path.'
+            : $named . ' has empty block markup.';
+
+        return array(
+            'code' => 'wordpress_site_plan_not_self_contained',
+            'severity' => 'error',
+            'message' => substr($message, 0, 256),
+            'source_path' => $path,
+            'document_kind' => substr($failure['document_kind'], 0, 64),
+            'reason' => substr($failure['reason'], 0, 64),
+            'document_count' => $documentCount,
+            'reason_code' => 'wordpress_site_plan_not_self_contained',
+            'pattern_family' => 'site_plan_document',
+            'repair_bucket' => 'restore_compiled_document_identity',
+        );
+    }
+
     /** @param mixed $documents @param array<int,array<string,string>> $tokens @return array<int,array<string,mixed>> */
     private function documents(mixed $documents, bool $part, array $tokens, AssetReferenceCanonicalizer $references, array $routes): array
     {
         if ( ! is_array($documents) ) {
             throw new InvalidArgumentException('Compiled site documents must be an array.');
         }
+        $failures = self::documentIdentityFailures($documents, $part ? 'template_part' : 'page');
+        if ( array() !== $failures ) {
+            throw new DocumentIdentityException($failures);
+        }
         $rows = array();
         foreach ( $documents as $document ) {
-            if ( ! is_array($document) || ! self::safePath($document['source_path'] ?? null) || ! is_string($document['block_markup'] ?? null) || '' === trim($document['block_markup']) ) {
-                throw new InvalidArgumentException('Compiled site document lacks a safe identity or block markup.');
-            }
             $markup = $references->content($document['block_markup'], $document['source_path']);
             $canonical = $this->routeLinks($markup, $document['source_path'], $routes);
             $target = $part ? 'parts/' . self::value($document, 'slug') . '.html' : self::value($document, 'source_path');
