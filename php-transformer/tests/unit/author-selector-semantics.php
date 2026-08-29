@@ -472,11 +472,12 @@ $assert(
     'author grid cards retain direct child order and placement selectors through core/group'
 );
 $nestedGridItem = $transform('<style>.grid{display:grid}.card{display:grid}.card > span{grid-column:2}</style><div class="grid"><div class="card"><span>Label</span><span>Value</span></div></div>');
-$nestedGridItemBlock = $nestedGridItem['blocks'][0]['innerBlocks'][0] ?? array();
+$nestedGridItemBlock = $nestedGridItem['blocks'][0] ?? array();
 $nestedGridItemChildren = $nestedGridItemBlock['innerBlocks'] ?? array();
 $nestedGridItemCss = $css($nestedGridItem);
 $assert(
-    'core/group' === ($nestedGridItemBlock['blockName'] ?? '')
+    str_ends_with((string) ($nestedGridItemBlock['blockName'] ?? ''), '/layout-shell')
+    && 2 === count($nestedGridItemBlock['attrs']['wrappers'] ?? array())
     && 2 === count($nestedGridItemChildren)
     && 'core/paragraph' === ($nestedGridItemChildren[0]['blockName'] ?? '')
     && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-inline-layout-carrier')
@@ -546,8 +547,8 @@ $assert(str_contains($logoMarkup, 'assets/materialized-svg/') && 1 === $logoAsse
 $assert(array() === ($logoControl['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()), 'SVG-to-image materialization preserves author-layout topology without a false wrapper-change diagnostic');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
-$structuredAnchorBlock = $structuredAnchor['blocks'][0]['innerBlocks'][0] ?? array();
-$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && 0 < count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
+$structuredAnchorBlock = $structuredAnchor['blocks'][0] ?? array();
+$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && str_ends_with((string) ($structuredAnchorBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
@@ -620,10 +621,10 @@ $nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
 $assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
 
 $flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
-$assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'a flex item Group around stacked content is not coalesced into the flex container');
+$assert(1 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($flexItemGroup['blocks'][0]['attrs']['wrappers'] ?? array()), 'a flex item wrapper around stacked content remains distinct inside one layout shell');
 
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
-$assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex shells remain distinct from nested layout wrappers');
+$assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($namedFlex['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex wrappers remain distinct inside one layout shell');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

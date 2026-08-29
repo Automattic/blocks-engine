@@ -19,16 +19,15 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "tracklist" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "layout": { "type": "flex" } } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "track-num", "content": "01" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "track-title", "content": "Kindling" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "track-dur", "content": "3:42" } }
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "track-num", "content": "01" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "track-title", "content": "Kindling" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph", "attrs": { "className": "track-dur", "content": "3:42" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "\"layout\":{\"type\":\"flex\"}" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "is-layout-flex wp-block-group-is-layout-flex" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-source-li-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "padding-top:0.9rem" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"track-title\">Kindling</p>" },

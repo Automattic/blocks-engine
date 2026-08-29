@@ -79,6 +79,44 @@ final class LayoutShellBlockGenerator
         }
         return content;
     }
+    function readableName( value ) {
+        value = String( value || '' ).trim();
+        if ( ! value || value.indexOf( 'blocks-engine-' ) === 0 || value.indexOf( 'be-inline-' ) === 0 || value.indexOf( 'comp-' ) === 0 || /^[a-f0-9]{16,}$/.test( value ) || /^[a-z]{1,4}\d[a-z0-9_]*$/i.test( value ) || /^[A-Z][a-z][A-Z][a-z]{2,}$/.test( value ) ) { return ''; }
+        value = value.replace( /^_+/, '' ).replace( /_[a-z0-9]{5,}_\d+$/i, '' );
+        value = value.replace( /([a-z])([A-Z])/g, '$1 $2' ).replace( /[-_]+/g, ' ' ).replace( /\s+/g, ' ' ).trim();
+        if ( ! value || 40 < value.length ) { return ''; }
+        return value.replace( /\b\w/g, function( letter ) { return letter.toUpperCase(); } );
+    }
+    function shellLabel( wrappers ) {
+        var semanticTags = { header: 'Header', nav: 'Navigation', main: 'Main', section: 'Section', article: 'Article', aside: 'Aside', footer: 'Footer' };
+        var genericClasses = { container: true, root: true, section: true, responsive: true, background: true, item: true, undefined: true, 'builder-root': true, 'wp-block-group': true };
+        var semantic = '';
+        var detail = '';
+        var component = false;
+        ( wrappers || [] ).forEach( function( wrapper ) {
+            var tagName = String( wrapper.tagName || 'div' ).toLowerCase();
+            var attributes = wrapper.attributes || {};
+            if ( ! semantic && semanticTags[ tagName ] ) { semantic = semanticTags[ tagName ]; }
+            if ( ! detail ) { detail = readableName( attributes.id ); }
+            if ( ! detail ) {
+                var classNames = String( attributes.class || '' ).split( /\s+/ );
+                if ( -1 !== classNames.indexOf( 'builder-root' ) ) { component = true; }
+                classNames.some( function( className ) {
+                    if ( genericClasses[ className ] ) { return false; }
+                    if ( /^[A-Za-z]+$/.test( className ) && /[a-z][A-Z]/.test( className ) ) { return false; }
+                    var candidate = readableName( className );
+                    if ( candidate === 'Root' || candidate === 'Internal Container Root' ) { return false; }
+                    detail = candidate;
+                    return !! detail;
+                } );
+            }
+        } );
+        if ( semantic && detail && semantic.toLowerCase() !== detail.toLowerCase() ) { return semantic + ': ' + detail; }
+        if ( semantic ) { return semantic; }
+        if ( detail ) { return 'Layout: ' + detail; }
+        if ( component ) { return 'Component container'; }
+        return 'Layout shell (' + ( wrappers || [] ).length + ' wrappers)';
+    }
     function savedContent( wrappers ) { return wrappedContent( wrappers, createElement( InnerBlocks.Content ) ); }
     function edit( props ) {
         var wrappers = props.attributes.wrappers || [];
@@ -87,7 +125,11 @@ final class LayoutShellBlockGenerator
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { wrappers: { type: 'array', default: [] } },
-        supports: { html: false, reusable: false },
+        supports: { html: false, reusable: false, renaming: false },
+        __experimentalLabel: function( attributes, options ) {
+            var context = options && options.context;
+            return context === 'list-view' || context === 'breadcrumb' ? shellLabel( attributes.wrappers ) : null;
+        },
         edit: edit,
         save: function( props ) { return savedContent( props.attributes.wrappers ); }
     } );
@@ -102,7 +144,7 @@ JS;
                 'category' => 'design',
                 'editorScript' => 'file:./index.js',
                 'attributes' => array('wrappers' => array('type' => 'array', 'default' => array())),
-                'supports' => array('html' => false, 'reusable' => false),
+                'supports' => array('html' => false, 'reusable' => false, 'renaming' => false),
             ),
             'assets' => array('index.js' => str_replace('__BLOCK_NAME__', $blockName, $script)),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),

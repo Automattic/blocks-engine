@@ -177,6 +177,8 @@ $shellScript = (string) ($shellDefinitions[0]['assets']['index.js'] ?? '');
 $assert(1 === count($shellDefinitions) && str_contains($shellScript, 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
 $assert(str_contains($shellScript, 'function wrappedContent( wrappers, content, outerProps )') && str_contains($shellScript, 'props = outerProps( props )') && str_contains($shellScript, 'wrappedContent( wrappers, content, useBlockProps )') && str_contains($shellScript, 'edit: edit,'), '6: layout-shell edit preserves the save wrapper chain and merges block props onto its outermost wrapper');
 $assert(str_contains($shellScript, "wrappers.length ? wrappedContent( wrappers, content, useBlockProps ) : createElement( 'div', useBlockProps(), content )"), '6: layout-shell edit retains an editor wrapper for empty source chains');
+$assert(str_contains($shellScript, '__experimentalLabel: function( attributes, options )') && str_contains($shellScript, "context === 'list-view' || context === 'breadcrumb'") && str_contains($shellScript, "replace( /^_+/, '' ).replace( /_[a-z0-9]{5,}_\\d+$/i, '' )") && str_contains($shellScript, "return semantic + ': ' + detail") && str_contains($shellScript, "return 'Layout shell ('"), '6: layout-shell exposes concise semantic labels in List View and breadcrumbs');
+$assert(false === ($shellDefinitions[0]['block_json']['supports']['renaming'] ?? true), '6: generated semantic labels are read-only rather than persisted as user metadata');
 $assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 8 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
 
 $emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();
@@ -190,11 +192,9 @@ $assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell
 $branchMarkup = (string) ($branchShell['serialized_blocks'] ?? '');
 $assert(str_contains($branchMarkup, '<section id="branch-section"') && 2 === substr_count($branchMarkup, '<!-- wp:paragraph') && strpos($branchMarkup, 'First branch') < strpos($branchMarkup, 'Second branch'), '6: branching layout-shell serialization preserves semantic wrappers and ordered native child blocks');
 
-$depthPressureTransformer = new HtmlTransformer();
-$twoWrapperBranch = $depthPressureTransformer->transform('<div id="depth-outer" class="blocks-engine-source-div-outer-3"><section id="depth-branch" class="blocks-engine-source-section-branch-3"><p>First branch</p><p>Second branch</p></section></div>')->toArray();
-$depthCompressor = new ReflectionMethod(HtmlTransformer::class, 'compressProjectedGroupChains');
-$depthCompressed = $depthCompressor->invoke($depthPressureTransformer, $twoWrapperBranch['blocks'] ?? array(), true);
-$assert('core/group' === ($twoWrapperBranch['blocks'][0]['blockName'] ?? null) && str_ends_with((string) ($depthCompressed[0]['blockName'] ?? ''), '/layout-shell') && 2 === count($depthCompressed[0]['attrs']['wrappers'] ?? array()) && 2 === count($depthCompressed[0]['innerBlocks'] ?? array()), '6: depth pressure admits an exact two-wrapper branch shell while the normal threshold remains conservative');
+$twoWrapperBranch = ( new HtmlTransformer() )->transform('<div id="depth-outer" class="blocks-engine-source-div-outer-3"><section id="depth-branch" class="blocks-engine-source-section-branch-3"><p>First branch</p><p>Second branch</p></section></div>')->toArray();
+$twoWrapperBranchBlock = $twoWrapperBranch['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($twoWrapperBranchBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($twoWrapperBranchBlock['attrs']['wrappers'] ?? array()) && 2 === count($twoWrapperBranchBlock['innerBlocks'] ?? array()), '6: an exact two-wrapper branch becomes one layout shell independent of document depth');
 
 $importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
 $assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
