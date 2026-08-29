@@ -78,6 +78,7 @@
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/list-item-lowering.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
+      "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/artifact-normalizer-source-budget.php",
       "php tests/unit/subtree-classifier.php",
