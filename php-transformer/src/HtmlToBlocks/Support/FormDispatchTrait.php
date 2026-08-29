@@ -150,7 +150,7 @@ trait FormDispatchTrait
                 return null;
             }
 
-            if ( $this->isSubmitLikeControl($control) ) {
+            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
                 $buttonBlocks[] = $this->createBlock('core/button', array_merge($this->styleResolver->presentationAttributes($control), array(
                     'text' => $this->runtime->escapeHtml($this->readableSubmitText($control)),
                 )), array(), $control);
@@ -526,7 +526,7 @@ trait FormDispatchTrait
     private function formHasCommerceSubmissionSignal(DOMElement $form): bool
     {
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ! $this->isSubmitLikeControl($control) ) {
+            if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
                 continue;
             }
 
@@ -760,12 +760,12 @@ trait FormDispatchTrait
         $hasContainerAction = '' !== trim($this->attr($element, 'action')) || '' !== trim($this->attr($element, 'method')) || '' !== trim($this->attr($element, 'data-action'));
 
         foreach ( FormControlClassifier::controlElements($element) as $control ) {
-            if ( $this->isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
+            if ( FormControlClassifier::isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
                 $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlLabel($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
             } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array(FormControlClassifier::controlType($control), array( 'reset', 'button' ), true) ) ) {
                 $hasActionControl = true;
-                $hasSubmit = $hasSubmit || $this->isPseudoFormSubmitControl($control);
+                $hasSubmit = $hasSubmit || FormControlClassifier::isPseudoFormSubmitControl($control);
             }
 
             if ( $hasDataEntry && $hasFieldLabel && ( $hasSubmit || ( $hasContainerAction && $hasActionControl ) ) ) {
@@ -774,16 +774,6 @@ trait FormDispatchTrait
         }
 
         return false;
-    }
-
-    private function isPseudoFormSubmitControl(DOMElement $control): bool
-    {
-        $type = FormControlClassifier::controlType($control);
-        if ( in_array($type, array( 'submit', 'image' ), true) ) {
-            return true;
-        }
-
-        return $this->hasSubmitSemantics($control);
     }
 
     private function pseudoFormContainsUnrelatedLandmark(DOMElement $element): bool
@@ -822,109 +812,6 @@ trait FormDispatchTrait
             'selection_basis' => array( 'local_controls', 'associated_label', 'submit_semantics' ),
             'rejected_ancestors' => $rejectedAncestors,
         );
-    }
-
-    /**
-     * A data-entry control that anchors a pseudo-form. Reuses #315's
-     * isDataEntryControl and additionally excludes search inputs, which already
-     * have dedicated standalone-search handling and should not be promoted into a
-     * form fallback.
-     */
-    private function isPseudoFormDataEntryControl(DOMElement $control): bool
-    {
-        return FormControlClassifier::isDataEntryControl($control) && 'search' !== FormControlClassifier::controlType($control);
-    }
-
-    /**
-     * Whether a control submits a form: an explicit submit/image control, or a
-     * button/input whose text/value/type/class/id/name/aria carries submit,
-     * subscribe, sign-up, or send semantics. A plain <button> defaults to type
-     * "submit" and qualifies directly; a type="reset" control never does.
-     */
-    private function isSubmitLikeControl(DOMElement $control): bool
-    {
-        $tagName = strtolower($control->tagName);
-        if ( 'button' !== $tagName && 'input' !== $tagName ) {
-            return false;
-        }
-
-        $type = FormControlClassifier::controlType($control);
-        if ( in_array($type, array( 'submit', 'image' ), true) ) {
-            return true;
-        }
-        if ( 'reset' === $type ) {
-            return false;
-        }
-
-        // Only generic clickable controls (button-typed) fall through to the
-        // semantic check; data-entry input types are never submit controls.
-        if ( 'input' === $tagName && 'button' !== $type ) {
-            return false;
-        }
-
-        return $this->hasSubmitSemantics($control) || $this->isSoleFormActionControl($control);
-    }
-
-    /**
-     * The only non-reset button-like control in the enclosing form is the form's
-     * action, even when its type is `button` and its label is not a submit verb.
-     */
-    private function isSoleFormActionControl(DOMElement $control): bool
-    {
-        $form = null;
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'form' === strtolower($parent->tagName) ) {
-                $form = $parent;
-                break;
-            }
-        }
-        if ( ! $form instanceof DOMElement ) {
-            return false;
-        }
-
-        $actions = 0;
-        foreach ( FormControlClassifier::controlElements($form) as $candidate ) {
-            $tagName = strtolower($candidate->tagName);
-            $type = FormControlClassifier::controlType($candidate);
-            if ( 'reset' === $type ) {
-                continue;
-            }
-            if ( 'button' === $tagName || ( 'input' === $tagName && in_array($type, array( 'submit', 'image', 'button' ), true) ) ) {
-                ++$actions;
-                if ( 1 < $actions ) {
-                    return false;
-                }
-            }
-        }
-
-        return 1 === $actions;
-    }
-
-    /**
-     * Whether a control's text/attributes carry submit-like intent. Structural
-     * vocabulary only — no fixture-specific identifiers.
-     */
-    private function hasSubmitSemantics(DOMElement $control): bool
-    {
-        $haystack = strtolower(implode(' ', array(
-            $control->textContent ?? '',
-            $this->attr($control, 'value'),
-            $this->attr($control, 'class'),
-            $this->attr($control, 'id'),
-            $this->attr($control, 'name'),
-            $this->attr($control, 'aria-label'),
-            $this->attr($control, 'data-hook'),
-            $this->attr($control, 'data-field-type'),
-            $this->attr($control, 'data-testid'),
-        )));
-
-        foreach ( array( 'submit', 'subscribe', 'sign up', 'sign-up', 'signup', 'send' ) as $needle ) {
-            if ( str_contains($haystack, $needle) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function readableFormControlText(DOMElement $control): string
@@ -1022,7 +909,7 @@ trait FormDispatchTrait
         }
 
         $type = FormControlClassifier::controlType($control);
-        if ( '' === $label && $this->isSubmitLikeControl($control) ) {
+        if ( '' === $label && FormControlClassifier::isSubmitLikeControl($control) ) {
             $label = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
         }
         if ( '' === $label ) {
