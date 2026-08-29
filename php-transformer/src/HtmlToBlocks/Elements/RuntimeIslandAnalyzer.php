@@ -43,8 +43,10 @@ final class RuntimeIslandAnalyzer
         'simulator', 'stage', 'studio', 'terminal', 'viewport', 'workspace', 'world',
     );
 
-    public function __construct(private readonly RuntimeIslandContext $context)
-    {
+    public function __construct(
+        private readonly RuntimeIslandContext $context,
+        private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
+    ) {
     }
 
     /**
@@ -248,7 +250,7 @@ final class RuntimeIslandAnalyzer
         // pseudo-form, not an editor surface. Only a non-control target inside
         // that same candidate upgrades it to a runtime workspace.
         for ( $ancestor = $textarea->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( $this->context->isDivBasedPseudoForm($ancestor) ) {
+            if ( $this->pseudoFormAnalyzer->isPseudoForm($ancestor) ) {
                 return $ancestor === $root && $this->hasNonFormControlRuntimeTarget($ancestor);
             }
             if ( $ancestor === $root ) {

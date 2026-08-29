@@ -151,6 +151,7 @@
             "php tests/unit/rich-text-element-converter.php",
             "php tests/unit/table-element-converter.php",
             "php tests/unit/unsupported-element-recorder.php",
+            "php tests/unit/pseudo-form-analyzer.php",
             "php tests/unit/runtime-island-analyzer.php",
             "php tests/unit/button-link-dispatcher.php"
     ],

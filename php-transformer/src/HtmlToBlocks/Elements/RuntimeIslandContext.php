@@ -30,7 +30,6 @@ final class RuntimeIslandContext
      * @param Closure(DOMElement): array<int, array<string, mixed>>           $requiredScriptsForElement
      * @param Closure(string): ?DOMElement                                    $preservedHtmlRootElement
      * @param Closure(DOMElement): bool                                       $hasWorkspaceSurface
-     * @param Closure(DOMElement): bool                                       $isDivBasedPseudoForm
      * @param Closure(string): bool                                           $isInlineContentElement
      * @param Closure(string): bool                                           $isPresentationalAnimationSelector
      * @param Closure(array<int, array<string, mixed>>): array<int, array<string, mixed>> $dedupeArrayRows
@@ -46,7 +45,6 @@ final class RuntimeIslandContext
         private readonly Closure $requiredScriptsForElement,
         private readonly Closure $preservedHtmlRootElement,
         private readonly Closure $hasWorkspaceSurface,
-        private readonly Closure $isDivBasedPseudoForm,
         private readonly Closure $isInlineContentElement,
         private readonly Closure $isPresentationalAnimationSelector,
         private readonly Closure $dedupeArrayRows
@@ -110,11 +108,6 @@ final class RuntimeIslandContext
     public function hasWorkspaceSurface(DOMElement $element): bool
     {
         return ($this->hasWorkspaceSurface)($element);
-    }
-
-    public function isDivBasedPseudoForm(DOMElement $element): bool
-    {
-        return ($this->isDivBasedPseudoForm)($element);
     }
 
     public function isInlineContentElement(string $tagName): bool

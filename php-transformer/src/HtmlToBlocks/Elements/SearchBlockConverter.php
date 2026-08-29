@@ -11,7 +11,8 @@ final class SearchBlockConverter
 {
     public function __construct(
         private readonly SearchBlockConversionContext $context,
-        private readonly FormControlMetadataBuilder $formControlMetadataBuilder
+        private readonly FormControlMetadataBuilder $formControlMetadataBuilder,
+        private readonly PseudoFormAnalyzer $pseudoFormAnalyzer
     ) {
     }
 
@@ -361,7 +362,7 @@ final class SearchBlockConverter
         }
 
         $searchInput = $inputs[0];
-        if ( ! $this->context->hasStandaloneSearchSignal($element, $searchInput) ) {
+        if ( ! $this->pseudoFormAnalyzer->hasStandaloneSearchSignal($element, $searchInput) ) {
             return null;
         }
 

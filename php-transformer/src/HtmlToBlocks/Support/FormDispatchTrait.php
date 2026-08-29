@@ -68,7 +68,7 @@ trait FormDispatchTrait
     {
         // Some signup/contact widgets pair data-entry controls with a submit-like
         // control inside a plain container. Emit the same finding as a real form.
-        if ( $this->isDivBasedPseudoForm($element) ) {
+        if ( $this->pseudoFormAnalyzer->isPseudoForm($element) ) {
             $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockFromForm($element, true));
         }
     }
@@ -577,7 +577,7 @@ trait FormDispatchTrait
             'html_truncated'  => $boundedHtml['truncated'],
         );
         if ( 'form' !== strtolower($element->tagName) ) {
-            $finding['form_boundary'] = $this->pseudoFormBoundaryMetadata($element);
+            $finding['form_boundary'] = $this->pseudoFormAnalyzer->boundaryMetadata($element);
         }
 
         return FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback());
@@ -649,124 +649,6 @@ trait FormDispatchTrait
 
         $tokens = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-live')));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:success|sent|submitted|thank|thanks|confirmation|confirmed)(?:[^a-z0-9]|$)/', $tokens);
-    }
-
-    /**
-     * Whether a non-<form> container behaves as a form: it is the tightest
-     * container that pairs at least one data-entry control with a submit-like
-     * control, and no real <form> owns the subtree.
-     *
-     * Structural only — the signal is "data-entry control + submit-like control in
-     * one bounded container", never a fixture id/class/name. Conservative: a lone
-     * search box or a stray input with no submit control never qualifies, and a
-     * subtree owned by a real <form> (as ancestor or descendant) is left to the
-     * <form> path so the finding is emitted exactly once.
-     */
-    private function isDivBasedPseudoForm(DOMElement $element): bool
-    {
-        if ( 'form' === strtolower($element->tagName) ) {
-            return false;
-        }
-
-        // A real <form> ancestor or descendant owns the controls; let the <form>
-        // path emit the finding so it is never double-counted.
-        if ( FormControlClassifier::hasFormAncestor($element) ) {
-            return false;
-        }
-        if ( 0 < $element->getElementsByTagName('form')->length ) {
-            return false;
-        }
-
-        // A pseudo-form must be a local interaction region, never the page shell
-        // that happens to contain navigation or editorial content plus controls.
-        if ( $this->pseudoFormContainsUnrelatedLandmark($element) ) {
-            return false;
-        }
-
-        if ( ! $this->containerPairsDataEntryWithSubmit($element) ) {
-            return false;
-        }
-
-        // Bound the container to the tightest one: if a descendant container also
-        // pairs the controls, defer to it so a wrapper does not swallow a nested
-        // pseudo-form (and sibling pseudo-forms each emit their own finding).
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement
-                && ! FormControlClassifier::isControlElement($descendant)
-                && $this->containerPairsDataEntryWithSubmit($descendant) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Whether a container holds a local, labeled data-entry control and a submit
-     * action. Unlike a real form, a div gives a plain button no submit ownership,
-     * so its action must be explicit in type or semantics.
-     */
-    private function containerPairsDataEntryWithSubmit(DOMElement $element): bool
-    {
-        $hasDataEntry = false;
-        $hasFieldLabel = false;
-        $hasSubmit = false;
-        $hasActionControl = false;
-        $hasContainerAction = '' !== trim($this->attr($element, 'action')) || '' !== trim($this->attr($element, 'method')) || '' !== trim($this->attr($element, 'data-action'));
-
-        foreach ( FormControlClassifier::controlElements($element) as $control ) {
-            if ( FormControlClassifier::isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
-                $hasDataEntry = true;
-                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlMetadataBuilder->label($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
-            } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array(FormControlClassifier::controlType($control), array( 'reset', 'button' ), true) ) ) {
-                $hasActionControl = true;
-                $hasSubmit = $hasSubmit || FormControlClassifier::isPseudoFormSubmitControl($control);
-            }
-
-            if ( $hasDataEntry && $hasFieldLabel && ( $hasSubmit || ( $hasContainerAction && $hasActionControl ) ) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function pseudoFormContainsUnrelatedLandmark(DOMElement $element): bool
-    {
-        foreach ( $this->descendantElements($element) as $descendant ) {
-            $tagName = strtolower($descendant->tagName);
-            $role = strtolower($this->attr($descendant, 'role'));
-            if ( in_array($tagName, array( 'article', 'nav', 'header', 'footer', 'main' ), true)
-                || in_array($role, array( 'article', 'navigation', 'banner', 'contentinfo', 'main' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function pseudoFormBoundaryMetadata(DOMElement $element): array
-    {
-        $rejectedAncestors = array();
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && count($rejectedAncestors) < 4; $ancestor = $ancestor->parentNode ) {
-            if ( ! $this->pseudoFormContainsUnrelatedLandmark($ancestor) && ! $this->containerPairsDataEntryWithSubmit($ancestor) ) {
-                continue;
-            }
-            $rejectedAncestors[] = array(
-                'selector' => $this->elementSelector($ancestor),
-                'reason'   => $this->pseudoFormContainsUnrelatedLandmark($ancestor) ? 'contains_unrelated_landmark' : 'contains_nested_coherent_form',
-            );
-        }
-
-        return array(
-            'schema' => 'generic/form-boundary/v1',
-            'selector' => $this->elementSelector($element),
-            'selection_basis' => array( 'local_controls', 'associated_label', 'submit_semantics' ),
-            'rejected_ancestors' => $rejectedAncestors,
-        );
     }
 
     private function readableFormControlText(DOMElement $control): string
@@ -866,26 +748,6 @@ trait FormDispatchTrait
             $this->attr($form, 'aria-label'),
             $this->attr($form, 'id'),
             $this->attr($form, 'class'),
-        )));
-
-        return str_contains($haystack, 'search');
-    }
-
-    private function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
-    {
-        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
-            return true;
-        }
-
-        $haystack = strtolower(implode(' ', array(
-            $this->attr($element, 'aria-label'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($input, 'aria-label'),
-            $this->attr($input, 'id'),
-            $this->attr($input, 'class'),
-            $this->attr($input, 'name'),
-            $this->attr($input, 'placeholder'),
         )));
 
         return str_contains($haystack, 'search');

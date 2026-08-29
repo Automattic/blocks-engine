@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
@@ -79,13 +81,14 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         'requiredScripts'  => static fn (DOMElement $e): array => array(),
         'preservedRoot'    => static fn (string $h): ?DOMElement => null,
         'hasWorkspace'     => static fn (DOMElement $e): bool => false,
-        'isPseudoForm'     => static fn (DOMElement $e): bool => false,
         'isInline'         => static fn (string $t): bool => in_array($t, array('span', 'em', 'strong', 'a'), true),
         'isPresentational' => static fn (string $s): bool => in_array($s, $presentationalSelectors, true),
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
 
+    $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
+    $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
     return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
         $c['fallbackEmitter'],
         $c['runtimeDom'],
@@ -97,11 +100,10 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         $c['requiredScripts'],
         $c['preservedRoot'],
         $c['hasWorkspace'],
-        $c['isPseudoForm'],
         $c['isInline'],
         $c['isPresentational'],
         $c['dedupe']
-    ));
+    ), $pseudoFormAnalyzer);
 };
 
 // An id or class named by a runtime selector is a DOM target.
