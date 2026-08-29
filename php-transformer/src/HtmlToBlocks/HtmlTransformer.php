@@ -2537,6 +2537,7 @@ final class HtmlTransformer
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
             $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
+            $body = $this->projectSourceContentBoxSizing($prelude, $body);
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -2557,6 +2558,91 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
+    }
+
+    /** Preserve the source initial box model against WordPress's block-level border-box reset. */
+    private function projectSourceContentBoxSizing(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        if ( isset($declarations['box-sizing'])
+            || ! isset($declarations['width'])
+            || ! $this->cssHasDefiniteWidth('width:' . $declarations['width'])
+        ) {
+            return $body;
+        }
+
+        $hasBoxChrome = false;
+        foreach ( $declarations as $property => $value ) {
+            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
+            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
+                && $this->cssValueIsNonZero($value)
+            ) {
+                $hasBoxChrome = true;
+                break;
+            }
+        }
+        if ( ! $hasBoxChrome ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+        if ( $this->authorStylesUseUniversalBorderBoxReset() ) {
+            return $body;
+        }
+        $matched = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
+                $matched = true;
+                if ( 'a' === strtolower($element->tagName)
+                    || FormControlClassifier::isControlElement($element)
+                    || 'button' === strtolower(trim($this->attr($element, 'role')))
+                ) {
+                    // Native control conversion splits source geometry across
+                    // synthetic wrappers and link surfaces.
+                    return $body;
+                }
+                $resolved = $this->cssComparableValue((string) ($this->styleResolver->structuralPresentationDeclarations($element)['box-sizing'] ?? ''));
+                if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+                    return $body;
+                }
+            }
+        }
+        if ( ! $matched ) {
+            return $body;
+        }
+
+        return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
+    }
+
+    private function authorStylesUseUniversalBorderBoxReset(): bool
+    {
+        $usesBorderBox = false;
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $this->authorStyles()->combinedCss(),
+            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox): void {
+                if ( $usesBorderBox || array() !== $ancestors ) {
+                    return;
+                }
+                $boxSizing = $this->cssComparableValue((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
+                if ( 'border-box' !== $boxSizing ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    if ( '*' === trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector)) ) {
+                        $usesBorderBox = true;
+                        return;
+                    }
+                }
+            }
+        );
+        return $usesBorderBox;
     }
 
     /**

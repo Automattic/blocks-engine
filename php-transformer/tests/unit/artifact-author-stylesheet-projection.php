@@ -49,6 +49,24 @@ $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.ct
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
 
+$contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
+) ) )->toArray();
+$contentBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBox['assets'] ?? array()));
+$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d;box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
+
+$borderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>*,*::before,*::after{box-sizing:border-box}.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
+) ) )->toArray();
+$borderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $borderBox['assets'] ?? array()));
+$assert(! str_contains($borderBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d;box-sizing:content-box}'), 'an authored border-box reset remains authoritative');
+
+$rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.dot{width:10px;height:10px;border-radius:50%;background:#ff5f57}</style><span class="dot"></span>' ),
+) ) )->toArray();
+$roundedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $rounded['assets'] ?? array()));
+$assert(! str_contains($roundedCss, 'box-sizing:content-box'), 'border radius alone is not box chrome and does not alter source sizing');
+
 $projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
