@@ -147,6 +147,12 @@ final class AuthorSelectorProjectionState
         return $this->attributeNegationMarkers[$selector] ?? '';
     }
 
+    /** @return array<string,string> */
+    public function attributeNegationMarkers(): array
+    {
+        return $this->attributeNegationMarkers;
+    }
+
     public function addAttributeStateMarker(string $path, string $marker): void
     {
         $this->attributeStateMarkers[$path][] = $marker;

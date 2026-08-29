@@ -2495,6 +2495,7 @@ final class HtmlTransformer
                 'bytes'       => strlen($content),
                 'hash'        => $hash,
                 'source_hash' => $asset['source_hash'],
+                'attribute_state_markers' => $this->authorSelectorProjections()->attributeNegationMarkers(),
             );
         }
         return $projections;

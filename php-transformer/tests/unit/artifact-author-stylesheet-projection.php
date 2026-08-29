@@ -163,6 +163,23 @@ $siblingSettledCss = (string) ($siblingSettledAssets['about.inline.css']['conten
 $assert(str_contains($siblingSettledCss, ':not(.blocks-engine-attribute-state-') && ! str_contains($siblingSettledCss, '[data-state="done"]'), 'sibling-only inline state gates retain only their Gutenberg marker projection');
 $assert(str_contains((string) ($siblingSettledState['source_reports']['wordpress_site_plan']['pages'][1]['canonical_block_markup'] ?? ''), 'blocks-engine-attribute-state-'), 'sibling-only settled state markers survive into canonical page markup');
 
+$sharedSettledState = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>Home settled</p></div></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>About settled</p></div></main>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+    ),
+) )->toArray();
+$sharedSettledCss = (string) (array_column($sharedSettledState['assets'] ?? array(), null, 'path')['shared.css']['content'] ?? '');
+$sharedSettledMarkers = array();
+foreach ($sharedSettledState['source_reports']['wordpress_site_plan']['pages'] ?? array() as $page) {
+    preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', (string) ($page['canonical_block_markup'] ?? ''), $markerMatch);
+    if (isset($markerMatch[0])) $sharedSettledMarkers[$markerMatch[0]] = true;
+}
+preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
+$assert(2 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker so one route projection cannot reactivate another route animation.');
+
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><h1>Home</h1></main>' ),
