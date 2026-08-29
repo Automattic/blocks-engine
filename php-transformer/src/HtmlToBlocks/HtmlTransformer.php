@@ -39,6 +39,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElem
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConversionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
@@ -257,6 +259,8 @@ final class HtmlTransformer
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
+    private readonly SearchBlockConverter $searchBlockConverter;
+
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
     private readonly TableElementConverter $tableConverter;
@@ -394,6 +398,7 @@ final class HtmlTransformer
             $this->runtime
         );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
+        $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext());
@@ -517,6 +522,30 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
             fn (): TransformationEvidenceState => $this->transformationEvidence(),
             fn (): TransformationProvenanceState => $this->transformationProvenance()
+        );
+    }
+
+    /** Collaborator surface for {@see SearchBlockConverter}. */
+    private function createSearchBlockConversionContext(): SearchBlockConversionContext
+    {
+        return new SearchBlockConversionContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $element): array => $this->eventMetadata($element),
+            fn (DOMElement $element): array => $this->formControlElements($element),
+            fn (DOMElement $element): string => $this->formControlType($element),
+            fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
+            fn (DOMElement $element): string => $this->formControlLabel($element),
+            fn (DOMElement $element): string => $this->submitButtonText($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
+            fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
+            fn (DOMElement $element): int => $this->childElementCount($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element, DOMElement $input): bool => $this->hasStandaloneSearchSignal($element, $input),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
 
@@ -3772,7 +3801,7 @@ final class HtmlTransformer
             }
         }
 
-        $wrappedSearchBlock = $this->searchBlockFromWrapper($element);
+        $wrappedSearchBlock = $this->searchBlockConverter->searchBlockFromWrapper($element);
         if ( null !== $wrappedSearchBlock ) {
             return $wrappedSearchBlock;
         }
@@ -3876,7 +3905,7 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'button' === $tagName ) {
-            if ( $this->isReplacedSearchClusterControl($element) ) {
+            if ( $this->searchBlockConverter->isReplacedSearchClusterControl($element) ) {
                 return null;
             }
             if ( $this->isImageCarrierButton($element) ) {
