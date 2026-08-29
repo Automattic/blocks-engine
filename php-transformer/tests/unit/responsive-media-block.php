@@ -26,7 +26,7 @@ $assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? 
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, 'InspectorControls') && str_contains($editor, "display: 'none'") && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, 'RawHTML'), 'the editor keeps captured HTML editable in the inspector without an unsafe or canvas-obscuring preview');
+$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, '! props.isSelected') && str_contains($editor, "display: 'none'") && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, 'RawHTML'), 'the editor hides the captured HTML control until its block is deliberately selected');
 $editorSchemaRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;
@@ -47,7 +47,7 @@ $assert('string' === ($definition['block_json']['attributes']['kind']['type'] ??
 $layoutDefinition = ( new ResponsiveLayoutBlockGenerator() )->definition('ssi-example');
 $assert('ssi-example/responsive-layout' === ($layoutDefinition['block_json']['name'] ?? null), 'one namespaced responsive-layout block type is defined');
 $layoutEditor = (string) ($layoutDefinition['assets']['index.js'] ?? '');
-$assert(str_contains($layoutEditor, 'InspectorControls') && str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout keeps captured HTML in the inspector without obscuring the canvas');
+$assert(str_contains($layoutEditor, '! props.isSelected') && str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout hides its captured HTML control until deliberately selected');
 $assert(array('content') === array_keys($layoutDefinition['block_json']['attributes'] ?? array()), 'responsive layout declares a dedicated content-only schema');
 $assert(ResponsiveLayoutBlockGenerator::RENDERER === ($layoutDefinition['renderer'] ?? null), 'responsive layout delegates rendering through its producer-owned capability');
 $layoutEditorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($layoutEditor))), true);
