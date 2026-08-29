@@ -34,11 +34,18 @@ final class ResponsiveMediaBlockGenerator
 ( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
     function edit( props ) {
-        return createElement( 'div', blockEditor.useBlockProps(), createElement( components.TextareaControl, {
-            label: 'Captured media or layout HTML',
-            value: props.attributes.content || '',
-            onChange: function( content ) { props.setAttributes( { content: content } ); }
-        } ) );
+        return createElement( element.Fragment, null,
+            createElement( 'div', blockEditor.useBlockProps( { style: { display: 'none' } } ) ),
+            createElement( blockEditor.InspectorControls, null,
+                createElement( components.PanelBody, { title: 'Captured media or layout HTML', initialOpen: true },
+                    createElement( components.TextareaControl, {
+                        label: 'HTML',
+                        value: props.attributes.content || '',
+                        onChange: function( content ) { props.setAttributes( { content: content } ); }
+                    } )
+                )
+            )
+        );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { content: { type: 'string', default: '', role: 'content' }, kind: { type: 'string', default: 'media' } },
