@@ -2617,6 +2617,10 @@ final class HtmlTransformer
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude);
             if ( '' === $directWrapperPrelude ) {
+                $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
+                if ( null !== $mixedButtonProjection ) {
+                    return $mixedButtonProjection;
+                }
                 return $projectedPrelude . '{' . $body . '}';
             }
             [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
@@ -2635,6 +2639,50 @@ final class HtmlTransformer
         }
 
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
+    }
+
+    private function withoutCollapsedButtonProjectedWidths(string $prelude, string $body): ?string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return null;
+        }
+
+        $buttonSelectors = array();
+        $otherSelectors = array();
+        foreach ( $selectors as $selector ) {
+            if ( str_contains($selector, '> :where(.wp-block-button__link)') ) {
+                $buttonSelectors[] = $selector;
+            } else {
+                $otherSelectors[] = $selector;
+            }
+        }
+        if ( array() === $buttonSelectors ) {
+            return null;
+        }
+
+        $safe = array();
+        $collapsed = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
+            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
+            if ( false !== $colon && $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                $collapsed[] = $declaration;
+            } else {
+                $safe[] = $declaration;
+            }
+        }
+        if ( array() === $collapsed ) {
+            return null;
+        }
+
+        $css = array() === $safe ? '' : $prelude . '{' . implode(';', $safe) . '}';
+        if ( array() !== $otherSelectors ) {
+            $css .= implode(',', $otherSelectors) . '{' . implode(';', $collapsed) . '}';
+        }
+
+        return $css;
     }
 
     private function buttonPresentationWrapperPrelude(string $prelude): string

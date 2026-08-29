@@ -96,6 +96,27 @@ $assert(
     $presetCss
 );
 
+$mixed = ( new HtmlTransformer() )->transform(
+    '<style>.button{display:flex;min-width:var(--btn-min-width);--btn-min-width:min-content;padding:8px 16px;background:#111;color:#fff}.button{min-width:min-content!important}</style>'
+    . '<main><div class="button">Decorative box</div><a class="button" href="/book">Book Now</a></main>'
+)->toArray();
+$mixedCss = $cssOf($mixed);
+$mixedMarkup = (string) ( $mixed['serialized_blocks'] ?? '' );
+
+$assert(str_contains($mixedMarkup, 'wp:button') && str_contains($mixedMarkup, 'Book Now'), '10: mixed source selector still converts its CTA', $mixedMarkup);
+$assert(
+    ! preg_match('/wp-block-button__link[^{}]*\{[^}]*min-width:min-content/i', $mixedCss)
+        && ! preg_match('/wp-block-button__link[^{}]*\{[^}]*--btn-min-width:min-content/i', $mixedCss),
+    '11: mixed source selector cannot project collapsing widths onto the button link',
+    $mixedCss
+);
+$assert(
+    str_contains($mixedCss, 'min-width:min-content!important')
+        && str_contains($mixedCss, '--btn-min-width:min-content'),
+    '12: mixed source selector keeps intrinsic widths on non-button matches',
+    $mixedCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "button link min-content tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);
