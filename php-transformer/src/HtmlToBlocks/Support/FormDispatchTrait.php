@@ -27,7 +27,7 @@ trait FormDispatchTrait
         }
 
         $readableFormBlock = $this->readableFormBlockFromForm($element);
-        if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
+        if ( null !== $readableFormBlock && ! $this->formRuntimeRequirementAnalyzer->requiresPreservation($element) ) {
             if ( FormControlClassifier::hasDataEntryControls($element) ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
             }
@@ -447,86 +447,6 @@ trait FormDispatchTrait
         }
 
         return array() === $selected ? '' : implode(', ', $selected) . ' (selected)';
-    }
-
-    private function formRequiresRuntimePreservation(DOMElement $form): bool
-    {
-        return 0 < $form->getElementsByTagName('script')->length
-            || array() !== $this->eventMetadata($form)
-            || $this->formHasRuntimeSubmissionMetadata($form)
-            || $this->formHasCommerceSubmissionSignal($form)
-            || $this->formHasRuntimeDomTargets($form);
-    }
-
-    private function formHasRuntimeSubmissionMetadata(DOMElement $form): bool
-    {
-        $action = trim($this->attr($form, 'action'));
-        if ( '' !== $action && '#' !== $action ) {
-            return true;
-        }
-
-        if ( '' === $action && '' !== trim($this->attr($form, 'method')) ) {
-            return true;
-        }
-
-        foreach ( array( 'enctype', 'target' ) as $attribute ) {
-            if ( '' !== trim($this->attr($form, $attribute)) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function formHasCommerceSubmissionSignal(DOMElement $form): bool
-    {
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ! FormControlClassifier::isSubmitLikeControl($control) ) {
-                continue;
-            }
-
-            $haystack = strtolower(implode(' ', array(
-                $control->textContent ?? '',
-                $this->attr($control, 'value'),
-                $this->attr($control, 'class'),
-                $this->attr($control, 'id'),
-                $this->attr($control, 'name'),
-                $this->attr($control, 'aria-label'),
-                $this->attr($control, 'title'),
-            )));
-
-            if ( preg_match('/(?:^|[^a-z0-9])(?:add to cart|cart|checkout|payment|purchase|buy|order|register|registration|ticket)(?:[^a-z0-9]|$)/', $haystack) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function formHasRuntimeDomTargets(DOMElement $form): bool
-    {
-        if ( $this->runtimeIslands->isRuntimeDomTarget($form) || $this->hasRuntimeClassSignal($form) ) {
-            return true;
-        }
-
-        foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( $this->runtimeIslands->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function hasRuntimeClassSignal(DOMElement $element): bool
-    {
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
-            if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
