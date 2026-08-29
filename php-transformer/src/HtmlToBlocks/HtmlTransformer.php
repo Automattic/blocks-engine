@@ -42,6 +42,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFin
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -304,6 +308,10 @@ final class HtmlTransformer
 
     private readonly FigureElementConverter $figureConverter;
 
+    private readonly ListElementConverter $listConverter;
+
+    private readonly DescriptionListElementConverter $descriptionListConverter;
+
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
     private readonly PatternContext $patternContext;
@@ -559,6 +567,42 @@ final class HtmlTransformer
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $this->listConverter = new ListElementConverter(new ListElementContext(
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            fn (DOMElement $element): bool => $this->isStructuredCardList($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuredCardList($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->listContainsStructuralItemContent($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuralList($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->listItems($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $this->descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
+            fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
+            fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
+            fn (DOMElement $element): array => $this->definitionListItems($element),
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
@@ -4119,8 +4163,14 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->convertInlineContentElement($element, $fallbacks);
         }
 
-        if ( in_array( $tagName, array( 'ul', 'ol', 'dl', 'dt', 'dd' ), true ) ) {
-            return $this->convertListElement($element, $fallbacks);
+        $listDispatch = $this->listConverter->convert($element, $tagName, $fallbacks);
+        if ( $listDispatch->handled ) {
+            return $listDispatch->block;
+        }
+
+        $descriptionListDispatch = $this->descriptionListConverter->convert($element, $tagName, $fallbacks);
+        if ( $descriptionListDispatch->handled ) {
+            return $descriptionListDispatch->block;
         }
 
         if ( 'blockquote' === $tagName ) {
