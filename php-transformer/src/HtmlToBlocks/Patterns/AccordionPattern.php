@@ -16,13 +16,18 @@ final class AccordionPattern implements PatternRecognizerInterface
         $presentationAttributes = $context->presentationAttributes(...);
         $innerHtml = $context->innerHtml(...);
 
-        if ( null === $converter || ! $this->hasAccordionSignal($element) || $this->hasRuntimeHeavyDescendant($element) ) {
+        if ( null === $converter || $this->hasRuntimeHeavyDescendant($element) ) {
+            return null;
+        }
+
+        $itemElements = $this->accordionItemElements($element);
+        if ( count($itemElements) < 2 ) {
             return null;
         }
 
         $fallbacks = array();
         $items = array();
-        foreach ( $this->directChildElements($element) as $child ) {
+        foreach ( $itemElements as $child ) {
             $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes);
             if ( null === $item ) {
                 return null;
@@ -65,7 +70,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $panelBlocks = $panel instanceof DOMElement
             ? $converter->children($panel, $fallbacks, true)
             : $converter->childrenWithoutTags($item, $fallbacks, array( 'summary' ));
-        if ( array() === $panelBlocks ) {
+        if ( array() === $panelBlocks && ! $panel instanceof DOMElement ) {
             return null;
         }
 
@@ -82,6 +87,34 @@ final class AccordionPattern implements PatternRecognizerInterface
         ), $item);
     }
 
+    /**
+     * @return list<DOMElement>
+     */
+    private function accordionItemElements(DOMElement $element): array
+    {
+        $signalRoots = array( $element );
+        $children = $this->directChildElements($element);
+        if ( 1 === count($children) ) {
+            $signalRoots[] = $children[0];
+            $nested = $this->directChildElements($children[0]);
+            if ( count($nested) >= 2 ) {
+                $children = $nested;
+            }
+        }
+
+        if ( $this->allDisclosureItemElements($children) ) {
+            return $children;
+        }
+
+        foreach ( $signalRoots as $root ) {
+            if ( $this->hasAccordionSignal($root) && $this->allAccordionItemElements($children) ) {
+                return $children;
+            }
+        }
+
+        return array();
+    }
+
     private function hasAccordionSignal(DOMElement $element): bool
     {
         $tagName = strtolower($element->tagName);
@@ -94,6 +127,49 @@ final class AccordionPattern implements PatternRecognizerInterface
             || in_array($tagName, array( 'section', 'div', 'ul', 'ol' ), true) && str_contains(strtolower($this->trimmedAttribute($element, 'aria-label')), 'faq');
     }
 
+    /**
+     * @param list<DOMElement> $elements
+     */
+    private function allDisclosureItemElements(array $elements): bool
+    {
+        if ( count($elements) < 2 ) {
+            return false;
+        }
+
+        $hasNonNativeDisclosure = false;
+        foreach ( $elements as $element ) {
+            if ( 'details' === strtolower($element->tagName) ) {
+                continue;
+            }
+
+            $title = $this->titleElement($element);
+            if ( ! $title instanceof DOMElement || ! $this->isDisclosureTitle($title) ) {
+                return false;
+            }
+            $hasNonNativeDisclosure = true;
+        }
+
+        return $hasNonNativeDisclosure;
+    }
+
+    /**
+     * @param list<DOMElement> $elements
+     */
+    private function allAccordionItemElements(array $elements): bool
+    {
+        if ( count($elements) < 2 ) {
+            return false;
+        }
+
+        foreach ( $elements as $element ) {
+            if ( ! $this->isAccordionItemElement($element) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function isAccordionItemElement(DOMElement $element): bool
     {
         if ( 'details' === strtolower($element->tagName) ) {
@@ -101,24 +177,65 @@ final class AccordionPattern implements PatternRecognizerInterface
         }
 
         $class = strtolower($this->trimmedAttribute($element, 'class'));
-        return str_contains($class, 'item')
+        if ( str_contains($class, 'item')
             || str_contains($class, 'accordion')
             || str_contains($class, 'faq')
-            || str_contains($class, 'question');
+            || str_contains($class, 'question')
+        ) {
+            return true;
+        }
+
+        $title = $this->titleElement($element);
+
+        return $title instanceof DOMElement && $this->isDisclosureTitle($title);
+    }
+
+    private function isDisclosureTitle(DOMElement $title): bool
+    {
+        $tagName = strtolower($title->tagName);
+
+        return 'summary' === $tagName
+            || $title->hasAttribute('aria-expanded')
+            || $title->hasAttribute('aria-controls');
     }
 
     private function titleElement(DOMElement $item): ?DOMElement
     {
         foreach ( $this->directChildElements($item) as $child ) {
-            $tagName = strtolower($child->tagName);
-            if ( 'summary' === $tagName || 'button' === $tagName || preg_match('/^h[1-6]$/', $tagName) ) {
-                return $child;
+            $title = $this->asTitleElement($child);
+            if ( $title instanceof DOMElement ) {
+                return $title;
             }
 
-            $class = strtolower($this->trimmedAttribute($child, 'class'));
-            if ( str_contains($class, 'title') || str_contains($class, 'heading') || str_contains($class, 'question') || str_contains($class, 'trigger') ) {
-                return $child;
+            if ( ! in_array(strtolower($child->tagName), array( 'div', 'span', 'header' ), true) ) {
+                continue;
             }
+
+            foreach ( $this->directChildElements($child) as $grandchild ) {
+                $title = $this->asTitleElement($grandchild);
+                if ( $title instanceof DOMElement ) {
+                    return $title;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function asTitleElement(DOMElement $element): ?DOMElement
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'summary' === $tagName || 'button' === $tagName || preg_match('/^h[1-6]$/', $tagName) ) {
+            return $element;
+        }
+
+        if ( $this->isDisclosureTitle($element) ) {
+            return $element;
+        }
+
+        $class = strtolower($this->trimmedAttribute($element, 'class'));
+        if ( str_contains($class, 'title') || str_contains($class, 'heading') || str_contains($class, 'question') || str_contains($class, 'trigger') ) {
+            return $element;
         }
 
         return null;

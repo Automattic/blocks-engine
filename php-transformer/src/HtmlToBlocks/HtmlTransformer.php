@@ -1956,6 +1956,7 @@ final class HtmlTransformer
             $afterAuthorCssParts[] = $directNavigationCss;
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
+        array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
