@@ -375,7 +375,7 @@ trait FormDispatchTrait
             return '';
         }
 
-        $svgMarkup = $this->restoreSvgCasing($this->outerHtml($svg));
+        $svgMarkup = $this->svgMaterializer->restoreSvgCasing($this->outerHtml($svg));
         if ( ! preg_match('/<svg\b[^>]*\bxmlns=/i', $svgMarkup) ) {
             $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
         }

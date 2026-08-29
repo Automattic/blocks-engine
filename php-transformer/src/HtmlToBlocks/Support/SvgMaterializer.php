@@ -4,20 +4,39 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use DOMDocument;
 use DOMElement;
+use DOMNode;
 
-trait SvgMaterializationTrait
+/**
+ * Materializes source SVG into emitted blocks: inline SVG hosts, decorative
+ * classification, casing restoration, box styling and asset extraction.
+ *
+ * Extracted from HtmlTransformer as a collaborator rather than a mixin: every
+ * dependency it needs from the transformer is declared on
+ * {@see SvgMaterializationContext}, so this class has no $this access to the
+ * transformer and can be exercised without constructing one.
+ */
+final class SvgMaterializer
 {
+    public function __construct(
+        private readonly SvgMaterializationContext $context,
+        private readonly StyleResolver $styleResolver,
+        private readonly Runtime $runtime
+    ) {
+    }
     /**
      * @return array<string, mixed>|null
      */
-    private function inlineSvgBlockFromElement(DOMElement $element): ?array
+    public function inlineSvgBlockFromElement(DOMElement $element): ?array
     {
         // Only preserve when there is actual artwork to keep. An SVG whose only
         // content is unsafe (e.g. a lone <script>) has nothing left to render
         // once sanitized, so it defers to the bounded fallback diagnostic.
-        if ( ! $this->svgHasDrawableContent($element) ) {
+        if ( ! $this->context->svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -27,13 +46,13 @@ trait SvgMaterializationTrait
         // the moment one unsafe attribute or element appears. The shape and
         // structure markup (svg/path/circle/rect/g/text/...) is kept so the
         // image renders, rather than collapsing to an empty block.
-        $html = $this->sanitizeInlineSvgMarkup($element);
+        $html = $this->context->sanitizeInlineSvgMarkup($element);
 
         // Safety gate: only emit raw inline SVG once the sanitized markup is
         // provably free of script/event-handler/javascript: vectors and still
         // contains an <svg>. If sanitization could not fully clean it, defer to
         // the bounded fallback metadata path rather than emit unsafe markup.
-        if ( ! $this->isSafeSvgContent($html) ) {
+        if ( ! $this->context->isSafeSvgContent($html) ) {
             return null;
         }
 
@@ -51,7 +70,7 @@ trait SvgMaterializationTrait
         // Honest floor: keep SVGs that need inline document context as sanitized
         // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
         $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG uses behavior or external document features that cannot be represented as a static editable core/image asset.');
-        return $this->createBlock('core/html', array( 'content' => $html ), array(), $element);
+        return $this->context->createBlock('core/html', array( 'content' => $html ), array(), $element);
     }
 
     /**
@@ -64,7 +83,7 @@ trait SvgMaterializationTrait
             return null;
         }
 
-        return $this->createBlock('core/image', $attrs, array(), $element);
+        return $this->context->createBlock('core/image', $attrs, array(), $element);
     }
 
     /**
@@ -85,13 +104,13 @@ trait SvgMaterializationTrait
         $url = $this->sourceRelativeMaterializedSvgPath($path);
         $occurrence = array_filter(array(
             'source_path' => $this->transformSourcePath(),
-            'selector' => $this->elementSelector($element),
-            'fingerprint' => $this->reusableComponentFingerprintFor($element),
+            'selector' => $this->context->elementSelector($element),
+            'fingerprint' => $this->context->reusableComponentFingerprintFor($element),
         ), static fn (mixed $value): bool => is_string($value) && '' !== $value);
         $asset = array(
             'source'      => 'inline-svg',
             'source_path' => $this->transformSourcePath(),
-            'selector'    => $this->elementSelector($element),
+            'selector'    => $this->context->elementSelector($element),
             'path'        => $path,
             'target_path' => $path,
             'source_url'  => $url,
@@ -111,7 +130,7 @@ trait SvgMaterializationTrait
             'visual_payload' => $visualPayload . "\n",
         );
         if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
-        $this->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
+        $this->context->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
 
         $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
@@ -132,8 +151,8 @@ trait SvgMaterializationTrait
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
             || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
         )
-            && null !== $this->svgPercentageWidth(trim($this->attr($element, 'width')))
-            && null !== $this->svgPercentageWidth(trim($this->attr($element, 'height')));
+            && null !== $this->svgPercentageWidth(trim($this->context->attr($element, 'width')))
+            && null !== $this->svgPercentageWidth(trim($this->context->attr($element, 'height')));
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
             // This is generated fill geometry, not an authored image support.
@@ -146,12 +165,12 @@ trait SvgMaterializationTrait
             // rule wins without forcing intrinsic media outside this explicit
             // parent-fill path.
             $imgRule = '>img{width:100%;height:100%;-o-object-fit:' . $objectFit . ';object-fit:' . $objectFit . '}';
-            $fillClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
-            $this->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
+            $fillClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $figureRule . $imgRule);
+            $this->context->layoutGeometry()->registerRule($fillClass, '.' . $fillClass . $figureRule . '.wp-block-image.' . $fillClass . $imgRule);
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
-                'className'  => $this->styleResolver->mergePresentationClassNames($this->attr($element, 'class'), $fillClass),
+                'className'  => $this->styleResolver->mergePresentationClassNames($this->context->attr($element, 'class'), $fillClass),
             );
 
             return array_filter($attrs, static fn ($value): bool => null !== $value && '' !== $value);
@@ -168,19 +187,19 @@ trait SvgMaterializationTrait
                 }
             }
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
-            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
-            $this->layoutGeometry()->registerRule($geometryClass, ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule);
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
+            $this->context->layoutGeometry()->registerRule($geometryClass, ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule);
         } elseif ( ! $richTextImage ) {
             // Core/image rejects typography.lineHeight. A standalone SVG still
             // needs its source line box removed when it becomes a figure.
             $rule = '{line-height:0}';
-            $geometryClass = $this->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
-            $this->layoutGeometry()->registerRule($geometryClass, '.' . $geometryClass . $rule);
+            $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
+            $this->context->layoutGeometry()->registerRule($geometryClass, '.' . $geometryClass . $rule);
         }
         $attrs = array_filter(array_merge(array(
             'url'          => $url,
             'alt'          => $this->svgImageAlt($element),
-            'className'    => $this->styleResolver->mergePresentationClassNames($this->attr($element, 'class'), $geometryClass),
+            'className'    => $this->styleResolver->mergePresentationClassNames($this->context->attr($element, 'class'), $geometryClass),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $attrs;
@@ -191,14 +210,14 @@ trait SvgMaterializationTrait
      * The image is deliberately an object inside the surrounding RichText rather
      * than a core/image block figure, which would break phrasing flow.
      */
-    private function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
+    public function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
     {
-        if ( ! $this->svgHasDrawableContent($element) ) {
+        if ( ! $this->context->svgHasDrawableContent($element) ) {
             return null;
         }
 
-        $html = $this->sanitizeInlineSvgMarkup($element);
-        if ( ! $this->isSafeSvgContent($html) ) {
+        $html = $this->context->sanitizeInlineSvgMarkup($element);
+        if ( ! $this->context->isSafeSvgContent($html) ) {
             return null;
         }
 
@@ -212,10 +231,10 @@ trait SvgMaterializationTrait
             return null;
         }
 
-        $style = trim($this->attr($element, 'style'));
+        $style = trim($this->context->attr($element, 'style'));
         $sourceDimensions = array_filter(array(
-            'width' => trim($this->attr($element, 'width')),
-            'height' => trim($this->attr($element, 'height')),
+            'width' => trim($this->context->attr($element, 'width')),
+            'height' => trim($this->context->attr($element, 'height')),
         ), static fn (string $value): bool => '' !== $value);
         $resolvedSourceDimensions = $this->richTextSvgDimensions($element, $sourceDimensions);
         foreach ( array( 'width', 'height' ) as $dimension ) {
@@ -286,7 +305,7 @@ trait SvgMaterializationTrait
                     continue 2;
                 }
 
-                $sourceVisualDimension = trim($this->attr($parent, 'data-source-visual-' . $dimension));
+                $sourceVisualDimension = trim($this->context->attr($parent, 'data-source-visual-' . $dimension));
                 if ( '' === $fallback && is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
                     $fallback = $this->normalizedSvgDimension((float) $sourceVisualDimension * $scale) . 'px';
                 }
@@ -320,22 +339,22 @@ trait SvgMaterializationTrait
             return array();
         }
 
-        $href = trim($this->attr($parent, 'href'));
+        $href = trim($this->context->attr($parent, 'href'));
         if ( '' === $href || preg_match('/^\s*javascript\s*:/i', $href) ) {
             return array();
         }
 
         return array_filter(array(
             'href' => $href,
-            'target' => trim($this->attr($parent, 'target')),
-            'rel' => trim($this->attr($parent, 'rel')),
-            'aria-label' => trim($this->attr($parent, 'aria-label')),
+            'target' => trim($this->context->attr($parent, 'target')),
+            'rel' => trim($this->context->attr($parent, 'rel')),
+            'aria-label' => trim($this->context->attr($parent, 'aria-label')),
         ), static fn (string $value): bool => '' !== $value);
     }
 
-    private function svgNeedsPhrasingHost(DOMElement $element): bool
+    public function svgNeedsPhrasingHost(DOMElement $element): bool
     {
-        if ( $this->isVisualLayerElement($element) || 'none' === strtolower(trim($this->attr($element, 'preserveaspectratio'))) ) {
+        if ( $this->context->isVisualLayerElement($element) || 'none' === strtolower(trim($this->context->attr($element, 'preserveaspectratio'))) ) {
             return false;
         }
 
@@ -345,10 +364,10 @@ trait SvgMaterializationTrait
             if ( 'p' === $parentTag ) {
                 return true;
             }
-            if ( 'article' === $parentTag && 'img' === strtolower(trim($this->attr($element, 'role'))) ) {
+            if ( 'article' === $parentTag && 'img' === strtolower(trim($this->context->attr($element, 'role'))) ) {
                 return false;
             }
-            if ( ( $this->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+            if ( ( $this->context->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags($this->context->innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
                 return true;
             }
         }
@@ -364,13 +383,13 @@ trait SvgMaterializationTrait
         for ( $sibling = $element->previousSibling; null !== $sibling; $sibling = $sibling->previousSibling ) {
             if ( $sibling instanceof DOMElement ) {
                 $tag = strtolower($sibling->tagName);
-                return 'svg' !== $tag && ! $this->isInlineContentElement($tag);
+                return 'svg' !== $tag && ! $this->context->isInlineContentElement($tag);
             }
         }
         for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
             if ( $sibling instanceof DOMElement ) {
                 $tag = strtolower($sibling->tagName);
-                return 'svg' !== $tag && ! $this->isInlineContentElement($tag);
+                return 'svg' !== $tag && ! $this->context->isInlineContentElement($tag);
             }
         }
 
@@ -419,9 +438,9 @@ trait SvgMaterializationTrait
             if ( ! $use instanceof DOMElement ) {
                 continue;
             }
-            $href = trim($this->attr($use, 'href'));
+            $href = trim($this->context->attr($use, 'href'));
             if ( '' === $href ) {
-                $href = trim($this->attr($use, 'xlink:href'));
+                $href = trim($this->context->attr($use, 'xlink:href'));
             }
             if ( preg_match('/^#(.+)$/', $href, $match) ) {
                 $references[$match[1]] = true;
@@ -437,8 +456,8 @@ trait SvgMaterializationTrait
                 continue;
             }
             foreach ( $defs->getElementsByTagName('*') as $definition ) {
-                if ( $definition instanceof DOMElement && isset($references[trim($this->attr($definition, 'id'))]) ) {
-                    $definitions[] = $this->safeFallbackHtml($defs);
+                if ( $definition instanceof DOMElement && isset($references[trim($this->context->attr($definition, 'id'))]) ) {
+                    $definitions[] = $this->context->safeFallbackHtml($defs);
                     break;
                 }
             }
@@ -561,7 +580,7 @@ trait SvgMaterializationTrait
         // selector. A content address lets every compatible instance share one
         // core/image asset while retaining its own alt text and presentation.
         $filename = 'inline-svg-' . substr(hash('sha256', $html), 0, 16) . '.svg';
-        return $this->materializedAssets()->rootedPath('assets/materialized-svg/' . $filename);
+        return $this->context->materializedAssets()->rootedPath('assets/materialized-svg/' . $filename);
     }
 
     private function sourceRelativeMaterializedSvgPath(string $path): string
@@ -578,7 +597,7 @@ trait SvgMaterializationTrait
     private function transformSourcePath(): string
     {
         foreach ( array( 'source', 'path' ) as $key ) {
-            $value = $this->transformationProvenance()->fallback()[$key] ?? '';
+            $value = $this->context->transformationProvenance()->fallback()[$key] ?? '';
             if ( '' !== trim((string) $value) ) {
                 return trim((string) $value);
             }
@@ -589,10 +608,10 @@ trait SvgMaterializationTrait
 
     private function recordGutenbergIncompatibility(DOMElement $element, string $reason, string $message): void
     {
-        $this->transformationEvidence()->recordGutenbergIncompatibility(array(
+        $this->context->transformationEvidence()->recordGutenbergIncompatibility(array(
             'type'     => 'svg_materialization_incompatibility',
             'element'  => 'svg',
-            'selector' => $this->elementSelector($element),
+            'selector' => $this->context->elementSelector($element),
             'reason'   => $reason,
             'message'  => $message,
         ));
@@ -615,7 +634,7 @@ trait SvgMaterializationTrait
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->styleResolver->cssDeclarations($this->attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->styleResolver->cssDeclarations($this->context->attr($element, 'style')) as $property => $value ) {
             if ( preg_match('/var\s*\(/i', $value) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }
@@ -632,7 +651,7 @@ trait SvgMaterializationTrait
      */
     private function svgImageDimensions(DOMElement $element, string $html): array
     {
-        $sourceWidth = trim($this->attr($element, 'width'));
+        $sourceWidth = trim($this->context->attr($element, 'width'));
         // A percentage SVG width has a used size from its containing block. Keep
         // that responsive width on the native image and let its viewBox provide
         // the intrinsic aspect ratio instead of pinning a viewBox-height value.
@@ -641,7 +660,7 @@ trait SvgMaterializationTrait
         }
 
         $width = $this->svgLengthAttributeForImage($sourceWidth);
-        $height = $this->svgLengthAttributeForImage($this->attr($element, 'height'));
+        $height = $this->svgLengthAttributeForImage($this->context->attr($element, 'height'));
         if ( '' !== $width && '' !== $height ) {
             return array( 'width' => $width, 'height' => $height );
         }
@@ -684,12 +703,12 @@ trait SvgMaterializationTrait
 
     private function svgImageAlt(DOMElement $element): string
     {
-        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) ) {
             return '';
         }
 
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $value = trim($this->attr($element, $attribute));
+            $value = trim($this->context->attr($element, $attribute));
             if ( '' !== $value ) {
                 return $value;
             }
@@ -736,7 +755,7 @@ trait SvgMaterializationTrait
         return substr($html, 0, $insertAt) . ' width="' . $width . '" height="' . $height . '"' . substr($html, $insertAt);
     }
 
-    private function ensureInlineSvgBoxStyle(string $html, DOMElement $element): string
+    public function ensureInlineSvgBoxStyle(string $html, DOMElement $element): string
     {
         $boxProperties = array_flip(array(
             'aspect-ratio',
@@ -753,7 +772,7 @@ trait SvgMaterializationTrait
             return $html;
         }
 
-        $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->cssDeclarations($this->context->attr($element, 'style'));
         foreach ( array_keys($existingDeclarations) as $name ) {
             unset($boxDeclarations[$name]);
         }
@@ -792,7 +811,7 @@ trait SvgMaterializationTrait
      * scale to its viewport) and a lowercased `<lineargradient>` is an unknown
      * element the browser does not render (the gradient fill disappears).
      */
-    private function restoreSvgCasing(string $html): string
+    public function restoreSvgCasing(string $html): string
     {
         static $camelCaseAttributes = array(
             'viewBox', 'preserveAspectRatio', 'baseProfile', 'attributeName', 'attributeType',
@@ -831,14 +850,14 @@ trait SvgMaterializationTrait
         return $html;
     }
 
-    private function isSafeDecorativeSvgElement(DOMElement $element): bool
+    public function isSafeDecorativeSvgElement(DOMElement $element): bool
     {
-        if ( ! $this->isSafeSvgContent($this->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
+        if ( ! $this->context->isSafeSvgContent($this->context->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
             return false;
         }
 
-        $role = strtolower(trim($this->attr($element, 'role')));
-        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+        $role = strtolower(trim($this->context->attr($element, 'role')));
+        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
             return true;
         }
 
@@ -849,10 +868,10 @@ trait SvgMaterializationTrait
     {
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $context = strtolower(trim(implode(' ', array(
-                $this->attr($current, 'class'),
-                $this->attr($current, 'id'),
-                $this->attr($current, 'aria-label'),
-                $this->attr($current, 'title'),
+                $this->context->attr($current, 'class'),
+                $this->context->attr($current, 'id'),
+                $this->context->attr($current, 'aria-label'),
+                $this->context->attr($current, 'title'),
             ))));
 
             if ( preg_match('/(?:^|[\s_-])(?:icon|logo)(?:$|[\s_-])/', $context) ) {
@@ -925,7 +944,7 @@ trait SvgMaterializationTrait
             return false;
         }
 
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( $this->context->htmlAttributes($element) as $name => $value ) {
             $name = strtolower($name);
             $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
             if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
