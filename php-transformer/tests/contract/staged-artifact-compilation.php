@@ -393,6 +393,12 @@ $fileEntrypointArtifact = array('files' => array(
     array('path' => 'landing.html', 'content' => '<main><h1>Selected entry</h1></main>', 'entrypoint' => true, 'role' => 'entry'),
 ));
 $assertReceiptEquality($fileEntrypointArtifact, 'File-level entrypoint and role selection preserve the exact complete inline result through staged receipts.');
+$responsiveShell = static fn(string $title): string => '<div class="desktop-document"><header class="desktop-header">Desktop header</header><main><h1>' . $title . '</h1></main><footer class="desktop-footer">Desktop footer</footer></div><div class="mobile-document"><header class="mobile-header">Mobile header</header><main><h1>' . $title . ' mobile</h1></main><footer class="mobile-footer">Mobile footer</footer></div>';
+$responsiveShellArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $responsiveShell('Home'),
+    'about.html' => $responsiveShell('About'),
+));
+$assertReceiptEquality($responsiveShellArtifact, 'Shared responsive shell variants are compiled into durable receipts before terminal composition.');
 
 $dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
 $capturedStates = array(
@@ -433,6 +439,10 @@ $assertReferenceReceiptEquality = static function (array $artifact, string $mess
     $assert(0 === ($staged['metrics']['html_document_transform_count'] ?? null) && 0 === ($staged['metrics']['normalization_count'] ?? null) && 0 === ($staged['metrics']['analysis_count'] ?? null), $message . ' Terminal composition performs no reads or work.');
 };
 $assertReferenceReceiptEquality($capturedDialogArtifact, 'Fully reference-backed captured dialogs preserve the exact complete canonical result.');
+$assertReferenceReceiptEquality(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => $responsiveShell('Home')),
+    array('path' => 'about.html', 'content' => $responsiveShell('About')),
+)), 'Fully reference-backed shared responsive shell variants compose without terminal reads or work.');
 $duplicateStylesheetArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/site.css"><main class="card">Duplicate stylesheet</main>'),
     array('path' => 'assets/site.css', 'content' => '.card{color:#123}', 'metadata' => array('compilation' => array('scope' => 'shared'))),

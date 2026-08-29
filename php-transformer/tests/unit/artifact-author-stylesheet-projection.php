@@ -146,10 +146,39 @@ $multiPageAssets = array_column($multiPage['assets'] ?? array(), null, 'path');
 $sharedCss = (string) ($multiPageAssets['site.css']['content'] ?? '');
 $aboutCss = (string) ($multiPageAssets['about.inline.css']['content'] ?? '');
 $assert(str_contains($sharedCss, 'blocks-engine-source-p-') && str_contains($sharedCss, 'blocks-engine-source-li-'), 'shared stylesheet merges projections required by entry and sibling HTML documents');
-$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && str_ends_with($aboutCss, '.rows li{gap:1rem}'), 'sibling inline projection precedes the original stylesheet so retained selectors remain authoritative');
+$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && ! str_contains($aboutCss, '.rows li{gap:1rem}'), 'sibling inline stylesheets emit their complete projected form without appending dead source selectors');
 $multiPageCompiledAssetPaths = array_column($multiPage['source_reports']['compiled_site']['assets'] ?? array(), 'path');
 $assert(count($multiPageCompiledAssetPaths) === count(array_unique($multiPageCompiledAssetPaths)), 'multi-page compilation deduplicates byte-identical generated assets by source path');
 $assert(isset($multiPage['source_reports']['wordpress_site_plan']), 'multi-page generated asset aggregation remains a valid WordPress site plan');
+
+$siblingSettledState = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><h1>Home</h1></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}</style><main><div class="animated" data-state="done"><p>Settled</p></div></main>' ),
+    ),
+) )->toArray();
+$siblingSettledAssets = array_column($siblingSettledState['assets'] ?? array(), null, 'path');
+$siblingSettledCss = (string) ($siblingSettledAssets['about.inline.css']['content'] ?? '');
+$assert(str_contains($siblingSettledCss, ':not(.blocks-engine-attribute-state-') && ! str_contains($siblingSettledCss, '[data-state="done"]'), 'sibling-only inline state gates retain only their Gutenberg marker projection');
+$assert(str_contains((string) ($siblingSettledState['source_reports']['wordpress_site_plan']['pages'][1]['canonical_block_markup'] ?? ''), 'blocks-engine-attribute-state-'), 'sibling-only settled state markers survive into canonical page markup');
+
+$sharedSettledState = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Home settled</p></div></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>About settled</p></div></main>' ),
+        array( 'path' => 'contact.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Contact settled</p></div></main>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+        array( 'path' => 'about.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+    ),
+) )->toArray();
+$sharedSettledAssets = array_column($sharedSettledState['assets'] ?? array(), null, 'path');
+$sharedSettledCss = (string) ($sharedSettledAssets['shared.css']['content'] ?? '') . (string) ($sharedSettledAssets['about.css']['content'] ?? '');
+preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
+preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', implode('', $sharedSettledSelectors[0] ?? array()), $sharedSettledMarkerMatches);
+$sharedSettledMarkers = array_fill_keys($sharedSettledMarkerMatches[0] ?? array(), true);
+$assert(3 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker across stylesheet paths so one route projection cannot reactivate another route animation.');
 
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

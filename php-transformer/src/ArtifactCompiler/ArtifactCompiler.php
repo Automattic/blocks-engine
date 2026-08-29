@@ -178,6 +178,7 @@ final class ArtifactCompiler
         $plan['shared_reduction'] = array(
             'files_source' => 'artifact',
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
@@ -614,7 +615,9 @@ final class ArtifactCompiler
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $inlineShellCompilation = $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
+            ? $reduction['inline_shell_compilation']
+            : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
@@ -959,6 +962,7 @@ final class ArtifactCompiler
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
+            'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array()),
             'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),
         );
     }
@@ -1400,6 +1404,7 @@ final class ArtifactCompiler
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -2629,6 +2634,27 @@ final class ArtifactCompiler
      */
     private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array()): array
     {
+        $attributeStateMarkers = array();
+        foreach ($projections as $projection) {
+            $markers = $projection['attribute_state_markers'] ?? null;
+            if (!is_array($markers)) continue;
+            foreach ($markers as $selector => $marker) {
+                if (is_string($selector) && is_string($marker) && '' !== $marker) $attributeStateMarkers[$selector][$marker] = true;
+            }
+        }
+        $reconcileAttributeStateMarkers = static function (array $projection) use ($attributeStateMarkers): array {
+            $markers = $projection['attribute_state_markers'] ?? null;
+            if (!is_string($projection['content'] ?? null) || !is_array($markers)) return $projection;
+            foreach ($markers as $selector => $marker) {
+                $allMarkers = array_keys($attributeStateMarkers[$selector] ?? array());
+                if (!is_string($marker) || '' === $marker || count($allMarkers) < 2) continue;
+                $replacement = implode('', array_map(static fn(string $candidate): string => ':not(.' . $candidate . ')', $allMarkers));
+                $projection['content'] = str_replace(':not(.' . $marker . ')', $replacement, $projection['content']);
+            }
+            return $projection;
+        };
+        $projections = array_map($reconcileAttributeStateMarkers, $projections);
+        $primaryProjections = array_map($reconcileAttributeStateMarkers, $primaryProjections);
         $byPath = array();
         $primaryByPath = array();
         foreach ( $primaryProjections as $projection ) {
@@ -2653,7 +2679,13 @@ final class ArtifactCompiler
             }
             $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
             if ( array() === $authoritativeContent ) {
-                $authoritativeContent[] = (string) ($file['content'] ?? '');
+                if ( array() !== $pathProjections ) {
+                    $authoritativeProjection = array_key_last($pathProjections);
+                    $authoritativeContent[] = (string) $authoritativeProjection;
+                    unset($pathProjections[$authoritativeProjection]);
+                } else {
+                    $authoritativeContent[] = (string) ($file['content'] ?? '');
+                }
             }
             $preambles = array();
             $stylesheets = array();
@@ -4174,6 +4206,17 @@ final class ArtifactCompiler
             }
         }
         return array('artifacts' => $artifacts, 'assets' => $assets);
+    }
+
+    /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
+    private function compileSharedInlineShellReduction(array $partition, array $artifact): array
+    {
+        $files = array_merge($partition['shared'], ...array_values($partition['pages']));
+        $files = self::sortedBySourcePaths($files, $partition['source_paths']);
+        $entryPath = (string) ($partition['entrypoints'][0] ?? '');
+        $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
+        $this->indexFiles($files);
+        return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
     }
 
     private static function normalizeSourceShellIdentity(string $markup): string
