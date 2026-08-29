@@ -548,7 +548,7 @@ trait ElementConversionTrait
         // A select's option text is not prose. Route it before generic text
         // flow can flatten the control into a paragraph.
         if ( 'select' === $tagName ) {
-            $selectBlock = $this->readableFormControlBlockFromElement($element);
+            $selectBlock = $this->readableFormControlBlockConverter->convert($element);
             if ( null !== $selectBlock ) {
                 return $selectBlock;
             }

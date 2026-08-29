@@ -101,7 +101,7 @@ trait FormDispatchTrait
                 $this->formRuntimeIslandRecorder->recordControl($control);
             }
 
-            $readableControlBlock = $this->readableFormControlBlockFromElement($control);
+            $readableControlBlock = $this->readableFormControlBlockConverter->convert($control);
             if ( null === $readableControlBlock ) {
                 continue;
             }
@@ -109,7 +109,7 @@ trait FormDispatchTrait
             $fieldBlocks = array();
             $associatedLabel = $this->formControlMetadataBuilder->associatedLabel($control);
             if ( $associatedLabel instanceof DOMElement && AuthoredInputBlockGenerator::NAME === ($readableControlBlock['blockName'] ?? '') ) {
-                $labelBlock = $this->readableFormControlBlockFromElement($associatedLabel);
+                $labelBlock = $this->readableFormControlBlockConverter->convert($associatedLabel);
                 if ( null !== $labelBlock ) {
                     $fieldBlocks[] = $labelBlock;
                 }
@@ -194,90 +194,6 @@ trait FormDispatchTrait
     }
 
     /**
-     * @return array<string, mixed>|null
-     */
-    private function readableFormControlBlockFromElement(DOMElement $element): ?array
-    {
-        $tagName = strtolower($element->tagName);
-        if ( 'label' === $tagName ) {
-            $controls = FormControlClassifier::controlElements($element);
-            if ( array() !== $controls ) {
-                $blocks = array();
-                foreach ( $controls as $control ) {
-                    if ( ! FormControlClassifier::isReadableControl($control) || array() !== $this->eventMetadata($control) ) {
-                        return null;
-                    }
-
-                    if ( $this->runtimeIslands->isRuntimeDomTarget($control) ) {
-                        $this->formRuntimeIslandRecorder->recordControl($control);
-                        return $this->htmlPreservationBlock($element);
-                    }
-
-                    $summary = $this->readableFormControlText($control);
-                    if ( '' !== $summary ) {
-                        $blocks[] = $this->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
-                    }
-                }
-
-                if ( 1 === count($blocks) ) {
-                    return $blocks[0];
-                }
-
-                return array() !== $blocks ? $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $blocks, $element) : null;
-            }
-
-            $label = $this->formControlMetadataBuilder->labelText($element);
-            if ( '' === $label ) {
-                $label = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
-            }
-
-            return '' !== $label ? $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element) : null;
-        }
-
-        if ( ! FormControlClassifier::isControlElement($element) || ! FormControlClassifier::isReadableControl($element) || array() !== $this->eventMetadata($element) ) {
-            return null;
-        }
-
-        if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
-            $label = $this->formControlMetadataBuilder->label($element);
-            if ( '' === $label ) {
-                $label = $this->attr($element, 'aria-label');
-            }
-            if ( '' === $label ) {
-                $label = 'Search';
-            }
-
-            return $this->htmlPreservationBlock($element);
-        }
-
-        if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
-            $this->formRuntimeIslandRecorder->recordControl($element);
-            return $this->htmlPreservationBlock($element);
-        }
-
-        if ( 'select' === $tagName ) {
-            $selectBlock = $this->authoredFormControlBlockConverter->select($element);
-            if ( null !== $selectBlock ) {
-                return $selectBlock;
-            }
-        }
-
-        if ( 'input' === $tagName ) {
-            $inputBlock = $this->authoredFormControlBlockConverter->input($element);
-            if ( null !== $inputBlock ) {
-                return $inputBlock;
-            }
-        }
-
-        $summary = $this->readableFormControlText($element);
-        if ( '' === $summary ) {
-            return null;
-        }
-
-        return $this->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $summary )), array(), $element);
-    }
-
-    /**
      * Build the shared html_form_fallback finding (issue #315) for an element that
      * behaves as a form. Both the real <form> path and the div-based pseudo-form
      * path emit through here so the downstream materializer receives an identical
@@ -329,74 +245,6 @@ trait FormDispatchTrait
         }
 
         return FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback());
-    }
-
-    private function readableFormControlText(DOMElement $control): string
-    {
-        $label = $this->formControlMetadataBuilder->readableLabel($control);
-
-        $type = FormControlClassifier::controlType($control);
-        if ( '' === $label ) {
-            $label = 'select' === $type ? 'Select option' : ucfirst($type);
-        }
-
-        $details = array();
-        if ( 'select' === strtolower($control->tagName) ) {
-            $options = array();
-            $selected = array();
-            foreach ( $this->formControlMetadataBuilder->options($control) as $option ) {
-                $optionLabel = (string) ($option['label'] ?? '');
-                if ( '' === $optionLabel ) {
-                    continue;
-                }
-                $options[] = $optionLabel;
-                if ( true === ($option['selected'] ?? false) ) {
-                    $selected[] = $optionLabel;
-                }
-            }
-            if ( array() !== $options ) {
-                $details[] = implode(', ', $options);
-            }
-            if ( array() !== $selected ) {
-                $details[] = 'selected: ' . implode(', ', $selected);
-            }
-        } elseif ( 'range' === $type ) {
-            $value = trim($this->attr($control, 'value'));
-            if ( '' !== $value ) {
-                $details[] = $value;
-            }
-
-            $bounds = array();
-            foreach ( array( 'min', 'max', 'step' ) as $attribute ) {
-                $value = trim($this->attr($control, $attribute));
-                if ( '' !== $value ) {
-                    $bounds[] = $attribute . ' ' . $value;
-                }
-            }
-            if ( array() !== $bounds ) {
-                $details[] = implode(', ', $bounds);
-            }
-        } else {
-            foreach ( array( 'value', 'placeholder' ) as $attribute ) {
-                $value = trim($this->attr($control, $attribute));
-                if ( '' !== $value ) {
-                    $details[] = $value;
-                    break;
-                }
-            }
-        }
-
-        $text = $label;
-        if ( array() !== $details ) {
-            $text .= ': ' . implode(' (', $details) . ( count($details) > 1 ? ')' : '' );
-        }
-        if ( $control->hasAttribute('required') ) {
-            $text .= ' (required)';
-        }
-
-        $this->registerFormControlEcho($text);
-
-        return $this->runtime->escapeHtml($text);
     }
 
     /**
