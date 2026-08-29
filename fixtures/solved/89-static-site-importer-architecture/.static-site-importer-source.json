@@ -1,0 +1,15 @@
+{
+  "schema": "static-site-importer/portable-source/v1",
+  "root": ".",
+  "entrypoint": "index.html",
+  "files": [
+    {
+      "path": "index.html",
+      "sha256": "c31305742577aacc80d67ca6f304ae887d6ba8e694465f18613b9abca5a43076"
+    },
+    {
+      "path": "css/site.css",
+      "sha256": "10469cfb88ac30dd42f2bacc63c98945722267fd74869024c713e05073a75c2d"
+    }
+  ]
+}
