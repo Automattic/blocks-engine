@@ -113,6 +113,50 @@ $assert(! $candidateCache->matches($byId('target'), '.final', CssSelectorMatcher
 $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
 $assert(array( '#target', 'span', ':not(.excluded)', 'span[data-value]' ) === $candidateSelectors, 'clearing the immutable revision cache rebuilds class candidates after mutation');
 $assert(4 === $candidateCache->candidateRulesRetained, 'candidate cache accounts for retained rule references');
+
+// DOM nodes are native libxml objects exposed through temporary PHP wrappers.
+// Once a wrapper is released, PHP can immediately reuse its spl_object_id() for
+// a wrapper around a different node. A cache keyed by that bare integer then
+// returns the first node's classes, attributes, selector result, and candidate
+// rules for the second node.
+$identityDom = new DOMDocument();
+$identityDom->loadHTML('<!doctype html><div><i id="identity-first" class="first" data-state="first" data-first="yes"></i><b id="identity-second" class="second" data-state="second" data-second="yes"></b></div>');
+$identityCache = new CssSelectorMatchCache();
+$identityIndex = array(
+    'universal' => array(),
+    'ids' => array(),
+    'classes' => array(
+        'first' => array( array( 'order' => 0, 'rule' => array( 'selector' => '.first' ) ) ),
+        'second' => array( array( 'order' => 1, 'rule' => array( 'selector' => '.second' ) ) ),
+    ),
+    'tags' => array(),
+    'attributes' => array(),
+    'total' => 2,
+);
+$identityFirst = $identityDom->getElementById('identity-first');
+if ( ! $identityFirst instanceof DOMElement ) {
+    throw new RuntimeException('Selector-cache identity fixture did not produce the first element.');
+}
+$firstWrapperId = spl_object_id($identityFirst);
+$identityCache->classTokens($identityFirst);
+$identityCache->attribute($identityFirst, 'data-state');
+$identityCache->attributeNames($identityFirst);
+$identityCache->matches($identityFirst, '.first', CssSelectorMatcher::parse('.first'));
+$identityCache->styleRuleCandidates($identityFirst, 'identity', $identityIndex);
+unset($identityFirst);
+
+$identitySecond = $identityDom->getElementById('identity-second');
+if ( ! $identitySecond instanceof DOMElement ) {
+    throw new RuntimeException('Selector-cache identity fixture did not produce the second element.');
+}
+$assert($firstWrapperId === spl_object_id($identitySecond), 'identity regression fixture recycles the released DOMElement wrapper ID');
+$assert(array( 'second' ) === $identityCache->classTokens($identitySecond), 'class-token cache does not alias a distinct element with a recycled wrapper ID');
+$assert('second' === $identityCache->attribute($identitySecond, 'data-state'), 'attribute cache does not alias a distinct element with a recycled wrapper ID');
+$assert(array( 'id', 'class', 'data-state', 'data-second' ) === $identityCache->attributeNames($identitySecond), 'attribute-name cache does not alias a distinct element with a recycled wrapper ID');
+$assert(! $identityCache->matches($identitySecond, '.first', CssSelectorMatcher::parse('.first'))['matches'], 'selector-result cache does not alias a distinct element with a recycled wrapper ID');
+$identitySelectors = array_column($identityCache->styleRuleCandidates($identitySecond, 'identity', $identityIndex), 'selector');
+$assert(array( '.second' ) === $identitySelectors, 'candidate-rule cache does not alias a distinct element with a recycled wrapper ID');
+
 $largeUniversalRules = array();
 for ( $index = 0; $index < 2048; ++$index ) {
     $largeUniversalRules[] = array( 'order' => $index, 'rule' => array( 'selector' => '*' ) );
