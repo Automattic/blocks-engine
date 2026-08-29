@@ -171,12 +171,8 @@ final class CssSelectorMatchCache
             $candidates = array_merge($candidates, $index['attributes'][$name] ?? array());
         }
 
-        $ordered = array();
-        foreach ( $candidates as $candidate ) {
-            $ordered[(string) ($candidate['key'] ?? $candidate['order'])] = $candidate;
-        }
-        uasort($ordered, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
-        $rules = array_column($ordered, 'rule');
+        uasort($candidates, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
+        $rules = array_column($candidates, 'rule');
         $this->candidateRuleChecks += count($rules);
         $this->candidateRulesSkipped += $index['total'] - count($rules);
 
