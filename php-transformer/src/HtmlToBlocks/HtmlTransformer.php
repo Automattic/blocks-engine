@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
@@ -532,8 +533,6 @@ final class HtmlTransformer
         return new SearchBlockConversionContext(
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): array => $this->eventMetadata($element),
-            fn (DOMElement $element): array => $this->formControlElements($element),
-            fn (DOMElement $element): string => $this->formControlType($element),
             fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
             fn (DOMElement $element): string => $this->formControlLabel($element),
             fn (DOMElement $element): string => $this->submitButtonText($element),
@@ -621,11 +620,8 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
-            fn (DOMElement $element): bool => $this->formHasDataEntryControls($element),
-            fn (DOMElement $element): bool => $this->hasFormAncestor($element),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
             fn (DOMElement $element): bool => $this->isDivBasedPseudoForm($element),
-            fn (DOMElement $element): bool => $this->isFormControlElement($element),
             fn (string $tagName): bool => $this->isInlineContentElement($tagName),
             fn (string $selector): bool => $this->isPresentationalAnimationSelector($selector),
             fn (array $rows): array => $this->dedupeArrayRows($rows)
@@ -4440,7 +4436,7 @@ if ( 'svg' === $tagName ) {
             $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
-            if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! $this->isFormControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
+            if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! FormControlClassifier::isControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
                 $runtimeOwned = true;
                 if ( ! $this->runtimeIslands->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
                     $this->runtimeIslands->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
@@ -5057,7 +5053,7 @@ if ( 'svg' === $tagName ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
             }
-            if ( $this->isFormControlElement($child) ) {
+            if ( FormControlClassifier::isControlElement($child) ) {
                 $blocks[] = $this->htmlPreservationBlock($child);
                 continue;
             }

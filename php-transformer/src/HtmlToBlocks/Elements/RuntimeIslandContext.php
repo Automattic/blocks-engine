@@ -29,11 +29,8 @@ final class RuntimeIslandContext
      * @param Closure(DOMElement): array<string, mixed>                       $eventMetadata
      * @param Closure(DOMElement): array<int, array<string, mixed>>           $requiredScriptsForElement
      * @param Closure(string): ?DOMElement                                    $preservedHtmlRootElement
-     * @param Closure(DOMElement): bool                                       $formHasDataEntryControls
-     * @param Closure(DOMElement): bool                                       $hasFormAncestor
      * @param Closure(DOMElement): bool                                       $hasWorkspaceSurface
      * @param Closure(DOMElement): bool                                       $isDivBasedPseudoForm
-     * @param Closure(DOMElement): bool                                       $isFormControlElement
      * @param Closure(string): bool                                           $isInlineContentElement
      * @param Closure(string): bool                                           $isPresentationalAnimationSelector
      * @param Closure(array<int, array<string, mixed>>): array<int, array<string, mixed>> $dedupeArrayRows
@@ -48,11 +45,8 @@ final class RuntimeIslandContext
         private readonly Closure $eventMetadata,
         private readonly Closure $requiredScriptsForElement,
         private readonly Closure $preservedHtmlRootElement,
-        private readonly Closure $formHasDataEntryControls,
-        private readonly Closure $hasFormAncestor,
         private readonly Closure $hasWorkspaceSurface,
         private readonly Closure $isDivBasedPseudoForm,
-        private readonly Closure $isFormControlElement,
         private readonly Closure $isInlineContentElement,
         private readonly Closure $isPresentationalAnimationSelector,
         private readonly Closure $dedupeArrayRows
@@ -113,16 +107,6 @@ final class RuntimeIslandContext
         return ($this->preservedHtmlRootElement)($html);
     }
 
-    public function formHasDataEntryControls(DOMElement $element): bool
-    {
-        return ($this->formHasDataEntryControls)($element);
-    }
-
-    public function hasFormAncestor(DOMElement $element): bool
-    {
-        return ($this->hasFormAncestor)($element);
-    }
-
     public function hasWorkspaceSurface(DOMElement $element): bool
     {
         return ($this->hasWorkspaceSurface)($element);
@@ -131,11 +115,6 @@ final class RuntimeIslandContext
     public function isDivBasedPseudoForm(DOMElement $element): bool
     {
         return ($this->isDivBasedPseudoForm)($element);
-    }
-
-    public function isFormControlElement(DOMElement $element): bool
-    {
-        return ($this->isFormControlElement)($element);
     }
 
     public function isInlineContentElement(string $tagName): bool

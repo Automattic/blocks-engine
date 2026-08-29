@@ -62,4 +62,49 @@ final class FormControlClassifier
             true
         );
     }
+
+    /** @return array<int, DOMElement> */
+    public static function controlElements(DOMElement $form): array
+    {
+        $controls = array();
+        foreach ( $form->getElementsByTagName('*') as $control ) {
+            if ( $control instanceof DOMElement && self::isControlElement($control) ) {
+                $controls[] = $control;
+            }
+        }
+
+        return $controls;
+    }
+
+    public static function hasDataEntryControls(DOMElement $form): bool
+    {
+        foreach ( self::controlElements($form) as $control ) {
+            if ( self::isDataEntryControl($control) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function hasFormAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'form' === strtolower($parent->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function isReadableControl(DOMElement $control): bool
+    {
+        $tagName = strtolower($control->tagName);
+        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
+            return true;
+        }
+
+        return 'button' === $tagName || ( 'input' === $tagName && in_array(self::controlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
+    }
 }

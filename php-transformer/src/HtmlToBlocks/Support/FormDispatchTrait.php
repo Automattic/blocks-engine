@@ -28,14 +28,14 @@ trait FormDispatchTrait
 
         $readableFormBlock = $this->readableFormBlockFromForm($element);
         if ( null !== $readableFormBlock && ! $this->formRequiresRuntimePreservation($element) ) {
-            if ( $this->formHasDataEntryControls($element) ) {
+            if ( FormControlClassifier::hasDataEntryControls($element) ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
             }
 
             return $readableFormBlock;
         }
 
-        if ( $this->formHasDataEntryControls($element) ) {
+        if ( FormControlClassifier::hasDataEntryControls($element) ) {
             $composition = $this->compositionalFormBlock($element, $fallbacks);
             if ( null !== $composition ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
@@ -54,7 +54,7 @@ trait FormDispatchTrait
 
         // Surface a form fallback finding so a downstream consumer can map the
         // preserved control structure onto a working form provider.
-        if ( null === $readableFormBlock || $this->formHasDataEntryControls($element) ) {
+        if ( null === $readableFormBlock || FormControlClassifier::hasDataEntryControls($element) ) {
             $fallbacks[] = $this->formFallbackFinding($element, $readableFormBlock);
         }
 
@@ -93,7 +93,7 @@ trait FormDispatchTrait
     {
         $controls = array();
         $order = 0;
-        foreach ( $this->formControlElements($form) as $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
             $metadata = $this->formControlMetadata($control);
             if ( array() !== $metadata ) {
                 $metadata['order'] = $order;
@@ -145,8 +145,8 @@ trait FormDispatchTrait
 
         $contentBlocks = array();
         $buttonBlocks = array();
-        foreach ( $this->formControlElements($form) as $control ) {
-            if ( array() !== $this->eventMetadata($control) || ! $this->isReadableFormControl($control) ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
+            if ( array() !== $this->eventMetadata($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
             }
 
@@ -237,7 +237,7 @@ trait FormDispatchTrait
 
     private function formControlSlotElement(DOMElement $form): ?DOMElement
     {
-        $controls = $this->formControlElements($form);
+        $controls = FormControlClassifier::controlElements($form);
         if ( array() === $controls ) return null;
 
         $formPath = $form->getNodePath();
@@ -260,11 +260,11 @@ trait FormDispatchTrait
     {
         $tagName = strtolower($element->tagName);
         if ( 'label' === $tagName ) {
-            $controls = $this->formControlElements($element);
+            $controls = FormControlClassifier::controlElements($element);
             if ( array() !== $controls ) {
                 $blocks = array();
                 foreach ( $controls as $control ) {
-                    if ( ! $this->isReadableFormControl($control) || array() !== $this->eventMetadata($control) ) {
+                    if ( ! FormControlClassifier::isReadableControl($control) || array() !== $this->eventMetadata($control) ) {
                         return null;
                     }
 
@@ -294,11 +294,11 @@ trait FormDispatchTrait
             return '' !== $label ? $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element) : null;
         }
 
-        if ( ! $this->isFormControlElement($element) || ! $this->isReadableFormControl($element) || array() !== $this->eventMetadata($element) ) {
+        if ( ! FormControlClassifier::isControlElement($element) || ! FormControlClassifier::isReadableControl($element) || array() !== $this->eventMetadata($element) ) {
             return null;
         }
 
-        if ( 'input' === $tagName && 'search' === $this->formControlType($element) ) {
+        if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
             $label = $this->formControlLabel($element);
             if ( '' === $label ) {
                 $label = $this->attr($element, 'aria-label');
@@ -452,7 +452,7 @@ trait FormDispatchTrait
         }
         $this->generatedBlocks()->register(AuthoredInputBlockGenerator::class, ( new AuthoredInputBlockGenerator() )->definition());
         $attrs = array_filter(array(
-            'type' => $this->formControlType($input),
+            'type' => FormControlClassifier::controlType($input),
             'id' => $this->attr($input, 'id'),
             'name' => $this->attr($input, 'name'),
             'value' => $this->attr($input, 'value'),
@@ -525,7 +525,7 @@ trait FormDispatchTrait
 
     private function formHasCommerceSubmissionSignal(DOMElement $form): bool
     {
-        foreach ( $this->formControlElements($form) as $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( ! $this->isSubmitLikeControl($control) ) {
                 continue;
             }
@@ -554,7 +554,7 @@ trait FormDispatchTrait
             return true;
         }
 
-        foreach ( $this->formControlElements($form) as $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( $this->runtimeIslands->isRuntimeDomTarget($control) || $this->hasRuntimeClassSignal($control) ) {
                 return true;
             }
@@ -715,7 +715,7 @@ trait FormDispatchTrait
 
         // A real <form> ancestor or descendant owns the controls; let the <form>
         // path emit the finding so it is never double-counted.
-        if ( $this->hasFormAncestor($element) ) {
+        if ( FormControlClassifier::hasFormAncestor($element) ) {
             return false;
         }
         if ( 0 < $element->getElementsByTagName('form')->length ) {
@@ -737,7 +737,7 @@ trait FormDispatchTrait
         // pseudo-form (and sibling pseudo-forms each emit their own finding).
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement
-                && ! $this->isFormControlElement($descendant)
+                && ! FormControlClassifier::isControlElement($descendant)
                 && $this->containerPairsDataEntryWithSubmit($descendant) ) {
                 return false;
             }
@@ -759,11 +759,11 @@ trait FormDispatchTrait
         $hasActionControl = false;
         $hasContainerAction = '' !== trim($this->attr($element, 'action')) || '' !== trim($this->attr($element, 'method')) || '' !== trim($this->attr($element, 'data-action'));
 
-        foreach ( $this->formControlElements($element) as $control ) {
+        foreach ( FormControlClassifier::controlElements($element) as $control ) {
             if ( $this->isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
                 $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlLabel($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
-            } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array($this->formControlType($control), array( 'reset', 'button' ), true) ) ) {
+            } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array(FormControlClassifier::controlType($control), array( 'reset', 'button' ), true) ) ) {
                 $hasActionControl = true;
                 $hasSubmit = $hasSubmit || $this->isPseudoFormSubmitControl($control);
             }
@@ -778,7 +778,7 @@ trait FormDispatchTrait
 
     private function isPseudoFormSubmitControl(DOMElement $control): bool
     {
-        $type = $this->formControlType($control);
+        $type = FormControlClassifier::controlType($control);
         if ( in_array($type, array( 'submit', 'image' ), true) ) {
             return true;
         }
@@ -832,7 +832,7 @@ trait FormDispatchTrait
      */
     private function isPseudoFormDataEntryControl(DOMElement $control): bool
     {
-        return $this->isDataEntryControl($control) && 'search' !== $this->formControlType($control);
+        return FormControlClassifier::isDataEntryControl($control) && 'search' !== FormControlClassifier::controlType($control);
     }
 
     /**
@@ -848,7 +848,7 @@ trait FormDispatchTrait
             return false;
         }
 
-        $type = $this->formControlType($control);
+        $type = FormControlClassifier::controlType($control);
         if ( in_array($type, array( 'submit', 'image' ), true) ) {
             return true;
         }
@@ -883,9 +883,9 @@ trait FormDispatchTrait
         }
 
         $actions = 0;
-        foreach ( $this->formControlElements($form) as $candidate ) {
+        foreach ( FormControlClassifier::controlElements($form) as $candidate ) {
             $tagName = strtolower($candidate->tagName);
-            $type = $this->formControlType($candidate);
+            $type = FormControlClassifier::controlType($candidate);
             if ( 'reset' === $type ) {
                 continue;
             }
@@ -927,68 +927,11 @@ trait FormDispatchTrait
         return false;
     }
 
-    private function hasFormAncestor(DOMElement $element): bool
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'form' === strtolower($parent->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a form collects user input through at least one data-entry control.
-     *
-     * A <form> that gathers data (text/email/select/textarea and similar) needs a
-     * real form runtime to submit, validate, and notify — even when it declares no
-     * action/method/script/event handler (common in static exports and design
-     * mockups where submission is wired downstream). Such a form must be preserved
-     * as a runtime island carrying its control structure rather than flattened to
-     * readable prose, so a consumer can materialize it into a working form. Keying
-     * off the control structure keeps this generic: no provider, plugin, or site
-     * knowledge leaks into the transformer.
-     */
-    private function formHasDataEntryControls(DOMElement $form): bool
-    {
-        foreach ( $this->formControlElements($form) as $control ) {
-            if ( $this->isDataEntryControl($control) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Whether a control collects user input (as opposed to a submit/reset/button,
-     * hidden state, file upload, or image button).
-     *
-     * The excluded set mirrors the controls a form provider cannot map to a data
-     * field, so a form whose only controls are non-data-entry stays a readable
-     * fallback instead of becoming an empty preserved island.
-     */
-    private function isDataEntryControl(DOMElement $control): bool
-    {
-        return FormControlClassifier::isDataEntryControl($control);
-    }
-
-    private function isReadableFormControl(DOMElement $control): bool
-    {
-        $tagName = strtolower($control->tagName);
-        if ( in_array($tagName, array( 'select', 'textarea' ), true) ) {
-            return true;
-        }
-
-        return 'button' === $tagName || ( 'input' === $tagName && in_array($this->formControlType($control), array( 'checkbox', 'email', 'number', 'radio', 'range', 'search', 'submit', 'tel', 'text', 'url' ), true) );
-    }
-
     private function readableFormControlText(DOMElement $control): string
     {
         $label = $this->readableFormControlLabel($control);
 
-        $type = $this->formControlType($control);
+        $type = FormControlClassifier::controlType($control);
         if ( '' === $label ) {
             $label = 'select' === $type ? 'Select option' : ucfirst($type);
         }
@@ -1078,7 +1021,7 @@ trait FormDispatchTrait
             $label = $this->attr($control, 'name');
         }
 
-        $type = $this->formControlType($control);
+        $type = FormControlClassifier::controlType($control);
         if ( '' === $label && $this->isSubmitLikeControl($control) ) {
             $label = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
         }
@@ -1120,24 +1063,9 @@ trait FormDispatchTrait
         return '' !== $value ? $value : 'Submit';
     }
 
-    /**
-     * @return array<int, DOMElement>
-     */
-    private function formControlElements(DOMElement $form): array
-    {
-        $controls = array();
-        foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( $control instanceof DOMElement && $this->isFormControlElement($control) ) {
-                $controls[] = $control;
-            }
-        }
-
-        return $controls;
-    }
-
     private function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool
     {
-        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($form, 'role'))) ) {
             return true;
         }
 
@@ -1158,7 +1086,7 @@ trait FormDispatchTrait
 
     private function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
     {
-        if ( 'search' === $this->formControlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
             return true;
         }
 
@@ -1192,12 +1120,12 @@ trait FormDispatchTrait
      */
     private function formControlMetadata(DOMElement $control): array
     {
-        if ( ! $this->isFormControlElement($control) ) {
+        if ( ! FormControlClassifier::isControlElement($control) ) {
             return array();
         }
 
         $tagName = strtolower($control->tagName);
-        $type = $this->formControlType($control);
+        $type = FormControlClassifier::controlType($control);
         if ( 'button' === $type && $this->isSubmitLikeControl($control) ) {
             $type = 'submit';
         }
@@ -1256,16 +1184,6 @@ trait FormDispatchTrait
         return $metadata;
     }
 
-    private function isFormControlElement(DOMElement $element): bool
-    {
-        return FormControlClassifier::isControlElement($element);
-    }
-
-    private function formControlType(DOMElement $control): string
-    {
-        return FormControlClassifier::controlType($control);
-    }
-
     private function formControlLabel(DOMElement $control): string
     {
         $ariaLabel = trim($this->attr($control, 'aria-label'));
@@ -1306,7 +1224,7 @@ trait FormDispatchTrait
             return '';
         }
 
-        if ( $node instanceof DOMElement && $this->isFormControlElement($node) ) {
+        if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
             return '';
         }
 
@@ -1369,7 +1287,4 @@ trait FormDispatchTrait
         return $options;
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
 }
