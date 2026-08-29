@@ -24,7 +24,7 @@ trait FormDispatchTrait
         }
 
         if ( FormControlClassifier::hasDataEntryControls($element) ) {
-            $composition = $this->compositionalFormBlock($element, $fallbacks);
+            $composition = $this->formCompositionPlanner->compose($element, $fallbacks);
             if ( null !== $composition ) {
                 $fallbacks[] = $this->formFallbackFinding($element, $composition['block'], $composition['slot']);
                 $this->formRuntimeIslandRecorder->recordForm($element, $composition['block']);
@@ -71,68 +71,6 @@ trait FormDispatchTrait
         if ( $this->pseudoFormAnalyzer->isPseudoForm($element) ) {
             $fallbacks[] = $this->formFallbackFinding($element, $this->readableFormBlockBuilder->build($element, true));
         }
-    }
-
-    /**
-     * Preserve one unambiguous controls-only subtree as the provider binding
-     * slot while converting the form's surrounding visual content normally.
-     *
-     * @param array<int,array<string,mixed>> $fallbacks
-     * @return array{block:array<string,mixed>,slot:array<string,mixed>}|null
-     */
-    private function compositionalFormBlock(DOMElement $form, array &$fallbacks): ?array
-    {
-        $slot = $this->formControlSlotElement($form);
-        if ( null === $slot ) return null;
-
-        $path = $slot->getNodePath();
-        $token = $this->transformationProvenance()->reserveFormControlSlot($path);
-        try {
-            $children = $this->convertChildren($form, $fallbacks, true);
-        } finally {
-            $this->transformationProvenance()->releaseFormControlSlot($path);
-        }
-        $slotBlock = $this->blockForBindingToken($children, $token);
-        if ( array() === $children || null === $slotBlock ) return null;
-
-        return array(
-            'block' => $this->createBlock('core/group', $this->styleResolver->presentationAttributes($form), $children, $form),
-            'slot'  => $slotBlock,
-        );
-    }
-
-    /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed>|null */
-    private function blockForBindingToken(array $blocks, string $token): ?array
-    {
-        foreach ($blocks as $block) {
-            if (!is_array($block)) continue;
-            if ($token === ($block['_binding_token'] ?? null)) return $block;
-            $nested = $this->blockForBindingToken(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $token);
-            if (null !== $nested) return $nested;
-        }
-        return null;
-    }
-
-    private function formControlSlotElement(DOMElement $form): ?DOMElement
-    {
-        $controls = array_values(array_filter(
-            FormControlClassifier::controlElements($form),
-            static fn(DOMElement $control): bool => 'hidden' !== FormControlClassifier::controlType($control)
-        ));
-        if ( array() === $controls ) return null;
-
-        $formPath = $form->getNodePath();
-        $slot = null;
-        for ( $candidate = $controls[0]->parentNode; $candidate instanceof DOMElement && $candidate->getNodePath() !== $formPath; $candidate = $candidate->parentNode ) {
-            if ( array_filter($controls, fn(DOMElement $control): bool => !$this->elementContains($candidate, $control)) ) continue;
-            foreach ( $candidate->childNodes as $child ) {
-                if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) continue 2;
-                if ( !$child instanceof DOMElement ) continue;
-                if ( !array_filter($controls, fn(DOMElement $control): bool => $this->elementContains($child, $control)) ) continue 2;
-            }
-            $slot = $candidate;
-        }
-        return $slot;
     }
 
     /**
