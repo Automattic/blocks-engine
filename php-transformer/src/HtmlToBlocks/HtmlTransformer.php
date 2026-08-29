@@ -88,7 +88,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionTrait;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationTrait;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -114,7 +115,6 @@ final class HtmlTransformer
     use DomHelpersTrait;
     use ElementConversionTrait;
     use FormDispatchTrait;
-    use NavigationToggleSuppressionTrait;
     use SvgMaterializationTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
@@ -251,6 +251,8 @@ final class HtmlTransformer
 
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
+    private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
+
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
@@ -380,6 +382,10 @@ final class HtmlTransformer
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
         );
+        $this->navigationToggleSuppressor = new NavigationToggleSuppressor(
+            $this->createNavigationToggleSuppressionContext(),
+            $this->styleResolver
+        );
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext());
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
@@ -459,6 +465,24 @@ final class HtmlTransformer
             'hash'        => $hash,
             'source_hash' => $hash,
         ));
+    }
+
+    /**
+     * Collaborator surface for {@see NavigationToggleSuppressor}. Per-transform
+     * state is resolved lazily so the suppressor always sees the running
+     * transform.
+     */
+    private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
+    {
+        return new NavigationToggleSuppressionContext(
+            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element),
+            fn (DOMElement $element): bool => $this->hasSourceNavigationSignal($element),
+            fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
+            fn (): RuntimeSelectorState => $this->runtimeSelectors(),
+            fn (): PatternRecognizerRegistry => $this->patternRecognizers,
+            fn (): PatternContext => $this->probePatternContext()
+        );
     }
 
     /**
@@ -834,8 +858,8 @@ final class HtmlTransformer
 
         $fallbacks   = array();
         $interactionCandidates = $this->interactionCandidates($body);
-        $this->collectProjectedNavigationRelationships($body);
-        $this->collectSupersededNavToggleSelectors($body);
+        $this->navigationToggleSuppressor->collectProjectedNavigationRelationships($body);
+        $this->navigationToggleSuppressor->collectSupersededNavToggleSelectors($body);
         $shellArtifacts = !array_key_exists('extract_global_shell', $options) || !empty($options['extract_global_shell']) ? $this->globalShellArtifacts($body, (string) ($options['source'] ?? 'html')) : array();
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
@@ -3490,7 +3514,7 @@ final class HtmlTransformer
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationOverlayMenu($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -3644,13 +3668,13 @@ final class HtmlTransformer
             return $block;
         }
 
-        $projectedNavigation = $this->projectedNavigationTargetForControl($element);
+        $projectedNavigation = $this->navigationToggleSuppressor->projectedNavigationTargetForControl($element);
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = $this->recognizePatterns($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
                 $controlAttrs = $this->styleResolver->presentationAttributes($element);
                 $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
-                if ( $this->isImplicitDialogNavigationControl($element) ) {
+                if ( $this->navigationToggleSuppressor->isImplicitDialogNavigationControl($element) ) {
                     $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
                 }
                 $block['attrs']['className'] = $this->mergeClassNames(
@@ -3663,7 +3687,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( $this->isProjectedNavigationSuppressed($element) || $this->isRedundantMenuToggleControl($element) ) {
+        if ( $this->navigationToggleSuppressor->isProjectedNavigationSuppressed($element) || $this->navigationToggleSuppressor->isRedundantMenuToggleControl($element) ) {
             return null;
         }
 
@@ -8973,7 +8997,7 @@ if ( 'svg' === $tagName ) {
         }
 
         // Behavior is preserved or rebuilt elsewhere — not lost.
-        if ( $this->isRedundantMenuToggleControl($element) ) {
+        if ( $this->navigationToggleSuppressor->isRedundantMenuToggleControl($element) ) {
             return false;
         }
 
@@ -9050,7 +9074,7 @@ if ( 'svg' === $tagName ) {
     private function isFoldedIntoCoreNavigation(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $this->isNavigationMenuCandidate($node) && $this->convertsToCoreNavigation($node) ) {
+            if ( $this->navigationToggleSuppressor->isNavigationMenuCandidate($node) && $this->navigationToggleSuppressor->convertsToCoreNavigation($node) ) {
                 return true;
             }
         }
@@ -10955,7 +10979,7 @@ if ( 'svg' === $tagName ) {
                 'kind'  => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $overlayMenu = $this->navigationOverlayMenu($element);
+        $overlayMenu = $this->navigationToggleSuppressor->navigationOverlayMenu($element);
         $navigationAttrs = array( 'overlayMenu' => $overlayMenu );
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';

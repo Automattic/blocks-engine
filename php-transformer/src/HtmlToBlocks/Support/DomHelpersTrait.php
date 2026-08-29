@@ -601,4 +601,19 @@ trait DomHelpersTrait
     {
         return DeterministicRowDeduplicator::dedupe($rows);
     }
+
+    /**
+     * Whether $container is $element or one of its ancestors. Shared DOM
+     * ancestry helper; consumed by form dispatch and navigation suppression.
+     */
+    private function elementContains(DOMElement $container, DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($container) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }
