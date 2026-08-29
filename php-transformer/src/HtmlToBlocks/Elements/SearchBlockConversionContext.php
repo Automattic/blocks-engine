@@ -13,8 +13,6 @@ final class SearchBlockConversionContext
     /**
      * @param Closure(DOMElement, string): string                                                    $attr
      * @param Closure(DOMElement): array<string, mixed>                                              $eventMetadata
-     * @param Closure(DOMElement): array<int, DOMElement>                                            $formControlElements
-     * @param Closure(DOMElement): string                                                            $formControlType
      * @param Closure(DOMElement, DOMElement): bool                                                  $hasSearchFormSignal
      * @param Closure(DOMElement): string                                                            $formControlLabel
      * @param Closure(DOMElement): string                                                            $submitButtonText
@@ -32,8 +30,6 @@ final class SearchBlockConversionContext
     public function __construct(
         private readonly Closure $attr,
         private readonly Closure $eventMetadata,
-        private readonly Closure $formControlElements,
-        private readonly Closure $formControlType,
         private readonly Closure $hasSearchFormSignal,
         private readonly Closure $formControlLabel,
         private readonly Closure $submitButtonText,
@@ -59,17 +55,6 @@ final class SearchBlockConversionContext
     public function eventMetadata(DOMElement $element): array
     {
         return ($this->eventMetadata)($element);
-    }
-
-    /** @return array<int, DOMElement> */
-    public function formControlElements(DOMElement $element): array
-    {
-        return ($this->formControlElements)($element);
-    }
-
-    public function formControlType(DOMElement $element): string
-    {
-        return ($this->formControlType)($element);
     }
 
     public function hasSearchFormSignal(DOMElement $form, DOMElement $input): bool

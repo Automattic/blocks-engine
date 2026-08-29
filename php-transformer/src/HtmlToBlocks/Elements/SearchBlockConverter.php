@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
 
 /** Converts static search controls into native core/search blocks. */
@@ -26,13 +27,13 @@ final class SearchBlockConverter
 
         $textInput = null;
         $submitControl = null;
-        foreach ( $this->context->formControlElements($form) as $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( array() !== $this->context->eventMetadata($control) ) {
                 return null;
             }
 
             $tagName = strtolower($control->tagName);
-            $type = $this->context->formControlType($control);
+            $type = FormControlClassifier::controlType($control);
             if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
                 if ( null !== $textInput ) {
                     return null;
@@ -277,12 +278,12 @@ final class SearchBlockConverter
 
         $textInput = null;
         $submitControl = null;
-        foreach ( $this->context->formControlElements($form) as $control ) {
+        foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( array() !== $this->context->eventMetadata($control) ) {
                 return false;
             }
             $tagName = strtolower($control->tagName);
-            $type = $this->context->formControlType($control);
+            $type = FormControlClassifier::controlType($control);
             if ( 'input' === $tagName && in_array($type, array( 'text', 'search' ), true) ) {
                 if ( null !== $textInput ) {
                     return false;
@@ -345,14 +346,14 @@ final class SearchBlockConverter
 
         $inputs = array();
         foreach ( $element->getElementsByTagName('input') as $input ) {
-            if ( $input instanceof DOMElement && $input->parentNode === $element && 'search' === $this->context->formControlType($input) ) {
+            if ( $input instanceof DOMElement && $input->parentNode === $element && 'search' === FormControlClassifier::controlType($input) ) {
                 $inputs[] = $input;
             }
         }
         if ( 1 !== count($inputs) || array() !== $this->context->eventMetadata($inputs[0]) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
-        $controls = $this->context->formControlElements($element);
+        $controls = FormControlClassifier::controlElements($element);
         if ( 1 !== count($controls) ) {
             return null;
         }
