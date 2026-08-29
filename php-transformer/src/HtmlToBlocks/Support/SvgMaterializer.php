@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -20,7 +21,7 @@ use DOMNode;
  * {@see SvgMaterializationContext}, so this class has no $this access to the
  * transformer and can be exercised without constructing one.
  */
-final class SvgMaterializer
+final class SvgMaterializer implements SvgElementMaterializer
 {
     public function __construct(
         private readonly SvgMaterializationContext $context,
