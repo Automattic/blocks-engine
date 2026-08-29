@@ -173,6 +173,15 @@ $candidatePressureCache->styleRuleCandidates($candidatePressureElements[CssSelec
 $candidatePressureCache->styleRuleCandidates($candidatePressureElements[0], 'pressure', $emptyCandidateIndex);
 $assert(4097 === $candidatePressureCache->candidateRuleMisses && 2 === $candidatePressureCache->candidateRuleHits && 1 === $candidatePressureCache->candidateRuleEvictions && CssSelectorMatchCache::MAX_CANDIDATE_LISTS === $candidatePressureCache->candidateRulePeakEntries && 0 === $candidatePressureCache->candidateRulePeakRetained, 'zero-rule candidate lists remain bounded and hot lists survive capacity pressure');
 
+$lazyClassCache = new CssSelectorMatchCache();
+$attributeOnly = $candidatePressureDom->createElement('div');
+$attributeOnly->setAttribute('data-ready', 'yes');
+$lazyClassCache->matches($attributeOnly, 'div[data-ready]', CssSelectorMatcher::parse('div[data-ready]'));
+$assert(0 === $lazyClassCache->classTokenBuilds, 'selectors without class requirements do not tokenize source classes');
+$lazyClassCache->matches($attributeOnly, '.ready', CssSelectorMatcher::parse('.ready'));
+$lazyClassCache->matches($attributeOnly, '.ready.active', CssSelectorMatcher::parse('.ready.active'));
+$assert(1 === $lazyClassCache->classTokenBuilds, 'class membership uses one token set across selector matches for an element');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

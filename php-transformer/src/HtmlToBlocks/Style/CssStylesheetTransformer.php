@@ -54,9 +54,6 @@ final class CssStylesheetTransformer
      */
     public function visitStyleRules(string $stylesheet, callable $visitStyleRule): void
     {
-        if ( ! $this->isWellFormedStylesheet($stylesheet) ) {
-            return;
-        }
         $this->visitRules($stylesheet, $visitStyleRule, array());
     }
 
