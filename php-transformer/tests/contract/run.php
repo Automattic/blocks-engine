@@ -637,6 +637,22 @@ $assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><s
 $assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
 $assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
 
+// A visually empty native summary is capture scaffolding, not an editor-visible
+// disclosure trigger. Keep adjacent prose editable while lowering the bounded
+// dialog separately so core/details cannot add its default closed-state height.
+$capturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details class="dla-disclosure"><summary>&nbsp;</summary><div class="dla-dialog" role="dialog"><nav><a href="/about">About</a><a href="/contact">Contact</a></nav></div></details></div>')->toArray();
+$capturedDisclosureRoot = $capturedDisclosureResult['blocks'][0] ?? array();
+$capturedDisclosureChildren = $capturedDisclosureRoot['innerBlocks'] ?? array();
+$capturedDisclosureDialog = $capturedDisclosureChildren[1] ?? array();
+$capturedDisclosureMarkup = (string) ($capturedDisclosureResult['serialized_blocks'] ?? '');
+$assert('core/group' === ($capturedDisclosureRoot['blockName'] ?? null) && 'core/paragraph' === (($capturedDisclosureChildren[0] ?? array())['blockName'] ?? null) && 'Copyright text' === (($capturedDisclosureChildren[0]['attrs']['content'] ?? null)), 'mixed rich text keeps ordinary sibling prose editable when an empty-summary disclosure is present');
+$assert(str_ends_with((string) ($capturedDisclosureDialog['blockName'] ?? ''), '/captured-dialog') && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures lower to the typed dialog block with native navigation children');
+$assert(! str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<dialog class="dla-dialog">'), 'empty-summary dialog disclosures avoid both details trigger geometry and collection fallback');
+
+$unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
+$unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
+$assert(! str_contains($unsafeCapturedDisclosureMarkup, '/captured-dialog') && str_contains($unsafeCapturedDisclosureMarkup, 'Copyright text'), 'runtime-heavy empty-summary dialogs fail closed without swallowing adjacent editable prose');
+
 // A single disclosure widget (toggle control + collapsible region) carries no
 // faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
 // converted to a native zero-JS core/details block instead of leaking a dead

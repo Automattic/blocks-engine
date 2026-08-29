@@ -3834,6 +3834,11 @@ if ( $this->isInlineContentElement($tagName) ) {
         }
 
         if ( 'details' === $tagName ) {
+            $capturedDisclosureDialog = $this->capturedDisclosureDialog($element);
+            if ( $capturedDisclosureDialog instanceof DOMElement ) {
+                return $this->capturedDialogBlock($capturedDisclosureDialog, $fallbacks);
+            }
+
             return $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
         }
 
@@ -4185,6 +4190,61 @@ if ( 'svg' === $tagName ) {
             'innerHTML' => $opening . '</dialog>',
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * An empty native details summary is sometimes capture scaffolding for an
+     * adjacent dialog. A core/details block gives that otherwise invisible
+     * trigger WordPress's default summary geometry, so preserve the bounded
+     * dialog as a closed native dialog instead.
+     */
+    private function capturedDisclosureDialog(DOMElement $element): ?DOMElement
+    {
+        $summary = null;
+        $dialog = null;
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? '')) ) {
+                    return null;
+                }
+                continue;
+            }
+
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( 'summary' === $tagName && ! $summary instanceof DOMElement ) {
+                $summary = $child;
+                continue;
+            }
+
+            if ( 'dialog' === strtolower($this->attr($child, 'role')) && ! $dialog instanceof DOMElement ) {
+                $dialog = $child;
+                continue;
+            }
+
+            return null;
+        }
+
+        if ( ! $summary instanceof DOMElement || ! $dialog instanceof DOMElement ) {
+            return null;
+        }
+
+        $label = str_replace("\xc2\xa0", ' ', html_entity_decode($this->innerHtml($summary), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' !== trim(strip_tags($label)) ) {
+            return null;
+        }
+
+        foreach ( $dialog->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'script', 'canvas', 'template', 'iframe', 'form' ), true) ) {
+                return null;
+            }
+        }
+
+        return $dialog;
     }
 
     /**
