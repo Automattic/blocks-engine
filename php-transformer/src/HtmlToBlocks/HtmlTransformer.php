@@ -50,6 +50,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
@@ -318,7 +320,7 @@ final class HtmlTransformer
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
-    private readonly TableElementConverter $tableConverter;
+    private readonly OrderedElementConverterRegistry $tableConverters;
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
@@ -594,7 +596,19 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
-        $this->tableConverter = new TableElementConverter($this->createTableElementContext());
+        $tableConverter = new TableElementConverter($this->createTableElementContext());
+        $parameterTableConverter = new PatternElementConverter(
+            new PatternElementContext(
+                function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                    return $this->recognizePatterns($element, $fallbacks, $patterns);
+                }
+            ),
+            array( ParameterTablePattern::class )
+        );
+        $this->tableConverters = new OrderedElementConverterRegistry(array(
+            $tableConverter,
+            $parameterTableConverter,
+        ));
         $figureConverter = new FigureElementConverter(new FigureElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mediaGalleryBlockFromElement($element, $fallbacks);
@@ -4569,13 +4583,9 @@ final class HtmlTransformer
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( $this->tableConverter->handles($tagName) ) {
-            return $this->tableConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        $parameterTable = $this->recognizePatterns($element, $fallbacks, array(ParameterTablePattern::class));
-        if ( null !== $parameterTable ) {
-            return $parameterTable;
+        $tableDispatch = $this->tableConverters->convert($element, $tagName, $fallbacks);
+        if ( $tableDispatch->handled ) {
+            return $tableDispatch->block;
         }
 
         if ( 'hr' === $tagName || 'br' === $tagName ) {
