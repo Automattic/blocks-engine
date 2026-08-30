@@ -113,6 +113,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePatternCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProjectionState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticPreparer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
@@ -288,6 +290,8 @@ final class HtmlTransformer
 
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
 
+    private readonly AuthorSelectorSemanticPreparer $authorSelectorSemanticPreparer;
+
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
     private readonly SvgMaterializer $svgMaterializer;
@@ -454,6 +458,19 @@ final class HtmlTransformer
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
+        $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
+            new AuthorSelectorSemanticContext(
+                fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
+                fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+                fn (DOMElement $element): bool => $this->isStructuralListItem($element),
+                fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
+                fn (array $parsed, DOMElement $element): bool => $this->tableSelectorNeedsStructuralProjection($parsed, $element),
+                fn (DOMElement $table): bool => $this->isRepresentableTable($table)
+            ),
+            $this->stylesheetAnalysisComposer,
+            $this->styleResolver,
+            $this->analysisCache
+        );
         $this->navigationStyleProjector = new NavigationStyleProjector(
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
@@ -2149,271 +2166,7 @@ final class HtmlTransformer
     /** @param array<string, mixed> $options */
     private function prepareAuthorSelectorSemantics(string $html, string $staticCss, DOMElement $sourceBody, array $options): void
     {
-        $stylesheetAssets = $this->stylesheetAnalysisComposer->authorStylesheetAssetsFromOptions($options);
-        $combinedAuthorCss = array() === $stylesheetAssets
-            ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
-            : implode("\n\n", array_column($stylesheetAssets, 'content'));
-        $this->session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody));
-        $this->sourceStyles()->setFormLayoutCss($combinedAuthorCss);
-        $this->discoverRuntimeAttributeSelectorPaths($options);
-
-        if ( '' === $combinedAuthorCss ) {
-            return;
-        }
-
-        $authorAnalysis = $this->stylesheetAnalysisComposer->composedAuthorSelectorAnalysis(
-            $this->stylesheetAnalysisComposer->authorStylesheetPayloads($html, $staticCss, $this->authorStyles())
-        );
-        $sourceTagSelectorNames = $authorAnalysis['source_tags'];
-        $authorStyleRules = $authorAnalysis['rules'];
-        $authorSelectors = array_merge(...array_column($authorStyleRules, 'selectors'));
-        foreach ( array_keys($sourceTagSelectorNames) as $tagName ) {
-            $this->authorSelectorProjections()->ensureTagMarker($tagName);
-        }
-		$this->discoverAuthorControlPaths($authorSelectors);
-		$this->authorStyles()->installStyleRules($authorStyleRules);
-		$this->discoverAuthorInlineSemanticPaths($authorSelectors);
-		$this->discoverAuthorAttributePaths($authorSelectors);
-		$this->discoverAuthorRootChildPaths($authorSelectors);
-		$this->discoverAuthorTablePaths($authorSelectors);
-        $this->authorStyles()->setSourceBodyProjectionClasses($this->referencedSourceBodyClasses($sourceBody));
-        $matchCache = $this->authorStyles()->releaseSelectorMatchCache();
-        $this->analysisCache->authorSelectorClassTokenBuilds += $matchCache->classTokenBuilds;
-        $this->analysisCache->authorSelectorClassTokenHits += $matchCache->classTokenHits;
-        $this->analysisCache->authorSelectorAttributeReads += $matchCache->attributeReads;
-    }
-
-    /** @return list<string> */
-    private function referencedSourceBodyClasses(DOMElement $sourceBody): array
-    {
-        $classes = preg_split('/\s+/', trim($this->attr($sourceBody, 'class'))) ?: array();
-        return array_values(array_filter(array_unique($classes), function (string $class): bool {
-            return '' !== $class && (bool) preg_match('/\.' . preg_quote($class, '/') . '(?:\b|(?=[.#:\[]))/', $this->authorStyles()->combinedCss());
-        }));
-    }
-
-	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    private function discoverAuthorControlPaths(array $authorSelectors): void
-    {
-		foreach ( $authorSelectors as $authorSelector ) {
-				$selector = $authorSelector['selector'];
-				$parsed = $authorSelector['parsed'];
-                if ( ! $parsed['supported'] ) {
-                    continue;
-                }
-                $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-                $controls = array_filter($matches, static fn (DOMElement $element): bool => in_array(strtolower($element->tagName), array( 'a', 'button' ), true));
-                if ( array() === $controls ) {
-                    continue;
-                }
-                foreach ( $controls as $control ) {
-                    $path = $control->getNodePath() ?? '';
-                    if ( '' !== $path ) {
-                        $this->authorSelectorProjections()->markControlPath($path);
-                    }
-                }
-		}
-    }
-
-	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    private function discoverAuthorInlineSemanticPaths(array $authorSelectors): void
-    {
-		foreach ( $authorSelectors as $authorSelector ) {
-				$selector = $authorSelector['selector'];
-				$parsed = $authorSelector['parsed'];
-                if ( ! $parsed['supported'] ) {
-                    continue;
-                }
-                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                    $inlineTag = strtolower($element->tagName);
-                    $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
-                    $directAuthorLayoutItem = $directChildSelector && $this->isDirectChildOfAuthorOwnedLayout($element);
-                    if ( ! $this->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
-                        continue;
-                    }
-                    $path = $this->sourceElementIdentity($element);
-                    if ( '' === $path ) {
-                        continue;
-                    }
-                    $listItem = $this->ancestorElement($element, 'li');
-                    $structuralListItem = $listItem instanceof DOMElement && $this->isStructuralListItem($listItem);
-                    // Normal list-item content serializes through RichText. A
-                    // structural item receives native child blocks instead.
-                    if ( $listItem instanceof DOMElement && ! $structuralListItem && $this->richTextSelectorNeedsHook($parsed) ) {
-                        $marker = $this->authorSelectorProjections()->ensureRichTextMarker($path);
-                        $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
-                    } elseif ( $directAuthorLayoutItem
-                        || ($structuralListItem && $this->richTextSelectorNeedsHook($parsed))
-                        || $this->requiresIndependentSemanticWrapper($element)
-                    ) {
-                        if ( '' !== $path ) {
-                            $this->authorSelectorProjections()->ensureSemanticMarker($path);
-                        }
-                    } elseif ( $this->richTextSelectorNeedsHook($parsed) ) {
-                        $marker = $this->authorSelectorProjections()->ensureRichTextMarker($path);
-                        // Carry the generated identity through intermediate
-                        // wrapper conversions before RichText normalizes spans.
-                        $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
-                    }
-                }
-		}
-    }
-
-	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    private function discoverAuthorAttributePaths(array $authorSelectors): void
-    {
-		foreach ( $authorSelectors as $authorSelector ) {
-            $parsed = $authorSelector['parsed'];
-            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
-                continue;
-            }
-
-            if ( $this->hasRightmostNegatedDataAttribute($parsed) ) {
-                $matches = $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed);
-                $marker = '';
-                foreach ( $this->matchingAuthorSourceElementsIgnoringNegation($parsed) as $element ) {
-                    if ( in_array($element, $matches, true) ) {
-                        continue;
-                    }
-                    $path = $this->sourceElementIdentity($element);
-                    if ( '' !== $path ) {
-                        $marker = '' === $marker ? $this->allocateAuthorMarker('attribute-state') : $marker;
-                        $this->authorSelectorProjections()->addAttributeStateMarker($path, $marker);
-                        $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
-                    }
-                }
-                if ( '' !== $marker ) {
-                    $this->authorSelectorProjections()->installAttributeNegationMarker($authorSelector['selector'], $marker);
-                }
-            }
-
-            $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
-            $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
-            if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
-                foreach ( $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed) as $element ) {
-                    if ( '' !== $this->safeAnchor($this->attr($element, 'id')) ) {
-                        continue;
-                    }
-                    $path = $this->sourceElementIdentity($element);
-                    if ( '' !== $path ) {
-                        $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
-                        $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
-                    }
-                }
-            }
-
-            $compounds = $parsed['compounds'] ?? array();
-            $rightmost = $compounds[array_key_last($compounds)] ?? array();
-            $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-            if ( array() === $hasDataAttribute ) {
-                continue;
-            }
-            foreach ( $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed) as $element ) {
-                $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-                $hasBoxGeometry = array() !== array_intersect_key($declarations, array_flip(array(
-                    'display', 'position', 'inset', 'top', 'right', 'bottom', 'left',
-                    'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-                    'margin', 'padding', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'grid', 'grid-area',
-                )));
-                if ( ! $hasBoxGeometry && 'img' !== strtolower($element->tagName) ) {
-                    continue;
-                }
-                $path = $this->sourceElementIdentity($element);
-                if ( '' !== $path ) {
-                    $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
-                    $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
-                }
-            }
-		}
-    }
-
-    /** @param array<string, mixed> $options */
-    private function discoverRuntimeAttributeSelectorPaths(array $options): void
-    {
-        $selectors = is_array($options['runtime_projection_selectors'] ?? null) ? $options['runtime_projection_selectors'] : array();
-        foreach ( $selectors as $selector ) {
-            if ( ! is_string($selector) || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $selector) ) {
-                continue;
-            }
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                continue;
-            }
-            $markers = array();
-            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                $path = $this->sourceElementIdentity($element);
-                if ( '' === $path ) {
-                    continue;
-                }
-                $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
-                $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
-                $markers[] = $marker;
-            }
-            if ( array() !== $markers ) {
-                $this->authorSelectorProjections()->installRuntimeAttributeSelectorMarkers($selector, $markers);
-            }
-        }
-    }
-
-	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    private function discoverAuthorRootChildPaths(array $authorSelectors): void
-    {
-		foreach ( $authorSelectors as $authorSelector ) {
-				$selector = $authorSelector['selector'];
-				$parsed = $authorSelector['parsed'];
-                if ( ! $parsed['supported'] || ! $this->isRootChildSelector($parsed) ) {
-                    continue;
-                }
-                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                    if ( in_array(strtolower($element->tagName), array( 'link', 'meta', 'script', 'style', 'template', 'title' ), true) ) {
-                        continue;
-                    }
-                    $path = $this->sourceElementIdentity($element);
-                    if ( '' !== $path ) {
-                        $this->authorSelectorProjections()->ensureRootChildMarker($path);
-                    }
-                }
-		}
-    }
-
-	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
-    private function discoverAuthorTablePaths(array $authorSelectors): void
-    {
-		foreach ( $authorSelectors as $authorSelector ) {
-				$selector = $authorSelector['selector'];
-				$parsed = $authorSelector['parsed'];
-                if ( ! $parsed['supported'] ) {
-                    continue;
-                }
-                foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                    if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
-                        continue;
-                    }
-                    if ( ! $this->tableSelectorNeedsStructuralProjection($parsed, $element) ) {
-                        continue;
-                    }
-                    $table = $this->ancestorTable($element);
-                    if ( ! $table instanceof DOMElement || ! $this->isRepresentableTable($table) ) {
-                        continue;
-                    }
-                    $path = $this->sourceElementIdentity($table);
-                    if ( '' !== $path ) {
-                        $this->authorSelectorProjections()->ensureTableMarker($path);
-                    }
-                }
-		}
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function isRootChildSelector(array $parsed): bool
-    {
-        $compounds = $parsed['compounds'] ?? array();
-        $combinators = $parsed['combinators'] ?? array();
-        $last = count($compounds) - 1;
-
-        return $last >= 1
-            && 'body' === strtolower((string) ($compounds[$last - 1]['type'] ?? ''))
-            && '>' === ($combinators[$last - 1] ?? '');
+        $this->authorSelectorSemanticPreparer->prepare($html, $staticCss, $sourceBody, $options, $this->session);
     }
 
     /** @return list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> */
@@ -3260,7 +3013,7 @@ final class HtmlTransformer
                 array_push($rewritten, ...$attributeProjection);
                 continue;
             }
-            if ( $this->isRootChildSelector($parsed) ) {
+            if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
                 $shellTags = array_values(array_unique(array_filter(array_map(
                     function (DOMElement $element): string {
                         if ( $element->parentNode !== $this->authorStyles()->sourceBody() ) {
@@ -3474,7 +3227,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( $this->isRootChildSelector($parsed) ) {
+            if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
                 foreach ( $imageMatches as $element ) {
                     $marker = $this->authorSelectorProjections()->rootChildMarker($this->sourceElementIdentity($element));
                     if ( '' !== $marker ) {
@@ -3568,53 +3321,8 @@ final class HtmlTransformer
     /** @param array<string, mixed> $parsed @return list<DOMElement> */
     private function matchingAuthorSourceElements(string $selector, array $parsed): array
     {
-        if ( $this->authorStyles()->hasSelectorMatches($selector) ) {
-            ++$this->analysisCache->authorSelectorMatchResultHits;
-            return $this->authorStyles()->selectorMatches($selector);
-        }
-		++$this->analysisCache->authorSelectorMatchResultBuilds;
-		if ( ! $this->authorStyles()->selectorCanMatch($parsed) ) {
-			return $this->authorStyles()->rememberSelectorMatches($selector, array());
-		}
-        $matches = array();
-        foreach ( $this->authorStyles()->selectorCandidates($parsed) as $element ) {
-            if ( CssSelectorMatcher::matches($element, $parsed, true, $this->authorStyles()->selectorMatchCache())['matches'] ) {
-                $matches[] = $element;
-            }
-        }
-        return $this->authorStyles()->rememberSelectorMatches($selector, $matches);
+        return $this->authorSelectorSemanticPreparer->matchingSourceElements($this->authorStyles(), $selector, $parsed);
     }
-
-	/** @param array<string, mixed> $parsed @return list<DOMElement> */
-	private function matchingAuthorSourceElementsIgnoringNegation(array $parsed): array
-	{
-		$positive = $parsed;
-		foreach ( $positive['compounds'] as $index => $compound ) {
-			$positive['compounds'][$index]['not'] = array();
-		}
-		$matches = array();
-		foreach ( $this->authorStyles()->selectorCandidates($positive) as $element ) {
-			if ( CssSelectorMatcher::matches($element, $positive, true, $this->authorStyles()->selectorMatchCache())['matches'] ) {
-				$matches[] = $element;
-			}
-		}
-		return $matches;
-	}
-
-	/** @param array<string, mixed> $parsed */
-	private function hasRightmostNegatedDataAttribute(array $parsed): bool
-	{
-		$compounds = $parsed['compounds'] ?? array();
-		$rightmost = $compounds[array_key_last($compounds)] ?? array();
-		foreach ( $rightmost['not'] ?? array() as $negated ) {
-			foreach ( $negated['attributes'] ?? array() as $attribute ) {
-				if ( str_starts_with($attribute['name'] ?? '', 'data-') ) {
-					return true;
-				}
-			}
-		}
-		return false;
-	}
 
     /** @param array<string, mixed> $parsed */
     private function rewriteSourceTagTypes(string $selector, array $parsed, string $rightmostInsertion = ''): string
@@ -6107,18 +5815,6 @@ final class HtmlTransformer
             $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
         }
         return $html;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function richTextSelectorNeedsHook(array $parsed): bool
-    {
-        foreach ( $parsed['compounds'] as $compound ) {
-            if ( array() !== $compound['classes'] || array() !== $compound['ids'] || array() !== $compound['attributes'] ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /** @return array<string, string> */
