@@ -174,6 +174,7 @@
             "php tests/unit/media-dispatch-element-converter.php",
             "php tests/unit/ordered-element-converter-registry.php",
             "php tests/unit/pattern-element-converter.php",
+            "php tests/unit/details-element-converter.php",
             "php tests/unit/quote-element-converter.php",
             "php tests/unit/form-runtime-requirement-analyzer.php",
             "php tests/unit/form-success-panel-metadata-builder.php",
