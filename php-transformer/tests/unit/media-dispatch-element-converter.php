@@ -30,6 +30,13 @@ $context = new MediaDispatchElementContext(
     static fn (DOMElement $element): ?array => $element->hasAttribute('data-drop') ? null : array( 'blockName' => 'core/image' ),
     static fn (DOMElement $element): ?array => array( 'blockName' => 'core/picture' ),
     static function (DOMElement $element, array &$fallbacks): ?array {
+        if ( $element->hasAttribute('data-drop') ) {
+            return null;
+        }
+        if ( $element->hasAttribute('data-gap') ) {
+            $fallbacks[] = array( 'gap' => true );
+            return null;
+        }
         $fallbacks[] = array( 'iframe' => true );
         return array( 'blockName' => 'core/embed' );
     },
@@ -39,7 +46,7 @@ $context = new MediaDispatchElementContext(
 $converter = new MediaDispatchElementConverter($context);
 $fallbacks = array();
 
-$assert($converter->handles('img') && $converter->handles('a') && ! $converter->handles('div'), 'handles-native-media-and-anchors');
+$assert($converter->handles('img') && $converter->handles('a') && $converter->handles('vendor-iframe') && ! $converter->handles('div'), 'handles-native-and-custom-media-plus-anchors');
 $placeholder = $converter->convert($elementFrom('<div data-placeholder="true"></div>'), 'div', $fallbacks);
 $assert($placeholder->handled && 'core/group' === ($placeholder->block['blockName'] ?? ''), 'placeholder-precedes-tag-routing');
 $assert(! $converter->convert($elementFrom('<div></div>'), 'div', $fallbacks)->handled, 'ordinary-div-unhandled');
@@ -51,6 +58,10 @@ $assert('core/picture' === ($converter->convert($elementFrom('<picture></picture
 
 $fallbacks = array();
 $assert('core/embed' === ($converter->convert($elementFrom('<iframe></iframe>'), 'iframe', $fallbacks)->block['blockName'] ?? '') && 1 === count($fallbacks), 'iframe-routed-with-fallbacks');
+$assert('core/embed' === ($converter->convert($elementFrom('<vendor-iframe></vendor-iframe>'), 'vendor-iframe', $fallbacks)->block['blockName'] ?? '') && 2 === count($fallbacks), 'custom-iframe-routed-through-iframe-materializer');
+$gap = $converter->convert($elementFrom('<vendor-iframe data-gap="true"></vendor-iframe>'), 'vendor-iframe', $fallbacks);
+$assert($gap->handled && null === $gap->block && 3 === count($fallbacks), 'classified-custom-iframe-gap-is-handled-without-a-block');
+$assert(! $converter->convert($elementFrom('<vendor-iframe data-drop="true"></vendor-iframe>'), 'vendor-iframe', $fallbacks)->handled, 'unclassified-custom-iframe-continues-to-later-dispatch');
 $assert('core/audio' === ($converter->convert($elementFrom('<audio></audio>'), 'audio', $fallbacks)->block['blockName'] ?? ''), 'audio-routed');
 $assert('core/video' === ($converter->convert($elementFrom('<video></video>'), 'video', $fallbacks)->block['blockName'] ?? ''), 'video-routed');
 $assert(true === ($converter->convert($elementFrom('<a><img src="x"></a>'), 'a', $fallbacks)->block['linked'] ?? false), 'linked-image-anchor-routed');

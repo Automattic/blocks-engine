@@ -2812,6 +2812,27 @@ $responsiveIframeWrapper = ( new HtmlTransformer() )->transform(
 $assert(array() === ($responsiveIframeWrapper['fallbacks'] ?? array()), 'an inactive custom media placeholder does not emit an unsupported-element fallback');
 $assert(1 === substr_count((string) ($responsiveIframeWrapper['serialized_blocks'] ?? ''), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
 
+$customIframeMap = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe data-src="https://example.test/map" title="Studio map" width="1280" height="350"><div class="map-container"></div></vendor-iframe></main>'
+)->toArray();
+$customIframeMapMarkup = (string) ($customIframeMap['serialized_blocks'] ?? '');
+$customIframeMapBlock = array_values(array_filter($customIframeMap['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? ($customIframeMap['blocks'][0] ?? array());
+$assert('custom/visual-iframe' === ($customIframeMapBlock['blockName'] ?? ''), 'portable custom iframe map materializes as the typed visual-iframe companion');
+$assert('https://example.test/map' === ($customIframeMapBlock['attrs']['src'] ?? '') && '1280' === ($customIframeMapBlock['attrs']['width'] ?? ''), 'portable custom iframe map retains destination and geometry');
+$assert(array() === ($customIframeMap['fallbacks'] ?? array()) && ! str_contains($customIframeMapMarkup, '<!-- wp:html') && ! str_contains($customIframeMapMarkup, 'html_unsupported_element'), 'portable custom iframe map does not emit raw HTML or unsupported-element fallbacks');
+$assert('pass' === ($customIframeMap['source_reports']['wp_block_validity']['status'] ?? ''), 'portable custom iframe map save shape is Gutenberg-valid');
+$customIframeMapIslands = array_values(array_filter($customIframeMap['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($customIframeMapIslands) && 'typed_visual_iframe_companion' === ($customIframeMapIslands[0]['preservation_strategy'] ?? ''), 'portable custom iframe map keeps runtime-dependency parity as a typed island');
+
+$customIframeGaps = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe src="https://example.test/one" data-src="https://example.test/two" width="640" height="360"></vendor-iframe><vendor-iframe data-widget-id="comp-runtime" width="640" height="360"></vendor-iframe></main>'
+)->toArray();
+$customIframeGapRows = array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_iframe_surface_capability_gap' === ($fallback['diagnostic_code'] ?? '')));
+$assert(2 === count($customIframeGapRows), 'ambiguous and source-runtime-only custom iframes emit capability-gap diagnostics');
+$assert(array( 'ambiguous_iframe_destination', 'source_runtime_only_iframe' ) === array_values(array_map(static fn (array $fallback): string => (string) ($fallback['reason'] ?? ''), $customIframeGapRows)), 'custom iframe capability gaps keep explicit rejection reasons');
+$assert(array() === array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? ''))), 'classified custom iframe rejections do not use html_unsupported_element');
+$assert(! str_contains((string) ($customIframeGaps['serialized_blocks'] ?? ''), '<!-- wp:html'), 'rejected custom iframe surfaces do not emit core/html fallbacks');
+
 $visualIframeGeometry = ( new HtmlTransformer() )->transform(
     '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'
 )->toArray();

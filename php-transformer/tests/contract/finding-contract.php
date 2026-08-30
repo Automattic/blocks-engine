@@ -247,6 +247,7 @@ $htmlCases = array(
     'script-fallback'     => '<main><div id="widget">Hi</div><script>document.getElementById("widget").addEventListener("click", function () { window.__x = 1; });</script></main>',
     'template-fallback'   => '<main><template id="card"><div data-role="card"><script>render()</script></div></template></main>',
     'iframe-embed'        => '<main><iframe src="https://example.com/widget"></iframe></main>',
+    'custom-iframe-gap'   => '<main><vendor-iframe data-widget-id="comp-runtime" width="640" height="360"></vendor-iframe></main>',
     'unsupported-element' => '<main><marquee>Scrolling</marquee></main>',
     'header-footer-nav'   => '<body><header><nav><a href="/a">A</a><a href="/b">B</a></nav></header><main><p>Body</p></main><footer><nav><a href="/c">C</a><a href="/d">D</a></nav></footer></body>',
 );

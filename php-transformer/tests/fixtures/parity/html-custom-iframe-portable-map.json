@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-custom-iframe-portable-map",
+  "description": "Materializes a portable custom iframe map/embed surface as a typed companion without raw core/html fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-custom-iframe-portable-map.json",
+    "notes": "Generic custom-element iframe host with a captured HTTPS destination and finite geometry."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><vendor-iframe class=\"map-shell\" data-src=\"https://example.test/map\" title=\"Studio map\" width=\"1280\" height=\"350\"><div class=\"map-container\"></div></vendor-iframe></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/visual-iframe", "attrs": { "src": "https://example.test/map", "title": "Studio map", "width": "1280", "height": "350" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/visual-iframe" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<iframe" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}
