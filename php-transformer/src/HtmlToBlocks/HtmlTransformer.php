@@ -56,6 +56,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
@@ -87,7 +89,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPatter
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
@@ -321,6 +322,8 @@ final class HtmlTransformer
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
     private readonly OrderedElementConverterRegistry $tableConverters;
+
+    private readonly DetailsElementConverter $detailsConverter;
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
@@ -596,6 +599,15 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
+        $this->detailsConverter = new DetailsElementConverter(new DetailsElementContext(
+            fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->capturedDialogBlock($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            }
+        ));
         $tableConverter = new TableElementConverter($this->createTableElementContext());
         $parameterTableConverter = new PatternElementConverter(
             new PatternElementContext(
@@ -4592,13 +4604,9 @@ final class HtmlTransformer
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( 'details' === $tagName ) {
-            $capturedDisclosureDialog = $this->capturedDisclosureDialog($element);
-            if ( $capturedDisclosureDialog instanceof DOMElement ) {
-                return $this->capturedDialogBlock($capturedDisclosureDialog, $fallbacks);
-            }
-
-            return $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
+        $detailsDispatch = $this->detailsConverter->convert($element, $tagName, $fallbacks);
+        if ( $detailsDispatch->handled ) {
+            return $detailsDispatch->block;
         }
 
         if ( 'a' === $tagName ) {
