@@ -81,6 +81,44 @@ $assert(!in_array('editability_policy_failed', $shallowCodes, true) && 'failed' 
 $assert(1 === substr_count($shallowBlocks, '<!-- wp:custom/layout-shell'), 'A shallow two-wrapper branch uses the same layout-shell representation.');
 $assert(!str_contains($shallowBlocks, '<!-- wp:group') && str_contains($shallowBlocks, 'id="dp-outer-1"') && str_contains($shallowBlocks, 'id="dp-branch-1"'), 'The shallow shell preserves both source wrappers.');
 
+// Native wrapper chains normally remain ordinary Groups. Once the document
+// exceeds policy, their exact serialized wrappers may use the same bounded
+// layout-shell representation rather than failing the whole site plan.
+$nativeMarkup = '<h3>Native leaf heading</h3><p>Native editable copy.</p>';
+for ($level = 24; 1 <= $level; $level--) {
+    $nativeMarkup = '<div class="native-shell-' . $level . '" style="padding-left:' . $level . 'px">' . $nativeMarkup . '</div>';
+}
+$nativeArtifact = array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(array(
+        'path' => 'website/index.html',
+        'content' => '<!doctype html><html><body>' . $nativeMarkup . '</body></html>',
+    )),
+);
+$nativeResult = (new ArtifactCompiler())->compile($nativeArtifact)->toArray();
+$nativeCodes = array_column($nativeResult['diagnostics'] ?? array(), 'code');
+$nativeMetrics = $nativeResult['source_reports']['editability_report']['metrics'] ?? array();
+$nativeBlocks = (string) ($nativeResult['serialized_blocks'] ?? '');
+$nativeShell = $nativeResult['blocks'][0] ?? array();
+
+$assert(!in_array('editability_policy_failed', $nativeCodes, true) && 'failed' !== ($nativeResult['status'] ?? null), 'A deeply nested native Group chain no longer fails the whole compile.');
+$assert(20 >= ($nativeMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'Depth-pressure compression brings native Group chains within the editability maximum.');
+$assert(1 === substr_count($nativeBlocks, '<!-- wp:custom/layout-shell') && 24 === count($nativeShell['attrs']['wrappers'] ?? array()), 'The bounded shell preserves every native source wrapper.');
+$assert(str_contains($nativeBlocks, '>Native leaf heading<') && str_contains($nativeBlocks, '>Native editable copy.<'), 'The bounded shell preserves native editable leaf content.');
+
+$shallowNative = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(array(
+        'path' => 'website/index.html',
+        'content' => '<!doctype html><html><body><div class="native-outer" style="padding-left:2px"><div class="native-inner" style="padding-left:1px"><p>Shallow native copy.</p></div></div></body></html>',
+    )),
+))->toArray();
+$shallowNativeBlocks = (string) ($shallowNative['serialized_blocks'] ?? '');
+
+$assert(!str_contains($shallowNativeBlocks, '<!-- wp:custom/layout-shell') && 2 === substr_count($shallowNativeBlocks, '<!-- wp:group'), 'An in-policy native Group chain keeps its ordinary block representation.');
+
 // Responsive copies of a provider form may each be absorbed into a projected
 // shell. Their source identities must rebase onto the final emitted shells.
 $responsiveForm = static fn(string $viewport): string => '<div id="' . $viewport . '-shell" class="blocks-engine-source-div-' . $viewport . '-shell-1">'

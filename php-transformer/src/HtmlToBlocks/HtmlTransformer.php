@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
@@ -1232,6 +1233,9 @@ final class HtmlTransformer
         $this->collectGeneratedComponentCandidates($body);
         $blocks      = $this->navigationBlockNormalizer->normalize($this->convertChildren($body, $fallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());
         $blocks = $this->compressProjectedGroupChains($blocks);
+        if (EditabilityPolicy::THRESHOLDS['max_nesting_depth'] < $this->blockTreeDepth($blocks)) {
+            $blocks = $this->compressProjectedGroupChains($blocks, true);
+        }
         $fallbacks = array_merge($fallbacks, $this->transformationEvidence()->responsiveImageFallbacks());
         if (! $this->session->usesFallbackReductionMode()) {
             $blocks = $this->reduceCoreHtmlFallbackBlocks($blocks);
@@ -6756,13 +6760,13 @@ if ( 'svg' === $tagName ) {
     }
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
-    private function compressProjectedGroupChains(array $blocks): array
+    private function compressProjectedGroupChains(array $blocks, bool $underDepthPressure = false): array
     {
-        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block), $blocks));
+        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block, $underDepthPressure), $blocks));
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */
-    private function compressProjectedGroupBlock(array $block): array
+    private function compressProjectedGroupBlock(array $block, bool $underDepthPressure = false): array
     {
         $chain = array();
         $cursor = $block;
@@ -6785,7 +6789,7 @@ if ( 'svg' === $tagName ) {
             && null !== ($branchDescriptor = $this->groupWrapperDescriptor($cursor))
         ) {
             $chain[] = array('block' => $cursor, 'descriptor' => $branchDescriptor);
-            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren);
+            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren, $underDepthPressure);
             $terminal = array();
             $terminalIsShell = false;
             $branchEndpoint = true;
@@ -6801,7 +6805,7 @@ if ( 'svg' === $tagName ) {
             $terminalIsShell = false;
             $emptyEndpoint = true;
         } else {
-            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
+            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor, $underDepthPressure) : $cursor;
             $terminalIsShell = $this->isLayoutShellBlock($terminal);
             $terminalBlocks = $terminalIsShell
                 ? $terminal['innerBlocks']
@@ -6809,7 +6813,9 @@ if ( 'svg' === $tagName ) {
         }
         $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceProjectionClass($entry['block'])));
         $minimumLength = $branchEndpoint || $emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3);
-        if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
+        $identifiedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceWrapperIdentity($entry['block'])));
+        $depthPressureCandidate = $underDepthPressure && 0 < $identifiedCount && (2 <= count($chain) || (1 === count($chain) && $terminalIsShell));
+        if ($depthPressureCandidate || (0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
             $wrappers = array_column($chain, 'descriptor');
             $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
             $terminalVisualOwned = $terminalIsShell && !empty($terminal['_editability_visual_owned']);
@@ -6838,9 +6844,20 @@ if ( 'svg' === $tagName ) {
         }
 
         if (is_array($block['innerBlocks'] ?? null)) {
-            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
+            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks'], $underDepthPressure);
         }
         return $block;
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function blockTreeDepth(array $blocks): int
+    {
+        $depth = 0;
+        foreach ($blocks as $block) {
+            $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            $depth = max($depth, 1 + $this->blockTreeDepth($innerBlocks));
+        }
+        return $depth;
     }
 
     /** @param array<string, mixed> $block */
@@ -6867,6 +6884,13 @@ if ( 'svg' === $tagName ) {
     private function hasSourceProjectionClass(array $block): bool
     {
         return (bool) preg_match('/(?:^|\s)blocks-engine-(?:attribute|css-owned|editor-anchor|semantic|source)-/', (string) ($block['attrs']['className'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $block */
+    private function hasSourceWrapperIdentity(array $block): bool
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        return '' !== trim((string) ($attrs['className'] ?? '')) || '' !== trim((string) ($attrs['anchor'] ?? ''));
     }
 
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
