@@ -50,6 +50,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
@@ -284,7 +286,7 @@ final class HtmlTransformer
 
     private readonly SvgElementConverter $svgConverter;
 
-    private readonly OrderedElementConverterRegistry $inlineStructureConverters;
+    private readonly OrderedElementConverterRegistry $structuralContentConverters;
 
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
@@ -317,8 +319,6 @@ final class HtmlTransformer
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
     private readonly TableElementConverter $tableConverter;
-
-    private readonly FigureElementConverter $figureConverter;
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
@@ -595,7 +595,7 @@ final class HtmlTransformer
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $this->tableConverter = new TableElementConverter($this->createTableElementContext());
-        $this->figureConverter = new FigureElementConverter(new FigureElementContext(
+        $figureConverter = new FigureElementConverter(new FigureElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->mediaGalleryBlockFromElement($element, $fallbacks);
             },
@@ -614,6 +614,11 @@ final class HtmlTransformer
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $quoteConverter = new QuoteElementConverter(new QuoteElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->recognizePatterns($element, $fallbacks, array( QuotePattern::class ));
+            }
         ));
         $listConverter = new ListElementConverter(new ListElementContext(
             function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
@@ -651,10 +656,12 @@ final class HtmlTransformer
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
         ));
-        $this->inlineStructureConverters = new OrderedElementConverterRegistry(array(
+        $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
             $inlineContentConverter,
             $listConverter,
             $descriptionListConverter,
+            $quoteConverter,
+            $figureConverter,
         ));
         $this->flowContainerConverter = new FlowContainerElementConverter(new FlowContainerElementContext(
             runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
@@ -4541,18 +4548,9 @@ final class HtmlTransformer
             return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
-        $inlineStructureDispatch = $this->inlineStructureConverters->convert($element, $tagName, $fallbacks);
-        if ( $inlineStructureDispatch->handled ) {
-            return $inlineStructureDispatch->block;
-        }
-
-        if ( 'blockquote' === $tagName ) {
-            return $this->recognizePatterns($element, $fallbacks, array(QuotePattern::class));
-        }
-
-        $figureDispatch = $this->figureConverter->convert($element, $tagName, $fallbacks);
-        if ( $figureDispatch->handled ) {
-            return $figureDispatch->block;
+        $structuralContentDispatch = $this->structuralContentConverters->convert($element, $tagName, $fallbacks);
+        if ( $structuralContentDispatch->handled ) {
+            return $structuralContentDispatch->block;
         }
 
         if ( 'noscript' === $tagName ) {
