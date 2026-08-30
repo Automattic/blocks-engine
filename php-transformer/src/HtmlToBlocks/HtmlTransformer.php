@@ -13329,21 +13329,38 @@ if ( 'svg' === $tagName ) {
      */
     private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
     {
-        $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
+        $customHost = 'iframe' !== strtolower($iframe->tagName) ? $iframe : null;
+        $surface = $iframe;
+        $url = '';
+        if ( $customHost instanceof DOMElement ) {
+            $classification = $this->classifyCustomIframeSurface($customHost);
+            if ( 'inert' === $classification['disposition'] ) {
+                return null;
+            }
+            if ( 'accepted' !== $classification['disposition'] || ! $classification['surface'] instanceof DOMElement || '' === $classification['url'] ) {
+                $this->recordIframeSurfaceCapabilityGap($customHost, $classification, $fallbacks);
+                return null;
+            }
+            $surface = $classification['surface'];
+            $url = $classification['url'];
+        } else {
+            $url = $this->customVisualIframeUrl($iframe, $surface);
+        }
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
         if ( '' !== $providerNameSlug ) {
-            return $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($iframe), array(
+            $block = $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
-            )), static fn ($value): bool => '' !== $value), array(), $iframe);
+            )), static fn ($value): bool => '' !== $value), array(), $surface);
+            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
         }
 
-        $visualIframeAttributes = $this->boundedVisualIframeAttributes($iframe, $url);
+        $visualIframeAttributes = $this->boundedVisualIframeAttributes($surface, $url);
         if ( null !== $visualIframeAttributes ) {
             $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
                 'preservation_strategy' => 'typed_visual_iframe_companion',
-                'attributes' => $this->safeEmbedAttributes($iframe),
+                'attributes' => array_merge($this->safeEmbedAttributes($surface), array( 'src' => $url )),
             ));
             $generator = new VisualIframeBlockGenerator();
             $this->generatedBlocks()->register(VisualIframeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
@@ -13351,11 +13368,11 @@ if ( 'svg' === $tagName ) {
                 $this->generatedBlocks()->blockName(VisualIframeBlockGenerator::LOCAL_NAME),
                 $visualIframeAttributes,
                 array(),
-                $iframe
+                $surface
             );
             $block['innerHTML'] = $generator->markup($visualIframeAttributes);
             $block['innerContent'] = array( $block['innerHTML'] );
-            return $block;
+            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
@@ -13381,6 +13398,216 @@ if ( 'svg' === $tagName ) {
         ), $this->transformationProvenance()->fallback());
 
         return null;
+    }
+
+    /**
+     * @return array{disposition: string, reason: string, url: string, surface: DOMElement|null}
+     */
+    private function classifyCustomIframeSurface(DOMElement $host): array
+    {
+        $rejected = static fn (string $reason): array => array(
+            'disposition' => 'rejected',
+            'reason' => $reason,
+            'url' => '',
+            'surface' => null,
+        );
+        $rawValues = array();
+        $unsafe = false;
+        $srcdoc = false;
+        foreach ( array_merge(array( $host ), iterator_to_array($host->getElementsByTagName('*'))) as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+            if ( '' !== trim($this->attr($element, 'srcdoc')) ) {
+                $srcdoc = true;
+            }
+            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
+                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $destination ) {
+                    $rawValues[] = $destination;
+                }
+            }
+        }
+
+        $urls = array();
+        $credentials = false;
+        foreach ( $rawValues as $value ) {
+            if ( $this->isUnsafeIframeDestination($value) ) {
+                $unsafe = true;
+                continue;
+            }
+            if ( $this->iframeUrlHasCredentials($value) ) {
+                $credentials = true;
+                continue;
+            }
+            $safe = $this->safeEmbedUrl($value);
+            if ( '' !== $safe ) {
+                $urls[$safe] = true;
+            }
+        }
+
+        if ( $srcdoc || $unsafe ) {
+            return $rejected('unsafe_iframe_destination');
+        }
+        if ( $credentials ) {
+            return $rejected('credential_bound_iframe');
+        }
+        if ( 1 < count($urls) ) {
+            return $rejected('ambiguous_iframe_destination');
+        }
+        if ( $this->runtimeIslands->isRuntimeDomTarget($host)
+            || array() !== $this->eventMetadata($host)
+            || $this->hasMotionStructureToken($host)
+        ) {
+            return $rejected('source_runtime_only_iframe');
+        }
+
+        $url = 1 === count($urls) ? (string) array_key_first($urls) : '';
+        $surface = $this->customVisualIframeSurface($host);
+        if ( '' !== $url && $surface instanceof DOMElement ) {
+            return array(
+                'disposition' => 'accepted',
+                'reason' => 'portable_iframe_destination',
+                'url' => $url,
+                'surface' => $surface,
+            );
+        }
+        if ( $this->isInertRuntimeMediaPlaceholder($host) ) {
+            return array(
+                'disposition' => 'inert',
+                'reason' => 'inert_iframe_placeholder',
+                'url' => '',
+                'surface' => null,
+            );
+        }
+
+        return $rejected('source_runtime_only_iframe');
+    }
+
+    /**
+     * @param array{disposition: string, reason: string, url: string, surface: DOMElement|null} $classification
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function recordIframeSurfaceCapabilityGap(DOMElement $host, array $classification, array &$fallbacks): void
+    {
+        $fallbacks[] = FallbackDiagnostic::build(array(
+            'type'            => 'capability_gap',
+            'reason'          => $classification['reason'],
+            'diagnostic_code' => 'html_iframe_surface_capability_gap',
+            'message'         => 'Custom iframe media was classified as an explicit capability gap instead of raw HTML.',
+            'source_format'   => 'html',
+            'tag'             => strtolower($host->tagName),
+            'selector'        => $this->elementSelector($host),
+            'context'         => $this->sourceContext($host),
+            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($host),
+            'events'          => $this->eventMetadata($host),
+        ), $this->transformationProvenance()->fallback());
+    }
+
+    private function customVisualIframeSurface(DOMElement $host): ?DOMElement
+    {
+        $iframes = array();
+        foreach ( $host->getElementsByTagName('iframe') as $iframe ) {
+            if ( $iframe instanceof DOMElement ) {
+                $iframes[] = $iframe;
+            }
+        }
+        if ( 1 < count($iframes) ) {
+            return null;
+        }
+        $iframe = $iframes[0] ?? null;
+        foreach ( $host->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || $descendant === $iframe ) {
+                continue;
+            }
+            if ( ! $this->isStructuralTransparentCustomWrapperChild($descendant)
+                || $this->runtimeIslands->isRuntimeDomTarget($descendant)
+                || array() !== $this->eventMetadata($descendant)
+                || ( ! $iframe instanceof DOMElement && '' !== trim($descendant->textContent ?? '') )
+            ) {
+                return null;
+            }
+        }
+
+        return $iframe ?? $host;
+    }
+
+    private function customVisualIframeUrl(DOMElement $host, DOMElement $surface): string
+    {
+        $urls = array();
+        foreach ( array( $host, $surface ) as $element ) {
+            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
+                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $candidate ) {
+                    if ( $this->isUnsafeIframeDestination($candidate) || $this->iframeUrlHasCredentials($candidate) ) {
+                        return '';
+                    }
+                    $url = $this->safeEmbedUrl($candidate);
+                    if ( '' !== $url ) {
+                        $urls[$url] = true;
+                    }
+                }
+            }
+        }
+
+        return 1 === count($urls) ? (string) array_key_first($urls) : '';
+    }
+
+    /** @return array<int, string> */
+    private function iframeDestinationValues(string $value): array
+    {
+        if ( '' === $value ) {
+            return array();
+        }
+        if ( str_starts_with($value, '{') || str_starts_with($value, '[') ) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $this->iframeDestinationsFromJson($decoded) : array();
+        }
+
+        return array( $value );
+    }
+
+    /** @param array<mixed> $data @return array<int, string> */
+    private function iframeDestinationsFromJson(array $data): array
+    {
+        $found = array();
+        $stack = array( $data );
+        $depth = 0;
+        while ( array() !== $stack && $depth < 8 && 8 > count($found) ) {
+            $node = array_pop($stack);
+            ++$depth;
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            foreach ( $node as $key => $item ) {
+                if ( is_string($item) && is_string($key) && 1 === preg_match('/(?:url|src)$/i', $key) ) {
+                    $found[] = $item;
+                } elseif ( is_array($item) ) {
+                    $stack[] = $item;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    private function isUnsafeIframeDestination(string $value): bool
+    {
+        return 1 === preg_match('/^(?:javascript|data|vbscript)\s*:/i', $value);
+    }
+
+    private function iframeUrlHasCredentials(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts) && ( isset($parts['user']) || isset($parts['pass']) );
+    }
+
+    /** @param array<string, mixed> $mediaBlock @return array<string, mixed> */
+    private function customVisualIframeHostBlock(DOMElement $host, DOMElement $surface, array $mediaBlock): array
+    {
+        for ( $wrapper = $surface === $host ? null : $surface->parentNode; $wrapper instanceof DOMElement && $wrapper !== $host; $wrapper = $wrapper->parentNode ) {
+            $mediaBlock = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($wrapper), array( $mediaBlock ), $wrapper);
+        }
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($host), array( $mediaBlock ), $host);
     }
 
     /**
@@ -13421,7 +13648,9 @@ if ( 'svg' === $tagName ) {
         $parts = parse_url($url);
         return is_array($parts)
             && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
-            && '' !== trim((string) ($parts['host'] ?? ''));
+            && '' !== trim((string) ($parts['host'] ?? ''))
+            && ! isset($parts['user'])
+            && ! isset($parts['pass']);
     }
 
     private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string

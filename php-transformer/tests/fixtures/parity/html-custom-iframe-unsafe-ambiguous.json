@@ -1,0 +1,32 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-custom-iframe-unsafe-ambiguous",
+  "description": "Rejects unsafe, ambiguous, credential-bound, and source-runtime-only custom iframe surfaces with explicit capability diagnostics instead of raw HTML.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-custom-iframe-unsafe-ambiguous.json",
+    "notes": "Generic custom-element iframe hosts without a single safe portable destination."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><vendor-iframe src=\"https://example.test/one\" data-src=\"https://example.test/two\" width=\"640\" height=\"360\"></vendor-iframe><vendor-iframe src=\"javascript:alert(1)\" width=\"640\" height=\"360\"></vendor-iframe><vendor-iframe data-widget-id=\"comp-runtime\" width=\"640\" height=\"360\"></vendor-iframe></main>"
+  },
+  "expected_blocks": [],
+  "expected_fallbacks": [
+    { "type": "capability_gap", "reason": "ambiguous_iframe_destination", "diagnostic_code": "html_iframe_surface_capability_gap", "tag": "vendor-iframe" },
+    { "type": "capability_gap", "reason": "unsafe_iframe_destination", "diagnostic_code": "html_iframe_surface_capability_gap", "tag": "vendor-iframe" },
+    { "type": "capability_gap", "reason": "source_runtime_only_iframe", "diagnostic_code": "html_iframe_surface_capability_gap", "tag": "vendor-iframe" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 3 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_iframe_surface_capability_gap" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<iframe" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 3 }
+  ]
+}

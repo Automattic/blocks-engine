@@ -14,7 +14,8 @@ final class MediaDispatchElementConverter implements ElementConverter
 
     public function handles(string $tagName): bool
     {
-        return in_array($tagName, array( 'a', 'audio', 'iframe', 'img', 'picture', 'video' ), true);
+        return in_array($tagName, array( 'a', 'audio', 'iframe', 'img', 'picture', 'video' ), true)
+            || $this->isCustomIframeTag($tagName);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -35,8 +36,12 @@ final class MediaDispatchElementConverter implements ElementConverter
         if ( 'picture' === $tagName ) {
             return ConversionOutcome::handled($this->context->convertPicture($element));
         }
-        if ( 'iframe' === $tagName ) {
-            return ConversionOutcome::handled($this->context->convertIframe($element, $fallbacks));
+        if ( 'iframe' === $tagName || $this->isCustomIframeTag($tagName) ) {
+            $fallbackCount = count($fallbacks);
+            $iframe = $this->context->convertIframe($element, $fallbacks);
+            return 'iframe' === $tagName || null !== $iframe || count($fallbacks) > $fallbackCount
+                ? ConversionOutcome::handled($iframe)
+                : ConversionOutcome::unhandled();
         }
         if ( 'audio' === $tagName || 'video' === $tagName ) {
             return ConversionOutcome::handled($this->context->convertMedia($element));
@@ -46,5 +51,10 @@ final class MediaDispatchElementConverter implements ElementConverter
         return null !== $linkedImage
             ? ConversionOutcome::handled($linkedImage)
             : ConversionOutcome::unhandled();
+    }
+
+    private function isCustomIframeTag(string $tagName): bool
+    {
+        return str_contains($tagName, '-') && 1 === preg_match('/(?:^|-)iframe(?:-|$)/', $tagName);
     }
 }
