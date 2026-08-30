@@ -830,10 +830,7 @@ final class HtmlTransformer
     }
 
 
-    /**
-     * Link canonicalization rewrote source markup, so cached selector matches
-     * for the previous markup are no longer valid.
-     */
+    /** Source markup changed, so cached selector inputs are no longer valid. */
     private function onSourceMarkupMutated(): void
     {
         $this->styleResolver->invalidateSourceSelectorMatchCache();
@@ -2742,9 +2739,6 @@ final class HtmlTransformer
      */
     private function convertElement(DOMElement $element, array &$fallbacks, bool $captureUnsupported = false): ?array
     {
-        // Conversion helpers may rewrite source markup. Do not reuse selector
-        // results or cached inputs across independently converted elements.
-        $this->styleResolver->invalidateSourceSelectorMatchCache();
         $tagName = strtolower($element->tagName);
 
         // Capturers sometimes append hidden, sourceless frames as internal
@@ -8160,6 +8154,7 @@ final class HtmlTransformer
     private function tableCells(DOMElement $row): array
     {
         $cells = array();
+        $sourceMarkupMutated = false;
         foreach ( $row->childNodes as $cell ) {
             if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
                 continue;
@@ -8172,12 +8167,16 @@ final class HtmlTransformer
                 $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
                 if ( '' !== $sourceTagMarker ) {
                     $descendant->setAttribute('class', $this->mergeClassNames($this->attr($descendant, 'class'), $sourceTagMarker));
+                    $sourceMarkupMutated = true;
                 }
             }
             $cells[] = array(
                 'content' => $this->innerHtml($cell),
                 'tag'     => strtolower($cell->tagName),
             );
+        }
+        if ( $sourceMarkupMutated ) {
+            $this->onSourceMarkupMutated();
         }
         return $cells;
     }
