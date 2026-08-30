@@ -131,6 +131,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionFacts;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
@@ -295,6 +298,8 @@ final class HtmlTransformer
 
     private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
 
+    private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector;
+
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
 
     private readonly AuthorSelectorSemanticPreparer $authorSelectorSemanticPreparer;
@@ -369,13 +374,11 @@ final class HtmlTransformer
 
     private HtmlTransformerSession $session;
 
-    private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
+    private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
 
-    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
 
-    private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
-
-    private const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+    private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
 
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
@@ -395,7 +398,7 @@ final class HtmlTransformer
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    private const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
+    private const CSS_OWNED_INLINE_FLOW_CLASS = SourceBlockAttributeProjector::CSS_OWNED_INLINE_FLOW_CLASS;
 
     /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
     private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
@@ -436,7 +439,7 @@ final class HtmlTransformer
         'place-content',
     );
 
-    private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
+    private const CSS_OWNED_LAYOUT_ITEM_CLASS = SourceBlockAttributeProjector::CSS_OWNED_LAYOUT_ITEM_CLASS;
 
     public function __construct(
         private readonly Runtime $runtime = new Runtime(),
@@ -467,6 +470,7 @@ final class HtmlTransformer
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
+        $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $this->generatedBlockStyleProjector);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
             new AuthorSelectorSemanticContext(
@@ -1212,6 +1216,15 @@ final class HtmlTransformer
     private function generatedSupportStyles(): GeneratedSupportStylesheetState
     {
         return $this->session->generatedSupportStylesheetState();
+    }
+
+    private function sourceBlockAttributeProjectionContext(): SourceBlockAttributeProjectionContext
+    {
+        return new SourceBlockAttributeProjectionContext(
+            $this->authorStyles(),
+            $this->authorSelectorProjections(),
+            $this->generatedSupportStyles()
+        );
     }
 
     protected function fallbackSourceTagMarker(string $tagName): string
@@ -2236,11 +2249,6 @@ final class HtmlTransformer
         return $projections;
     }
 
-    private function allocateAuthorMarker(string $kind): string
-    {
-        return $this->authorStyles()->allocateMarker($kind);
-    }
-
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
         return $this->authorStylesheetProjector->project(
@@ -2772,7 +2780,7 @@ final class HtmlTransformer
                 $block['attrs']['className'] = $this->mergeClassNames(
                     $nativeClassNames,
                     (string) ($controlAttrs['className'] ?? ''),
-                    $this->sourceProjectionClassName($element)
+                    $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
                 $block['attrs']['overlayMenu'] = 'mobile';
                 return $block;
@@ -3325,107 +3333,33 @@ final class HtmlTransformer
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
                 $attrs = $this->applyIntrinsicVisualMediaHeight($sourceElement, $attrs);
             }
-            if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
-            }
-            if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-                if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
-                }
-                if ( 'a' === $sourceTagName ) {
-                    $this->applySyntheticHeaderAnchorCarrier($attrs, $sourceElement);
-                }
-            }
-            $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
-            if ( '' !== $projectionClassName ) {
-                $attrs['className'] = $projectionClassName;
-            }
-            if ( 'core/group' === $name
-                && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
-                && $this->hasAuthorSemanticMarker($sourceElement)
-            ) {
-                $attrs['className'] = $this->mergeClassNames(
-                    (string) ($attrs['className'] ?? ''),
-                    self::CSS_OWNED_LAYOUT_ITEM_CLASS
-                );
-            }
-            if ( 'core/group' === $name && $this->isAtomicInlineChildFlow($sourceElement, $innerBlocks) ) {
-                $attrs['className'] = $this->mergeClassNames(
-                    (string) ($attrs['className'] ?? ''),
-                    self::CSS_OWNED_INLINE_FLOW_CLASS
-                );
-            }
-            if ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') ) {
-                // Core Group's save() does not reproduce a blockGap declaration.
-                // Preserve an authored inline gap in a generated carrier instead
-                // of storing markup that the editor will mark invalid.
-                $gapCarrier = $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
-                if ( '' !== $gapCarrier ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
-                }
-            }
-            $tableMarker = $this->authorSelectorProjections()->tableMarker($this->sourceElementIdentity($sourceElement));
-            if ( 'core/table' === $name && '' !== $tableMarker ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
-            }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
-            $nativeButtonTextAlignment = '';
-            $hasNativeButtonColor = false;
-            $hasNativeButtonStyle = false;
-            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) ) {
-                $nativeButtonProjection = $this->generatedBlockStyleProjector->projectNativeButtonInheritedStyle(
-                    $logicalControl,
-                    $attrs,
-                    'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl)
-                );
-                $attrs = $nativeButtonProjection['attrs'];
-                $nativeButtonTextAlignment = $nativeButtonProjection['text_alignment'];
-                $hasNativeButtonColor = $nativeButtonProjection['color_changed'];
-                $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
-            }
-            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( $this->authorSelectorProjections()->isControlPath($logicalControlPath) || ( '' !== $this->authorStyles()->combinedCss() && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
-                $controlMarker = '' !== $logicalControlPath
-                    ? $this->authorSelectorProjections()->ensureControlMarker($logicalControlPath)
-                    : '';
-                if ( '' !== $controlMarker ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
-                    if ( 'core/button' === $name ) {
-                        $this->generatedBlockStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $this->generatedSupportStyles(), $nativeButtonTextAlignment, $logicalControl);
-                        if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
-                            $this->generatedBlockStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $this->generatedSupportStyles());
-                        }
-                        $buttonWidth = (int) ($attrs['width'] ?? 0);
-                        if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                            $this->generatedBlockStyleProjector->registerButtonWidth($controlMarker, $buttonWidth, $this->generatedSupportStyles());
-                        }
-                    }
-                }
-                $presentationPath = $sourceElement->getNodePath() ?? '';
-                if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
-                    $this->authorSelectorProjections()->installButtonPresentationMarker($presentationPath, $controlMarker);
-                }
-            }
-            if ( 'core/button' === $name && $hasNativeButtonStyle && '' === $this->authorSelectorProjections()->controlMarker($logicalControlPath) ) {
-                $nativeButtonMarker = $hasNativeButtonColor
-                    ? $this->allocateAuthorMarker('native-button')
-                    : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
-                $this->generatedBlockStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $this->generatedSupportStyles(), $nativeButtonTextAlignment);
-                $buttonWidth = (int) ($attrs['width'] ?? 0);
-                if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                    $this->generatedBlockStyleProjector->registerButtonWidth($nativeButtonMarker, $buttonWidth, $this->generatedSupportStyles());
-                }
-            }
+            $hasAuthorControlProjection = in_array($name, array( 'core/button', 'core/buttons' ), true)
+                && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true)
+                && ($this->authorSelectorProjections()->isControlPath($logicalControlPath)
+                    || ('' !== $this->authorStyles()->combinedCss()
+                        && 'a' === strtolower($logicalControl->tagName)
+                        && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
             $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
-            $attrs = $this->generatedBlockStyleProjector->applyDeclaredBlockSupport(
+            $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
                 $attrs,
+                $innerBlocks,
                 $sourceElement,
-                $this->generatedSupportStyles(),
-                $preserveGeneratedStyle
+                $logicalControl,
+                new SourceBlockAttributeProjectionFacts(
+                    $this->isInlineSourceElement($sourceTagName),
+                    'core/group' === $name
+                        && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                        && $this->hasAuthorSemanticMarker($sourceElement),
+                    $hasAuthorControlProjection,
+                    'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
+                        && $this->isDirectChildOfAuthorFlexLayout($logicalControl),
+                    $preserveGeneratedStyle
+                ),
+                $this->sourceBlockAttributeProjectionContext()
             );
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
@@ -3447,12 +3381,6 @@ final class HtmlTransformer
             );
         }
 
-        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
-            $semanticTag = $this->semanticGroupTagName($sourceElement);
-            if ( null !== $semanticTag ) {
-                $attrs['tagName'] = $semanticTag;
-            }
-        }
         $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
         if ( isset($provenanceId) ) {
             $block['_source_provenance_id'] = $provenanceId;
@@ -3467,79 +3395,6 @@ final class HtmlTransformer
         }
 
         return $block;
-    }
-
-    /** @param array<int, array<string, mixed>> $innerBlocks */
-    private function isAtomicInlineChildFlow(DOMElement $element, array $innerBlocks): bool
-    {
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $children[] = $child;
-                continue;
-            }
-            if ( '' !== trim((string) ($child->textContent ?? '')) ) {
-                return false;
-            }
-        }
-
-        if ( count($children) < 2 || count($children) !== count($innerBlocks) ) {
-            return false;
-        }
-
-        foreach ( $children as $child ) {
-            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->styleResolver->cssDeclarations($this->attr($child, 'style'))['display'] ?? ''))));
-            if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * A linked text logo becomes a paragraph for valid block markup. Carry
-     * non-inherited header anchor behavior onto the saved inner anchor instead
-     * of re-pointing its source selector at a higher-specificity target.
-     *
-     * @param array<string, mixed> $attrs
-     */
-    private function applySyntheticHeaderAnchorCarrier(array &$attrs, DOMElement $anchor): void
-    {
-        if ( 'a' !== strtolower($anchor->tagName)
-            || ! $this->hasAncestorTag($anchor, array( 'header' ))
-        ) {
-            return;
-        }
-
-        $direct = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($anchor));
-        $declarations = array();
-        if ( 'inherit' === strtolower(trim((string) ($direct['color'] ?? ''))) ) {
-            $inheritedColor = $this->styleResolver->authoredInheritedPropertyWinner($anchor, 'color');
-            if ( '' !== $inheritedColor ) {
-                $declarations['color'] = $inheritedColor;
-            }
-        }
-
-        foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
-            $value = trim((string) ($direct[$property] ?? ''));
-            if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
-            }
-        }
-        foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
-            if ( ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
-            }
-        }
-        if ( array() === $declarations ) {
-            return;
-        }
-
-        $css = $this->styleResolver->cssDeclarationString($declarations);
-        $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-        $this->generatedSupportStyles()->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -3561,48 +3416,6 @@ final class HtmlTransformer
     private function hasAuthorSemanticMarker(DOMElement $element): bool
     {
         return array() !== $this->authorSemanticMarkersForElement($element);
-    }
-
-    private function sourceProjectionClassName(DOMElement $element, string $className = ''): string
-    {
-        $sourceTagName = strtolower($element->tagName);
-        $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
-        if ( '' !== $sourceTagMarker ) {
-            $className = $this->mergeClassNames($className, $sourceTagMarker);
-        }
-        if ( $element->parentNode instanceof DOMElement
-            && 'body' === strtolower($element->parentNode->tagName)
-            && array() !== $this->authorStyles()->sourceBodyProjectionClasses() ) {
-            $className = $this->mergeClassNames($className, ...$this->authorStyles()->sourceBodyProjectionClasses());
-        }
-        $semanticMarkers = $this->authorSemanticMarkersForElement($element);
-        if ( array() !== $semanticMarkers ) {
-            $className = $this->mergeClassNames($className, ...$semanticMarkers);
-        }
-        return $className;
-    }
-
-    private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
-    {
-        $decorationLine = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($anchor)) as $property => $value ) {
-            $value = $this->cssComparableValue($this->styleResolver->resolveCssVariablesInValue($value));
-            if ( 'text-decoration' === $property ) {
-                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
-                    $decorationLine = 'line';
-                } elseif ( ! in_array($value, array( 'inherit', 'revert', 'revert-layer' ), true) ) {
-                    $decorationLine = 'none';
-                }
-            } elseif ( 'text-decoration-line' === $property ) {
-                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
-                    $decorationLine = 'line';
-                } elseif ( in_array($value, array( 'none', 'initial', 'unset' ), true) ) {
-                    $decorationLine = 'none';
-                }
-            }
-        }
-
-        return 'none' === $decorationLine;
     }
 
     /** @return list<string> */
@@ -4808,17 +4621,6 @@ final class HtmlTransformer
         }
 
         $parent->removeChild($element);
-    }
-
-    private function semanticGroupTagName(DOMElement $element): ?string
-    {
-        $tag = strtolower($element->tagName);
-        if ( ShellLandmarkPolicy::isSemanticGroupTag($tag) ) {
-            return $tag;
-        }
-
-        $landmark = ShellLandmarkPolicy::landmarkKind($tag, $this->attr($element, 'role'));
-        return in_array($landmark, array('header', 'footer'), true) ? $landmark : null;
     }
 
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
