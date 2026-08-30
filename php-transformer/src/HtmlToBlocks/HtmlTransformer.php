@@ -356,6 +356,8 @@ final class HtmlTransformer
 
     private HtmlTransformerSession $session;
 
+    private ?bool $authorStylesUseUniversalBorderBoxReset = null;
+
     private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
 
     private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
@@ -1195,6 +1197,7 @@ final class HtmlTransformer
             $this->runtime,
             fn (DOMElement $element): array => $this->sourceContext($element)
         );
+        $this->authorStylesUseUniversalBorderBoxReset = null;
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->transformationProvenance()->installFallback(TransformationOptions::provenance($options));
@@ -2564,6 +2567,9 @@ final class HtmlTransformer
 
     private function authorStylesUseUniversalBorderBoxReset(): bool
     {
+        if (null !== $this->authorStylesUseUniversalBorderBoxReset) {
+            return $this->authorStylesUseUniversalBorderBoxReset;
+        }
         $usesBorderBox = false;
         ( new CssStylesheetTransformer() )->visitStyleRules(
             $this->authorStyles()->combinedCss(),
@@ -2583,7 +2589,7 @@ final class HtmlTransformer
                 }
             }
         );
-        return $usesBorderBox;
+        return $this->authorStylesUseUniversalBorderBoxReset = $usesBorderBox;
     }
 
     /**
