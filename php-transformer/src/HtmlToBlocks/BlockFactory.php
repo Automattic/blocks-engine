@@ -7,9 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapp
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
-/**
- * @internal Block construction is owned by HtmlTransformer.
- */
+/** Canonical block shape and saved-markup construction. */
 final class BlockFactory
 {
     /**

@@ -52,6 +52,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $richTextMarkers = array();
 
+    /** @var array<string, true> */
+    private array $inlineLayoutCarrierPaths = array();
+
     public function installAuthorStyles(AuthorStyleAnalysis $authorStyles): void
     {
         $this->authorStyles = $authorStyles;
@@ -128,6 +131,16 @@ final class AuthorSelectorProjectionState
     public function hasRichTextMarkers(): bool
     {
         return array() !== $this->richTextMarkers;
+    }
+
+    public function markInlineLayoutCarrierPath(string $path): void
+    {
+        $this->inlineLayoutCarrierPaths[$path] = true;
+    }
+
+    public function isInlineLayoutCarrierPath(string $path): bool
+    {
+        return isset($this->inlineLayoutCarrierPaths[$path]);
     }
 
     public function ensureAttributeMarker(string $path): string

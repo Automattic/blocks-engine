@@ -116,6 +116,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProj
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticPreparer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjectionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -124,8 +127,13 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionFacts;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
@@ -276,6 +284,8 @@ final class HtmlTransformer
 
     private readonly BlockFactory $blockFactory;
 
+    private readonly BlockMaterializer $blockMaterializer;
+
     private readonly BackgroundImageExtractor $backgroundImageExtractor;
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
@@ -288,9 +298,15 @@ final class HtmlTransformer
 
     private readonly StyleResolver $styleResolver;
 
+    private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
+
+    private readonly SourceBlockAttributeProjector $sourceBlockAttributeProjector;
+
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
 
     private readonly AuthorSelectorSemanticPreparer $authorSelectorSemanticPreparer;
+
+    private readonly AuthorStylesheetProjector $authorStylesheetProjector;
 
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
@@ -360,17 +376,13 @@ final class HtmlTransformer
 
     private HtmlTransformerSession $session;
 
-    private ?bool $authorStylesUseUniversalBorderBoxReset = null;
+    private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
 
-    private const SYNTHETIC_PARAGRAPH_CLASS = 'blocks-engine-synthetic-paragraph';
+    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
 
-    private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+    private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
 
-    private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
-
-    private const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
-
-    private const INLINE_LAYOUT_CARRIER_CLASS = 'blocks-engine-inline-layout-carrier';
+    private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
@@ -388,7 +400,7 @@ final class HtmlTransformer
 
     private const CSS_OWNED_GRID_CLASS = 'blocks-engine-css-owned-grid';
 
-    private const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
+    private const CSS_OWNED_INLINE_FLOW_CLASS = SourceBlockAttributeProjector::CSS_OWNED_INLINE_FLOW_CLASS;
 
     /** @var list<string> Inline grid declarations carried to the generated stylesheet for css-owned grids. */
     private const CSS_OWNED_GRID_CARRIER_PROPERTIES = array(
@@ -429,7 +441,7 @@ final class HtmlTransformer
         'place-content',
     );
 
-    private const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
+    private const CSS_OWNED_LAYOUT_ITEM_CLASS = SourceBlockAttributeProjector::CSS_OWNED_LAYOUT_ITEM_CLASS;
 
     public function __construct(
         private readonly Runtime $runtime = new Runtime(),
@@ -459,6 +471,8 @@ final class HtmlTransformer
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
+        $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
+        $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $this->generatedBlockStyleProjector);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
             new AuthorSelectorSemanticContext(
@@ -466,12 +480,18 @@ final class HtmlTransformer
                 fn (string $tagName): bool => $this->isInlineContentElement($tagName),
                 fn (DOMElement $element): bool => $this->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
-                fn (array $parsed, DOMElement $element): bool => $this->tableSelectorNeedsStructuralProjection($parsed, $element),
+                fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
                 fn (DOMElement $table): bool => $this->isRepresentableTable($table)
             ),
             $this->stylesheetAnalysisComposer,
             $this->styleResolver,
             $this->analysisCache
+        );
+        $authorStyleRuleProjector = new AuthorStyleRuleProjector($this->styleResolver, $this->authorSelectorSemanticPreparer);
+        $this->authorStylesheetProjector = new AuthorStylesheetProjector(
+            $this->styleResolver,
+            $this->authorSelectorSemanticPreparer,
+            $authorStyleRuleProjector
         );
         $this->navigationStyleProjector = new NavigationStyleProjector(
             $this->createNavigationStyleProjectionContext(),
@@ -538,6 +558,7 @@ final class HtmlTransformer
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
             fn (): HtmlTransformerSession => $this->session,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
@@ -1198,6 +1219,15 @@ final class HtmlTransformer
     private function generatedSupportStyles(): GeneratedSupportStylesheetState
     {
         return $this->session->generatedSupportStylesheetState();
+    }
+
+    private function sourceBlockAttributeProjectionContext(): SourceBlockAttributeProjectionContext
+    {
+        return new SourceBlockAttributeProjectionContext(
+            $this->authorStyles(),
+            $this->authorSelectorProjections(),
+            $this->generatedSupportStyles()
+        );
     }
 
     protected function fallbackSourceTagMarker(string $tagName): string
@@ -2223,1269 +2253,23 @@ final class HtmlTransformer
         return $projections;
     }
 
-    private function allocateAuthorMarker(string $kind): string
-    {
-        return $this->authorStyles()->allocateMarker($kind);
-    }
-
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
-        return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
-            $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
-            $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
-            $body = $this->projectSourceContentBoxSizing($prelude, $body);
-            $body = $this->projectIntrinsicGridRowTracks($prelude, $body);
-            $declarations = $this->styleResolver->cssDeclarations($body);
-            $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
-            $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
-            $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, 'svg', $declarations);
-            $imageRule = '' === $imagePrelude
-                ? ''
-                : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
-            $svgImageRule = '' === $svgImagePrelude
-                ? ''
-                : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-            if ( array() === $margins ) {
-                return $this->rewriteAuthorStyleRule($prelude, $body) . $imageRule . $svgImageRule;
-            }
-
-            $inner = array_diff_key($declarations, $margins);
-            $rules = '' === $this->styleResolver->cssDeclarationString($inner)
-                ? ''
-                : $this->rewriteAuthorStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner));
-            return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
-        });
-    }
-
-    /** Preserve the source initial box model against WordPress's block-level border-box reset. */
-    private function projectSourceContentBoxSizing(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        if ( isset($declarations['box-sizing'])
-            || ! isset($declarations['width'])
-            || ! $this->cssHasDefiniteWidth('width:' . $declarations['width'])
-        ) {
-            return $body;
-        }
-
-        $hasBoxChrome = false;
-        foreach ( $declarations as $property => $value ) {
-            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
-            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
-                && $this->cssValueIsNonZero($value)
-            ) {
-                $hasBoxChrome = true;
-                break;
-            }
-        }
-        if ( ! $hasBoxChrome ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-        if ( $this->authorStylesUseUniversalBorderBoxReset() ) {
-            return $body;
-        }
-        $matched = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                $matched = true;
-                if ( 'a' === strtolower($element->tagName)
-                    || FormControlClassifier::isControlElement($element)
-                    || 'button' === strtolower(trim($this->attr($element, 'role')))
-                ) {
-                    // Native control conversion splits source geometry across
-                    // synthetic wrappers and link surfaces.
-                    return $body;
-                }
-                $resolved = $this->cssComparableValue((string) ($this->styleResolver->structuralPresentationDeclarations($element)['box-sizing'] ?? ''));
-                if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
-                    return $body;
-                }
-            }
-        }
-        if ( ! $matched ) {
-            return $body;
-        }
-
-        return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
-    }
-
-    private function authorStylesUseUniversalBorderBoxReset(): bool
-    {
-        if (null !== $this->authorStylesUseUniversalBorderBoxReset) {
-            return $this->authorStylesUseUniversalBorderBoxReset;
-        }
-        $usesBorderBox = false;
-        ( new CssStylesheetTransformer() )->visitStyleRules(
-            $this->authorStyles()->combinedCss(),
-            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox): void {
-                if ( $usesBorderBox || array() !== $ancestors ) {
-                    return;
-                }
-                $boxSizing = $this->cssComparableValue((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
-                if ( 'border-box' !== $boxSizing ) {
-                    return;
-                }
-                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    if ( '*' === trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector)) ) {
-                        $usesBorderBox = true;
-                        return;
-                    }
-                }
-            }
+        return $this->authorStylesheetProjector->project(
+            $stylesheet,
+            new AuthorStylesheetProjectionContext(
+                $this->authorStyles(),
+                $this->sourceStyles(),
+                $this->authorSelectorProjections(),
+                $this->transformationEvidence()
+            )
         );
-        return $this->authorStylesUseUniversalBorderBoxReset = $usesBorderBox;
-    }
-
-    /**
-     * Captured builders commonly impose a desktop canvas minimum on a document
-     * root and its immediate section strips. That is runtime viewport scaffolding,
-     * not an authored content constraint: retaining it forces a desktop-wide
-     * WordPress document on narrow viewports. Only project broad absolute values
-     * when every matched source element is a structural shell or section surface.
-     */
-    private function projectResponsiveCanvasMinimumWidth(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $minimumWidth = (string) ($declarations['min-width'] ?? '');
-        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element));
-            if ( count($shellMatches) !== count($matches) ) {
-                if ( array() !== $shellMatches ) {
-                    $this->transformationEvidence()->recordResponsiveGeometryAmbiguity($selector, $minimumWidth);
-                }
-                return $body;
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($minimumWidth) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'min-width' !== strtolower(trim(strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'min-width:0' . $important;
-        $retained[] = 'max-width:100%' . $important;
-        return implode(';', $retained);
-    }
-
-    /**
-     * Fractional row tracks only absorb leftover height when the grid container
-     * has a definite block size. Captured auto-height grids still author `1fr`
-     * so a stretched WordPress parent, or a hidden complementary responsive
-     * sibling that leaves an explicit track empty, opens a blank region between
-     * content rows. Collapse those tracks to `min-content`, which is the auto-
-     * height source rendering.
-     */
-    private function projectIntrinsicGridRowTracks(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $rows = (string) ($declarations['grid-template-rows'] ?? '');
-        if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            foreach ( $matches as $element ) {
-                if ( ! $this->isIntrinsicallySizedGridContainer($element, $declarations) ) {
-                    return $body;
-                }
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $collapsed = $this->collapseFractionalGridRowTracks($this->cssValueWithoutImportant($rows));
-        if ( $collapsed === $this->cssValueWithoutImportant($rows) ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($rows) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'grid-template-rows' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'grid-template-rows:' . $collapsed . $important;
-        return implode(';', $retained);
-    }
-
-    /** @param array<string, string> $ruleDeclarations */
-    private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations = array()): bool
-    {
-        $declarations = $this->styleResolver->mergeCssDeclarationMaps(
-            $this->styleResolver->structuralPresentationDeclarations($element),
-            $ruleDeclarations
-        );
-        $display = strtolower($this->cssValueWithoutImportant((string) ($declarations['display'] ?? '')));
-        if ( 'none' === $display ) {
-            return true;
-        }
-
-        return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
-            && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
-    }
-
-    private function isDefiniteBlockSize(string $value): bool
-    {
-        $value = strtolower($this->cssValueWithoutImportant($value));
-        if ( '' === $value || in_array($value, array( 'auto', 'none', 'unset', 'inherit', 'initial', '0', '0px', '0%', 'min-content', 'max-content', 'fit-content' ), true) ) {
-            return false;
-        }
-        if ( 1 === preg_match('/^-?[\d.]+%$/', $value) ) {
-            return false;
-        }
-        if ( 1 === preg_match('/^-?[\d.]+(?:px|r?em|vh|dvh|svh|lvh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc)$/', $value) ) {
-            return 0.0 < (float) $value;
-        }
-        if ( 1 === preg_match('/^(?:calc|min|max|clamp|var)\(/', $value) ) {
-            return (bool) preg_match('/(?:vh|dvh|svh|lvh|px|r?em)\b/', $value);
-        }
-
-        return false;
-    }
-
-    private function gridTemplateRowsContainFractionalTrack(string $rows): bool
-    {
-        foreach ( CssValueSplitter::splitTopLevelWhitespace($this->cssValueWithoutImportant($rows)) as $track ) {
-            if ( $this->gridRowTrackIsFractional($track) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function gridRowTrackIsFractional(string $track): bool
-    {
-        $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
-            return true;
-        }
-        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
-            return false;
-        }
-        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
-        $list = $parts[1] ?? '';
-
-        return '' !== $list && $this->gridTemplateRowsContainFractionalTrack($list);
-    }
-
-    private function collapseFractionalGridRowTracks(string $rows): string
-    {
-        $tracks = CssValueSplitter::splitTopLevelWhitespace($rows);
-        $rewritten = array();
-        foreach ( $tracks as $track ) {
-            $rewritten[] = $this->collapseFractionalGridRowTrack($track);
-        }
-
-        return implode(' ', $rewritten);
-    }
-
-    private function collapseFractionalGridRowTrack(string $track): string
-    {
-        $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
-            return 'min-content';
-        }
-        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
-            return $track;
-        }
-        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
-        if ( 2 !== count($parts) ) {
-            return $track;
-        }
-
-        return 'repeat(' . $parts[0] . ', ' . $this->collapseFractionalGridRowTracks($parts[1]) . ')';
-    }
-
-    private function isWideAbsoluteMinimumWidth(string $value): bool
-    {
-        $value = $this->cssValueWithoutImportant($value);
-        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(px|r?em)$/i', $value, $matches) ) {
-            return false;
-        }
-        $pixels = (float) $matches[1];
-        if ( 'px' !== strtolower($matches[2]) ) {
-            $pixels *= self::ROOT_FONT_SIZE_PX;
-        }
-        return $pixels >= 640;
-    }
-
-    /**
-     * A percentage height computes to auto when its containing block has an
-     * indefinite height. Preserve that source behavior after block wrappers are
-     * introduced, because those wrappers can otherwise make the height definite.
-     */
-    private function projectAutoSizedStructuralPercentageHeight(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $height = (string) ($declarations['height'] ?? '');
-        if ( '100%' !== strtolower($this->cssValueWithoutImportant($height)) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element));
-            if ( count($autoSizedMatches) !== count($matches) ) {
-                if ( array() !== $autoSizedMatches ) {
-                    $this->transformationEvidence()->recordResponsiveHeightAmbiguity($selector, $height);
-                }
-                return $body;
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($height) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'height' !== strtolower(trim(strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'height:auto' . $important;
-        return implode(';', $retained);
-    }
-
-    private function isAutoSizedStructuralPercentageHeight(DOMElement $element): bool
-    {
-        if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
-            return false;
-        }
-
-        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        $ancestor = $element->parentNode;
-        while ( $ancestor instanceof DOMElement && $ancestor !== $this->authorStyles()->sourceBody() ) {
-            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
-            if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
-                return false;
-            }
-            $ancestorHeight = strtolower($this->cssValueWithoutImportant((string) ($style['height'] ?? '')));
-            if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
-                return false;
-            }
-            if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
-                return in_array($ancestorHeight, array( '', 'auto' ), true);
-            }
-            $ancestor = $ancestor->parentNode;
-        }
-
-        return false;
-    }
-
-    private function isPageShellOrSectionSurface(DOMElement $element): bool
-    {
-        if ( $element->parentNode === $this->authorStyles()->sourceBody() ) {
-            return true;
-        }
-
-        if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {
-            return true;
-        }
-
-        $parent = $element->parentNode;
-        return $parent instanceof DOMElement
-            && $parent->parentNode === $this->authorStyles()->sourceBody()
-            && $this->elementChildCount($parent) > 1;
-    }
-
-    private function elementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-        return $count;
-    }
-
-    private function rewriteAuthorStyleRule(string $prelude, string $body): string
-    {
-        $projectedPrelude = $this->rewriteAuthorSelectorPrelude($prelude);
-        $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
-        if ( '' === $wrapperPrelude ) {
-            $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude);
-            if ( '' === $directWrapperPrelude ) {
-                $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
-                if ( null !== $mixedButtonProjection ) {
-                    return $mixedButtonProjection;
-                }
-                return $projectedPrelude . '{' . $body . '}';
-            }
-            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
-            if ( '' === $geometry ) {
-                return '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}';
-            }
-            return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
-        }
-
-        [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
-        if ( '' === $layout ) {
-            return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
-        }
-        if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
-        }
-
-        return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
-    }
-
-    private function withoutCollapsedButtonProjectedWidths(string $prelude, string $body): ?string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return null;
-        }
-
-        $buttonSelectors = array();
-        $otherSelectors = array();
-        foreach ( $selectors as $selector ) {
-            if ( str_contains($selector, '> :where(.wp-block-button__link)') ) {
-                $buttonSelectors[] = $selector;
-            } else {
-                $otherSelectors[] = $selector;
-            }
-        }
-        if ( array() === $buttonSelectors ) {
-            return null;
-        }
-
-        $safe = array();
-        $collapsed = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
-            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            if ( false !== $colon && $this->isCollapsedButtonKeywordWidth($name, $value) ) {
-                $collapsed[] = $declaration;
-            } else {
-                $safe[] = $declaration;
-            }
-        }
-        if ( array() === $collapsed ) {
-            return null;
-        }
-
-        $css = array() === $safe ? '' : $prelude . '{' . implode(';', $safe) . '}';
-        if ( array() !== $otherSelectors ) {
-            $css .= implode(',', $otherSelectors) . '{' . implode(';', $collapsed) . '}';
-        }
-
-        return $css;
-    }
-
-    private function buttonPresentationWrapperPrelude(string $prelude): string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return '';
-        }
-
-        $rewritten = array();
-        foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector);
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
-                continue;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $markers = array();
-            foreach ( $matches as $element ) {
-                $path = $element->getNodePath() ?? '';
-                $marker = $this->authorSelectorProjections()->isButtonPresentationPath($path)
-                    ? $this->authorSelectorProjections()->controlMarker($path)
-                    : '';
-                if ( '' === $marker ) {
-                    continue 2;
-                }
-                $markers[] = $marker;
-            }
-            foreach ( array_unique($markers) as $marker ) {
-                $rewritten[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed);
-            }
-        }
-
-        return implode(',', $rewritten);
-    }
-
-    private function directButtonGeometryWrapperPrelude(string $prelude): string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return '';
-        }
-
-        $rewritten = array();
-        foreach ( $selectors as $selector ) {
-            $selector = $this->projectSourceBodyStateSelector($selector);
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
-                continue;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            foreach ( $matches as $element ) {
-                $path = $element->getNodePath() ?? '';
-                $marker = $this->authorSelectorProjections()->controlMarker($path);
-                if ( '' === $marker || $this->authorSelectorProjections()->isButtonPresentationPath($path) ) {
-                    continue 2;
-                }
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, true);
-            }
-        }
-
-        return implode(',', array_values(array_unique($rewritten)));
-    }
-
-    /** @return array{string, string} */
-    private function splitDirectButtonGeometryDeclarations(string $body): array
-    {
-        $geometry = array();
-        $inner = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
-            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            // The buttons wrapper is the source control's box in the parent
-            // layout: it is the grid/flex item. Placement and self-alignment
-            // belong there, not on the inner control, which would leave the
-            // wrapper unplaced and push it into normal flow.
-            $wrapperOwned = array(
-                'position', 'top', 'right', 'bottom', 'left', 'z-index',
-                'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-                'grid-area', 'grid-column', 'grid-row',
-                'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
-                'align-self', 'justify-self', 'order',
-            );
-            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
-                continue;
-            }
-            if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
-                && ! $this->isButtonControlBoxSize($name, $value)
-            ) {
-                $geometry[] = $declaration;
-            } else {
-                $inner[] = $declaration;
-            }
-        }
-        return array( implode(';', $geometry), implode(';', $inner) );
-    }
-
-    private function projectSourceBodyStateSelector(string $selector): string
-    {
-        if ( array() === $this->authorStyles()->sourceBodyProjectionClasses() ) {
-            return $selector;
-        }
-
-        $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $this->authorStyles()->sourceBodyProjectionClasses()));
-        return preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
-    }
-
-    /** @return array{string, string} */
-    private function splitButtonPresentationDeclarations(string $body): array
-    {
-        $layout = array();
-        $control = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
-            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            if ( '' === $name || false === $colon ) {
-                $control[] = $declaration;
-                continue;
-            }
-            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
-                continue;
-            }
-            if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
-                $layout[] = $declaration;
-            } else {
-                $control[] = $declaration;
-            }
-        }
-
-        return array( implode(';', $layout), implode(';', $control) );
-    }
-
-    /**
-     * When the buttons wrapper carries a definite width, the inner Gutenberg
-     * button and link must fill it. Otherwise they shrink-wrap and wrap text
-     * into a one-character column.
-     */
-    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = ''): string
-    {
-        $css = $wrapperPrelude . '{' . $layoutCss . '}';
-        if ( $this->cssHasDefiniteWidth($layoutCss) ) {
-            $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
-            $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
-            $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
-            // Width only. `box-sizing` would move the border box of source
-            // controls that already fill their wrapper.
-            $css .= $button . '{width:100%!important}'
-                . $link . '{width:100%!important;max-width:100%!important}';
-        }
-
-        return $css . $rest;
-    }
-
-    private function cssHasDefiniteWidth(string $css): bool
-    {
-        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
-            if ( 'width' !== $name && 'min-width' !== $name ) {
-                continue;
-            }
-            $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
-            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Keyword sizes describe the control's box. On `.wp-block-buttons` they
-     * shrink-wrap the flex wrapper and override a definite source width.
-     */
-    private function isButtonControlBoxSize(string $property, string $value): bool
-    {
-        if ( ! in_array($property, array( 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height' ), true) ) {
-            return false;
-        }
-
-        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
-
-        return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
-    }
-
-    /**
-     * Inline min-content widths plus Gutenberg's word-break:break-word collapse
-     * the label to one character. Drop those widths, including custom
-     * properties that only exist to feed min-width.
-     */
-    private function isCollapsedButtonKeywordWidth(string $property, string $value): bool
-    {
-        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
-        if ( 'min-content' !== $value ) {
-            return false;
-        }
-        if ( in_array($property, array( 'width', 'min-width', 'max-width' ), true) ) {
-            return true;
-        }
-
-        return str_starts_with($property, '--') && str_contains($property, 'width');
-    }
-
-    private function isButtonWrapperLayoutProperty(string $property): bool
-    {
-        return in_array($property, array(
-            'align-content', 'align-items', 'align-self', 'clear', 'display', 'float',
-            'flex', 'flex-basis', 'flex-direction', 'flex-flow', 'flex-grow', 'flex-shrink',
-            'flex-wrap', 'gap', 'grid', 'grid-area', 'grid-auto-columns', 'grid-auto-flow',
-            'grid-auto-rows', 'grid-column', 'grid-row', 'grid-template', 'grid-template-areas',
-            'grid-template-columns', 'grid-template-rows', 'isolation', 'justify-content',
-            'justify-items', 'justify-self', 'order', 'overflow', 'overflow-x', 'overflow-y',
-            'place-content', 'place-items', 'place-self', 'position', 'top', 'right', 'bottom',
-            'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-        ), true);
-    }
-
-    private function rewriteAuthorSelectorPrelude(string $prelude, bool $controlWrapper = false): string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $prelude;
-        }
-
-        $rewritten = array();
-        foreach ( $selectors as $selector ) {
-            $runtimeProjection = $this->projectRuntimeAttributeSelector($selector);
-            if ( null !== $runtimeProjection ) {
-                array_push($rewritten, ...$runtimeProjection);
-                continue;
-            }
-            $selector = $this->projectSourceAttributeNegationStateSelector($selector);
-            $selector = $this->projectSourceBodyStateSelector($selector);
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                $rewritten[] = $selector;
-                continue;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                // A type selector (e.g. `.page-header p`) that matches no source
-                // element must still be projected through its source-tag marker
-                // rather than emitted bare. Otherwise a `<div>` later collapsed to a
-                // `<p>` (an eyebrow `<div class="label">`) would be newly captured by
-                // the dormant `.page-header p` rule and lose its own type scale.
-                // Rewriting to `:where(.source-p-marker)` — carried only by elements
-                // that were `<p>` in the source — makes the rule match exactly what
-                // the author intended and nothing that was structurally promoted.
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
-                continue;
-            }
-            $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches);
-            if ( null !== $attributeAncestryProjection ) {
-                array_push($rewritten, ...$attributeAncestryProjection);
-                continue;
-            }
-            $attributeProjection = $this->projectSourceAttributeSelector($parsed, $matches);
-            if ( null !== $attributeProjection ) {
-                array_push($rewritten, ...$attributeProjection);
-                continue;
-            }
-            if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
-                $shellTags = array_values(array_unique(array_filter(array_map(
-                    function (DOMElement $element): string {
-                        if ( $element->parentNode !== $this->authorStyles()->sourceBody() ) {
-                            return '';
-                        }
-                        $tag = strtolower($element->tagName);
-                        $area = ShellLandmarkPolicy::landmarkKind($tag, $this->attr($element, 'role'));
-                        return in_array($area, array( 'header', 'footer' ), true) ? $tag : '';
-                    },
-                    $matches
-                ))));
-                $markers = array_values(array_unique(array_filter(array_map(
-                    function (DOMElement $element) use ($shellTags): string {
-                        return in_array(strtolower($element->tagName), $shellTags, true)
-                            ? ''
-                            : $this->authorSelectorProjections()->rootChildMarker($this->sourceElementIdentity($element));
-                    },
-                    $matches
-                ))));
-                if ( array() === $markers && array() === $shellTags ) {
-                    $rewritten[] = $selector;
-                    continue;
-                }
-                foreach ( $markers as $marker ) {
-                    $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
-                }
-                foreach ( $shellTags as $tag ) {
-                    $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed);
-                }
-                continue;
-            }
-
-            $tableDescendants = array();
-            $nonTableMatches = array();
-            foreach ( $matches as $element ) {
-                $projected = $this->projectTableDescendantSelector($selector, $parsed, $element);
-                if ( null === $projected ) {
-                    $nonTableMatches[] = $element;
-                } else {
-                    $tableDescendants[] = $projected;
-                }
-            }
-            foreach ( array_values(array_unique($tableDescendants)) as $projected ) {
-                $rewritten[] = $projected;
-            }
-            if ( array() === $nonTableMatches ) {
-                continue;
-            }
-            $matches = $nonTableMatches;
-
-            $controls = array();
-            $semanticLeaves = array();
-            $richTextLeaves = array();
-            $inlineLayoutCarriers = false;
-            $hasNonProjected = false;
-            foreach ( $matches as $element ) {
-                $path = $element->getNodePath() ?? '';
-                if ( $this->requiresStandaloneInlineLayoutLeaf($element) && ! $this->isDirectChildOfLoweredAuthorControl($element) ) {
-                    $inlineLayoutCarriers = true;
-                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->controlMarker($path)) ) {
-                    $controls[] = $marker;
-                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->semanticMarker($this->sourceElementIdentity($element))) ) {
-                    $semanticLeaves[] = $marker;
-                } elseif ( '' !== ($marker = $this->authorSelectorProjections()->richTextMarker($this->sourceElementIdentity($element))) ) {
-                    $richTextLeaves[] = $marker;
-                } else {
-                    $hasNonProjected = true;
-                }
-            }
-            $controls = array_values(array_unique($controls));
-            $semanticLeaves = array_values(array_unique($semanticLeaves));
-            $richTextLeaves = array_values(array_unique($richTextLeaves));
-            if ( array() === $controls && array() === $semanticLeaves && array() === $richTextLeaves && empty($inlineLayoutCarriers) ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed);
-                continue;
-            }
-
-            $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
-            if ( $hasNonProjected ) {
-                $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
-            }
-            foreach ( $controls as $marker ) {
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $controlWrapper);
-            }
-            foreach ( $semanticLeaves as $marker ) {
-                $rewritten[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker);
-            }
-            foreach ( $richTextLeaves as $marker ) {
-                $rewritten[] = $this->projectRichTextSemanticSelector($selector, $parsed, $marker);
-            }
-            if ( ! empty($inlineLayoutCarriers) ) {
-                $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
-            }
-        }
-        return implode(',', $rewritten);
-    }
-
-    /** @return list<string>|null */
-    private function projectRuntimeAttributeSelector(string $selector): ?array
-    {
-        $selector = trim($selector);
-        $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
-        uksort($selectorMarkers, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
-        foreach ( $selectorMarkers as $runtimeSelector => $markers ) {
-            if ( ! str_starts_with($selector, $runtimeSelector) ) {
-                continue;
-            }
-            $suffix = substr($selector, strlen($runtimeSelector));
-            if ( '' !== $suffix && ! in_array($suffix[0], array('.', ':'), true) ) {
-                continue;
-            }
-            $parsed = $this->parsedCssSelector($runtimeSelector);
-            if ( ! $parsed['supported'] ) {
-                continue;
-            }
-            $shims = $this->selectorSpecificityShims($parsed);
-            return array_map(
-                static fn (string $marker): string => ':where(.' . $marker . ')' . $shims . $suffix,
-                $markers
-            );
-        }
-
-        return null;
-    }
-
-    /** @param array<string, mixed> $parsed @param array<int, DOMElement> $matches @return array<int, string>|null */
-    private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches): ?array
-    {
-        $rightmost = $parsed['rightmost_compound_span'] ?? null;
-        $ancestry = is_array($rightmost) ? substr($selector, 0, (int) $rightmost['start']) : '';
-        if ( null !== $parsed['pseudo_state_suffix_span'] || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
-            return null;
-        }
-
-        $projected = array();
-        $scope = '';
-        if ( preg_match('/^\s*((?::where\([^(),]+\)\s+)+)/i', $selector, $scopeMatch) ) {
-            $scope = trim((string) $scopeMatch[1]) . ' ';
-        }
-        foreach ( $matches as $element ) {
-            $id = trim($this->attr($element, 'id'));
-            if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
-                $target = '#' . $id;
-            } else {
-                $marker = $this->authorSelectorProjections()->attributeMarker($this->sourceElementIdentity($element));
-                if ( '' === $marker ) {
-                    return null;
-                }
-                $target = '.' . $marker;
-            }
-            $projected[] = $scope . ':where(' . $target . ')' . $this->selectorSpecificityShims($parsed);
-        }
-
-        return array_values(array_unique($projected));
-    }
-
-    /** @param array<string, mixed> $parsed @param array<int, DOMElement> $matches @return array<int, string>|null */
-    private function projectSourceAttributeSelector(array $parsed, array $matches): ?array
-    {
-        if ( null !== $parsed['pseudo_state_suffix_span'] ) {
-            return null;
-        }
-        $compounds = $parsed['compounds'] ?? array();
-        $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
-        if ( array() === $hasDataAttribute ) {
-            return null;
-        }
-
-        $projected = array();
-        foreach ( $matches as $element ) {
-            $marker = $this->authorSelectorProjections()->attributeMarker($this->sourceElementIdentity($element));
-            if ( '' === $marker ) {
-                return null;
-            }
-            $projected[] = ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed);
-        }
-
-        return array_values(array_unique($projected));
-    }
-
-    private function projectSourceAttributeNegationStateSelector(string $selector): string
-    {
-        $marker = $this->authorSelectorProjections()->attributeNegationMarker(trim($selector));
-        if ( '' === $marker ) {
-            return $selector;
-        }
-        return preg_replace(
-            '/:not\(\s*\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\]\s*\)/i',
-            ':not(.' . $marker . ')',
-            $selector
-        ) ?? $selector;
-    }
-
-    private function projectAuthorImageSelectorPrelude(string $prelude, string $tagName = 'img', array $declarations = array()): string
-    {
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return '';
-        }
-
-        $projected = array();
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                continue;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            $imageMatches = array_values(array_filter($matches, fn (DOMElement $element): bool => $tagName === strtolower($element->tagName) && ('svg' !== $tagName || $this->isProjectableFillSvg($element, $declarations))));
-            if ( array() === $imageMatches ) {
-                continue;
-            }
-
-            if ( AuthorSelectorSemanticPreparer::isRootChildSelector($parsed) ) {
-                foreach ( $imageMatches as $element ) {
-                    $marker = $this->authorSelectorProjections()->rootChildMarker($this->sourceElementIdentity($element));
-                    if ( '' !== $marker ) {
-                        $projected[] = $this->projectSemanticLeafSelector($selector, $parsed, $marker) . '.wp-block-image > img';
-                    }
-                }
-                continue;
-            }
-
-            if ( 'svg' === $tagName ) {
-                $projected[] = $this->projectImageSelector($selector, $parsed, true);
-            }
-            $projected[] = $this->projectImageSelector($selector, $parsed);
-        }
-
-        return implode(',', array_values(array_unique($projected)));
-    }
-
-    /** @param array<string, string> $declarations */
-    private function isExplicitParentFillSvg(DOMElement $element, array $declarations): bool
-    {
-        if ( '' === $this->explicitObjectFit($declarations)
-            || '100%' !== trim((string) ($declarations['width'] ?? ''))
-            || '100%' !== trim((string) ($declarations['height'] ?? ''))
-        ) {
-            return false;
-        }
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
-            return false;
-        }
-        $parentStyle = $this->styleResolver->structuralPresentationDeclarations($parent);
-        if ( ! in_array(strtolower(trim((string) ($parentStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-        return isset($parentStyle['inset']) && '' !== trim((string) $parentStyle['inset']);
-    }
-
-    /** @param array<string, string> $declarations */
-    private function isProjectableFillSvg(DOMElement $element, array $declarations): bool
-    {
-        if ( $this->isExplicitParentFillSvg($element, $declarations) ) {
-            return true;
-        }
-        if ( '100%' !== trim((string) ($declarations['width'] ?? ''))
-            || '100%' !== trim((string) ($declarations['height'] ?? ''))
-            || ! preg_match('/(?:^|\s)(?:defer\s+)?x(?:min|mid|max)y(?:min|mid|max)\s+slice(?:\s|$)/i', trim($this->attr($element, 'preserveaspectratio')))
-        ) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * The author's explicit object-fit keyword, or '' when absent or invalid.
-     *
-     * @param array<string, string> $declarations
-     */
-    private function explicitObjectFit(array $declarations): string
-    {
-        $objectFit = strtolower(trim((string) ($declarations['object-fit'] ?? '')));
-        return in_array($objectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true) ? $objectFit : '';
-    }
-
-    /** @param array<string, string> $declarations */
-    private function imageProjectionBridgeDeclarations(array $declarations, bool $preserveObjectFit = false): string
-    {
-        $bridge = array( 'display:block' );
-        $position = strtolower(trim((string) ($declarations['position'] ?? '')));
-        $width = strtolower(trim((string) ($declarations['width'] ?? '')));
-        $height = strtolower(trim((string) ($declarations['height'] ?? '')));
-        $ownsBox = ! in_array($width, array( '', 'auto' ), true) && ! in_array($height, array( '', 'auto' ), true);
-        if ( $ownsBox || in_array($position, array( 'absolute', 'fixed' ), true) ) {
-            $bridge[] = 'width:100%';
-            $bridge[] = 'height:100%';
-        }
-        $bridge[] = 'max-width:100%';
-        $objectFit = $this->explicitObjectFit($declarations);
-        $bridge[] = 'object-fit:' . ($preserveObjectFit && '' !== $objectFit ? $objectFit : 'inherit');
-        $bridge[] = 'object-position:inherit';
-        $bridge[] = 'border-radius:inherit';
-        return implode(';', $bridge);
     }
 
     /** @return array<string, mixed> */
     private function parsedCssSelector(string $selector): array
     {
         return $this->sourceStyles()->parsedSelector($selector);
-    }
-
-    /** @param array<string, mixed> $parsed @return list<DOMElement> */
-    private function matchingAuthorSourceElements(string $selector, array $parsed): array
-    {
-        return $this->authorSelectorSemanticPreparer->matchingSourceElements($this->authorStyles(), $selector, $parsed);
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function rewriteSourceTagTypes(string $selector, array $parsed, string $rightmostInsertion = ''): string
-    {
-        $replacements = array();
-        foreach ( $parsed['type_spans'] as $typeSpan ) {
-            $marker = $this->authorSelectorProjections()->tagMarker((string) $typeSpan['name']);
-            if ( '' !== $marker ) {
-                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim() );
-            }
-        }
-        if ( '' !== $rightmostInsertion ) {
-            $replacements[(int) $parsed['rightmost_rewrite_end']] = array( 'end' => (int) $parsed['rightmost_rewrite_end'], 'value' => $rightmostInsertion );
-        }
-        return $this->replaceSelectorSpans($selector, $replacements);
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function projectControlSelector(string $selector, array $parsed, string $marker, bool $wrapper = false): string
-    {
-        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        // Source matching is complete before mutation and the marker is unique to
-        // this control. Project through it rather than assuming source attributes
-        // or ancestors survive canonical core/button serialization.
-        return ':where(.' . $marker . ')' . ($wrapper ? ':where(.wp-block-buttons)' : $this->selectorSpecificityShims($parsed) . '> :where(.wp-block-button__link)') . $suffix;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function projectSemanticLeafSelector(string $selector, array $parsed, string $marker): string
-    {
-        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed) . $suffix;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function projectRichTextSemanticSelector(string $selector, array $parsed, string $marker): string
-    {
-        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        return ':where(mark[style*="--blocks-engine-richtext-marker:' . $marker . '"],span[data-blocks-engine-richtext-marker="' . $marker . '"])' . $this->selectorSpecificityShims($parsed) . $suffix;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function projectInlineLayoutCarrierSelector(string $selector, array $parsed): string
-    {
-        $rightmost = $parsed['rightmost_compound_span'] ?? null;
-        if ( ! is_array($rightmost) ) {
-            return $selector;
-        }
-
-        return substr($selector, 0, (int) $rightmost['start'])
-            . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . ' > '
-            . substr($selector, (int) $rightmost['start']);
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function projectTableDescendantSelector(string $selector, array $parsed, DOMElement $element): ?string
-    {
-        if ( ! in_array(strtolower($element->tagName), array( 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th' ), true) ) {
-            return null;
-        }
-        if ( ! $this->tableSelectorNeedsStructuralProjection($parsed, $element) ) {
-            return null;
-        }
-        $table = $this->ancestorTable($element);
-        $marker = $table instanceof DOMElement ? $this->authorSelectorProjections()->tableMarker($this->sourceElementIdentity($table)) : '';
-        $path = $table instanceof DOMElement ? $this->serializedTableDescendantPath($table, $element) : '';
-        if ( '' === $marker || '' === $path ) {
-            return null;
-        }
-
-        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
-        // Use the real isolated table marker rather than :where() so the exact
-        // cell path beats core's .wp-block-table td/th defaults without a global
-        // Gutenberg override.
-        return '.' . $marker . '>table>' . $path . $this->selectorSpecificityShims($parsed) . $suffix;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function tableSelectorNeedsStructuralProjection(array $parsed, DOMElement $element): bool
-    {
-        $classes = array();
-        $ids = array();
-        $attributes = array();
-        foreach ( $parsed['compounds'] ?? array() as $compound ) {
-            if ( in_array(strtolower((string) ($compound['type'] ?? '')), array( 'thead', 'tbody', 'tfoot' ), true)
-                && ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) ) {
-                return true;
-            }
-            foreach ( $compound['classes'] ?? array() as $className ) {
-                $classes[$className] = true;
-            }
-            foreach ( $compound['ids'] ?? array() as $id ) {
-                $ids[$id] = true;
-            }
-            foreach ( $compound['attributes'] ?? array() as $attribute ) {
-                if ( is_string($attribute['name'] ?? null) && ! in_array($attribute['name'], array( 'class', 'id' ), true) ) {
-                    $attributes[$attribute['name']] = true;
-                }
-            }
-        }
-
-        // core/table serializes anonymous cells directly instead of through
-        // createBlock(), so scope bare th/td selectors to their native position.
-        if ( in_array(strtolower($element->tagName), array( 'td', 'th' ), true)
-            && array() === $classes && array() === $ids && array() === $attributes
-        ) {
-            return true;
-        }
-
-        for ( $node = $element; $node instanceof DOMElement && 'table' !== strtolower($node->tagName); $node = $node->parentNode ) {
-            $nodeClasses = preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array();
-            if ( array_intersect(array_keys($classes), $nodeClasses) ) {
-                return true;
-            }
-            if ( isset($ids[$this->attr($node, 'id')]) ) {
-                return true;
-            }
-            foreach ( array_keys($attributes) as $attributeName ) {
-                if ( $node->hasAttribute($attributeName) ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    private function serializedTableDescendantPath(DOMElement $table, DOMElement $element): string
-    {
-        $tableId = spl_object_id($table);
-        return $this->authorSelectorProjections()->tableDescendantPath($tableId, spl_object_id($element), function () use ($table): array {
-            $paths = array();
-            foreach ( array( 'thead', 'tbody', 'tfoot' ) as $section ) {
-                $rowIndex = 0;
-                foreach ( $table->getElementsByTagName($section) as $sectionElement ) {
-                    if ( $sectionElement instanceof DOMElement && $this->belongsToTable($sectionElement, $table) ) {
-                        $paths[spl_object_id($sectionElement)] = $section;
-                    }
-                }
-                foreach ( $table->getElementsByTagName('tr') as $row ) {
-                    if ( ! $row instanceof DOMElement || ! $this->belongsToTable($row, $table) || $section !== $this->serializedTableSection($row) ) {
-                        continue;
-                    }
-                    ++$rowIndex;
-                    $rowPath = $section . '>tr:nth-child(' . $rowIndex . ')';
-                    $paths[spl_object_id($row)] = $rowPath;
-                    $cellIndex = 0;
-                    foreach ( $row->childNodes as $cell ) {
-                        if ( ! $cell instanceof DOMElement || ! in_array(strtolower($cell->tagName), array( 'td', 'th' ), true) ) {
-                            continue;
-                        }
-                        ++$cellIndex;
-                        $paths[spl_object_id($cell)] = $rowPath . '>' . strtolower($cell->tagName) . ':nth-child(' . $cellIndex . ')';
-                    }
-                }
-            }
-            return $paths;
-        });
     }
 
     private function isRepresentableTable(DOMElement $table): bool
@@ -3591,19 +2375,6 @@ final class HtmlTransformer
         return $this->createBlock('core/group', $tableAttributes, $rows, $table);
     }
 
-    private function serializedTableSection(DOMElement $element): string
-    {
-        $section = $this->ancestorElement($element, 'thead') instanceof DOMElement
-            ? 'thead'
-            : ($this->ancestorElement($element, 'tfoot') instanceof DOMElement ? 'tfoot' : 'tbody');
-        return $section;
-    }
-
-    private function ancestorTable(DOMElement $element): ?DOMElement
-    {
-        return $this->ancestorElement($element, 'table');
-    }
-
     private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
@@ -3615,80 +2386,6 @@ final class HtmlTransformer
     }
 
     /** @param array<string, mixed> $parsed */
-    private function projectImageSelector(string $selector, array $parsed, bool $wrapperOnly = false): string
-    {
-        $replacements = array(
-            (int) $parsed['rightmost_rewrite_end'] => array(
-                'end'   => (int) $parsed['rightmost_rewrite_end'],
-                'value' => $wrapperOnly ? '.wp-block-image' : '.wp-block-image > img',
-            ),
-        );
-        $rightmostType = $parsed['compounds'][count($parsed['compounds']) - 1]['type'] ?? null;
-        if ( is_string($rightmostType) && in_array(strtolower($rightmostType), array( 'img', 'svg' ), true) ) {
-            $typeSpan = end($parsed['type_spans']);
-            if ( is_array($typeSpan) ) {
-                $replacements[(int) $typeSpan['start']] = array(
-                    'end'   => (int) $typeSpan['end'],
-                    'value' => ':where(figure)' . $this->typeSpecificityShim(),
-                );
-            }
-        }
-
-        return $this->replaceSelectorSpans($selector, $replacements);
-    }
-
-    private function typeSpecificityShim(): string
-    {
-        return '' === $this->authorStyles()->specificityShim() ? '' : ':not(' . $this->authorStyles()->specificityShim() . ')';
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private function selectorSpecificityShims(array $parsed): string
-    {
-        // A wrapper-driven button can collapse selector ancestors onto its one
-        // canonical wrapper. Collision-checked impossible sentinels preserve the
-        // source selector's specificity without coupling to Gutenberg classes.
-        $shims = '';
-        foreach ( $parsed['compounds'] as $compound ) {
-            $zeroSpecificity = $compound['zero_specificity'] ?? array();
-            if ( null !== $compound['type'] && 0 === (int) ($zeroSpecificity['types'] ?? 0) ) {
-                $shims .= $this->typeSpecificityShim();
-            }
-            $classCount = count($compound['classes']) - (int) ($zeroSpecificity['classes'] ?? 0);
-            for ( $index = 0; $index < $classCount; ++$index ) {
-                $shims .= ':not(.' . $this->authorStyles()->classSpecificityShim() . ')';
-            }
-            $attributeCount = count($compound['attributes']) - (int) ($zeroSpecificity['attributes'] ?? 0);
-            for ( $index = 0; $index < $attributeCount; ++$index ) {
-                $shims .= ':not(.' . $this->authorStyles()->classSpecificityShim() . ')';
-            }
-            $idCount = count($compound['ids']) - (int) ($zeroSpecificity['ids'] ?? 0);
-            for ( $index = 0; $index < $idCount; ++$index ) {
-                $shims .= ':not(#' . $this->authorStyles()->idSpecificityShim() . ')';
-            }
-            if ( null !== $compound['nth_child'] || $compound['first_child'] || $compound['last_child'] ) {
-                $shims .= ':not(.' . $this->authorStyles()->classSpecificityShim() . ')';
-            }
-        }
-        return $shims;
-    }
-
-    /** @param array<int, array{end: int, value: string}> $replacements */
-    private function replaceSelectorSpans(string $selector, array $replacements): string
-    {
-        ksort($replacements, SORT_NUMERIC);
-        $output = '';
-        $offset = 0;
-        foreach ( $replacements as $start => $replacement ) {
-            $output .= substr($selector, $offset, $start - $offset) . $replacement['value'];
-            $offset = $replacement['end'];
-        }
-        return $output . substr($selector, $offset);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     */
     private function countBlocks(array $blocks): int
     {
         $count = 0;
@@ -4087,7 +2784,7 @@ final class HtmlTransformer
                 $block['attrs']['className'] = $this->mergeClassNames(
                     $nativeClassNames,
                     (string) ($controlAttrs['className'] ?? ''),
-                    $this->sourceProjectionClassName($element)
+                    $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
                 $block['attrs']['overlayMenu'] = 'mobile';
                 return $block;
@@ -4634,461 +3331,61 @@ final class HtmlTransformer
             }
         }
 
-        $runtimeOwned = false;
+        $sourceMaterializationFacts = null;
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
                 $attrs = $this->applyIntrinsicVisualMediaHeight($sourceElement, $attrs);
             }
-            if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
-            }
-            if ( 'core/paragraph' === $name && $this->isInlineSourceElement($sourceTagName) ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
-                if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
-                }
-                if ( 'a' === $sourceTagName ) {
-                    $this->applySyntheticHeaderAnchorCarrier($attrs, $sourceElement);
-                }
-            }
-            $projectionClassName = $this->sourceProjectionClassName($sourceElement, (string) ($attrs['className'] ?? ''));
-            if ( '' !== $projectionClassName ) {
-                $attrs['className'] = $projectionClassName;
-            }
-            if ( 'core/group' === $name
-                && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
-                && $this->hasAuthorSemanticMarker($sourceElement)
-            ) {
-                $attrs['className'] = $this->mergeClassNames(
-                    (string) ($attrs['className'] ?? ''),
-                    self::CSS_OWNED_LAYOUT_ITEM_CLASS
-                );
-            }
-            if ( 'core/group' === $name && $this->isAtomicInlineChildFlow($sourceElement, $innerBlocks) ) {
-                $attrs['className'] = $this->mergeClassNames(
-                    (string) ($attrs['className'] ?? ''),
-                    self::CSS_OWNED_INLINE_FLOW_CLASS
-                );
-            }
-            if ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') ) {
-                // Core Group's save() does not reproduce a blockGap declaration.
-                // Preserve an authored inline gap in a generated carrier instead
-                // of storing markup that the editor will mark invalid.
-                $gapCarrier = $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
-                if ( '' !== $gapCarrier ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
-                }
-            }
-            $tableMarker = $this->authorSelectorProjections()->tableMarker($this->sourceElementIdentity($sourceElement));
-            if ( 'core/table' === $name && '' !== $tableMarker ) {
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
-            }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
-            $nativeButtonTextAlignment = '';
-            $hasNativeButtonColor = false;
-            $hasNativeButtonStyle = false;
-            if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) ) {
-                $existingTextColor = (string) ($attrs['style']['color']['text'] ?? '');
-                $nativeButtonTextAlignment = $this->applyNativeButtonInheritedStyle($logicalControl, $attrs, 'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl));
-                $hasNativeButtonColor = $existingTextColor !== (string) ($attrs['style']['color']['text'] ?? '');
-                $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
-            }
-            if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( $this->authorSelectorProjections()->isControlPath($logicalControlPath) || ( '' !== $this->authorStyles()->combinedCss() && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
-                $controlMarker = '' !== $logicalControlPath
-                    ? $this->authorSelectorProjections()->ensureControlMarker($logicalControlPath)
-                    : '';
-                if ( '' !== $controlMarker ) {
-                    $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
-                    if ( 'core/button' === $name ) {
-                        $this->registerNativeButtonStyleRule($controlMarker, $attrs, $nativeButtonTextAlignment, $logicalControl);
-                        if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
-                            $this->generatedSupportStyles()->registerDirectFlexButton($controlMarker, $this->directFlexButtonStyleRule($controlMarker, $logicalControl));
-                        }
-                        $buttonWidth = (int) ($attrs['width'] ?? 0);
-                        if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                            $this->generatedSupportStyles()->registerButtonWidth($controlMarker, $this->buttonWidthStyleRule($controlMarker, $buttonWidth));
-                        }
-                    }
-                }
-                $presentationPath = $sourceElement->getNodePath() ?? '';
-                if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
-                    $this->authorSelectorProjections()->installButtonPresentationMarker($presentationPath, $controlMarker);
-                }
-            }
-            if ( 'core/button' === $name && $hasNativeButtonStyle && '' === $this->authorSelectorProjections()->controlMarker($logicalControlPath) ) {
-                $nativeButtonMarker = $hasNativeButtonColor
-                    ? $this->allocateAuthorMarker('native-button')
-                    : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
-                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
-                $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
-                $buttonWidth = (int) ($attrs['width'] ?? 0);
-                if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                    $this->generatedSupportStyles()->registerButtonWidth($nativeButtonMarker, $this->buttonWidthStyleRule($nativeButtonMarker, $buttonWidth));
-                }
-            }
-            $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
-            $this->recordPresentationProvenance($name, $attrs, $sourceElement);
-            $this->recordStructureProvenance($name, $attrs, $sourceElement);
-            if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! FormControlClassifier::isControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
-                $runtimeOwned = true;
-                if ( ! $this->runtimeIslands->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
-                    $this->runtimeIslands->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
-                        'events'          => $this->eventMetadata($sourceElement),
-                        'required_scripts' => $this->requiredScriptsForElement($sourceElement),
-                    ));
-                    $this->runtimeIslands->recordRuntimeDomFallback($sourceElement, $name);
-                } else {
-                    $this->runtimeIslands->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
-                }
-            }
-            $provenanceId = $this->transformationProvenance()->registerSource(
+            $hasAuthorControlProjection = in_array($name, array( 'core/button', 'core/buttons' ), true)
+                && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true)
+                && ($this->authorSelectorProjections()->isControlPath($logicalControlPath)
+                    || ('' !== $this->authorStyles()->combinedCss()
+                        && 'a' === strtolower($logicalControl->tagName)
+                        && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
+            $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
+                || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
+            $attrs = $this->sourceBlockAttributeProjector->project(
+                $name,
+                $attrs,
+                $innerBlocks,
+                $sourceElement,
+                $logicalControl,
+                new SourceBlockAttributeProjectionFacts(
+                    $this->isInlineSourceElement($sourceTagName),
+                    'core/group' === $name
+                        && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
+                        && $this->hasAuthorSemanticMarker($sourceElement),
+                    $hasAuthorControlProjection,
+                    'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
+                        && $this->isDirectChildOfAuthorFlexLayout($logicalControl),
+                    $preserveGeneratedStyle
+                ),
+                $this->sourceBlockAttributeProjectionContext()
+            );
+            $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
+                $sourceElement,
+                $sourceTagName,
+                $this->elementSelector($sourceElement),
                 $this->sourceProvenanceEntry($name, $sourceElement),
-                $this->sourceElementStartsHidden($sourceElement)
+                $this->sourceElementStartsHidden($sourceElement),
+                $this->htmlAttributes($sourceElement),
+                $this->structureSignals($sourceElement, $attrs),
+                array() === $innerBlocks && 'core/group' === $name
+                    ? $this->emptyVisualTopologyEvidence($sourceElement)
+                    : array()
             );
         }
 
-        if ( 'core/group' === $name && $sourceElement instanceof DOMElement && ! isset($attrs['tagName']) ) {
-            $semanticTag = $this->semanticGroupTagName($sourceElement);
-            if ( null !== $semanticTag ) {
-                $attrs['tagName'] = $semanticTag;
-            }
-        }
-        $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
-        if ( isset($provenanceId) ) {
-            $block['_source_provenance_id'] = $provenanceId;
-        }
-        if ($runtimeOwned) $block['_editability_runtime_owned'] = true;
-        if ( $sourceElement instanceof DOMElement && array() === $innerBlocks && 'core/group' === $name ) {
-            $visualTopologyEvidence = $this->emptyVisualTopologyEvidence($sourceElement);
-            if ( array() !== $visualTopologyEvidence ) {
-                $block['_editability_visual_owned'] = true;
-                $this->transformationProvenance()->addSourceEvidence($provenanceId, array( 'visual_topology_evidence' => $visualTopologyEvidence ));
-            }
-        }
-
-        return $block;
-    }
-
-    /** @param array<int, array<string, mixed>> $innerBlocks */
-    private function isAtomicInlineChildFlow(DOMElement $element, array $innerBlocks): bool
-    {
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                $children[] = $child;
-                continue;
-            }
-            if ( '' !== trim((string) ($child->textContent ?? '')) ) {
-                return false;
-            }
-        }
-
-        if ( count($children) < 2 || count($children) !== count($innerBlocks) ) {
-            return false;
-        }
-
-        foreach ( $children as $child ) {
-            $display = strtolower(trim((string) preg_replace('/\s*!important\s*$/i', '', (string) ($this->styleResolver->cssDeclarations($this->attr($child, 'style'))['display'] ?? ''))));
-            if ( ! in_array($display, array( 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * A linked text logo becomes a paragraph for valid block markup. Carry
-     * non-inherited header anchor behavior onto the saved inner anchor instead
-     * of re-pointing its source selector at a higher-specificity target.
-     *
-     * @param array<string, mixed> $attrs
-     */
-    private function applySyntheticHeaderAnchorCarrier(array &$attrs, DOMElement $anchor): void
-    {
-        if ( 'a' !== strtolower($anchor->tagName)
-            || ! $this->hasAncestorTag($anchor, array( 'header' ))
-        ) {
-            return;
-        }
-
-        $direct = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($anchor));
-        $declarations = array();
-        if ( 'inherit' === strtolower(trim((string) ($direct['color'] ?? ''))) ) {
-            $inheritedColor = $this->styleResolver->authoredInheritedPropertyWinner($anchor, 'color');
-            if ( '' !== $inheritedColor ) {
-                $declarations['color'] = $inheritedColor;
-            }
-        }
-
-        foreach ( array( 'display', 'align-items', 'justify-content' ) as $property ) {
-            $value = trim((string) ($direct[$property] ?? ''));
-            if ( '' !== $value && ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
-            }
-        }
-        foreach ( $this->styleResolver->specificityResolvedGapDeclarations($anchor) as $property => $value ) {
-            if ( ! str_contains(strtolower($value), '!important') ) {
-                $declarations[$property] = $this->styleResolver->resolveCssVariablesInValue($value);
-            }
-        }
-        if ( array() === $declarations ) {
-            return;
-        }
-
-        $css = $this->styleResolver->cssDeclarationString($declarations);
-        $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-        $this->generatedSupportStyles()->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
-    }
-
-    /**
-     * WordPress ignores style.border components that the registered block type
-     * does not declare. Keep supported components native; move only unsupported
-     * width/style/color values into the existing deterministic carrier. Border
-     * radius deliberately stays on the pre-existing native path unchanged.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function applyDeclaredBlockSupport(string $name, array $attrs, DOMElement $sourceElement): array
-    {
-        $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
-        $fallback = $normalized['fallbackStyle'];
-        $attrs = $normalized['attrs'];
-        $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
-        if ( '' !== $submenuBackground && array() !== $this->styleResolver->cssDeclarations('background-color:' . $submenuBackground) ) {
-            $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-            $this->generatedSupportStyles()->registerNavigationSubmenuBackground($className, $submenuBackground);
-        }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-        if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
-            foreach ( $classes as $class ) {
-                if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->generatedSupportStyles()->registerListNavigationPadding($class, $fallback['spacing']['padding']);
-                }
-            }
-        }
-        if ( 'core/navigation' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
-            foreach ( $classes as $class ) {
-                if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->generatedSupportStyles()->registerNavigationSpacing($class, $declarations);
-                    break;
-                }
-            }
-        }
-        if ( 'core/buttons' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
-            foreach ( $classes as $class ) {
-                if ( '' !== $declarations && str_starts_with($class, 'blocks-engine-control-') ) {
-                    $this->generatedSupportStyles()->registerButtonWrapperSpacing($class, $declarations);
-                    break;
-                }
-            }
-        }
-        if ( in_array($name, array( 'core/navigation-link', 'core/navigation-submenu' ), true) && '' !== trim((string) ($fallback['color']['text'] ?? '')) ) {
-            foreach ( $classes as $class ) {
-                if ( (str_starts_with($class, 'blocks-engine-navigation-link-color-')
-                        && ! str_starts_with($class, 'blocks-engine-navigation-link-color-states-'))
-                    || str_starts_with($class, 'blocks-engine-navigation-current-color-')
-                ) {
-                    $this->generatedSupportStyles()->registerNavigationLinkColor($class, (string) $fallback['color']['text']);
-                }
-            }
-        }
-        if ( array() === $fallback ) {
-            return $attrs;
-        }
-
-        $fallbackStyle = $this->styleResolver->styleAttributeMapper()->serialize($fallback)['style'];
-        $fallbackDeclarations = $this->styleResolver->cssDeclarations($fallbackStyle);
-        $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceElement, 'style'));
-        $inlineMapped = $this->styleResolver->styleAttributeMapper()->map($inlineDeclarations);
-        $inlineFallbackDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
-        $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
-            || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
-        foreach ( array_keys($fallbackDeclarations) as $property ) {
-            if ( 'core/button' === $name
-                && 'border-radius' === $property
-                && '0' === (string) ($fallback['border']['radius'] ?? '')
-            ) {
-                // ButtonStyleResolver adds a square radius to suppress the
-                // theme's default rounded button chrome. It is generated
-                // compatibility geometry, not a missing source declaration.
-                continue;
-            }
-            if ( ! $preserveGeneratedStyle && ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
-                unset($fallbackDeclarations[ $property ]);
-            }
-        }
-        if ( preg_match('/(?:^|\s)be-inline-geometry-[^\s]+/', (string) ($attrs['className'] ?? '')) ) {
-            // The source geometry carrier preserves declaration priority and
-            // custom-property case. Do not add a lossy mapped duplicate.
-            foreach ( $this->styleResolver->inlineGeometryProperties() as $property ) {
-                unset($fallbackDeclarations[ $property ]);
-            }
-            unset($fallbackDeclarations['box-shadow']);
-        }
-        if ( array() === $fallbackDeclarations ) {
-            return $attrs;
-        }
-        $carrier = $this->styleResolver->inlineGeometryClassName(
-            $sourceElement,
-            array_diff($this->styleResolver->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
-            array_keys($fallbackDeclarations),
-            $fallbackDeclarations
+        return $this->blockMaterializer->materialize(
+            $name,
+            $attrs,
+            $innerBlocks,
+            $sourceMaterializationFacts,
+            $this->transformationProvenance()
         );
-        if ( '' !== $carrier ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
-        }
-
-        return $attrs;
-    }
-
-    /**
-     * Project the inherited foreground because core/button supplies a default link
-     * color. Text alignment uses the same scoped link rule for direct and inherited
-     * values, so a local anchor declaration remains authoritative.
-     *
-     * @param array<string, mixed> $attrs
-     */
-    private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs, bool $useInitialTextAlignment): string
-    {
-        $anchorDeclarations = $this->styleResolver->presentationDeclarations($anchor);
-        $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
-        $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
-        $inheritedColor = '';
-        $inheritedTextAlignment = '';
-
-        for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
-            if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
-                $inheritedColor = (string) $declarations['color'];
-            }
-            if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
-                $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
-            }
-            if ( '' !== $inheritedColor && '' !== $inheritedTextAlignment ) {
-                break;
-            }
-        }
-
-        if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
-            $mappedColor = $this->styleResolver->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
-            if ( '' !== trim((string) $mappedColor) ) {
-                $attrs['style']['color']['text'] = $mappedColor;
-            }
-        }
-
-        $textAlignment = $anchorTextAlignmentInherits
-            ? $inheritedTextAlignment
-            : strtolower(trim((string) $anchorDeclarations['text-align']));
-        if ( '' === $textAlignment || 'initial' === $textAlignment ) {
-            return $useInitialTextAlignment ? 'start' : '';
-        }
-        return in_array($textAlignment, array( 'start', 'end', 'left', 'center', 'right' ), true)
-            ? $textAlignment
-            : '';
-    }
-
-    private function isInheritedCssWideValue(string $value): bool
-    {
-        return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
-    }
-
-    /** @param array<string, mixed> $attrs */
-    private function registerNativeButtonStyleRule(string $marker, array $attrs, string $inheritedTextAlignment = '', ?DOMElement $sourceControl = null): void
-    {
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $declarations = array();
-        $wrapperDeclarations = array();
-        $outerWrapperDeclarations = array();
-        $intrinsicWrapperDeclarations = array();
-        foreach ( array(
-            'background-color' => $style['color']['background'] ?? '',
-            'color'            => $style['color']['text'] ?? '',
-            'border-color'     => $style['border']['color'] ?? '',
-            'border-style'     => $style['border']['style'] ?? '',
-            'border-width'     => $style['border']['width'] ?? '',
-            'border-radius'    => $style['border']['radius'] ?? '',
-            'font-size'        => $style['typography']['fontSize'] ?? '',
-            'font-weight'      => $style['typography']['fontWeight'] ?? '',
-            'letter-spacing'   => $style['typography']['letterSpacing'] ?? '',
-            'line-height'      => $style['typography']['lineHeight'] ?? '',
-            'text-transform'   => $style['typography']['textTransform'] ?? '',
-            'padding-top'      => $style['spacing']['padding']['top'] ?? '',
-            'padding-right'    => $style['spacing']['padding']['right'] ?? '',
-            'padding-bottom'   => $style['spacing']['padding']['bottom'] ?? '',
-            'padding-left'     => $style['spacing']['padding']['left'] ?? '',
-        ) as $property => $value ) {
-            $value = trim((string) $value);
-            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                $declarations[] = $property . ':' . $value . '!important';
-            }
-        }
-        if ( $sourceControl instanceof DOMElement ) {
-            $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
-            $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
-            $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceControl, 'style'));
-            $hasAuthoredWidth = isset($inlineDeclarations['width'])
-                || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            if ( ! $hasAuthoredWidth && in_array($this->cssComparableValue((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
-                // Preserve the source flex CTA's content-plus-padding contribution
-                // through the synthetic wrappers of its native button topology.
-                $outerWrapperDeclarations[] = 'width:max-content';
-                $outerWrapperDeclarations[] = 'max-width:100%';
-                $intrinsicWrapperDeclarations[] = 'width:max-content';
-                $intrinsicWrapperDeclarations[] = 'max-width:100%';
-                $declarations[] = 'box-sizing:border-box';
-                $declarations[] = 'width:max-content';
-                $declarations[] = 'max-width:100%';
-            }
-            $background = $this->cssComparableValue((string) ($sourceDeclarations['background'] ?? ''));
-            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
-                $declarations[] = 'background-color:transparent!important';
-            }
-            $border = $this->cssComparableValue((string) ($sourceDeclarations['border'] ?? ''));
-            if ( preg_match('/^(?:0(?:px)?|none)$/', $border) ) {
-                if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
-                    $declarations[] = 'border-style:none!important';
-                }
-                if ( '' === trim((string) ($style['border']['width'] ?? '')) ) {
-                    $declarations[] = 'border-width:0!important';
-                }
-            }
-            $height = $this->cssComparableValue((string) ($sourceDeclarations['height'] ?? ''));
-            if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
-                $wrapperDeclarations[] = 'height:100%';
-                $declarations[] = 'height:100%!important';
-            }
-            foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
-                $value = $this->cssComparableValue((string) ($sourceStructuralDeclarations[$property] ?? ''));
-                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                    $declarations[] = $property . ':' . $value . '!important';
-                }
-            }
-        }
-        if ( '' !== $inheritedTextAlignment ) {
-            $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
-        }
-        if ( array() === $declarations ) {
-            return;
-        }
-
-        $outerWrapperRule = array() === $outerWrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-buttons{' . implode(';', $outerWrapperDeclarations) . '}';
-        $wrapperRule = array() === $wrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $wrapperDeclarations) . '}';
-        $intrinsicWrapperRule = array() === $intrinsicWrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
-        $this->generatedSupportStyles()->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -5104,54 +3401,12 @@ final class HtmlTransformer
 
     private function cssComparableValue(string $value): string
     {
-        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        return CssValueInspector::comparable($value);
     }
 
     private function hasAuthorSemanticMarker(DOMElement $element): bool
     {
         return array() !== $this->authorSemanticMarkersForElement($element);
-    }
-
-    private function sourceProjectionClassName(DOMElement $element, string $className = ''): string
-    {
-        $sourceTagName = strtolower($element->tagName);
-        $sourceTagMarker = $this->authorSelectorProjections()->tagMarker($sourceTagName);
-        if ( '' !== $sourceTagMarker ) {
-            $className = $this->mergeClassNames($className, $sourceTagMarker);
-        }
-        if ( $element->parentNode instanceof DOMElement
-            && 'body' === strtolower($element->parentNode->tagName)
-            && array() !== $this->authorStyles()->sourceBodyProjectionClasses() ) {
-            $className = $this->mergeClassNames($className, ...$this->authorStyles()->sourceBodyProjectionClasses());
-        }
-        $semanticMarkers = $this->authorSemanticMarkersForElement($element);
-        if ( array() !== $semanticMarkers ) {
-            $className = $this->mergeClassNames($className, ...$semanticMarkers);
-        }
-        return $className;
-    }
-
-    private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
-    {
-        $decorationLine = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($anchor)) as $property => $value ) {
-            $value = $this->cssComparableValue($this->styleResolver->resolveCssVariablesInValue($value));
-            if ( 'text-decoration' === $property ) {
-                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
-                    $decorationLine = 'line';
-                } elseif ( ! in_array($value, array( 'inherit', 'revert', 'revert-layer' ), true) ) {
-                    $decorationLine = 'none';
-                }
-            } elseif ( 'text-decoration-line' === $property ) {
-                if ( preg_match('/\b(?:underline|overline|line-through)\b/', $value) ) {
-                    $decorationLine = 'line';
-                } elseif ( in_array($value, array( 'none', 'initial', 'unset' ), true) ) {
-                    $decorationLine = 'none';
-                }
-            }
-        }
-
-        return 'none' === $decorationLine;
     }
 
     /** @return list<string> */
@@ -5457,39 +3712,6 @@ final class HtmlTransformer
     {
         return $element->parentNode instanceof DOMElement
             && in_array($this->authoredDisplay($element->parentNode), array( 'flex', 'inline-flex' ), true);
-    }
-
-    private function directFlexButtonStyleRule(string $marker, DOMElement $control): string
-    {
-        $parent = $control->parentNode;
-        $parentStyle = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
-        $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
-        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
-        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
-        $link = $button . '>:where(.wp-block-button__link)';
-        $columnGeometry = $isColumn ? ';width:100%!important' : '';
-
-        // The outer core/buttons wrapper is the lowered source flex item, so its
-        // authored margins must remain intact. Only core/button is synthetic.
-        return $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
-            . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
-            . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
-    }
-
-    private function buttonWidthStyleRule(string $marker, int $width): string
-    {
-        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
-        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
-        $link = $button . '>:where(.wp-block-button__link)';
-
-        if ( 100 !== $width ) {
-            return $button . '{width:' . (string) $width . '%!important}'
-                . $link . '{box-sizing:border-box;width:100%!important}';
-        }
-
-        return $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
-            . $button . '{display:block!important;margin:0!important;width:100%!important}'
-            . $link . '{box-sizing:border-box;width:100%!important}';
     }
 
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool
@@ -6392,17 +4614,6 @@ final class HtmlTransformer
         $parent->removeChild($element);
     }
 
-    private function semanticGroupTagName(DOMElement $element): ?string
-    {
-        $tag = strtolower($element->tagName);
-        if ( ShellLandmarkPolicy::isSemanticGroupTag($tag) ) {
-            return $tag;
-        }
-
-        $landmark = ShellLandmarkPolicy::landmarkKind($tag, $this->attr($element, 'role'));
-        return in_array($landmark, array('header', 'footer'), true) ? $landmark : null;
-    }
-
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
     private function compressProjectedGroupChains(array $blocks): array
     {
@@ -6702,45 +4913,6 @@ final class HtmlTransformer
         }
 
         return $this->styleResolver->presentationClassName(implode(' ', $classes));
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function recordPresentationProvenance(string $blockName, array $attrs, DOMElement $element): void
-    {
-        $signals = array_intersect_key($attrs, array_flip(array( 'className', 'style', 'layout' )));
-        $signals = array_filter($signals, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-        if ( array() === $signals ) {
-            return;
-        }
-
-        $this->transformationProvenance()->recordPresentationSignal(array(
-            'block_name'        => $blockName,
-            'tag'               => strtolower($element->tagName),
-            'selector'          => $this->elementSelector($element),
-            'signals'           => $signals,
-            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'style', 'data-layout', 'data-wp-layout' ))),
-        ));
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function recordStructureProvenance(string $blockName, array $attrs, DOMElement $element): void
-    {
-        $signals = $this->structureSignals($element, $attrs);
-        if ( array() === $signals ) {
-            return;
-        }
-
-        $this->transformationProvenance()->recordStructureSignal(array(
-            'block_name'        => $blockName,
-            'tag'               => strtolower($element->tagName),
-            'selector'          => $this->elementSelector($element),
-            'signals'           => $signals,
-            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'id', 'role', 'style', 'data-layout', 'data-wp-layout' ))),
-        ));
     }
 
     private function shouldPreserveWrapper(DOMElement $element): bool
@@ -8099,21 +6271,7 @@ final class HtmlTransformer
      */
     private function cssValueIsNonZero(string $value): bool
     {
-        $normalized = strtolower(trim($value));
-        if ( '' === $normalized || 'none' === $normalized ) {
-            return false;
-        }
-
-        foreach ( preg_split('/[\s,]+/', $normalized) ?: array() as $token ) {
-            if ( '' === $token ) {
-                continue;
-            }
-            if ( ! preg_match('/^0(?:\.0+)?[a-z%]*$/', $token) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return CssValueInspector::isNonZero($value);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
@@ -13524,12 +11682,12 @@ final class HtmlTransformer
 
     private function cssValueWithoutImportant(string $value): string
     {
-        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+        return CssValueInspector::withoutImportant($value);
     }
 
     private function cssValueIsImportant(string $value): bool
     {
-        return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+        return CssValueInspector::isImportant($value);
     }
 
     /**

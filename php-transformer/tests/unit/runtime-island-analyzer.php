@@ -172,6 +172,15 @@ $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<div><p>tex
 $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><button>go</button></section>'), 'core/group'), 'interactive-descendant-blocks-native-retention');
 $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><p>t</p></section>'), 'core/image'), 'unsupported-block-name-does-not-retain');
 
+// Block materialization delegates the complete runtime DOM recording decision.
+$runtimeDom = new RuntimeDomState();
+$blockRuntime = $makeAnalyzer(array('#mount'), array(), array(
+    'runtimeDom' => static fn (): RuntimeDomState => $runtimeDom,
+));
+$assert($blockRuntime->recordBlockRuntimeDomContract($elementFrom('<section id="mount"><p>text</p></section>'), 'core/group'), 'runtime-block-contract-recorded');
+$assert(array(array('block_name' => 'core/group', 'tag' => 'section', 'selector' => '#mount')) === $runtimeDom->preservations(), 'runtime-block-native-preservation-recorded');
+$assert(! $blockRuntime->recordBlockRuntimeDomContract($elementFrom('<input id="mount">'), 'core/group'), 'runtime-form-control-block-contract-excluded');
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);
