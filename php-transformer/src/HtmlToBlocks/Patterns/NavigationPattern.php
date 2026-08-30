@@ -1457,12 +1457,27 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function submenuContainers(DOMElement $element, DOMElement $primaryAnchor): array
     {
         $containers = array();
+        $this->collectSubmenuContainers($element, $primaryAnchor, $containers);
+
+        return $containers;
+    }
+
+    /**
+     * @param list<DOMElement> $containers
+     */
+    private function collectSubmenuContainers(DOMElement $element, DOMElement $primaryAnchor, array &$containers): void
+    {
         foreach ( $element->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || $child->isSameNode($primaryAnchor) ) {
                 continue;
             }
 
             if ( $this->isNavigationChromeElement($child) ) {
+                continue;
+            }
+
+            if ( $this->containsNode($child, $primaryAnchor) ) {
+                $this->collectSubmenuContainers($child, $primaryAnchor, $containers);
                 continue;
             }
 
@@ -1475,8 +1490,6 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $containers[] = $child;
             }
         }
-
-        return $containers;
     }
 
     private function hasSubmenuSignal(DOMElement $element): bool

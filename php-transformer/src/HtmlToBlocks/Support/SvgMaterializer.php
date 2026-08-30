@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
@@ -20,7 +21,7 @@ use DOMNode;
  * {@see SvgMaterializationContext}, so this class has no $this access to the
  * transformer and can be exercised without constructing one.
  */
-final class SvgMaterializer
+final class SvgMaterializer implements SvgElementMaterializer
 {
     public function __construct(
         private readonly SvgMaterializationContext $context,
@@ -56,12 +57,10 @@ final class SvgMaterializer
             return null;
         }
 
-        $html = $this->restoreSvgCasing(
-            $this->cssOwnsMediaBox($element)
-                ? $this->ensureInlineSvgBoxStyle($html, $element)
-                : $this->ensureInlineSvgSizing($html, $element)
-        );
-        $html = $this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element);
+        $html = $this->cssOwnsMediaBox($element)
+            ? $this->ensureInlineSvgBoxStyle($html, $element)
+            : $this->ensureInlineSvgSizing($html, $element);
+        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element));
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -221,12 +220,11 @@ final class SvgMaterializer
             return null;
         }
 
-        $html = $this->restoreSvgCasing(
-            $this->cssOwnsMediaBox($element)
-                ? $this->ensureInlineSvgBoxStyle($html, $element)
-                : $this->ensureInlineSvgSizing($html, $element)
-        );
-        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element), true);
+        $html = $this->cssOwnsMediaBox($element)
+            ? $this->ensureInlineSvgBoxStyle($html, $element)
+            : $this->ensureInlineSvgSizing($html, $element);
+        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element));
+        $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $html, true);
         if ( null === $attrs ) {
             return null;
         }
@@ -429,21 +427,25 @@ final class SvgMaterializer
      */
     private function inlineSvgMaterializationMarkup(string $html, DOMElement $element): string
     {
-        if ( ! $element->ownerDocument instanceof \DOMDocument || 0 === $element->getElementsByTagName('use')->length ) {
+        if ( ! $element->ownerDocument instanceof \DOMDocument ) {
             return $html;
         }
 
         $references = array();
-        foreach ( $element->getElementsByTagName('use') as $use ) {
-            if ( ! $use instanceof DOMElement ) {
-                continue;
+        if ( preg_match_all('/\burl\(\s*["\']?#([^\s"\')]+)["\']?\s*\)|\b(?:href|xlink:href)\s*=\s*["\']#([^"\']+)["\']/i', $html, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                $id = trim((string) ('' !== ($match[1] ?? '') ? $match[1] : ($match[2] ?? '')));
+                if ( '' !== $id ) {
+                    $references[$id] = true;
+                }
             }
-            $href = trim($this->context->attr($use, 'href'));
-            if ( '' === $href ) {
-                $href = trim($this->context->attr($use, 'xlink:href'));
-            }
-            if ( preg_match('/^#(.+)$/', $href, $match) ) {
-                $references[$match[1]] = true;
+        }
+        if ( array() === $references ) {
+            return $html;
+        }
+        foreach ( $element->getElementsByTagName('*') as $localDefinition ) {
+            if ( $localDefinition instanceof DOMElement ) {
+                unset($references[trim($this->context->attr($localDefinition, 'id'))]);
             }
         }
         if ( array() === $references ) {
@@ -888,8 +890,8 @@ final class SvgMaterializer
 
     private function isPassiveSvgMarkup(DOMElement $element): bool
     {
-        // Full set of safe SVG structure/presentation/text elements. These carry
-        // only geometry, gradients, and text — no scripting or external embedding
+        // Full set of safe SVG structure/presentation/text/filter elements. These carry
+        // only geometry, gradients, filters, and text — no scripting or external embedding
         // (script/style/foreignObject/image are deliberately excluded and are
         // stripped by the sanitizer). <use>/<symbol> reference handling is gated
         // separately: a <use> carries href/xlink:href which isPassiveSvgElement()
@@ -897,25 +899,38 @@ final class SvgMaterializer
         // inline-preservation path (local refs) or the fallback diagnostic
         // (external sprite refs) rather than this decorative classification.
         $allowedTags = array_flip(array(
-            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'fecolormatrix', 'fegaussianblur',
-            'femerge', 'femergenode', 'feoffset', 'filter', 'g', 'line', 'lineargradient',
+            'circle', 'clippath', 'defs', 'desc', 'ellipse', 'feblend', 'fecolormatrix',
+            'fecomponenttransfer', 'fecomposite', 'feconvolvematrix', 'fediffuselighting',
+            'fedisplacementmap', 'fedistantlight', 'fedropshadow', 'feflood', 'fefunca',
+            'fefuncb', 'fefuncg', 'fefuncr', 'fegaussianblur', 'feimage', 'femerge',
+            'femergenode', 'femorphology', 'feoffset', 'fepointlight', 'fespecularlighting',
+            'fespotlight', 'fetile', 'feturbulence', 'filter', 'g', 'line', 'lineargradient',
             'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline', 'radialgradient',
             'rect', 'stop', 'svg', 'symbol', 'text', 'textpath', 'title', 'tspan', 'use',
         ));
         $allowedAttributes = array_flip(array(
-            'aria-hidden', 'aria-label', 'class', 'clip-path', 'clip-rule', 'cx', 'cy', 'd',
+            'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
+            'class', 'clip-path', 'clip-rule', 'color-interpolation-filters', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
-            'dominant-baseline', 'dx', 'dy', 'enable-background', 'fill', 'fill-opacity', 'fill-rule', 'font-family',
-            'filter', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
+            'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
+            'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'flood-color',
+            'flood-opacity', 'font-family',
+            'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
             'height', 'id', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
-            'markerheight', 'markerunits', 'markerwidth', 'mask', 'offset', 'opacity', 'orient',
+            'intercept', 'k1', 'k2', 'k3', 'k4', 'kernelmatrix', 'kernelunitlength',
+            'lighting-color', 'markerheight', 'markerunits', 'markerwidth', 'mask', 'mode',
+            'numoctaves', 'offset', 'opacity', 'operator', 'order', 'orient',
             'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
-            'preserveaspectratio', 'r', 'refx', 'refy', 'result', 'role', 'rotate', 'rx', 'ry',
+            'preservealpha', 'preserveaspectratio', 'primitiveunits', 'r', 'radius', 'refx', 'refy',
+            'result', 'role', 'rotate', 'rx', 'ry', 'scale', 'seed', 'slope',
+            'specularconstant', 'specularexponent',
             'spreadmethod', 'stop-color', 'stop-opacity', 'stroke', 'stroke-dasharray',
             'stroke-dashoffset', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit',
-            'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'text-anchor', 'transform',
-            'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2', 'xlink:href', 'xml:space',
-            'xmlns', 'xmlns:xlink', 'y', 'y1', 'y2', 'in', 'title',
+            'stitchtiles', 'stroke-opacity', 'stroke-width', 'stddeviation', 'style', 'surfacescale',
+            'tablevalues', 'targetx', 'targety', 'text-anchor', 'transform', 'type',
+            'values', 'vector-effect', 'version', 'viewbox', 'width', 'x', 'x1', 'x2',
+            'xchannelselector', 'xlink:href', 'xml:space', 'y', 'y1', 'y2', 'ychannelselector', 'in', 'in2', 'title',
+            'xmlns', 'xmlns:xlink',
         ));
 
         foreach ( $element->getElementsByTagName('*') as $child ) {

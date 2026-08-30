@@ -22,6 +22,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
@@ -31,11 +32,38 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMed
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatchContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PatternElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\QuoteElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DetailsElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
@@ -63,7 +91,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPatter
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
@@ -99,8 +126,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportSt
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\FormDispatchTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
@@ -128,8 +153,6 @@ final class HtmlTransformer
      */
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use DomHelpersTrait;
-    use ElementConversionTrait;
-    use FormDispatchTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
@@ -266,6 +289,10 @@ final class HtmlTransformer
 
     private readonly SvgMaterializer $svgMaterializer;
 
+    private readonly SvgElementConverter $svgConverter;
+
+    private readonly OrderedElementConverterRegistry $structuralContentConverters;
+
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
@@ -282,6 +309,10 @@ final class HtmlTransformer
 
     private readonly FormCompositionPlanner $formCompositionPlanner;
 
+    private readonly FormFallbackFindingBuilder $formFallbackFindingBuilder;
+
+    private readonly FormDispatcher $formDispatcher;
+
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
     private readonly FormRuntimeRequirementAnalyzer $formRuntimeRequirementAnalyzer;
@@ -292,7 +323,15 @@ final class HtmlTransformer
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
-    private readonly TableElementConverter $tableConverter;
+    private readonly ButtonElementConverter $buttonConverter;
+
+    private readonly OrderedElementConverterRegistry $tableConverters;
+
+    private readonly DetailsElementConverter $detailsConverter;
+
+    private readonly FlowContainerElementConverter $flowContainerConverter;
+
+    private readonly MediaDispatchElementConverter $mediaDispatchConverter;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
@@ -426,6 +465,41 @@ final class HtmlTransformer
             $this->styleResolver,
             $this->runtime
         );
+        $this->svgConverter = new SvgElementConverter(new SvgElementContext(
+            fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (string $html): bool => $this->isSafeSvgContent($html),
+            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            function (DOMElement $element, array &$fallbacks): void {
+                $this->captureInlineSvgFallback($element, $fallbacks);
+            }
+        ), $this->svgMaterializer);
+        $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
+            fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): ?array => $this->inlineSvgTextGroupBlockFromElement($element),
+            fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
+            fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (string $content): bool => $this->richTextContentHasStructuralHtml($content),
+            fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (DOMElement $element): array => $this->richTextInlineVisualDeclarations($element),
+            fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
+            fn (DOMElement $element): string => $this->outerHtml($element),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
+            fn (DOMElement $element): bool => $this->isStructuralListItem($element),
+            fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
+        ), $this->styleResolver, $this->runtime);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -436,7 +510,7 @@ final class HtmlTransformer
                 $this->generatedBlocks()->register($identity, $definition);
             },
             function (string $text): void {
-                $this->registerFormControlEcho($text);
+                $this->transformationEvidence()->recordFormControlEcho($text);
             },
             fn (string $text): string => $this->runtime->escapeHtml($text),
             fn (string $id): string => $this->safeAnchor($id)
@@ -462,7 +536,7 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             function (string $text): void {
-                $this->registerFormControlEcho($text);
+                $this->transformationEvidence()->recordFormControlEcho($text);
             }
         );
         $this->readableFormBlockBuilder = new ReadableFormBlockBuilder(
@@ -493,9 +567,213 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
             fn (DOMElement $element): string => $this->innerHtml($element)
         );
+        $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder(
+            new FormFallbackFindingContext(
+                fn (): array => $this->authorStyles()->stylesheetAssets(),
+                fn (): string => $this->sourceStyles()->formLayoutCss(),
+                fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+                fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
+                fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
+                fn (DOMElement $element): string => $this->elementSelector($element),
+                fn (DOMElement $element): array => $this->htmlAttributes($element),
+                fn (DOMElement $element): array => $this->sourceContext($element),
+                fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
+                fn (DOMElement $element): array => $this->eventMetadata($element),
+                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
+                fn (DOMElement $element): int => $this->childElementCount($element),
+                fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback())
+            ),
+            $this->formControlMetadataBuilder,
+            $this->formSuccessPanelMetadataBuilder,
+            $this->pseudoFormAnalyzer
+        );
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
+        $this->formDispatcher = new FormDispatcher(new FormDispatchContext(
+            fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromForm($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->formCompositionPlanner->compose($element, $fallbacks);
+            },
+            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $this->formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock),
+            function (DOMElement $element, ?array $readableFormBlock): void {
+                $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
+            },
+            fn (DOMElement $element, bool $allowFormEvents = false): ?array => $this->readableFormBlockBuilder->build($element, $allowFormEvents),
+            fn (DOMElement $element): bool => $this->formRuntimeRequirementAnalyzer->requiresPreservation($element),
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
+        ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
-        $this->tableConverter = new TableElementConverter($this->createTableElementContext());
+        $this->buttonConverter = new ButtonElementConverter(new ButtonElementContext(
+            fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
+            fn (DOMElement $element): bool => $this->isImageCarrierButton($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element),
+            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
+        ));
+        $this->detailsConverter = new DetailsElementConverter(new DetailsElementContext(
+            fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->capturedDialogBlock($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            }
+        ));
+        $tableConverter = new TableElementConverter($this->createTableElementContext());
+        $parameterTableConverter = new PatternElementConverter(
+            new PatternElementContext(
+                function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                    return $this->recognizePatterns($element, $fallbacks, $patterns);
+                }
+            ),
+            array( ParameterTablePattern::class )
+        );
+        $this->tableConverters = new OrderedElementConverterRegistry(array(
+            $tableConverter,
+            $parameterTableConverter,
+        ));
+        $figureConverter = new FigureElementConverter(new FigureElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mediaGalleryBlockFromElement($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
+            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
+            fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
+            fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
+            fn (DOMElement $figure, string $tagName): ?DOMElement => $this->figureMediaElement($figure, $tagName),
+            function (DOMElement $figure, array &$fallbacks): ?array {
+                return $this->convertFigureGeneric($figure, $fallbacks);
+            },
+            fn (DOMElement $element): string => $this->innerHtml($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $quoteConverter = new QuoteElementConverter(new QuoteElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->recognizePatterns($element, $fallbacks, array( QuotePattern::class ));
+            }
+        ));
+        $listConverter = new ListElementConverter(new ListElementContext(
+            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
+                return $this->recognizePatterns($element, $fallbacks, $patterns);
+            },
+            fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            fn (DOMElement $element): bool => $this->isStructuredCardList($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuredCardList($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->listContainsStructuralItemContent($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->decomposeStructuralList($element, $fallbacks);
+            },
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->listItems($element, $fallbacks);
+            },
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
+        ));
+        $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
+            fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
+            fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
+            fn (DOMElement $element): array => $this->definitionListItems($element),
+            fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
+            fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
+            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
+        ));
+        $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
+            $inlineContentConverter,
+            $listConverter,
+            $descriptionListConverter,
+            $quoteConverter,
+            $figureConverter,
+        ));
+        $this->flowContainerConverter = new FlowContainerElementConverter(new FlowContainerElementContext(
+            runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
+                if ( ! $this->runtimeIslands->shouldPreserveRuntimeAppShell($element) ) {
+                    return null;
+                }
+                $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
+                $this->runtimeIslands->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+                    'events' => $this->eventMetadata($element),
+                    'target_count' => count($targets),
+                    'targets' => $targets,
+                    'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+                return $this->htmlPreservationBlock($element);
+            },
+            isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $this->isEmptyInteractiveFeatureShell($element),
+            capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
+            recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
+            capturedMediaLayoutBlock: fn (DOMElement $element): ?array => $this->capturedMediaLayoutBoundaryBlock($element),
+            hasResponsiveImageSources: fn (DOMElement $element): bool => $this->hasResponsiveImageSources($element),
+            hasGalleryMediaItems: fn (DOMElement $element): bool => $this->hasGalleryMediaItems($element),
+            responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
+            isDirectChildOfAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
+            attr: fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
+            hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
+            paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
+            hasClass: fn (DOMElement $element, string $className): bool => $this->hasClass($element, $className),
+            isGeneratedComponentCandidate: fn (DOMElement $element): bool => $this->isGeneratedComponentCandidate($element),
+            isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
+            proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
+            childElementCount: fn (DOMElement $element): int => $this->childElementCount($element),
+            shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            emptyVisualElementAttributes: fn (DOMElement $element): array => $this->emptyVisualElementAttributes($element),
+            createBlock: fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            navigationSectionBlock: fn (DOMElement $element): ?array => $this->navigationSectionBlockFromElement($element),
+            shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
+            rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            metadataGridBlock: fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
+            rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); },
+            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
+            namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRowBlockFromElement($element, $fallbacks),
+            inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineTokenGroupBlockFromElement($element, $fallbacks),
+            visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
+            standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
+            readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
+            authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselBlock($element),
+            generatedComponentBlock: function (DOMElement $element): ?array {
+                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+                return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
+            },
+            textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
+            convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
+            hasDirectMediaChild: fn (DOMElement $element): bool => $this->hasDirectMediaChild($element),
+            backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
+            coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
+            shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
+            presentationAttributes: fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
+        ));
+        $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->recognizePatterns($element, $fallbacks, array( PlaceholderMediaPattern::class ));
+            },
+            fn (DOMElement $element): ?array => $this->convertImageElement($element),
+            fn (DOMElement $element): ?array => $this->convertPictureElement($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertIframeElement($element, $fallbacks),
+            fn (DOMElement $element): ?array => $this->convertMediaElement($element),
+            fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element)
+        ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
 
@@ -529,7 +807,8 @@ final class HtmlTransformer
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
-            fn (string $id): string => $this->safeAnchor($id)
+            fn (string $id): string => $this->safeAnchor($id),
+            fn (DOMElement $element): bool => $this->authorSelectorProjections()->isRuntimeAttributePath($this->sourceElementIdentity($element))
         );
     }
 
@@ -626,7 +905,6 @@ final class HtmlTransformer
         return new SearchBlockConversionContext(
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): array => $this->eventMetadata($element),
-            fn (DOMElement $form, DOMElement $input): bool => $this->hasSearchFormSignal($form, $input),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -915,6 +1193,9 @@ final class HtmlTransformer
         ));
         $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
         $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
+        $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
+            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+        );
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
@@ -1031,6 +1312,7 @@ final class HtmlTransformer
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
+        $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
             $html,
             (string) ($options['static_css'] ?? ''),
@@ -1061,6 +1343,16 @@ final class HtmlTransformer
                 'severity' => 'warning',
                 'selector' => $ambiguity['selector'],
                 'min_width' => $ambiguity['min_width'],
+            );
+        }
+        foreach ( $this->transformationEvidence()->responsiveHeightAmbiguities() as $ambiguity ) {
+            $diagnostics[] = array(
+                'code' => 'responsive_geometry_ambiguous_percentage_height',
+                'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.',
+                'source' => self::class,
+                'severity' => 'warning',
+                'selector' => $ambiguity['selector'],
+                'height' => $ambiguity['height'],
             );
         }
         $headMetadata = $this->headMetadataReport($html);
@@ -1149,6 +1441,9 @@ final class HtmlTransformer
         );
         if ( array() !== $authorStylesheetProjections ) {
             $sourceReports['author_stylesheet_projections'] = $authorStylesheetProjections;
+        }
+        if ( array() !== $runtimeScriptProjections ) {
+            $sourceReports['runtime_script_projections'] = $runtimeScriptProjections;
         }
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
 
@@ -1822,6 +2117,7 @@ final class HtmlTransformer
             $afterAuthorCssParts[] = $directNavigationCss;
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
+        array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
@@ -1845,6 +2141,7 @@ final class HtmlTransformer
             : implode("\n\n", array_column($stylesheetAssets, 'content'));
         $this->session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody));
         $this->sourceStyles()->setFormLayoutCss($combinedAuthorCss);
+        $this->discoverRuntimeAttributeSelectorPaths($options);
 
         if ( '' === $combinedAuthorCss ) {
             return;
@@ -1974,6 +2271,21 @@ final class HtmlTransformer
                 }
             }
 
+            $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
+            $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
+            if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
+                foreach ( $this->matchingAuthorSourceElements($authorSelector['selector'], $parsed) as $element ) {
+                    if ( '' !== $this->safeAnchor($this->attr($element, 'id')) ) {
+                        continue;
+                    }
+                    $path = $this->sourceElementIdentity($element);
+                    if ( '' !== $path ) {
+                        $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
+                        $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+                    }
+                }
+            }
+
             $compounds = $parsed['compounds'] ?? array();
             $rightmost = $compounds[array_key_last($compounds)] ?? array();
             $hasDataAttribute = array_filter($rightmost['attributes'] ?? array(), static fn (array $attribute): bool => str_starts_with($attribute['name'] ?? '', 'data-'));
@@ -1997,6 +2309,34 @@ final class HtmlTransformer
                 }
             }
 		}
+    }
+
+    /** @param array<string, mixed> $options */
+    private function discoverRuntimeAttributeSelectorPaths(array $options): void
+    {
+        $selectors = is_array($options['runtime_projection_selectors'] ?? null) ? $options['runtime_projection_selectors'] : array();
+        foreach ( $selectors as $selector ) {
+            if ( ! is_string($selector) || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $selector) ) {
+                continue;
+            }
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $markers = array();
+            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
+                $path = $this->sourceElementIdentity($element);
+                if ( '' === $path ) {
+                    continue;
+                }
+                $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
+                $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+                $markers[] = $marker;
+            }
+            if ( array() !== $markers ) {
+                $this->authorSelectorProjections()->installRuntimeAttributeSelectorMarkers($selector, $markers);
+            }
+        }
     }
 
 	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
@@ -2345,8 +2685,41 @@ final class HtmlTransformer
                 'bytes'       => strlen($content),
                 'hash'        => $hash,
                 'source_hash' => $asset['source_hash'],
+                'attribute_state_markers' => $this->authorSelectorProjections()->attributeNegationMarkers(),
             );
         }
+        return $projections;
+    }
+
+    /** @return list<array{path: string, selectors: array<string, list<string>>, superseded_ids: list<string>}> */
+    private function runtimeScriptProjections(): array
+    {
+        $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
+        $supersededIds = array_values(array_filter(array_map(
+            static fn (string $selector): string => str_starts_with($selector, '#') ? substr($selector, 1) : '',
+            $this->runtimeSelectors()->supersededSelectors()
+        )));
+
+        $projections = array();
+        foreach ( $this->runtimeBehavior()->runtimeProjectionScriptAssets() as $asset ) {
+            if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                continue;
+            }
+            $selectors = array();
+            foreach ( $selectorMarkers as $selector => $markers ) {
+                $selectorPattern = preg_quote($selector, '~');
+                if ( preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . $selectorPattern . '\1~', $asset['content']) ) {
+                    $selectors[$selector] = $markers;
+                }
+            }
+            $assetSupersededIds = array_values(array_filter($supersededIds, static function (string $id) use ($asset): bool {
+                return 1 === preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $asset['content']);
+            }));
+            if ( array() !== $selectors || array() !== $assetSupersededIds ) {
+                $projections[] = array('path' => $asset['path'], 'selectors' => $selectors, 'superseded_ids' => $assetSupersededIds);
+            }
+        }
+
         return $projections;
     }
 
@@ -2359,6 +2732,8 @@ final class HtmlTransformer
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
+            $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
+            $body = $this->projectSourceContentBoxSizing($prelude, $body);
             $body = $this->projectIntrinsicGridRowTracks($prelude, $body);
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
@@ -2380,6 +2755,91 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
+    }
+
+    /** Preserve the source initial box model against WordPress's block-level border-box reset. */
+    private function projectSourceContentBoxSizing(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        if ( isset($declarations['box-sizing'])
+            || ! isset($declarations['width'])
+            || ! $this->cssHasDefiniteWidth('width:' . $declarations['width'])
+        ) {
+            return $body;
+        }
+
+        $hasBoxChrome = false;
+        foreach ( $declarations as $property => $value ) {
+            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
+            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
+                && $this->cssValueIsNonZero($value)
+            ) {
+                $hasBoxChrome = true;
+                break;
+            }
+        }
+        if ( ! $hasBoxChrome ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+        if ( $this->authorStylesUseUniversalBorderBoxReset() ) {
+            return $body;
+        }
+        $matched = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
+                $matched = true;
+                if ( 'a' === strtolower($element->tagName)
+                    || FormControlClassifier::isControlElement($element)
+                    || 'button' === strtolower(trim($this->attr($element, 'role')))
+                ) {
+                    // Native control conversion splits source geometry across
+                    // synthetic wrappers and link surfaces.
+                    return $body;
+                }
+                $resolved = $this->cssComparableValue((string) ($this->styleResolver->structuralPresentationDeclarations($element)['box-sizing'] ?? ''));
+                if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+                    return $body;
+                }
+            }
+        }
+        if ( ! $matched ) {
+            return $body;
+        }
+
+        return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
+    }
+
+    private function authorStylesUseUniversalBorderBoxReset(): bool
+    {
+        $usesBorderBox = false;
+        ( new CssStylesheetTransformer() )->visitStyleRules(
+            $this->authorStyles()->combinedCss(),
+            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox): void {
+                if ( $usesBorderBox || array() !== $ancestors ) {
+                    return;
+                }
+                $boxSizing = $this->cssComparableValue((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
+                if ( 'border-box' !== $boxSizing ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    if ( '*' === trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector)) ) {
+                        $usesBorderBox = true;
+                        return;
+                    }
+                }
+            }
+        );
+        return $usesBorderBox;
     }
 
     /**
@@ -2599,6 +3059,89 @@ final class HtmlTransformer
         return $pixels >= 640;
     }
 
+    /**
+     * A percentage height computes to auto when its containing block has an
+     * indefinite height. Preserve that source behavior after block wrappers are
+     * introduced, because those wrappers can otherwise make the height definite.
+     */
+    private function projectAutoSizedStructuralPercentageHeight(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        $height = (string) ($declarations['height'] ?? '');
+        if ( '100%' !== strtolower($this->cssValueWithoutImportant($height)) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element));
+            if ( count($autoSizedMatches) !== count($matches) ) {
+                if ( array() !== $autoSizedMatches ) {
+                    $this->transformationEvidence()->recordResponsiveHeightAmbiguity($selector, $height);
+                }
+                return $body;
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($height) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'height' !== strtolower(trim(strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'height:auto' . $important;
+        return implode(';', $retained);
+    }
+
+    private function isAutoSizedStructuralPercentageHeight(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
+            return false;
+        }
+
+        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
+        if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+            return false;
+        }
+
+        $ancestor = $element->parentNode;
+        while ( $ancestor instanceof DOMElement && $ancestor !== $this->authorStyles()->sourceBody() ) {
+            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
+            if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+                return false;
+            }
+            $ancestorHeight = strtolower($this->cssValueWithoutImportant((string) ($style['height'] ?? '')));
+            if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
+                return false;
+            }
+            if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
+                return in_array($ancestorHeight, array( '', 'auto' ), true);
+            }
+            $ancestor = $ancestor->parentNode;
+        }
+
+        return false;
+    }
+
     private function isPageShellOrSectionSurface(DOMElement $element): bool
     {
         if ( $element->parentNode === $this->authorStyles()->sourceBody() ) {
@@ -2632,22 +3175,73 @@ final class HtmlTransformer
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude);
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude);
-            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
-            if ( '' === $directWrapperPrelude || '' === $geometry ) {
+            if ( '' === $directWrapperPrelude ) {
+                $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
+                if ( null !== $mixedButtonProjection ) {
+                    return $mixedButtonProjection;
+                }
                 return $projectedPrelude . '{' . $body . '}';
+            }
+            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            if ( '' === $geometry ) {
+                return '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}';
             }
             return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
         if ( '' === $layout ) {
-            return $projectedPrelude . '{' . $body . '}';
+            return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
         }
         if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $body);
+            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
         }
 
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
+    }
+
+    private function withoutCollapsedButtonProjectedWidths(string $prelude, string $body): ?string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return null;
+        }
+
+        $buttonSelectors = array();
+        $otherSelectors = array();
+        foreach ( $selectors as $selector ) {
+            if ( str_contains($selector, '> :where(.wp-block-button__link)') ) {
+                $buttonSelectors[] = $selector;
+            } else {
+                $otherSelectors[] = $selector;
+            }
+        }
+        if ( array() === $buttonSelectors ) {
+            return null;
+        }
+
+        $safe = array();
+        $collapsed = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
+            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
+            if ( false !== $colon && $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                $collapsed[] = $declaration;
+            } else {
+                $safe[] = $declaration;
+            }
+        }
+        if ( array() === $collapsed ) {
+            return null;
+        }
+
+        $css = array() === $safe ? '' : $prelude . '{' . implode(';', $safe) . '}';
+        if ( array() !== $otherSelectors ) {
+            $css .= implode(',', $otherSelectors) . '{' . implode(';', $collapsed) . '}';
+        }
+
+        return $css;
     }
 
     private function buttonPresentationWrapperPrelude(string $prelude): string
@@ -2738,6 +3332,9 @@ final class HtmlTransformer
                 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
                 'align-self', 'justify-self', 'order',
             );
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                continue;
+            }
             if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
                 && ! $this->isButtonControlBoxSize($name, $value)
             ) {
@@ -2770,6 +3367,9 @@ final class HtmlTransformer
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
             if ( '' === $name || false === $colon ) {
                 $control[] = $declaration;
+                continue;
+            }
+            if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
             if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
@@ -2815,7 +3415,7 @@ final class HtmlTransformer
                 continue;
             }
             $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
-            if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
                 continue;
             }
 
@@ -2838,6 +3438,24 @@ final class HtmlTransformer
         $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
 
         return in_array($value, array( 'min-content', 'max-content', 'fit-content', 'content' ), true);
+    }
+
+    /**
+     * Inline min-content widths plus Gutenberg's word-break:break-word collapse
+     * the label to one character. Drop those widths, including custom
+     * properties that only exist to feed min-width.
+     */
+    private function isCollapsedButtonKeywordWidth(string $property, string $value): bool
+    {
+        $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', $value)));
+        if ( 'min-content' !== $value ) {
+            return false;
+        }
+        if ( in_array($property, array( 'width', 'min-width', 'max-width' ), true) ) {
+            return true;
+        }
+
+        return str_starts_with($property, '--') && str_contains($property, 'width');
     }
 
     private function isButtonWrapperLayoutProperty(string $property): bool
@@ -2863,6 +3481,11 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $runtimeProjection = $this->projectRuntimeAttributeSelector($selector);
+            if ( null !== $runtimeProjection ) {
+                array_push($rewritten, ...$runtimeProjection);
+                continue;
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector);
             $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
@@ -2991,6 +3614,34 @@ final class HtmlTransformer
         return implode(',', $rewritten);
     }
 
+    /** @return list<string>|null */
+    private function projectRuntimeAttributeSelector(string $selector): ?array
+    {
+        $selector = trim($selector);
+        $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
+        uksort($selectorMarkers, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+        foreach ( $selectorMarkers as $runtimeSelector => $markers ) {
+            if ( ! str_starts_with($selector, $runtimeSelector) ) {
+                continue;
+            }
+            $suffix = substr($selector, strlen($runtimeSelector));
+            if ( '' !== $suffix && ! in_array($suffix[0], array('.', ':'), true) ) {
+                continue;
+            }
+            $parsed = $this->parsedCssSelector($runtimeSelector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $shims = $this->selectorSpecificityShims($parsed);
+            return array_map(
+                static fn (string $marker): string => ':where(.' . $marker . ')' . $shims . $suffix,
+                $markers
+            );
+        }
+
+        return null;
+    }
+
     /** @param array<string, mixed> $parsed @param array<int, DOMElement> $matches @return array<int, string>|null */
     private function projectSourceAttributeAncestrySelector(string $selector, array $parsed, array $matches): ?array
     {
@@ -3007,10 +3658,16 @@ final class HtmlTransformer
         }
         foreach ( $matches as $element ) {
             $id = trim($this->attr($element, 'id'));
-            if ( ! preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
-                return null;
+            if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
+                $target = '#' . $id;
+            } else {
+                $marker = $this->authorSelectorProjections()->attributeMarker($this->sourceElementIdentity($element));
+                if ( '' === $marker ) {
+                    return null;
+                }
+                $target = '.' . $marker;
             }
-            $projected[] = $scope . ':where(#' . $id . ')' . $this->selectorSpecificityShims($parsed);
+            $projected[] = $scope . ':where(' . $target . ')' . $this->selectorSpecificityShims($parsed);
         }
 
         return array_values(array_unique($projected));
@@ -4057,9 +4714,9 @@ final class HtmlTransformer
                 : $this->responsiveMediaBlock($element);
         }
 
-        $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
-        if ( $mediaDispatch['handled'] ) {
-            return $mediaDispatch['block'];
+        $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
+        if ( $mediaDispatch->handled ) {
+            return $mediaDispatch->block;
         }
 
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
@@ -4080,20 +4737,9 @@ final class HtmlTransformer
             return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
-if ( $this->isInlineContentElement($tagName) ) {
-            return $this->convertInlineContentElement($element, $fallbacks);
-        }
-
-        if ( in_array( $tagName, array( 'ul', 'ol', 'dl', 'dt', 'dd' ), true ) ) {
-            return $this->convertListElement($element, $fallbacks);
-        }
-
-        if ( 'blockquote' === $tagName ) {
-            return $this->recognizePatterns($element, $fallbacks, array(QuotePattern::class));
-        }
-
-        if ( 'figure' === $tagName || 'figcaption' === $tagName ) {
-            return $this->convertFigureElement($element, $fallbacks);
+        $structuralContentDispatch = $this->structuralContentConverters->convert($element, $tagName, $fallbacks);
+        if ( $structuralContentDispatch->handled ) {
+            return $structuralContentDispatch->block;
         }
 
         if ( 'noscript' === $tagName ) {
@@ -4112,47 +4758,27 @@ if ( $this->isInlineContentElement($tagName) ) {
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( $this->tableConverter->handles($tagName) ) {
-            return $this->tableConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        $parameterTable = $this->recognizePatterns($element, $fallbacks, array(ParameterTablePattern::class));
-        if ( null !== $parameterTable ) {
-            return $parameterTable;
+        $tableDispatch = $this->tableConverters->convert($element, $tagName, $fallbacks);
+        if ( $tableDispatch->handled ) {
+            return $tableDispatch->block;
         }
 
         if ( 'hr' === $tagName || 'br' === $tagName ) {
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( 'details' === $tagName ) {
-            $capturedDisclosureDialog = $this->capturedDisclosureDialog($element);
-            if ( $capturedDisclosureDialog instanceof DOMElement ) {
-                return $this->capturedDialogBlock($capturedDisclosureDialog, $fallbacks);
-            }
-
-            return $this->recognizePatterns($element, $fallbacks, array(DetailsPattern::class));
+        $detailsDispatch = $this->detailsConverter->convert($element, $tagName, $fallbacks);
+        if ( $detailsDispatch->handled ) {
+            return $detailsDispatch->block;
         }
 
-        if ( 'a' === $tagName ) {
-            return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
+        $buttonDispatch = $this->buttonConverter->convert($element, $tagName, $fallbacks);
+        if ( $buttonDispatch->handled ) {
+            return $buttonDispatch->block;
         }
 
-        if ( 'button' === $tagName ) {
-            if ( $this->searchBlockConverter->isReplacedSearchClusterControl($element) ) {
-                return null;
-            }
-            if ( $this->isImageCarrierButton($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
-                }
-            }
-            return $this->buttonLinkDispatcher->convertButton($element);
-        }
-
-if ( 'svg' === $tagName ) {
-            return $this->convertSvgElement($element, $fallbacks);
+        if ( 'svg' === $tagName ) {
+            return $this->svgConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
         if ( 'canvas' === $tagName ) {
@@ -4189,7 +4815,7 @@ if ( 'svg' === $tagName ) {
         }
 
         if ( 'form' === $tagName ) {
-            return $this->convertFormDispatchElement($element, $fallbacks);
+            return $this->formDispatcher->convert($element, $fallbacks);
         }
 
         if ( 'nav' === $tagName ) {
@@ -4204,8 +4830,14 @@ if ( 'svg' === $tagName ) {
             }
         }
 
-        if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
-            return $this->convertFlowContainerElement($element, $fallbacks);
+        $flowContainerDispatch = $this->flowContainerConverter->convert($element, $tagName, $fallbacks);
+        if ( $flowContainerDispatch->handled ) {
+            return $flowContainerDispatch->block;
+        }
+
+        $carousel = $this->authoredCarouselBlock($element);
+        if ( null !== $carousel ) {
+            return $carousel;
         }
 
         if ( $this->isGeneratedComponentCandidate($element) ) {
@@ -4227,6 +4859,10 @@ if ( 'svg' === $tagName ) {
         $transparentCustomElement = $this->transparentCustomElementBlock($element, $fallbacks);
         if ( null !== $transparentCustomElement ) {
             return $transparentCustomElement;
+        }
+
+        if ( $this->isInertRuntimeMediaPlaceholder($element) ) {
+            return null;
         }
 
         if ( $captureUnsupported ) {
@@ -4319,46 +4955,47 @@ if ( 'svg' === $tagName ) {
         return true;
     }
 
-    private function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
+    private function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
     {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'footer', 'form', 'header', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array{handled: bool, block: array<string, mixed>|null}
-     */
-    private function convertMediaDispatchElement(DOMElement $element, string $tagName, array &$fallbacks): array
-    {
-        $placeholderMedia = $this->recognizePatterns($element, $fallbacks, array(PlaceholderMediaPattern::class));
-        if ( null !== $placeholderMedia ) {
-            return array( 'handled' => true, 'block' => $placeholderMedia );
+        if ( ! $this->isRuntimeMediaSurfaceElement($element)
+            || ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+        ) {
+            return false;
         }
 
-        if ( 'img' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertImageElement($element) );
-        }
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! $this->isSafeTransparentCustomElement($candidate)
+                || '' !== trim($this->attr($candidate, 'role'))
+                || '' !== trim($this->attr($candidate, 'aria-label'))
+            ) {
+                return false;
+            }
 
-        if ( 'picture' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertPictureElement($element) );
-        }
+            foreach ( array( 'src', 'srcset', 'href', 'data-src', 'data-url' ) as $attribute ) {
+                if ( '' !== trim($this->attr($candidate, $attribute)) ) {
+                    return false;
+                }
+            }
 
-        if ( 'iframe' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertIframeElement($element, $fallbacks) );
-        }
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-') && '' !== trim($attribute->value) ) {
+                    return false;
+                }
+            }
 
-        if ( in_array($tagName, array( 'audio', 'video' ), true) ) {
-            return array( 'handled' => true, 'block' => $this->convertMediaElement($element) );
-        }
-
-        if ( 'a' === $tagName ) {
-            $linkedImage = $this->imageBlockFromAnchor($element);
-            if ( null !== $linkedImage ) {
-                return array( 'handled' => true, 'block' => $linkedImage );
+            if ( $candidate !== $element && ! $this->isStructuralTransparentCustomWrapperChild($candidate) ) {
+                return false;
             }
         }
 
-        return array( 'handled' => false, 'block' => null );
+        return true;
+    }
+
+    private function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
+    {
+        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'footer', 'form', 'header', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true);
     }
 
     /**
@@ -7587,7 +8224,7 @@ if ( 'svg' === $tagName ) {
 
     private function isInlineContentElement(string $tagName): bool
     {
-        return in_array($tagName, array( 'abbr', 'b', 'cite', 'code', 'em', 'font', 'i', 'kbd', 'mark', 'rp', 'rt', 'ruby', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'var' ), true);
+        return InlineContentElementConverter::handlesTag($tagName);
     }
 
     private function isInlineSourceElement(string $tagName): bool
@@ -12118,6 +12755,178 @@ if ( 'svg' === $tagName ) {
         );
     }
 
+    /** @return array<string, mixed>|null */
+    private function authoredCarouselBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->hasCarouselIdentity($element) ) {
+            return null;
+        }
+
+        $hasPrevious = false;
+        $hasNext = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $identity = strtolower(implode(' ', array(
+                $this->attr($candidate, 'aria-label'),
+                $this->attr($candidate, 'title'),
+                $this->attr($candidate, 'class'),
+                $this->attr($candidate, 'data-hook'),
+                $candidate->textContent ?? '',
+            )));
+            $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
+            $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
+        }
+        if ( ! $hasPrevious || ! $hasNext ) {
+            return null;
+        }
+
+        $list = null;
+        $items = array();
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->isCarouselList($candidate) || $this->isExpandedCarouselState($candidate, $element) ) {
+                continue;
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) >= 2 && $this->carouselItemsHaveImages($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+                break;
+            }
+        }
+        if ( ! $list instanceof DOMElement ) {
+            return null;
+        }
+
+        $slides = array();
+        foreach ( $items as $item ) {
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( ! $image instanceof DOMElement ) {
+                return null;
+            }
+            $slide = $this->convertImageElement($image);
+            if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                return null;
+            }
+            $caption = $this->carouselItemCaption($item);
+            if ( '' !== $caption ) {
+                $slide['attrs']['caption'] = $caption;
+                $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+            }
+            $slides[] = $slide;
+        }
+
+        $generator = new AuthoredCarouselBlockGenerator();
+        $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $attributes = array(
+            'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
+            'itemsPerView' => min(4, count($slides)),
+            'wrap' => true,
+        );
+        $shell = $generator->shell($attributes);
+        $innerContent = array($shell['opening']);
+        foreach ( $slides as $_ ) {
+            $innerContent[] = null;
+        }
+        $innerContent[] = $shell['closing'];
+
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredCarouselBlockGenerator::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => $slides,
+            'innerHTML' => $shell['opening'] . $shell['closing'],
+            'innerContent' => $innerContent,
+        );
+    }
+
+    private function hasCarouselIdentity(DOMElement $element): bool
+    {
+        $identity = strtolower(implode(' ', array(
+            $element->tagName,
+            $this->attr($element, 'id'),
+            $this->attr($element, 'class'),
+            $this->attr($element, 'role'),
+            $this->attr($element, 'data-hook'),
+            $this->attr($element, 'data-testid'),
+        )));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    private function isCarouselList(DOMElement $element): bool
+    {
+        return 'list' === strtolower(trim($this->attr($element, 'role')))
+            || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
+    }
+
+    /** @return array<int, DOMElement> */
+    private function carouselListItems(DOMElement $list): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( $child instanceof DOMElement && ('listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName)) ) {
+                $items[] = $child;
+            }
+        }
+
+        return $items;
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function carouselItemsHaveImages(array $items): bool
+    {
+        foreach ( $items as $item ) {
+            if ( 0 === $item->getElementsByTagName('img')->length ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
+            $identity = strtolower(implode(' ', array(
+                $ancestor->tagName,
+                $this->attr($ancestor, 'class'),
+                $this->attr($ancestor, 'role'),
+                $this->attr($ancestor, 'data-hook'),
+            )));
+            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:dialog|expanded|lightbox|modal)(?:[^a-z0-9]|$)/', $identity) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function carouselItemCaption(DOMElement $item): string
+    {
+        $title = '';
+        $description = '';
+        foreach ( $item->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $identity = strtolower($this->attr($candidate, 'class') . ' ' . $this->attr($candidate, 'data-hook'));
+            if ( '' === $title && 1 === preg_match('/(?:^|[^a-z0-9])title(?:[^a-z0-9]|$)/', $identity) ) {
+                $title = trim($candidate->textContent ?? '');
+            }
+            if ( '' === $description && 1 === preg_match('/(?:^|[^a-z0-9])description(?:[^a-z0-9]|$)/', $identity) ) {
+                $description = trim($candidate->textContent ?? '');
+            }
+        }
+        if ( '' === $title ) {
+            $title = trim($this->attr($item, 'aria-label'));
+        }
+
+        $title = '' === $title ? '' : '<strong>' . $this->runtime->escapeHtml($title) . '</strong>';
+        $description = $this->runtime->escapeHtml($description);
+        return trim($title . ('' !== $title && '' !== $description ? '<br>' : '') . $description);
+    }
+
     /**
      * Preserve responsive sources as valid raw HTML rather than placing
      * unsupported attributes in a core/image save shape.
@@ -12180,15 +12989,18 @@ if ( 'svg' === $tagName ) {
 
     private function isInertHiddenSvgStorage(DOMElement $element): bool
     {
+        $isDomStore = $element->hasAttribute('data-dom-store');
         if ( ! $this->sourceElementStartsHidden($element)
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
-            || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
+            || (! $isDomStore && (
+                $this->styleResolver->hasConditionalStyleFamily($element, 'layout')
+                || $this->styleResolver->hasConditionalStyleFamily($element, 'visibility')
+                || $this->styleResolver->hasConditionalStyleFamily($element, 'opacity')
+            ))
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))
             || '' !== trim($this->attr($element, 'title'))
             || ! $this->hasOnlySvgDefinitions($element)
-            || $this->hiddenSvgStoreHasExternalReference($element) ) {
+            || $this->hiddenSvgStoreHasNonSvgConsumer($element) ) {
             return false;
         }
 
@@ -12231,7 +13043,7 @@ if ( 'svg' === $tagName ) {
         return $hasDefinition;
     }
 
-    private function hiddenSvgStoreHasExternalReference(DOMElement $store): bool
+    private function hiddenSvgStoreHasNonSvgConsumer(DOMElement $store): bool
     {
         $ids = array();
         foreach ( $store->getElementsByTagName('*') as $definition ) {
@@ -12249,7 +13061,9 @@ if ( 'svg' === $tagName ) {
             }
             foreach ( $candidate->attributes as $attribute ) {
                 foreach ( $ids as $id ) {
-                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value) ) {
+                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value)
+                        && 'svg' !== strtolower($candidate->tagName)
+                        && null === $this->ancestorElement($candidate, 'svg') ) {
                         return true;
                     }
                 }
@@ -12686,21 +13500,38 @@ if ( 'svg' === $tagName ) {
      */
     private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
     {
-        $url = $this->safeEmbedUrl($this->attr($iframe, 'src'));
+        $customHost = 'iframe' !== strtolower($iframe->tagName) ? $iframe : null;
+        $surface = $iframe;
+        $url = '';
+        if ( $customHost instanceof DOMElement ) {
+            $classification = $this->classifyCustomIframeSurface($customHost);
+            if ( 'inert' === $classification['disposition'] ) {
+                return null;
+            }
+            if ( 'accepted' !== $classification['disposition'] || ! $classification['surface'] instanceof DOMElement || '' === $classification['url'] ) {
+                $this->recordIframeSurfaceCapabilityGap($customHost, $classification, $fallbacks);
+                return null;
+            }
+            $surface = $classification['surface'];
+            $url = $classification['url'];
+        } else {
+            $url = $this->customVisualIframeUrl($iframe, $surface);
+        }
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
         if ( '' !== $providerNameSlug ) {
-            return $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($iframe), array(
+            $block = $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
-            )), static fn ($value): bool => '' !== $value), array(), $iframe);
+            )), static fn ($value): bool => '' !== $value), array(), $surface);
+            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
         }
 
-        $visualIframeAttributes = $this->boundedVisualIframeAttributes($iframe, $url);
+        $visualIframeAttributes = $this->boundedVisualIframeAttributes($surface, $url);
         if ( null !== $visualIframeAttributes ) {
             $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
                 'preservation_strategy' => 'typed_visual_iframe_companion',
-                'attributes' => $this->safeEmbedAttributes($iframe),
+                'attributes' => array_merge($this->safeEmbedAttributes($surface), array( 'src' => $url )),
             ));
             $generator = new VisualIframeBlockGenerator();
             $this->generatedBlocks()->register(VisualIframeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
@@ -12708,11 +13539,11 @@ if ( 'svg' === $tagName ) {
                 $this->generatedBlocks()->blockName(VisualIframeBlockGenerator::LOCAL_NAME),
                 $visualIframeAttributes,
                 array(),
-                $iframe
+                $surface
             );
             $block['innerHTML'] = $generator->markup($visualIframeAttributes);
             $block['innerContent'] = array( $block['innerHTML'] );
-            return $block;
+            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
         }
 
         $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
@@ -12738,6 +13569,216 @@ if ( 'svg' === $tagName ) {
         ), $this->transformationProvenance()->fallback());
 
         return null;
+    }
+
+    /**
+     * @return array{disposition: string, reason: string, url: string, surface: DOMElement|null}
+     */
+    private function classifyCustomIframeSurface(DOMElement $host): array
+    {
+        $rejected = static fn (string $reason): array => array(
+            'disposition' => 'rejected',
+            'reason' => $reason,
+            'url' => '',
+            'surface' => null,
+        );
+        $rawValues = array();
+        $unsafe = false;
+        $srcdoc = false;
+        foreach ( array_merge(array( $host ), iterator_to_array($host->getElementsByTagName('*'))) as $element ) {
+            if ( ! $element instanceof DOMElement ) {
+                continue;
+            }
+            if ( '' !== trim($this->attr($element, 'srcdoc')) ) {
+                $srcdoc = true;
+            }
+            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
+                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $destination ) {
+                    $rawValues[] = $destination;
+                }
+            }
+        }
+
+        $urls = array();
+        $credentials = false;
+        foreach ( $rawValues as $value ) {
+            if ( $this->isUnsafeIframeDestination($value) ) {
+                $unsafe = true;
+                continue;
+            }
+            if ( $this->iframeUrlHasCredentials($value) ) {
+                $credentials = true;
+                continue;
+            }
+            $safe = $this->safeEmbedUrl($value);
+            if ( '' !== $safe ) {
+                $urls[$safe] = true;
+            }
+        }
+
+        if ( $srcdoc || $unsafe ) {
+            return $rejected('unsafe_iframe_destination');
+        }
+        if ( $credentials ) {
+            return $rejected('credential_bound_iframe');
+        }
+        if ( 1 < count($urls) ) {
+            return $rejected('ambiguous_iframe_destination');
+        }
+        if ( $this->runtimeIslands->isRuntimeDomTarget($host)
+            || array() !== $this->eventMetadata($host)
+            || $this->hasMotionStructureToken($host)
+        ) {
+            return $rejected('source_runtime_only_iframe');
+        }
+
+        $url = 1 === count($urls) ? (string) array_key_first($urls) : '';
+        $surface = $this->customVisualIframeSurface($host);
+        if ( '' !== $url && $surface instanceof DOMElement ) {
+            return array(
+                'disposition' => 'accepted',
+                'reason' => 'portable_iframe_destination',
+                'url' => $url,
+                'surface' => $surface,
+            );
+        }
+        if ( $this->isInertRuntimeMediaPlaceholder($host) ) {
+            return array(
+                'disposition' => 'inert',
+                'reason' => 'inert_iframe_placeholder',
+                'url' => '',
+                'surface' => null,
+            );
+        }
+
+        return $rejected('source_runtime_only_iframe');
+    }
+
+    /**
+     * @param array{disposition: string, reason: string, url: string, surface: DOMElement|null} $classification
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function recordIframeSurfaceCapabilityGap(DOMElement $host, array $classification, array &$fallbacks): void
+    {
+        $fallbacks[] = FallbackDiagnostic::build(array(
+            'type'            => 'capability_gap',
+            'reason'          => $classification['reason'],
+            'diagnostic_code' => 'html_iframe_surface_capability_gap',
+            'message'         => 'Custom iframe media was classified as an explicit capability gap instead of raw HTML.',
+            'source_format'   => 'html',
+            'tag'             => strtolower($host->tagName),
+            'selector'        => $this->elementSelector($host),
+            'context'         => $this->sourceContext($host),
+            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($host),
+            'events'          => $this->eventMetadata($host),
+        ), $this->transformationProvenance()->fallback());
+    }
+
+    private function customVisualIframeSurface(DOMElement $host): ?DOMElement
+    {
+        $iframes = array();
+        foreach ( $host->getElementsByTagName('iframe') as $iframe ) {
+            if ( $iframe instanceof DOMElement ) {
+                $iframes[] = $iframe;
+            }
+        }
+        if ( 1 < count($iframes) ) {
+            return null;
+        }
+        $iframe = $iframes[0] ?? null;
+        foreach ( $host->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || $descendant === $iframe ) {
+                continue;
+            }
+            if ( ! $this->isStructuralTransparentCustomWrapperChild($descendant)
+                || $this->runtimeIslands->isRuntimeDomTarget($descendant)
+                || array() !== $this->eventMetadata($descendant)
+                || ( ! $iframe instanceof DOMElement && '' !== trim($descendant->textContent ?? '') )
+            ) {
+                return null;
+            }
+        }
+
+        return $iframe ?? $host;
+    }
+
+    private function customVisualIframeUrl(DOMElement $host, DOMElement $surface): string
+    {
+        $urls = array();
+        foreach ( array( $host, $surface ) as $element ) {
+            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
+                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $candidate ) {
+                    if ( $this->isUnsafeIframeDestination($candidate) || $this->iframeUrlHasCredentials($candidate) ) {
+                        return '';
+                    }
+                    $url = $this->safeEmbedUrl($candidate);
+                    if ( '' !== $url ) {
+                        $urls[$url] = true;
+                    }
+                }
+            }
+        }
+
+        return 1 === count($urls) ? (string) array_key_first($urls) : '';
+    }
+
+    /** @return array<int, string> */
+    private function iframeDestinationValues(string $value): array
+    {
+        if ( '' === $value ) {
+            return array();
+        }
+        if ( str_starts_with($value, '{') || str_starts_with($value, '[') ) {
+            $decoded = json_decode($value, true);
+            return is_array($decoded) ? $this->iframeDestinationsFromJson($decoded) : array();
+        }
+
+        return array( $value );
+    }
+
+    /** @param array<mixed> $data @return array<int, string> */
+    private function iframeDestinationsFromJson(array $data): array
+    {
+        $found = array();
+        $stack = array( $data );
+        $depth = 0;
+        while ( array() !== $stack && $depth < 8 && 8 > count($found) ) {
+            $node = array_pop($stack);
+            ++$depth;
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            foreach ( $node as $key => $item ) {
+                if ( is_string($item) && is_string($key) && 1 === preg_match('/(?:url|src)$/i', $key) ) {
+                    $found[] = $item;
+                } elseif ( is_array($item) ) {
+                    $stack[] = $item;
+                }
+            }
+        }
+
+        return $found;
+    }
+
+    private function isUnsafeIframeDestination(string $value): bool
+    {
+        return 1 === preg_match('/^(?:javascript|data|vbscript)\s*:/i', $value);
+    }
+
+    private function iframeUrlHasCredentials(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return is_array($parts) && ( isset($parts['user']) || isset($parts['pass']) );
+    }
+
+    /** @param array<string, mixed> $mediaBlock @return array<string, mixed> */
+    private function customVisualIframeHostBlock(DOMElement $host, DOMElement $surface, array $mediaBlock): array
+    {
+        for ( $wrapper = $surface === $host ? null : $surface->parentNode; $wrapper instanceof DOMElement && $wrapper !== $host; $wrapper = $wrapper->parentNode ) {
+            $mediaBlock = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($wrapper), array( $mediaBlock ), $wrapper);
+        }
+        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($host), array( $mediaBlock ), $host);
     }
 
     /**
@@ -12778,7 +13819,9 @@ if ( 'svg' === $tagName ) {
         $parts = parse_url($url);
         return is_array($parts)
             && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
-            && '' !== trim((string) ($parts['host'] ?? ''));
+            && '' !== trim((string) ($parts['host'] ?? ''))
+            && ! isset($parts['user'])
+            && ! isset($parts['pass']);
     }
 
     private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string

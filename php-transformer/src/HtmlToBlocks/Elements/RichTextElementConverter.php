@@ -18,7 +18,7 @@ use DOMElement;
  * shrinking the object surface. This class receives a
  * {@see RichTextElementContext} and is exercised without a transformer.
  */
-final class RichTextElementConverter
+final class RichTextElementConverter implements ElementConverter
 {
     private const HEADING_PATTERN = '/^h([1-6])$/';
 

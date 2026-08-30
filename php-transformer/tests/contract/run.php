@@ -211,6 +211,35 @@ $assert(
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
     'responsive gallery media is preserved as one reusable editable block instead of a gallery with unsupported children'
 );
+$carouselSource = '<div class="service-carousel"><button aria-label="Previous slide">Previous</button><div role="list"><div role="listitem" aria-label="Back pain"><img src="back.jpg" alt="Back pain"><div class="title">Back pain</div><div class="description">Treatment for back pain.</div></div><div role="listitem" aria-label="Sciatica"><img src="sciatica.jpg" alt="Sciatica"><div class="title">Sciatica</div><div class="description">Treatment for sciatica.</div></div></div><button aria-label="Next slide">Next</button><div class="expanded-gallery"><div role="list"><div role="listitem"><img src="back-expanded.jpg" alt="Back pain expanded"></div><div role="listitem"><img src="sciatica-expanded.jpg" alt="Sciatica expanded"></div></div></div></div>';
+$carouselResult = ( new HtmlTransformer() )->transform($carouselSource)->toArray();
+$carouselBlock = $carouselResult['blocks'][0] ?? array();
+$carouselMarkup = (string) ($carouselResult['serialized_blocks'] ?? '');
+$carouselDefinitions = $carouselResult['source_reports']['generated_blocks'] ?? array();
+$assert(
+    'custom/authored-carousel' === ($carouselBlock['blockName'] ?? null)
+        && 2 === count($carouselBlock['innerBlocks'] ?? array())
+        && 'core/image' === ($carouselBlock['innerBlocks'][0]['blockName'] ?? null)
+        && str_contains($carouselMarkup, 'back.jpg')
+        && str_contains($carouselMarkup, 'sciatica.jpg')
+        && str_contains($carouselMarkup, 'Treatment for back pain.')
+        && ! str_contains($carouselMarkup, 'back-expanded.jpg')
+        && ! str_contains($carouselMarkup, 'expanded-gallery'),
+    'bounded carousel topology lowers one primary ordered rail to editable native slide blocks'
+);
+$assert(
+    1 === count($carouselDefinitions)
+        && 'authored-carousel' === ($carouselDefinitions[0]['name'] ?? null)
+        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScript'] ?? null)
+        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), 'data-carousel-next')
+        && isset($carouselDefinitions[0]['assets']['style.css']),
+    'bounded carousel projection carries one generic editor block with scoped frontend behavior'
+);
+$staticGalleryResult = ( new HtmlTransformer() )->transform('<div class="service-gallery"><div role="list"><div role="listitem"><img src="one.jpg" alt="One"></div><div role="listitem"><img src="two.jpg" alt="Two"></div></div></div>')->toArray();
+$assert(
+    'custom/authored-carousel' !== ($staticGalleryResult['blocks'][0]['blockName'] ?? null),
+    'an ordered image collection without previous and next controls is not promoted to an interactive carousel'
+);
 
 $referenceAnalyzer = new ReferenceAnalyzer();
 $htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
@@ -1318,6 +1347,11 @@ $dataAttributePointerTarget = ( new HtmlTransformer() )->transform('<style>[data
 $dataAttributePointerTargetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAttributePointerTarget['assets'] ?? array()));
 $assert(str_contains($dataAttributePointerTargetCss, ':where(.blocks-engine-attribute-') && str_contains($dataAttributePointerTargetCss, ':where(#menu)') && str_contains($dataAttributePointerTargetCss, 'pointer-events:none') && str_contains($dataAttributePointerTargetCss, 'pointer-events:auto'), 'data-attribute interaction boundaries retain disabled-container and enabled-child hit targeting after selector projection');
 $assert(str_contains((string) ($dataAttributePointerTarget['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($dataAttributePointerTarget['source_reports']['wp_block_validity']['status'] ?? ''), 'pointer-event attribute projection survives valid Gutenberg serialization');
+
+$mixedIdentityPointerTarget = ( new HtmlTransformer() )->transform('<style>[data-mesh-id$="-gridContainer"] > *{pointer-events:auto}</style><main><div data-mesh-id="header-gridContainer"><div id="menu"><a href="/contact">Contact</a></div><div><p>Copy</p></div></div></main>')->toArray();
+$mixedIdentityPointerCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $mixedIdentityPointerTarget['assets'] ?? array()));
+$assert(str_contains($mixedIdentityPointerCss, ':where(#menu)') && str_contains($mixedIdentityPointerCss, ':where(.blocks-engine-attribute-') && ! str_contains($mixedIdentityPointerCss, '[data-mesh-id$="-gridContainer"]'), 'data-attribute ancestry projects mixed ID and marker targets without retaining dead source ancestry');
+$assert(str_contains((string) ($mixedIdentityPointerTarget['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($mixedIdentityPointerTarget['source_reports']['wp_block_validity']['status'] ?? ''), 'mixed-identity pointer targets retain projection markers through valid Gutenberg serialization');
 
 $fallbackAttributeFlex = ( new HtmlTransformer() )->transform('<style>label[data-hook="checkbox-core"] div[data-hook="label-wrapper"]{flex-grow:1}</style><form><label data-hook="checkbox-core"><input type="checkbox" name="consent"><div data-hook="label-wrapper">Consent copy</div></label><button type="submit">Send</button></form>')->toArray();
 $fallbackAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fallbackAttributeFlex['assets'] ?? array()));
@@ -2711,6 +2745,14 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallba
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
+$emptySvgPlaceholder = ( new HtmlTransformer() )->transform(
+    '<main><div role="button" aria-label="Open gallery image"><svg class="zoom-mask" viewBox="0 0 10000 10000"></svg><img src="portrait.jpg" alt="Portrait"></div></main>'
+)->toArray();
+$assert(array() === ($emptySvgPlaceholder['fallbacks'] ?? array()), 'a structurally empty SVG placeholder does not emit fallback metadata');
+$assert(str_contains((string) ($emptySvgPlaceholder['serialized_blocks'] ?? ''), 'portrait.jpg'), 'discarding an empty SVG placeholder preserves its independent image sibling');
+$unsafeEmptySvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"></svg></main>')->toArray();
+$assert('html_unsafe_inline_svg' === ($unsafeEmptySvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'an unsafe empty SVG retains its fallback diagnostic');
+
 $coffeeFixturePath = dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html';
 $coffeeFixtureHtml = (string) file_get_contents($coffeeFixturePath);
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeFixtureHtml)->toArray();
@@ -2763,6 +2805,33 @@ $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
 $assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe companion save shape is Gutenberg-valid');
+
+$responsiveIframeWrapper = ( new HtmlTransformer() )->transform(
+    '<main><wix-iframe data-src=""><div class="map-container"><iframe title="Map" src="https://example.test/map" width="1280" height="350"></iframe></div></wix-iframe><wix-iframe data-src=""><div class="map-container"></div></wix-iframe></main>'
+)->toArray();
+$assert(array() === ($responsiveIframeWrapper['fallbacks'] ?? array()), 'an inactive custom media placeholder does not emit an unsupported-element fallback');
+$assert(1 === substr_count((string) ($responsiveIframeWrapper['serialized_blocks'] ?? ''), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
+
+$customIframeMap = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe data-src="https://example.test/map" title="Studio map" width="1280" height="350"><div class="map-container"></div></vendor-iframe></main>'
+)->toArray();
+$customIframeMapMarkup = (string) ($customIframeMap['serialized_blocks'] ?? '');
+$customIframeMapBlock = array_values(array_filter($customIframeMap['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? ($customIframeMap['blocks'][0] ?? array());
+$assert('custom/visual-iframe' === ($customIframeMapBlock['blockName'] ?? ''), 'portable custom iframe map materializes as the typed visual-iframe companion');
+$assert('https://example.test/map' === ($customIframeMapBlock['attrs']['src'] ?? '') && '1280' === ($customIframeMapBlock['attrs']['width'] ?? ''), 'portable custom iframe map retains destination and geometry');
+$assert(array() === ($customIframeMap['fallbacks'] ?? array()) && ! str_contains($customIframeMapMarkup, '<!-- wp:html') && ! str_contains($customIframeMapMarkup, 'html_unsupported_element'), 'portable custom iframe map does not emit raw HTML or unsupported-element fallbacks');
+$assert('pass' === ($customIframeMap['source_reports']['wp_block_validity']['status'] ?? ''), 'portable custom iframe map save shape is Gutenberg-valid');
+$customIframeMapIslands = array_values(array_filter($customIframeMap['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($customIframeMapIslands) && 'typed_visual_iframe_companion' === ($customIframeMapIslands[0]['preservation_strategy'] ?? ''), 'portable custom iframe map keeps runtime-dependency parity as a typed island');
+
+$customIframeGaps = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe src="https://example.test/one" data-src="https://example.test/two" width="640" height="360"></vendor-iframe><vendor-iframe data-widget-id="comp-runtime" width="640" height="360"></vendor-iframe></main>'
+)->toArray();
+$customIframeGapRows = array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_iframe_surface_capability_gap' === ($fallback['diagnostic_code'] ?? '')));
+$assert(2 === count($customIframeGapRows), 'ambiguous and source-runtime-only custom iframes emit capability-gap diagnostics');
+$assert(array( 'ambiguous_iframe_destination', 'source_runtime_only_iframe' ) === array_values(array_map(static fn (array $fallback): string => (string) ($fallback['reason'] ?? ''), $customIframeGapRows)), 'custom iframe capability gaps keep explicit rejection reasons');
+$assert(array() === array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? ''))), 'classified custom iframe rejections do not use html_unsupported_element');
+$assert(! str_contains((string) ($customIframeGaps['serialized_blocks'] ?? ''), '<!-- wp:html'), 'rejected custom iframe surfaces do not emit core/html fallbacks');
 
 $visualIframeGeometry = ( new HtmlTransformer() )->transform(
     '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'

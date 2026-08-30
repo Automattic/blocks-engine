@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-filtered-svg-responsive-artwork",
+  "description": "Materializes repeated self-contained filtered SVG artwork as portable core/image assets inside a CSS-owned responsive layout without raw HTML fallbacks.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-filtered-svg-responsive-artwork.json",
+    "notes": "Generic repeated portrait artwork covering standard component-transfer filter primitives and responsive selector ownership."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.portrait-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}.portrait-art{width:100%;height:auto}@media(max-width:600px){.portrait-grid{grid-template-columns:1fr}}</style><main><div class=\"portrait-grid\"><svg class=\"portrait-art\" role=\"img\" aria-label=\"First portrait\" viewBox=\"0 0 100 80\"><defs><filter id=\"portrait-tone\"><feComponentTransfer result=\"srcRGB\"></feComponentTransfer><feColorMatrix in=\"srcRGB\" type=\"saturate\" values=\"0\"></feColorMatrix><feComponentTransfer><feFuncR type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncR><feFuncG type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncG><feFuncB type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncB></feComponentTransfer></filter></defs><rect width=\"100\" height=\"80\" filter=\"url(#portrait-tone)\"></rect></svg><svg class=\"portrait-art\" role=\"img\" aria-label=\"Second portrait\" viewBox=\"0 0 100 80\"><defs><filter id=\"portrait-tone\"><feComponentTransfer result=\"srcRGB\"></feComponentTransfer><feColorMatrix in=\"srcRGB\" type=\"saturate\" values=\"0\"></feColorMatrix><feComponentTransfer><feFuncR type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncR><feFuncG type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncG><feFuncB type=\"linear\" slope=\"1.1\" intercept=\"-0.05\"></feFuncB></feComponentTransfer></filter></defs><rect width=\"100\" height=\"80\" filter=\"url(#portrait-tone)\"></rect></svg></div></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "First portrait" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "alt": "Second portrait" } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "portrait-grid" },
+    { "path": "assets.0.content", "assert": "contains", "value": "<feComponentTransfer" },
+    { "path": "assets.0.content", "assert": "contains", "value": "type=\"saturate\"" },
+    { "path": "assets.0.mime_type", "assert": "equals", "value": "image/svg+xml" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
+  ]
+}

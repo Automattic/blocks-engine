@@ -49,6 +49,54 @@ $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.ct
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
 
+$runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => <<<'HTML'
+<style>
+  [data-reveal] { opacity:0; transform:translateY(20px) }
+  [data-reveal].in-view { opacity:1; transform:translateY(0) }
+</style>
+<main><section id="story" data-reveal><p>Story</p></section><section data-reveal><p>Menu</p></section></main>
+<script>const revealEls = document.querySelectorAll('[data-reveal]'); const observer = new IntersectionObserver(function (entries) { entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('in-view'); observer.unobserve(entry.target); } }); }); revealEls.forEach(function (el) { observer.observe(el); });</script>
+HTML ),
+) ) )->toArray();
+$runtimeRevealMarkup = (string) ($runtimeReveal['serialized_blocks'] ?? '');
+$runtimeRevealAssets = $runtimeReveal['assets'] ?? array();
+$runtimeRevealCss = implode("\n", array_column(array_filter($runtimeRevealAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$runtimeRevealJs = implode("\n", array_column(array_filter($runtimeRevealAssets, static fn (array $asset): bool => in_array($asset['kind'] ?? '', array('js', 'mjs'), true)), 'content'));
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, $runtimeRevealMarkerMatches);
+$runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
+$assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
+$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.blocks-engine-specificity-class-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+$assert(array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => str_contains($runtimeRevealCss, ':root .' . $marker . '{opacity:1!important')), 'retained presentation runtimes keep their authored closed state instead of receiving inert-content visibility repairs');
+$assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
+
+$restaurantRuntime = ( new ArtifactCompiler() )->compile(array('files' => array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => file_get_contents(dirname(__DIR__, 2) . '/../fixtures/websites/14-restaurant/index.html')),
+)))->toArray();
+$restaurantRuntimeJs = implode("\n", array_column(array_filter($restaurantRuntime['assets'] ?? array(), static fn (array $asset): bool => in_array($asset['kind'] ?? '', array('js', 'mjs'), true)), 'content'));
+$restaurantIslandPackage = json_encode($restaurantRuntime['source_reports']['runtime_island_package'] ?? array());
+$assert(str_contains($restaurantRuntimeJs, "document.getElementById('nav-toggle') || document.createElement('div')") && str_contains($restaurantRuntimeJs, "document.getElementById('nav-links') || document.createElement('div')"), 'mixed runtime scripts use inert targets for superseded controls so retained presentation behavior can continue');
+$assert(is_string($restaurantIslandPackage) && ! str_contains($restaurantIslandPackage, '[data-reveal]') && str_contains($restaurantIslandPackage, 'blocks-engine-attribute-') && str_contains($restaurantIslandPackage, "document.createElement('div')"), 'companion runtime packages carry the same projected script as the theme asset');
+$assert('pass' === ($runtimeReveal['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity validates the projected inline script against materialized block markup');
+
+$contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
+) ) )->toArray();
+$contentBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $contentBox['assets'] ?? array()));
+$assert(str_contains($contentBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d;box-sizing:content-box}'), 'definite source width plus box chrome retains the initial content-box model against the WordPress block reset');
+
+$borderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>*,*::before,*::after{box-sizing:border-box}.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
+) ) )->toArray();
+$borderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $borderBox['assets'] ?? array()));
+$assert(! str_contains($borderBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d;box-sizing:content-box}'), 'an authored border-box reset remains authoritative');
+
+$rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.dot{width:10px;height:10px;border-radius:50%;background:#ff5f57}</style><span class="dot"></span>' ),
+) ) )->toArray();
+$roundedCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $rounded['assets'] ?? array()));
+$assert(! str_contains($roundedCss, 'box-sizing:content-box'), 'border radius alone is not box chrome and does not alter source sizing');
+
 $projectedPinnedLayer = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>#projected-pinned-layer{position:fixed;top:0}</style><link rel="stylesheet" href="site.css"><main><div class="data-liberation-mobile-document"><div id="projected-pinned-layer">Header</div><div id="projected-mobile-pinned-layer">Mobile header</div></div></main>' ),
@@ -146,10 +194,39 @@ $multiPageAssets = array_column($multiPage['assets'] ?? array(), null, 'path');
 $sharedCss = (string) ($multiPageAssets['site.css']['content'] ?? '');
 $aboutCss = (string) ($multiPageAssets['about.inline.css']['content'] ?? '');
 $assert(str_contains($sharedCss, 'blocks-engine-source-p-') && str_contains($sharedCss, 'blocks-engine-source-li-'), 'shared stylesheet merges projections required by entry and sibling HTML documents');
-$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && str_ends_with($aboutCss, '.rows li{gap:1rem}'), 'sibling inline projection precedes the original stylesheet so retained selectors remain authoritative');
+$assert(str_contains($aboutCss, 'blocks-engine-source-li-') && ! str_contains($aboutCss, '.rows li{gap:1rem}'), 'sibling inline stylesheets emit their complete projected form without appending dead source selectors');
 $multiPageCompiledAssetPaths = array_column($multiPage['source_reports']['compiled_site']['assets'] ?? array(), 'path');
 $assert(count($multiPageCompiledAssetPaths) === count(array_unique($multiPageCompiledAssetPaths)), 'multi-page compilation deduplicates byte-identical generated assets by source path');
 $assert(isset($multiPage['source_reports']['wordpress_site_plan']), 'multi-page generated asset aggregation remains a valid WordPress site plan');
+
+$siblingSettledState = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><h1>Home</h1></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}</style><main><div class="animated" data-state="done"><p>Settled</p></div></main>' ),
+    ),
+) )->toArray();
+$siblingSettledAssets = array_column($siblingSettledState['assets'] ?? array(), null, 'path');
+$siblingSettledCss = (string) ($siblingSettledAssets['about.inline.css']['content'] ?? '');
+$assert(str_contains($siblingSettledCss, ':not(.blocks-engine-attribute-state-') && ! str_contains($siblingSettledCss, '[data-state="done"]'), 'sibling-only inline state gates retain only their Gutenberg marker projection');
+$assert(str_contains((string) ($siblingSettledState['source_reports']['wordpress_site_plan']['pages'][1]['canonical_block_markup'] ?? ''), 'blocks-engine-attribute-state-'), 'sibling-only settled state markers survive into canonical page markup');
+
+$sharedSettledState = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Home settled</p></div></main>' ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="shared.css"><main><div id="animated" data-state="done"><p>About settled</p></div></main>' ),
+        array( 'path' => 'contact.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="about.css"><main><div id="animated" data-state="done"><p>Contact settled</p></div></main>' ),
+        array( 'path' => 'shared.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+        array( 'path' => 'about.css', 'kind' => 'css', 'content' => '#animated:not([data-state="done"]){animation:fade 1s backwards running}' ),
+    ),
+) )->toArray();
+$sharedSettledAssets = array_column($sharedSettledState['assets'] ?? array(), null, 'path');
+$sharedSettledCss = (string) ($sharedSettledAssets['shared.css']['content'] ?? '') . (string) ($sharedSettledAssets['about.css']['content'] ?? '');
+preg_match_all('/#animated[^,{]*\{animation:fade/', $sharedSettledCss, $sharedSettledSelectors);
+preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', implode('', $sharedSettledSelectors[0] ?? array()), $sharedSettledMarkerMatches);
+$sharedSettledMarkers = array_fill_keys($sharedSettledMarkerMatches[0] ?? array(), true);
+$assert(3 === count($sharedSettledMarkers) && array() !== ($sharedSettledSelectors[0] ?? array()) && array() === array_filter($sharedSettledSelectors[0], static fn(string $selector): bool => array() !== array_filter(array_keys($sharedSettledMarkers), static fn(string $marker): bool => !str_contains($selector, ':not(.' . $marker . ')'))), 'Shared state gates exclude every page-specific settled marker across stylesheet paths so one route projection cannot reactivate another route animation.');
 
 $multiPageRuntime = ( new ArtifactCompiler() )->compile(array(
     'files' => array(

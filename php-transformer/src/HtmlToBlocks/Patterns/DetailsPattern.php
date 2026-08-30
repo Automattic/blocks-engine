@@ -233,15 +233,4 @@ final class DetailsPattern implements PatternRecognizerInterface
         return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->trimmedAttribute($element, 'role'));
     }
 
-    private function containsNode(DOMElement $ancestor, DOMElement $node): bool
-    {
-        for ( $current = $node; $current instanceof DOMElement; $current = $current->parentNode ) {
-            if ( $current->isSameNode($ancestor) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
 }
