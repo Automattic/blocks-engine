@@ -4316,10 +4316,7 @@ final class ArtifactCompiler
         foreach ($files as $file) {
             if ('html' !== ($file['kind'] ?? null) || $this->isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
             $dom = new \DOMDocument();
-            $previous = libxml_use_internal_errors(true);
-            $loaded = $dom->loadHTML((string) $file['content']);
-            libxml_clear_errors();
-            libxml_use_internal_errors($previous);
+            $loaded = self::loadUtf8Html($dom, (string) $file['content']);
             if (!$loaded) continue;
             $rows = array('header' => array(), 'footer' => array());
             $body = $dom->getElementsByTagName('body')->item(0);
@@ -4397,9 +4394,7 @@ final class ArtifactCompiler
     private static function normalizeSourceShellIdentity(string $markup): string
     {
         $dom = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $dom->loadHTML('<body>' . $markup . '</body>');
-        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        $loaded = self::loadUtf8Html($dom, '<body>' . $markup . '</body>');
         if (!$loaded) return $markup;
         $xpath = new \DOMXPath($dom);
         $currentNodes = array();
@@ -4423,6 +4418,14 @@ final class ArtifactCompiler
         $body = $dom->getElementsByTagName('body')->item(0);
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
         return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+    }
+
+    private static function loadUtf8Html(\DOMDocument $dom, string $html): bool
+    {
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        return $loaded;
     }
 
     /** @param array<int,string> $markups @return array<int,string> */

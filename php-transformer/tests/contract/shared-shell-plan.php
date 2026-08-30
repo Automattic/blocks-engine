@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 
 $assert = static function (bool $condition, string $message): void { if (! $condition) throw new RuntimeException($message); };
@@ -108,6 +109,53 @@ $assert(array() === array_filter($sourceResponsiveArtifacts, static fn(array $ar
 $sourceDivergentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceResponsiveHtml('Home'), 'about.html' => str_replace('Mobile header', 'Different mobile header', $sourceResponsiveHtml('About')))))->toArray();
 $sourceDivergentArtifacts = $sourceDivergentResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(!array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null)) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant rejects the complete area bundle while an independently shared area remains canonical.');
+
+$unicodeResponsiveHtml = static function (string $title, string $current): string {
+    $link = static function (string $name, string $label, string $current): string {
+        return '<a class="site-link' . ($name === $current ? ' current" aria-current="page' : '') . '" href="/' . $name . '">' . $label . '</a>';
+    };
+    return '<div class="desktop-document"><header id="κεφαλίδα-🧭" class="desktop-header"><nav>' . $link('home', 'Αρχική σελίδα', $current) . $link('about', 'Σχετικά', $current) . '</nav></header><main><h1>' . $title . '</h1></main><footer id="υποσέλιδο-©" class="desktop-footer"><p>© 2026 Café ☕</p></footer></div>'
+        . '<div class="mobile-document"><header id="μενού-📱" class="mobile-header"><p>Μενού 📱</p></header><main><h1>' . $title . ' mobile</h1></main><footer id="δικαιώματα-😀" class="mobile-footer"><p>Δικαιώματα © 😀</p></footer></div>';
+};
+$unicodeArtifact = array('entrypoint' => 'index.html', 'files' => array('index.html' => $unicodeResponsiveHtml('Home', 'home'), 'about.html' => $unicodeResponsiveHtml('About', 'about')));
+$unicodeResult = (new ArtifactCompiler())->compile($unicodeArtifact)->toArray();
+$unicodeArtifacts = array_column($unicodeResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array(), null, 'slug');
+$unicodeRepeatArtifacts = array_column((new ArtifactCompiler())->compile($unicodeArtifact)->toArray()['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array(), null, 'slug');
+$assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_keys($unicodeArtifacts) && array_column($unicodeArtifacts, 'source_hash') === array_column($unicodeRepeatArtifacts, 'source_hash'), 'Unicode responsive shells retain deterministic identity across routes and current-navigation variants.');
+$unicodeExpected = array(
+    'header-1' => array('Αρχική σελίδα', 'Σχετικά', '"anchor":"κεφαλίδα-🧭"'),
+    'header-2' => array('Μενού 📱', '"anchor":"μενού-📱"'),
+    'footer-1' => array('© 2026 Café ☕', '"anchor":"υποσέλιδο-©"'),
+    'footer-2' => array('Δικαιώματα © 😀', '"anchor":"δικαιώματα-😀"'),
+);
+$unicodeSource = $unicodeResponsiveHtml('Home', 'home');
+$unicodeRoundTrip = new ContentRoundTripReporter();
+foreach ($unicodeExpected as $slug => $fragments) {
+    $markup = (string) ($unicodeArtifacts[$slug]['block_markup'] ?? '');
+    $roundTrip = $unicodeRoundTrip->report($markup, $unicodeSource);
+    $assert(1 === preg_match('//u', $markup) && 1 === preg_match('/^[a-f0-9]{64}$/', (string) ($unicodeArtifacts[$slug]['source_hash'] ?? '')) && !str_contains($markup, 'Îœ') && !str_contains($markup, 'Â©') && 'pass' === ($roundTrip['status'] ?? null) && array() === array_filter($fragments, static fn(string $fragment): bool => !str_contains($markup, $fragment)), "{$slug} preserves Unicode text, non-breaking spaces, emoji, symbols, and landmark attributes through shared-shell compilation: {$markup}");
+}
+$assert(!str_contains($unicodeArtifacts['header-1']['block_markup'] ?? '', 'aria-current') && !str_contains($unicodeArtifacts['header-1']['block_markup'] ?? '', ' current'), 'Unicode shell identity normalization removes only route-current navigation state.');
+foreach ($unicodeResult['source_reports']['compiled_site']['pages'] ?? array() as $unicodeCompiledPage) {
+    $markup = (string) ($unicodeCompiledPage['block_markup'] ?? '');
+    $assert(1 === preg_match('//u', $markup) && !str_contains($markup, 'Îœ') && !str_contains($markup, 'Â©'), ($unicodeCompiledPage['source_path'] ?? 'page') . ' keeps page-owned UTF-8 after shared-shell extraction.');
+}
+
+foreach ($unicodeResult['source_reports']['compiled_site']['pages'] as &$unicodePage) {
+    $title = 'index.html' === ($unicodePage['source_path'] ?? null) ? 'Home' : 'About';
+    $unicodePage['block_markup'] = '<!-- wp:group {"className":"desktop-document"} --><div class="wp-block-group desktop-document">' . $unicodeArtifacts['header-1']['block_markup'] . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->' . $unicodeArtifacts['footer-1']['block_markup'] . '</div><!-- /wp:group -->'
+        . '<!-- wp:group {"className":"mobile-document"} --><div class="wp-block-group mobile-document">' . $unicodeArtifacts['header-2']['block_markup'] . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . ' mobile</h2><!-- /wp:heading --></main><!-- /wp:group -->' . $unicodeArtifacts['footer-2']['block_markup'] . '</div><!-- /wp:group -->';
+}
+unset($unicodePage);
+$unicodePlan = (new WordPressSitePlan())->fromResult($unicodeResult);
+$unicodeParts = array_column($unicodePlan['template_parts'] ?? array(), null, 'slug');
+$unicodeWrites = $writes($unicodePlan);
+$assert(array_keys($unicodeArtifacts) === array_keys($unicodeParts), 'Every compiled Unicode responsive shell materializes as a template part.');
+foreach ($unicodeParts as $slug => $part) {
+    $content = (string) ($unicodeWrites['parts/' . $slug . '.html']['payload']['data'] ?? '');
+    $assert(1 === preg_match('//u', $content) && !str_contains($content, 'Îœ') && !str_contains($content, 'Â©') && ($part['canonical_block_markup'] ?? null) === $content && hash('sha256', $content) === ($unicodeWrites['parts/' . $slug . '.html']['payload_hash'] ?? null) && 'pass' === ($unicodeRoundTrip->report($content, $unicodeSource)['status'] ?? null), "{$slug} remains byte-identical and valid UTF-8 through template-part materialization.");
+    foreach ($unicodeExpected[$slug] as $fragment) $assert(str_contains($content, $fragment), "{$slug} materialization preserves {$fragment}.");
+}
 
 $styledSvg = '<svg viewBox="0 0 16 16"><path fill="#123456" d="M1 1h14v14H1z"/></svg>';
 $styledSvgDocument = static fn(string $title): string => '<style>.logo svg{width:100%;height:100%}</style><div class="desktop-document"><header class="desktop-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . '</h1></main></div><div class="mobile-document"><header class="mobile-header"><div class="logo">' . $styledSvg . '</div></header><main><h1>' . $title . ' mobile</h1></main></div>';
