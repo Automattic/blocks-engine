@@ -116,6 +116,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorProj
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorSelectorSemanticPreparer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -124,6 +125,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
@@ -291,6 +293,8 @@ final class HtmlTransformer
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
 
     private readonly AuthorSelectorSemanticPreparer $authorSelectorSemanticPreparer;
+
+    private readonly AuthorStyleRuleProjector $authorStyleRuleProjector;
 
     private readonly NavigationStyleProjector $navigationStyleProjector;
 
@@ -471,6 +475,7 @@ final class HtmlTransformer
             $this->styleResolver,
             $this->analysisCache
         );
+        $this->authorStyleRuleProjector = new AuthorStyleRuleProjector($this->styleResolver, $this->authorSelectorSemanticPreparer);
         $this->navigationStyleProjector = new NavigationStyleProjector(
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
@@ -2228,10 +2233,13 @@ final class HtmlTransformer
     private function rewriteAuthorStylesheet(string $stylesheet): string
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules($stylesheet, function (string $prelude, string $body): string {
-            $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
-            $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
-            $body = $this->projectSourceContentBoxSizing($prelude, $body);
-            $body = $this->projectIntrinsicGridRowTracks($prelude, $body);
+            $body = $this->authorStyleRuleProjector->project(
+                $prelude,
+                $body,
+                $this->authorStyles(),
+                $this->sourceStyles(),
+                $this->transformationEvidence()
+            );
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -2252,418 +2260,6 @@ final class HtmlTransformer
                 : $this->rewriteAuthorStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner));
             return $rules . $this->rewriteAuthorSelectorPrelude($prelude, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}' . $imageRule . $svgImageRule;
         });
-    }
-
-    /** Preserve the source initial box model against WordPress's block-level border-box reset. */
-    private function projectSourceContentBoxSizing(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        if ( isset($declarations['box-sizing'])
-            || ! isset($declarations['width'])
-            || ! $this->cssHasDefiniteWidth('width:' . $declarations['width'])
-        ) {
-            return $body;
-        }
-
-        $hasBoxChrome = false;
-        foreach ( $declarations as $property => $value ) {
-            $isBorderWidth = 1 === preg_match('/^border(?:-(?:top|right|bottom|left|block(?:-(?:start|end))?|inline(?:-(?:start|end))?))?(?:-width)?$/', $property);
-            if ( ( 'padding' === $property || str_starts_with($property, 'padding-') || $isBorderWidth )
-                && $this->cssValueIsNonZero($value)
-            ) {
-                $hasBoxChrome = true;
-                break;
-            }
-        }
-        if ( ! $hasBoxChrome ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-        if ( $this->authorStylesUseUniversalBorderBoxReset() ) {
-            return $body;
-        }
-        $matched = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
-                $matched = true;
-                if ( 'a' === strtolower($element->tagName)
-                    || FormControlClassifier::isControlElement($element)
-                    || 'button' === strtolower(trim($this->attr($element, 'role')))
-                ) {
-                    // Native control conversion splits source geometry across
-                    // synthetic wrappers and link surfaces.
-                    return $body;
-                }
-                $resolved = $this->cssComparableValue((string) ($this->styleResolver->structuralPresentationDeclarations($element)['box-sizing'] ?? ''));
-                if ( ! in_array($resolved, array( '', 'content-box', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
-                    return $body;
-                }
-            }
-        }
-        if ( ! $matched ) {
-            return $body;
-        }
-
-        return $body . ( str_ends_with(rtrim($body), ';') ? '' : ';' ) . 'box-sizing:content-box';
-    }
-
-    private function authorStylesUseUniversalBorderBoxReset(): bool
-    {
-        $usesBorderBox = false;
-        ( new CssStylesheetTransformer() )->visitStyleRules(
-            $this->authorStyles()->combinedCss(),
-            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox): void {
-                if ( $usesBorderBox || array() !== $ancestors ) {
-                    return;
-                }
-                $boxSizing = $this->cssComparableValue((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
-                if ( 'border-box' !== $boxSizing ) {
-                    return;
-                }
-                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    if ( '*' === trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector)) ) {
-                        $usesBorderBox = true;
-                        return;
-                    }
-                }
-            }
-        );
-        return $usesBorderBox;
-    }
-
-    /**
-     * Captured builders commonly impose a desktop canvas minimum on a document
-     * root and its immediate section strips. That is runtime viewport scaffolding,
-     * not an authored content constraint: retaining it forces a desktop-wide
-     * WordPress document on narrow viewports. Only project broad absolute values
-     * when every matched source element is a structural shell or section surface.
-     */
-    private function projectResponsiveCanvasMinimumWidth(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $minimumWidth = (string) ($declarations['min-width'] ?? '');
-        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element));
-            if ( count($shellMatches) !== count($matches) ) {
-                if ( array() !== $shellMatches ) {
-                    $this->transformationEvidence()->recordResponsiveGeometryAmbiguity($selector, $minimumWidth);
-                }
-                return $body;
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($minimumWidth) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'min-width' !== strtolower(trim(strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'min-width:0' . $important;
-        $retained[] = 'max-width:100%' . $important;
-        return implode(';', $retained);
-    }
-
-    /**
-     * Fractional row tracks only absorb leftover height when the grid container
-     * has a definite block size. Captured auto-height grids still author `1fr`
-     * so a stretched WordPress parent, or a hidden complementary responsive
-     * sibling that leaves an explicit track empty, opens a blank region between
-     * content rows. Collapse those tracks to `min-content`, which is the auto-
-     * height source rendering.
-     */
-    private function projectIntrinsicGridRowTracks(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $rows = (string) ($declarations['grid-template-rows'] ?? '');
-        if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            foreach ( $matches as $element ) {
-                if ( ! $this->isIntrinsicallySizedGridContainer($element, $declarations) ) {
-                    return $body;
-                }
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $collapsed = $this->collapseFractionalGridRowTracks($this->cssValueWithoutImportant($rows));
-        if ( $collapsed === $this->cssValueWithoutImportant($rows) ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($rows) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'grid-template-rows' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'grid-template-rows:' . $collapsed . $important;
-        return implode(';', $retained);
-    }
-
-    /** @param array<string, string> $ruleDeclarations */
-    private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations = array()): bool
-    {
-        $declarations = $this->styleResolver->mergeCssDeclarationMaps(
-            $this->styleResolver->structuralPresentationDeclarations($element),
-            $ruleDeclarations
-        );
-        $display = strtolower($this->cssValueWithoutImportant((string) ($declarations['display'] ?? '')));
-        if ( 'none' === $display ) {
-            return true;
-        }
-
-        return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
-            && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
-    }
-
-    private function isDefiniteBlockSize(string $value): bool
-    {
-        $value = strtolower($this->cssValueWithoutImportant($value));
-        if ( '' === $value || in_array($value, array( 'auto', 'none', 'unset', 'inherit', 'initial', '0', '0px', '0%', 'min-content', 'max-content', 'fit-content' ), true) ) {
-            return false;
-        }
-        if ( 1 === preg_match('/^-?[\d.]+%$/', $value) ) {
-            return false;
-        }
-        if ( 1 === preg_match('/^-?[\d.]+(?:px|r?em|vh|dvh|svh|lvh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc)$/', $value) ) {
-            return 0.0 < (float) $value;
-        }
-        if ( 1 === preg_match('/^(?:calc|min|max|clamp|var)\(/', $value) ) {
-            return (bool) preg_match('/(?:vh|dvh|svh|lvh|px|r?em)\b/', $value);
-        }
-
-        return false;
-    }
-
-    private function gridTemplateRowsContainFractionalTrack(string $rows): bool
-    {
-        foreach ( CssValueSplitter::splitTopLevelWhitespace($this->cssValueWithoutImportant($rows)) as $track ) {
-            if ( $this->gridRowTrackIsFractional($track) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private function gridRowTrackIsFractional(string $track): bool
-    {
-        $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
-            return true;
-        }
-        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
-            return false;
-        }
-        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
-        $list = $parts[1] ?? '';
-
-        return '' !== $list && $this->gridTemplateRowsContainFractionalTrack($list);
-    }
-
-    private function collapseFractionalGridRowTracks(string $rows): string
-    {
-        $tracks = CssValueSplitter::splitTopLevelWhitespace($rows);
-        $rewritten = array();
-        foreach ( $tracks as $track ) {
-            $rewritten[] = $this->collapseFractionalGridRowTrack($track);
-        }
-
-        return implode(' ', $rewritten);
-    }
-
-    private function collapseFractionalGridRowTrack(string $track): string
-    {
-        $track = trim($track);
-        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
-            return 'min-content';
-        }
-        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
-            return $track;
-        }
-        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
-        if ( 2 !== count($parts) ) {
-            return $track;
-        }
-
-        return 'repeat(' . $parts[0] . ', ' . $this->collapseFractionalGridRowTracks($parts[1]) . ')';
-    }
-
-    private function isWideAbsoluteMinimumWidth(string $value): bool
-    {
-        $value = $this->cssValueWithoutImportant($value);
-        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(px|r?em)$/i', $value, $matches) ) {
-            return false;
-        }
-        $pixels = (float) $matches[1];
-        if ( 'px' !== strtolower($matches[2]) ) {
-            $pixels *= self::ROOT_FONT_SIZE_PX;
-        }
-        return $pixels >= 640;
-    }
-
-    /**
-     * A percentage height computes to auto when its containing block has an
-     * indefinite height. Preserve that source behavior after block wrappers are
-     * introduced, because those wrappers can otherwise make the height definite.
-     */
-    private function projectAutoSizedStructuralPercentageHeight(string $prelude, string $body): string
-    {
-        $declarations = $this->styleResolver->cssDeclarations($body);
-        $height = (string) ($declarations['height'] ?? '');
-        if ( '100%' !== strtolower($this->cssValueWithoutImportant($height)) ) {
-            return $body;
-        }
-
-        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
-        if ( null === $selectors ) {
-            return $body;
-        }
-
-        $matchedSurface = false;
-        foreach ( $selectors as $selector ) {
-            $parsed = $this->parsedCssSelector($selector);
-            if ( ! $parsed['supported'] ) {
-                return $body;
-            }
-            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
-            if ( array() === $matches ) {
-                continue;
-            }
-            $matchedSurface = true;
-            $autoSizedMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isAutoSizedStructuralPercentageHeight($element));
-            if ( count($autoSizedMatches) !== count($matches) ) {
-                if ( array() !== $autoSizedMatches ) {
-                    $this->transformationEvidence()->recordResponsiveHeightAmbiguity($selector, $height);
-                }
-                return $body;
-            }
-        }
-
-        if ( ! $matchedSurface ) {
-            return $body;
-        }
-
-        $important = $this->cssValueIsImportant($height) ? '!important' : '';
-        $retained = array();
-        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
-            if ( 'height' !== strtolower(trim(strtok($declaration, ':'))) ) {
-                $retained[] = $declaration;
-            }
-        }
-        $retained[] = 'height:auto' . $important;
-        return implode(';', $retained);
-    }
-
-    private function isAutoSizedStructuralPercentageHeight(DOMElement $element): bool
-    {
-        if ( in_array(strtolower($element->tagName), array( 'canvas', 'embed', 'iframe', 'img', 'input', 'object', 'picture', 'svg', 'video' ), true) ) {
-            return false;
-        }
-
-        $elementStyle = $this->styleResolver->structuralPresentationDeclarations($element);
-        if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
-            return false;
-        }
-
-        $ancestor = $element->parentNode;
-        while ( $ancestor instanceof DOMElement && $ancestor !== $this->authorStyles()->sourceBody() ) {
-            $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);
-            if ( in_array(strtolower($this->cssValueWithoutImportant((string) ($style['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
-                return false;
-            }
-            $ancestorHeight = strtolower($this->cssValueWithoutImportant((string) ($style['height'] ?? '')));
-            if ( ! in_array($ancestorHeight, array( '', 'auto', '100%' ), true) ) {
-                return false;
-            }
-            if ( in_array(strtolower($ancestor->tagName), array( 'footer', 'header', 'section' ), true) ) {
-                return in_array($ancestorHeight, array( '', 'auto' ), true);
-            }
-            $ancestor = $ancestor->parentNode;
-        }
-
-        return false;
-    }
-
-    private function isPageShellOrSectionSurface(DOMElement $element): bool
-    {
-        if ( $element->parentNode === $this->authorStyles()->sourceBody() ) {
-            return true;
-        }
-
-        if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {
-            return true;
-        }
-
-        $parent = $element->parentNode;
-        return $parent instanceof DOMElement
-            && $parent->parentNode === $this->authorStyles()->sourceBody()
-            && $this->elementChildCount($parent) > 1;
-    }
-
-    private function elementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-        return $count;
     }
 
     private function rewriteAuthorStyleRule(string $prelude, string $body): string
@@ -2902,24 +2498,7 @@ final class HtmlTransformer
 
     private function cssHasDefiniteWidth(string $css): bool
     {
-        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
-            $colon = strpos($declaration, ':');
-            if ( false === $colon ) {
-                continue;
-            }
-            $name = strtolower(trim(substr($declaration, 0, $colon)));
-            if ( 'width' !== $name && 'min-width' !== $name ) {
-                continue;
-            }
-            $value = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', trim(substr($declaration, $colon + 1)))));
-            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
+        return CssValueInspector::hasDefiniteWidth($css);
     }
 
     /**
@@ -5098,7 +4677,7 @@ final class HtmlTransformer
 
     private function cssComparableValue(string $value): string
     {
-        return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
+        return CssValueInspector::comparable($value);
     }
 
     private function hasAuthorSemanticMarker(DOMElement $element): bool
@@ -8093,21 +7672,7 @@ final class HtmlTransformer
      */
     private function cssValueIsNonZero(string $value): bool
     {
-        $normalized = strtolower(trim($value));
-        if ( '' === $normalized || 'none' === $normalized ) {
-            return false;
-        }
-
-        foreach ( preg_split('/[\s,]+/', $normalized) ?: array() as $token ) {
-            if ( '' === $token ) {
-                continue;
-            }
-            if ( ! preg_match('/^0(?:\.0+)?[a-z%]*$/', $token) ) {
-                return true;
-            }
-        }
-
-        return false;
+        return CssValueInspector::isNonZero($value);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
@@ -13518,12 +13083,12 @@ final class HtmlTransformer
 
     private function cssValueWithoutImportant(string $value): string
     {
-        return trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+        return CssValueInspector::withoutImportant($value);
     }
 
     private function cssValueIsImportant(string $value): bool
     {
-        return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
+        return CssValueInspector::isImportant($value);
     }
 
     /**
