@@ -29,6 +29,8 @@ $tiles = '<my-pricing><div class="tier"><h3>Basic</h3><p>$9</p></div><div class=
 $svg = '<main><svg viewBox="0 0 10 10" role="img" aria-label="Map"><path d="M0 0h10v10z"/></svg></main>';
 $script = '<main><script src="widget.js"></script><canvas id="map">Map</canvas></main>';
 $styled = '<style>.card{display:grid;gap:1rem;color:#123}.card .title{font-weight:700}</style><main class="card" style="display:flex;gap:2rem"><h2 class="title">Styled</h2></main>';
+$borderBox = '<style>*,*::before,*::after{box-sizing:border-box}.card{width:640px;padding:48px;border:2px solid}</style><main class="card">Border box</main>';
+$contentBox = '<style>.card{width:640px;padding:48px;border:2px solid}</style><main class="card">Content box</main>';
 $accordion = static fn (string $label, string $answer): string => '<section class="faq"><div class="faq-item"><button aria-controls="a">' . $label . ' A?</button><div id="a"><p>' . $answer . ' A.</p></div></div><div class="faq-item"><button aria-controls="b">' . $label . ' B?</button><div id="b"><p>' . $answer . ' B.</p></div></div></section>';
 
 $families = array(
@@ -58,6 +60,14 @@ $families = array(
         'assertion' => static fn (array $result): bool => str_contains(
             implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content')),
             '#0a0'
+        ),
+    ),
+    'author border-box reset' => array(
+        'seed' => array($borderBox, array()),
+        'target' => array($contentBox, array()),
+        'assertion' => static fn (array $result): bool => str_contains(
+            implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content')),
+            'box-sizing:content-box'
         ),
     ),
     'reused pattern execution context' => array(

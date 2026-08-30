@@ -16,6 +16,7 @@ $values = array(
     array(2 => 'x', 0 => 'a', 1 => 'b'),
     array(0 => 'a', 2 => 'b'),
     array(array('nested' => array('b' => 2, 'a' => 1))),
+    str_repeat('x', 65535) . 'é' . str_repeat('y', 65535),
 );
 
 foreach ($values as $value) {

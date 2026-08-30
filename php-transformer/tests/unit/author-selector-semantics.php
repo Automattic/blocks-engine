@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 
 $failures = 0;
 $passes = 0;
@@ -25,6 +27,22 @@ $css = static function (array $result): string {
     }
     return implode("\n", $parts);
 };
+
+$candidateDom = new DOMDocument();
+$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
+$candidateBody = $candidateDom->getElementsByTagName('body')->item(0);
+if (! $candidateBody instanceof DOMElement) {
+    throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
+}
+$candidateAnalysis = new AuthorStyleAnalysis('', '', array(), $candidateBody);
+$attributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('[data-color="1"]'));
+$typedAttributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('p[data-color="1"]'));
+$assert(
+    2 === count($attributeCandidates)
+        && 2 === count($typedAttributeCandidates)
+        && array_reduce($attributeCandidates, static fn (bool $matched, DOMElement $element): bool => $matched && $element->hasAttribute('data-color'), true),
+    'rightmost attributes lazily narrow selector candidates instead of scanning the full source document'
+);
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');

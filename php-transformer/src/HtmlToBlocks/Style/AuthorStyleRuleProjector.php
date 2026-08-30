@@ -6,16 +6,22 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use DOMElement;
+use WeakMap;
 
 /** Projects authored rule bodies whose source geometry changes under block wrappers. */
 final class AuthorStyleRuleProjector
 {
     private const ROOT_FONT_SIZE_PX = 16;
 
+    /** @var WeakMap<AuthorStyleAnalysis, bool> */
+    private WeakMap $universalBorderBoxResets;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly AuthorSelectorSemanticPreparer $semanticPreparer
-    ) {}
+    ) {
+        $this->universalBorderBoxResets = new WeakMap();
+    }
 
     public function project(
         string $prelude,
@@ -86,6 +92,10 @@ final class AuthorStyleRuleProjector
 
     private function authorStylesUseUniversalBorderBoxReset(AuthorStyleAnalysis $authorStyles): bool
     {
+        if ( isset($this->universalBorderBoxResets[$authorStyles]) ) {
+            return $this->universalBorderBoxResets[$authorStyles];
+        }
+
         $usesBorderBox = false;
         ( new CssStylesheetTransformer() )->visitStyleRules(
             $authorStyles->combinedCss(),
@@ -105,7 +115,7 @@ final class AuthorStyleRuleProjector
                 }
             }
         );
-        return $usesBorderBox;
+        return $this->universalBorderBoxResets[$authorStyles] = $usesBorderBox;
     }
 
     private function projectResponsiveCanvasMinimumWidth(

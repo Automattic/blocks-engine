@@ -18,6 +18,8 @@ final class AuthorStyleAnalysis
     private array $sourceElementsById = array();
     /** @var array<string, list<DOMElement>> */
     private array $sourceElementsByClass = array();
+    /** @var array<string, list<DOMElement>> */
+    private array $sourceElementsByAttribute = array();
     /** @var array<string, true> */
     private array $sourceTags = array();
     /** @var array<string, true> */
@@ -153,11 +155,30 @@ final class AuthorStyleAnalysis
         if ( is_string($rightmost['type'] ?? null) && '' !== $rightmost['type'] ) {
             $candidates[] = $this->sourceElementsByTag[strtolower($rightmost['type'])] ?? array();
         }
+        foreach ( $rightmost['attributes'] ?? array() as $attribute ) {
+            $name = strtolower((string) ($attribute['name'] ?? ''));
+            if ( '' !== $name ) {
+                $candidates[] = $this->sourceElementsByAttribute($name);
+            }
+        }
         if ( array() === $candidates ) {
             return $this->sourceElements;
         }
         usort($candidates, static fn (array $left, array $right): int => count($left) <=> count($right));
         return $candidates[0];
+    }
+
+    /** @return list<DOMElement> */
+    private function sourceElementsByAttribute(string $name): array
+    {
+        if ( isset($this->sourceElementsByAttribute[$name]) ) {
+            return $this->sourceElementsByAttribute[$name];
+        }
+
+        return $this->sourceElementsByAttribute[$name] = array_values(array_filter(
+            $this->sourceElements,
+            static fn (DOMElement $element): bool => $element->hasAttribute($name)
+        ));
     }
 
     /** @param array<string, mixed> $parsed */

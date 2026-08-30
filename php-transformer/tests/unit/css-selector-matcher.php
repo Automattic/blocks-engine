@@ -104,6 +104,13 @@ $candidateIndex = array(
 );
 $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('target'), 'test', $candidateIndex), 'selector');
 $assert(array( '#target', '.final', 'span', ':not(.excluded)', 'span[data-value]' ) === $candidateSelectors, 'candidate index merges id, class, tag, and universal rules in source order while type wins over direct attributes');
+$pathCache = new CssSelectorMatchCache();
+$pathCachedElement = $byId('target');
+$pathCache->attribute($pathCachedElement, 'id');
+$pathCache->attribute($pathCachedElement, 'id');
+$pathCache->classTokens($pathCachedElement);
+$pathCache->attributeNames($pathCachedElement);
+$assert(1 === $pathCache->connectedElementKeyBuilds && 4 === $pathCache->connectedElementKeyHits, 'connected element wrappers compute their document path once per immutable cache revision');
 $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('one'), 'test-attributes', $candidateIndex), 'selector');
 $assert(array( '[data-value]', ':not(.excluded)' ) === $candidateSelectors, 'direct attribute-presence buckets select only elements carrying the attribute');
 $assert($candidateCache->matches($byId('target'), '.final', CssSelectorMatcher::parse('.final'))['matches'], 'selector result cache matches the initial class');
