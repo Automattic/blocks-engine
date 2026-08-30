@@ -43,6 +43,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFin
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
@@ -114,7 +116,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportSt
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\ElementConversionTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
@@ -142,7 +143,6 @@ final class HtmlTransformer
      */
     private const WRAPPER_CONTENT_SHAPE_DEPTH = 2;
     use DomHelpersTrait;
-    use ElementConversionTrait;
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
@@ -316,6 +316,8 @@ final class HtmlTransformer
     private readonly TableElementConverter $tableConverter;
 
     private readonly FigureElementConverter $figureConverter;
+
+    private readonly FlowContainerElementConverter $flowContainerConverter;
 
     private readonly ListElementConverter $listConverter;
 
@@ -647,6 +649,67 @@ final class HtmlTransformer
             fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
+        ));
+        $this->flowContainerConverter = new FlowContainerElementConverter(new FlowContainerElementContext(
+            runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
+                if ( ! $this->runtimeIslands->shouldPreserveRuntimeAppShell($element) ) {
+                    return null;
+                }
+                $targets = $this->runtimeIslands->runtimeTargetsInSubtree($element, 8);
+                $this->runtimeIslands->recordRuntimeIsland($element, 'app_shell', 'runtime_app_shell', 'client_script_execution', array(
+                    'events' => $this->eventMetadata($element),
+                    'target_count' => count($targets),
+                    'targets' => $targets,
+                    'app_shell_signals' => $this->runtimeIslands->runtimeAppShellSignals($element),
+                    'required_scripts' => $this->requiredScriptsForElement($element),
+                ));
+                return $this->htmlPreservationBlock($element);
+            },
+            isEmptyInteractiveFeatureShell: fn (DOMElement $element): bool => $this->isEmptyInteractiveFeatureShell($element),
+            capturePseudoFormFallback: function (DOMElement $element, array &$fallbacks): void { $this->formDispatcher->capturePseudoFormFallback($element, $fallbacks); },
+            recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
+            flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
+            capturedMediaLayoutBlock: fn (DOMElement $element): ?array => $this->capturedMediaLayoutBoundaryBlock($element),
+            hasResponsiveImageSources: fn (DOMElement $element): bool => $this->hasResponsiveImageSources($element),
+            hasGalleryMediaItems: fn (DOMElement $element): bool => $this->hasGalleryMediaItems($element),
+            responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
+            isDirectChildOfAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
+            attr: fn (DOMElement $element, string $name): string => $this->attr($element, $name),
+            authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
+            hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
+            paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
+            hasClass: fn (DOMElement $element, string $className): bool => $this->hasClass($element, $className),
+            isGeneratedComponentCandidate: fn (DOMElement $element): bool => $this->isGeneratedComponentCandidate($element),
+            isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
+            proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
+            childElementCount: fn (DOMElement $element): int => $this->childElementCount($element),
+            shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
+            emptyVisualElementAttributes: fn (DOMElement $element): array => $this->emptyVisualElementAttributes($element),
+            createBlock: fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
+            navigationSectionBlock: fn (DOMElement $element): ?array => $this->navigationSectionBlockFromElement($element),
+            shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
+            rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
+            metadataGridBlock: fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
+            rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); },
+            mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
+            namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRowBlockFromElement($element, $fallbacks),
+            inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineTokenGroupBlockFromElement($element, $fallbacks),
+            visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
+            standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
+            readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
+            authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselBlock($element),
+            generatedComponentBlock: function (DOMElement $element): ?array {
+                $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
+                return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
+            },
+            textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
+            convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
+            hasDirectMediaChild: fn (DOMElement $element): bool => $this->hasDirectMediaChild($element),
+            backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
+            coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
+            shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
+            presentationAttributes: fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
@@ -4491,8 +4554,9 @@ if ( 'svg' === $tagName ) {
             }
         }
 
-        if ( ShellLandmarkPolicy::isFlowContainerTag($tagName) ) {
-            return $this->convertFlowContainerElement($element, $fallbacks);
+        $flowContainerDispatch = $this->flowContainerConverter->convert($element, $tagName, $fallbacks);
+        if ( $flowContainerDispatch->handled ) {
+            return $flowContainerDispatch->block;
         }
 
         $carousel = $this->authoredCarouselBlock($element);
