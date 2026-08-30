@@ -72,6 +72,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeResourceElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementContext;
@@ -297,6 +298,8 @@ final class HtmlTransformer
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
 
+    private readonly RuntimeResourceElementConverter $runtimeResourceConverter;
+
     private readonly FormRuntimeIslandRecorder $formRuntimeIslandRecorder;
 
     private readonly FormControlMetadataBuilder $formControlMetadataBuilder;
@@ -513,6 +516,11 @@ final class HtmlTransformer
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
+            fn (): HtmlTransformerSession => $this->session,
+            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
+            fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element)
+        );
         $this->formRuntimeIslandRecorder = new FormRuntimeIslandRecorder(
             $this->formControlMetadataBuilder,
             function (DOMElement $element, string $kind, string $reason, string $capability, array $metadata): void {
@@ -4773,37 +4781,9 @@ final class HtmlTransformer
             return $specializedDispatch->block;
         }
 
-        if ( 'canvas' === $tagName ) {
-            if ( ! $this->runtimeIslands->isRuntimeCanvasTarget($element) ) {
-                return null;
-            }
-
-            $this->runtimeIslands->recordRuntimeIsland($element, 'canvas', 'canvas_requires_runtime', 'canvas_element_and_client_script_execution', array(
-                'script_dependency_hint' => 'Scripts may target this canvas and call canvas APIs such as getContext(); preserving the native element keeps the runtime addressable.',
-                'required_scripts'        => $this->requiredScriptsForElement($element),
-            ));
-            return $this->htmlPreservationBlock($element);
-        }
-
-        if ( 'script' === $tagName ) {
-            if ( $this->captureStaticScriptMetadata($element) ) {
-                if ( $this->isAddressableStaticJsonTarget($element) ) {
-                    $this->runtimeIslands->recordRuntimeIsland($element, 'static_script', 'static_script_runtime_target', 'client_script_configuration', array(
-                        'script_role' => 'data',
-                        'required_scripts' => $this->requiredScriptsForElement($element),
-                    ));
-                    return $this->staticJsonTargetBlock($element);
-                }
-                return null;
-            }
-
-            $this->captureScriptFallback($element, $fallbacks);
-            return null;
-        }
-
-        if ( 'template' === $tagName ) {
-            $this->captureTemplateFallback($element, $fallbacks);
-            return null;
+        $runtimeResourceDispatch = $this->runtimeResourceConverter->convert($element, $tagName, $fallbacks);
+        if ( $runtimeResourceDispatch->handled ) {
+            return $runtimeResourceDispatch->block;
         }
 
         if ( 'form' === $tagName ) {
@@ -11591,72 +11571,6 @@ final class HtmlTransformer
         $namespace = is_scalar($options['generated_block_namespace'] ?? null) ? trim((string) $options['generated_block_namespace']) : '';
 
         return '' !== $namespace ? $namespace : 'custom';
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function captureScriptFallback(DOMElement $element, array &$fallbacks): void
-    {
-        $this->fallbackEmitter()->captureScriptFallback($element, $fallbacks, $this->runtimeDom());
-    }
-
-    private function captureStaticScriptMetadata(DOMElement $element): bool
-    {
-        $metadata = $this->fallbackEmitter()->staticScriptMetadata($element);
-        if ( null === $metadata ) {
-            return false;
-        }
-
-        $this->runtimeBehavior()->recordScriptMetadata($metadata);
-
-        return true;
-    }
-
-    /**
-     * Keep a static JSON script in the page only when a carried runtime script
-     * addresses its id. JSON script types never execute, unlike static JavaScript
-     * assignments that remain metadata-only.
-     */
-    private function isAddressableStaticJsonTarget(DOMElement $element): bool
-    {
-        $id = trim($this->attr($element, 'id'));
-        $type = strtolower(trim($this->attr($element, 'type')));
-        if ( '' === $id || ! in_array($type, array('application/json', 'application/ld+json'), true) || ! $this->runtimeSelectors()->hasDom('#' . $id) ) {
-            return false;
-        }
-
-        $metadata = $this->runtimeBehavior()->latestScriptMetadata();
-        if ( null === $metadata || ! empty($metadata['body_truncated']) ) {
-            return false;
-        }
-
-        return null !== json_decode((string) ($metadata['body'] ?? ''), true);
-    }
-
-    private function staticJsonTargetBlock(DOMElement $element): array
-    {
-        $metadata = $this->runtimeBehavior()->latestScriptMetadata() ?? array();
-        $attributes = is_array($metadata['attributes'] ?? null) ? $metadata['attributes'] : array();
-        ksort($attributes, SORT_STRING);
-        $attributeHtml = '';
-        foreach ( $attributes as $name => $value ) {
-            if ( ! is_string($name) || ! is_string($value) ) {
-                continue;
-            }
-            $attributeHtml .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        $body = str_replace('</script', '<\\/script', (string) ($metadata['body'] ?? ''));
-
-        return $this->createBlock('core/html', array('content' => '<script' . $attributeHtml . '>' . $body . '</script>'), array(), $element);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function captureTemplateFallback(DOMElement $element, array &$fallbacks): void
-    {
-        $this->fallbackEmitter()->captureTemplateFallback($element, $fallbacks, $this->runtimeDom());
     }
 
     /**

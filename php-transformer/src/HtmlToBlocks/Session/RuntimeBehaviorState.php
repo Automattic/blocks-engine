@@ -60,14 +60,6 @@ final class RuntimeBehaviorState
         return $this->scriptMetadata;
     }
 
-    /** @return array<string, mixed>|null */
-    public function latestScriptMetadata(): ?array
-    {
-        $metadata = end($this->scriptMetadata);
-
-        return is_array($metadata) ? $metadata : null;
-    }
-
     public function rememberNativeDisclosureRoot(string $path): void
     {
         $this->nativeDisclosureRootPaths[$path] = true;
