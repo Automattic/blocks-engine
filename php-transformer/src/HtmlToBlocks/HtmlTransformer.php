@@ -129,6 +129,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTrans
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceStyleResolutionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
@@ -291,6 +292,8 @@ final class HtmlTransformer
     private readonly RichTextElementConverter $richTextConverter;
 
     private readonly StyleResolver $styleResolver;
+
+    private readonly GeneratedBlockStyleProjector $generatedBlockStyleProjector;
 
     private readonly StylesheetAnalysisComposer $stylesheetAnalysisComposer;
 
@@ -463,6 +466,7 @@ final class HtmlTransformer
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
+        $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
             new AuthorSelectorSemanticContext(
@@ -3371,9 +3375,14 @@ final class HtmlTransformer
             $hasNativeButtonColor = false;
             $hasNativeButtonStyle = false;
             if ( 'core/button' === $name && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) ) {
-                $existingTextColor = (string) ($attrs['style']['color']['text'] ?? '');
-                $nativeButtonTextAlignment = $this->applyNativeButtonInheritedStyle($logicalControl, $attrs, 'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl));
-                $hasNativeButtonColor = $existingTextColor !== (string) ($attrs['style']['color']['text'] ?? '');
+                $nativeButtonProjection = $this->generatedBlockStyleProjector->projectNativeButtonInheritedStyle(
+                    $logicalControl,
+                    $attrs,
+                    'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl)
+                );
+                $attrs = $nativeButtonProjection['attrs'];
+                $nativeButtonTextAlignment = $nativeButtonProjection['text_alignment'];
+                $hasNativeButtonColor = $nativeButtonProjection['color_changed'];
                 $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
             }
             if ( in_array($name, array( 'core/button', 'core/buttons' ), true) && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true) && ( $this->authorSelectorProjections()->isControlPath($logicalControlPath) || ( '' !== $this->authorStyles()->combinedCss() && 'a' === strtolower($logicalControl->tagName) && ( '' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')) ) ) ) ) {
@@ -3383,13 +3392,13 @@ final class HtmlTransformer
                 if ( '' !== $controlMarker ) {
                     $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                     if ( 'core/button' === $name ) {
-                        $this->registerNativeButtonStyleRule($controlMarker, $attrs, $nativeButtonTextAlignment, $logicalControl);
+                        $this->generatedBlockStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $this->generatedSupportStyles(), $nativeButtonTextAlignment, $logicalControl);
                         if ( $this->isDirectChildOfAuthorFlexLayout($logicalControl) ) {
-                            $this->generatedSupportStyles()->registerDirectFlexButton($controlMarker, $this->directFlexButtonStyleRule($controlMarker, $logicalControl));
+                            $this->generatedBlockStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $this->generatedSupportStyles());
                         }
                         $buttonWidth = (int) ($attrs['width'] ?? 0);
                         if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                            $this->generatedSupportStyles()->registerButtonWidth($controlMarker, $this->buttonWidthStyleRule($controlMarker, $buttonWidth));
+                            $this->generatedBlockStyleProjector->registerButtonWidth($controlMarker, $buttonWidth, $this->generatedSupportStyles());
                         }
                     }
                 }
@@ -3403,13 +3412,21 @@ final class HtmlTransformer
                     ? $this->allocateAuthorMarker('native-button')
                     : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
                 $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
-                $this->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $nativeButtonTextAlignment);
+                $this->generatedBlockStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $this->generatedSupportStyles(), $nativeButtonTextAlignment);
                 $buttonWidth = (int) ($attrs['width'] ?? 0);
                 if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-                    $this->generatedSupportStyles()->registerButtonWidth($nativeButtonMarker, $this->buttonWidthStyleRule($nativeButtonMarker, $buttonWidth));
+                    $this->generatedBlockStyleProjector->registerButtonWidth($nativeButtonMarker, $buttonWidth, $this->generatedSupportStyles());
                 }
             }
-            $attrs = $this->applyDeclaredBlockSupport($name, $attrs, $sourceElement);
+            $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
+                || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
+            $attrs = $this->generatedBlockStyleProjector->applyDeclaredBlockSupport(
+                $name,
+                $attrs,
+                $sourceElement,
+                $this->generatedSupportStyles(),
+                $preserveGeneratedStyle
+            );
             $this->recordPresentationProvenance($name, $attrs, $sourceElement);
             $this->recordStructureProvenance($name, $attrs, $sourceElement);
             if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! FormControlClassifier::isControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
@@ -3523,253 +3540,6 @@ final class HtmlTransformer
         $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
         $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $this->generatedSupportStyles()->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
-    }
-
-    /**
-     * WordPress ignores style.border components that the registered block type
-     * does not declare. Keep supported components native; move only unsupported
-     * width/style/color values into the existing deterministic carrier. Border
-     * radius deliberately stays on the pre-existing native path unchanged.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function applyDeclaredBlockSupport(string $name, array $attrs, DOMElement $sourceElement): array
-    {
-        $normalized = $this->runtime->normalizeBlockSupportAttributes($name, $attrs);
-        $fallback = $normalized['fallbackStyle'];
-        $attrs = $normalized['attrs'];
-        $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
-        if ( '' !== $submenuBackground && array() !== $this->styleResolver->cssDeclarations('background-color:' . $submenuBackground) ) {
-            $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $className);
-            $this->generatedSupportStyles()->registerNavigationSubmenuBackground($className, $submenuBackground);
-        }
-        $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
-        if ( 'core/navigation' === $name && is_array($fallback['spacing']['padding'] ?? null) ) {
-            foreach ( $classes as $class ) {
-                if ( 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->generatedSupportStyles()->registerListNavigationPadding($class, $fallback['spacing']['padding']);
-                }
-            }
-        }
-        if ( 'core/navigation' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
-            foreach ( $classes as $class ) {
-                if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {
-                    $this->generatedSupportStyles()->registerNavigationSpacing($class, $declarations);
-                    break;
-                }
-            }
-        }
-        if ( 'core/buttons' === $name && is_array($fallback['spacing'] ?? null) ) {
-            $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
-            foreach ( $classes as $class ) {
-                if ( '' !== $declarations && str_starts_with($class, 'blocks-engine-control-') ) {
-                    $this->generatedSupportStyles()->registerButtonWrapperSpacing($class, $declarations);
-                    break;
-                }
-            }
-        }
-        if ( in_array($name, array( 'core/navigation-link', 'core/navigation-submenu' ), true) && '' !== trim((string) ($fallback['color']['text'] ?? '')) ) {
-            foreach ( $classes as $class ) {
-                if ( (str_starts_with($class, 'blocks-engine-navigation-link-color-')
-                        && ! str_starts_with($class, 'blocks-engine-navigation-link-color-states-'))
-                    || str_starts_with($class, 'blocks-engine-navigation-current-color-')
-                ) {
-                    $this->generatedSupportStyles()->registerNavigationLinkColor($class, (string) $fallback['color']['text']);
-                }
-            }
-        }
-        if ( array() === $fallback ) {
-            return $attrs;
-        }
-
-        $fallbackStyle = $this->styleResolver->styleAttributeMapper()->serialize($fallback)['style'];
-        $fallbackDeclarations = $this->styleResolver->cssDeclarations($fallbackStyle);
-        $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceElement, 'style'));
-        $inlineMapped = $this->styleResolver->styleAttributeMapper()->map($inlineDeclarations);
-        $inlineFallbackDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->styleAttributeMapper()->serialize($inlineMapped['style'] ?? array())['style']);
-        $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
-            || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
-        foreach ( array_keys($fallbackDeclarations) as $property ) {
-            if ( 'core/button' === $name
-                && 'border-radius' === $property
-                && '0' === (string) ($fallback['border']['radius'] ?? '')
-            ) {
-                // ButtonStyleResolver adds a square radius to suppress the
-                // theme's default rounded button chrome. It is generated
-                // compatibility geometry, not a missing source declaration.
-                continue;
-            }
-            if ( ! $preserveGeneratedStyle && ! isset($inlineDeclarations[ $property ]) && ! isset($inlineFallbackDeclarations[ $property ]) ) {
-                unset($fallbackDeclarations[ $property ]);
-            }
-        }
-        if ( preg_match('/(?:^|\s)be-inline-geometry-[^\s]+/', (string) ($attrs['className'] ?? '')) ) {
-            // The source geometry carrier preserves declaration priority and
-            // custom-property case. Do not add a lossy mapped duplicate.
-            foreach ( $this->styleResolver->inlineGeometryProperties() as $property ) {
-                unset($fallbackDeclarations[ $property ]);
-            }
-            unset($fallbackDeclarations['box-shadow']);
-        }
-        if ( array() === $fallbackDeclarations ) {
-            return $attrs;
-        }
-        $carrier = $this->styleResolver->inlineGeometryClassName(
-            $sourceElement,
-            array_diff($this->styleResolver->inlineGeometryProperties(), array_keys($fallbackDeclarations)),
-            array_keys($fallbackDeclarations),
-            $fallbackDeclarations
-        );
-        if ( '' !== $carrier ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
-        }
-
-        return $attrs;
-    }
-
-    /**
-     * Project the inherited foreground because core/button supplies a default link
-     * color. Text alignment uses the same scoped link rule for direct and inherited
-     * values, so a local anchor declaration remains authoritative.
-     *
-     * @param array<string, mixed> $attrs
-     */
-    private function applyNativeButtonInheritedStyle(DOMElement $anchor, array &$attrs, bool $useInitialTextAlignment): string
-    {
-        $anchorDeclarations = $this->styleResolver->presentationDeclarations($anchor);
-        $anchorColorInherits = ! isset($anchorDeclarations['color']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['color']);
-        $anchorTextAlignmentInherits = ! isset($anchorDeclarations['text-align']) || $this->isInheritedCssWideValue((string) $anchorDeclarations['text-align']);
-        $inheritedColor = '';
-        $inheritedTextAlignment = '';
-
-        for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
-            if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
-                $inheritedColor = (string) $declarations['color'];
-            }
-            if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
-                $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
-            }
-            if ( '' !== $inheritedColor && '' !== $inheritedTextAlignment ) {
-                break;
-            }
-        }
-
-        if ( '' !== $inheritedColor && ( '' === trim((string) ($attrs['style']['color']['text'] ?? '')) || $this->isInheritedCssWideValue((string) $attrs['style']['color']['text']) ) ) {
-            $mappedColor = $this->styleResolver->styleAttributeMapper()->map(array( 'color' => $inheritedColor ))['style']['color']['text'] ?? '';
-            if ( '' !== trim((string) $mappedColor) ) {
-                $attrs['style']['color']['text'] = $mappedColor;
-            }
-        }
-
-        $textAlignment = $anchorTextAlignmentInherits
-            ? $inheritedTextAlignment
-            : strtolower(trim((string) $anchorDeclarations['text-align']));
-        if ( '' === $textAlignment || 'initial' === $textAlignment ) {
-            return $useInitialTextAlignment ? 'start' : '';
-        }
-        return in_array($textAlignment, array( 'start', 'end', 'left', 'center', 'right' ), true)
-            ? $textAlignment
-            : '';
-    }
-
-    private function isInheritedCssWideValue(string $value): bool
-    {
-        return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
-    }
-
-    /** @param array<string, mixed> $attrs */
-    private function registerNativeButtonStyleRule(string $marker, array $attrs, string $inheritedTextAlignment = '', ?DOMElement $sourceControl = null): void
-    {
-        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
-        $declarations = array();
-        $wrapperDeclarations = array();
-        $outerWrapperDeclarations = array();
-        $intrinsicWrapperDeclarations = array();
-        foreach ( array(
-            'background-color' => $style['color']['background'] ?? '',
-            'color'            => $style['color']['text'] ?? '',
-            'border-color'     => $style['border']['color'] ?? '',
-            'border-style'     => $style['border']['style'] ?? '',
-            'border-width'     => $style['border']['width'] ?? '',
-            'border-radius'    => $style['border']['radius'] ?? '',
-            'font-size'        => $style['typography']['fontSize'] ?? '',
-            'font-weight'      => $style['typography']['fontWeight'] ?? '',
-            'letter-spacing'   => $style['typography']['letterSpacing'] ?? '',
-            'line-height'      => $style['typography']['lineHeight'] ?? '',
-            'text-transform'   => $style['typography']['textTransform'] ?? '',
-            'padding-top'      => $style['spacing']['padding']['top'] ?? '',
-            'padding-right'    => $style['spacing']['padding']['right'] ?? '',
-            'padding-bottom'   => $style['spacing']['padding']['bottom'] ?? '',
-            'padding-left'     => $style['spacing']['padding']['left'] ?? '',
-        ) as $property => $value ) {
-            $value = trim((string) $value);
-            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                $declarations[] = $property . ':' . $value . '!important';
-            }
-        }
-        if ( $sourceControl instanceof DOMElement ) {
-            $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
-            $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
-            $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($sourceControl, 'style'));
-            $hasAuthoredWidth = isset($inlineDeclarations['width'])
-                || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            if ( ! $hasAuthoredWidth && in_array($this->cssComparableValue((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
-                // Preserve the source flex CTA's content-plus-padding contribution
-                // through the synthetic wrappers of its native button topology.
-                $outerWrapperDeclarations[] = 'width:max-content';
-                $outerWrapperDeclarations[] = 'max-width:100%';
-                $intrinsicWrapperDeclarations[] = 'width:max-content';
-                $intrinsicWrapperDeclarations[] = 'max-width:100%';
-                $declarations[] = 'box-sizing:border-box';
-                $declarations[] = 'width:max-content';
-                $declarations[] = 'max-width:100%';
-            }
-            $background = $this->cssComparableValue((string) ($sourceDeclarations['background'] ?? ''));
-            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
-                $declarations[] = 'background-color:transparent!important';
-            }
-            $border = $this->cssComparableValue((string) ($sourceDeclarations['border'] ?? ''));
-            if ( preg_match('/^(?:0(?:px)?|none)$/', $border) ) {
-                if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
-                    $declarations[] = 'border-style:none!important';
-                }
-                if ( '' === trim((string) ($style['border']['width'] ?? '')) ) {
-                    $declarations[] = 'border-width:0!important';
-                }
-            }
-            $height = $this->cssComparableValue((string) ($sourceDeclarations['height'] ?? ''));
-            if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
-                $wrapperDeclarations[] = 'height:100%';
-                $declarations[] = 'height:100%!important';
-            }
-            foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
-                $value = $this->cssComparableValue((string) ($sourceStructuralDeclarations[$property] ?? ''));
-                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                    $declarations[] = $property . ':' . $value . '!important';
-                }
-            }
-        }
-        if ( '' !== $inheritedTextAlignment ) {
-            $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
-        }
-        if ( array() === $declarations ) {
-            return;
-        }
-
-        $outerWrapperRule = array() === $outerWrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-buttons{' . implode(';', $outerWrapperDeclarations) . '}';
-        $wrapperRule = array() === $wrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $wrapperDeclarations) . '}';
-        $intrinsicWrapperRule = array() === $intrinsicWrapperDeclarations
-            ? ''
-            : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
-        $this->generatedSupportStyles()->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -4138,39 +3908,6 @@ final class HtmlTransformer
     {
         return $element->parentNode instanceof DOMElement
             && in_array($this->authoredDisplay($element->parentNode), array( 'flex', 'inline-flex' ), true);
-    }
-
-    private function directFlexButtonStyleRule(string $marker, DOMElement $control): string
-    {
-        $parent = $control->parentNode;
-        $parentStyle = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
-        $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
-        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
-        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
-        $link = $button . '>:where(.wp-block-button__link)';
-        $columnGeometry = $isColumn ? ';width:100%!important' : '';
-
-        // The outer core/buttons wrapper is the lowered source flex item, so its
-        // authored margins must remain intact. Only core/button is synthetic.
-        return $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
-            . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
-            . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}';
-    }
-
-    private function buttonWidthStyleRule(string $marker, int $width): string
-    {
-        $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
-        $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
-        $link = $button . '>:where(.wp-block-button__link)';
-
-        if ( 100 !== $width ) {
-            return $button . '{width:' . (string) $width . '%!important}'
-                . $link . '{box-sizing:border-box;width:100%!important}';
-        }
-
-        return $wrapper . '{display:block!important;gap:0!important;width:100%!important}'
-            . $button . '{display:block!important;margin:0!important;width:100%!important}'
-            . $link . '{box-sizing:border-box;width:100%!important}';
     }
 
     private function isDirectChildOfStructuralLayout(DOMElement $element): bool
