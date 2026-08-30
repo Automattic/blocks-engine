@@ -168,6 +168,7 @@
             "php tests/unit/list-element-converters.php",
             "php tests/unit/svg-element-converter.php",
             "php tests/unit/inline-content-element-converter.php",
+            "php tests/unit/flow-container-element-converter.php",
             "php tests/unit/form-runtime-requirement-analyzer.php",
             "php tests/unit/form-success-panel-metadata-builder.php",
             "php tests/unit/pseudo-form-analyzer.php",
