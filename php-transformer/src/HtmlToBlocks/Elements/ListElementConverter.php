@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPatt
 use DOMElement;
 
 /** Converts ordered and unordered lists through their ordered strategies. */
-final class ListElementConverter
+final class ListElementConverter implements ElementConverter
 {
     public function __construct(private readonly ListElementContext $context)
     {

@@ -13,7 +13,7 @@ use DOMElement;
  * element is offered to data-table classification, because a table used purely
  * for layout must become columns rather than a semantic table.
  */
-final class TableElementConverter
+final class TableElementConverter implements ElementConverter
 {
     public function __construct(private readonly TableElementContext $context)
     {

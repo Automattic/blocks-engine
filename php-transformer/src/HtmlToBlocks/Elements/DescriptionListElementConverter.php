@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use DOMElement;
 
 /** Converts description lists and their term/detail children. */
-final class DescriptionListElementConverter
+final class DescriptionListElementConverter implements ElementConverter
 {
     public function __construct(private readonly DescriptionListElementContext $context)
     {

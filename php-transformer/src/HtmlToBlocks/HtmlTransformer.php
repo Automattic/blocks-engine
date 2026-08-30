@@ -49,6 +49,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementCont
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\OrderedElementConverterRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
@@ -283,7 +284,7 @@ final class HtmlTransformer
 
     private readonly SvgElementConverter $svgConverter;
 
-    private readonly InlineContentElementConverter $inlineContentConverter;
+    private readonly OrderedElementConverterRegistry $inlineStructureConverters;
 
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
@@ -322,10 +323,6 @@ final class HtmlTransformer
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
     private readonly MediaDispatchElementConverter $mediaDispatchConverter;
-
-    private readonly ListElementConverter $listConverter;
-
-    private readonly DescriptionListElementConverter $descriptionListConverter;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
@@ -472,7 +469,7 @@ final class HtmlTransformer
                 $this->captureInlineSvgFallback($element, $fallbacks);
             }
         ), $this->svgMaterializer);
-        $this->inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
+        $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
@@ -618,7 +615,7 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         ));
-        $this->listConverter = new ListElementConverter(new ListElementContext(
+        $listConverter = new ListElementConverter(new ListElementContext(
             function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
                 return $this->recognizePatterns($element, $fallbacks, $patterns);
             },
@@ -639,7 +636,7 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         ));
-        $this->descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
+        $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
             fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
             fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
             fn (DOMElement $element): array => $this->definitionListItems($element),
@@ -653,6 +650,11 @@ final class HtmlTransformer
             fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
+        ));
+        $this->inlineStructureConverters = new OrderedElementConverterRegistry(array(
+            $inlineContentConverter,
+            $listConverter,
+            $descriptionListConverter,
         ));
         $this->flowContainerConverter = new FlowContainerElementConverter(new FlowContainerElementContext(
             runtimeAppShellBlock: function (DOMElement $element, array &$fallbacks): ?array {
@@ -4539,18 +4541,9 @@ final class HtmlTransformer
             return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
         }
 
-        if ( $this->inlineContentConverter->handles($tagName) ) {
-            return $this->inlineContentConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        $listDispatch = $this->listConverter->convert($element, $tagName, $fallbacks);
-        if ( $listDispatch->handled ) {
-            return $listDispatch->block;
-        }
-
-        $descriptionListDispatch = $this->descriptionListConverter->convert($element, $tagName, $fallbacks);
-        if ( $descriptionListDispatch->handled ) {
-            return $descriptionListDispatch->block;
+        $inlineStructureDispatch = $this->inlineStructureConverters->convert($element, $tagName, $fallbacks);
+        if ( $inlineStructureDispatch->handled ) {
+            return $inlineStructureDispatch->block;
         }
 
         if ( 'blockquote' === $tagName ) {

@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use DOMElement;
 
 /** Routes standalone SVGs to materialized, preserved, decorative, or fallback representations. */
-final class SvgElementConverter
+final class SvgElementConverter implements ElementConverter
 {
     public function __construct(
         private readonly SvgElementContext $context,
