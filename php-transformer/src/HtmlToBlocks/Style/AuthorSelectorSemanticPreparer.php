@@ -51,6 +51,7 @@ final class AuthorSelectorSemanticPreparer
         $this->discoverAuthorControlPaths($authorSelectors, $authorStyles, $projections);
         $authorStyles->installStyleRules($authorStyleRules);
         $this->discoverAuthorInlineSemanticPaths($authorSelectors, $authorStyles, $projections);
+        $this->discoverInlineLayoutCarrierPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorAttributePaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorRootChildPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorTablePaths($authorSelectors, $authorStyles, $projections);
@@ -134,13 +135,13 @@ final class AuthorSelectorSemanticPreparer
                 continue;
             }
             foreach ( $this->matchingSourceElements($authorStyles, $selector, $parsed) as $element ) {
+                $path = $element->getNodePath() ?? '';
                 $inlineTag = strtolower($element->tagName);
                 $directChildSelector = '>' === ($parsed['combinators'][count($parsed['combinators']) - 1] ?? null);
                 $directAuthorLayoutItem = $directChildSelector && $this->context->isDirectChildOfAuthorOwnedLayout($element);
                 if ( ! $this->context->isInlineContentElement($inlineTag) || ('span' !== $inlineTag && ! $directAuthorLayoutItem) ) {
                     continue;
                 }
-                $path = $element->getNodePath() ?? '';
                 if ( '' === $path ) {
                     continue;
                 }
@@ -157,6 +158,26 @@ final class AuthorSelectorSemanticPreparer
                 } elseif ( self::richTextSelectorNeedsHook($parsed) ) {
                     $marker = $projections->ensureRichTextMarker($path);
                     $element->setAttribute('data-blocks-engine-richtext-marker', $marker);
+                }
+            }
+        }
+    }
+
+    /** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
+    private function discoverInlineLayoutCarrierPaths(array $authorSelectors, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
+    {
+        foreach ( $authorSelectors as $authorSelector ) {
+            if ( ! $authorSelector['parsed']['supported'] ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $authorSelector['parsed']) as $element ) {
+                $path = $element->getNodePath() ?? '';
+                $parentPath = $element->parentNode instanceof DOMElement ? ($element->parentNode->getNodePath() ?? '') : '';
+                if ( '' !== $path
+                    && $this->context->requiresInlineLayoutCarrier($element)
+                    && ! $projections->isControlPath($parentPath)
+                ) {
+                    $projections->markInlineLayoutCarrierPath($path);
                 }
             }
         }

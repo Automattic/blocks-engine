@@ -14,7 +14,7 @@ final class AuthorSelectorSemanticContext
      * @param Closure(string): bool            $isInlineContentElement
      * @param Closure(DOMElement): bool        $isStructuralListItem
      * @param Closure(DOMElement): bool        $requiresIndependentSemanticWrapper
-     * @param Closure(array, DOMElement): bool $tableSelectorNeedsStructuralProjection
+     * @param Closure(DOMElement): bool        $requiresInlineLayoutCarrier
      * @param Closure(DOMElement): bool        $isRepresentableTable
      */
     public function __construct(
@@ -22,7 +22,7 @@ final class AuthorSelectorSemanticContext
         private readonly Closure $isInlineContentElement,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $requiresIndependentSemanticWrapper,
-        private readonly Closure $tableSelectorNeedsStructuralProjection,
+        private readonly Closure $requiresInlineLayoutCarrier,
         private readonly Closure $isRepresentableTable
     ) {}
 
@@ -46,10 +46,15 @@ final class AuthorSelectorSemanticContext
         return ($this->requiresIndependentSemanticWrapper)($element);
     }
 
+    public function requiresInlineLayoutCarrier(DOMElement $element): bool
+    {
+        return ($this->requiresInlineLayoutCarrier)($element);
+    }
+
     /** @param array<string, mixed> $parsed */
     public function tableSelectorNeedsStructuralProjection(array $parsed, DOMElement $element): bool
     {
-        return ($this->tableSelectorNeedsStructuralProjection)($parsed, $element);
+        return TableSelectorProjectionPolicy::needsStructuralProjection($parsed, $element);
     }
 
     public function isRepresentableTable(DOMElement $table): bool
