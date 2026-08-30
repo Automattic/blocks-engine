@@ -47,6 +47,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\MediaDispatchElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
@@ -318,6 +320,8 @@ final class HtmlTransformer
     private readonly FigureElementConverter $figureConverter;
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
+
+    private readonly MediaDispatchElementConverter $mediaDispatchConverter;
 
     private readonly ListElementConverter $listConverter;
 
@@ -710,6 +714,16 @@ final class HtmlTransformer
             shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
             presentationAttributes: fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
+        ));
+        $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->recognizePatterns($element, $fallbacks, array( PlaceholderMediaPattern::class ));
+            },
+            fn (DOMElement $element): ?array => $this->convertImageElement($element),
+            fn (DOMElement $element): ?array => $this->convertPictureElement($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertIframeElement($element, $fallbacks),
+            fn (DOMElement $element): ?array => $this->convertMediaElement($element),
+            fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element)
         ));
         $this->unsupportedRecorder = new UnsupportedElementRecorder($this->createUnsupportedElementContext(), $this->formControlMetadataBuilder);
     }
@@ -4400,9 +4414,9 @@ final class HtmlTransformer
                 : $this->responsiveMediaBlock($element);
         }
 
-        $mediaDispatch = $this->convertMediaDispatchElement($element, $tagName, $fallbacks);
-        if ( $mediaDispatch['handled'] ) {
-            return $mediaDispatch['block'];
+        $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
+        if ( $mediaDispatch->handled ) {
+            return $mediaDispatch->block;
         }
 
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
@@ -4720,43 +4734,6 @@ if ( 'svg' === $tagName ) {
     private function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
     {
         return in_array(strtolower($element->tagName), array( 'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'footer', 'form', 'header', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array{handled: bool, block: array<string, mixed>|null}
-     */
-    private function convertMediaDispatchElement(DOMElement $element, string $tagName, array &$fallbacks): array
-    {
-        $placeholderMedia = $this->recognizePatterns($element, $fallbacks, array(PlaceholderMediaPattern::class));
-        if ( null !== $placeholderMedia ) {
-            return array( 'handled' => true, 'block' => $placeholderMedia );
-        }
-
-        if ( 'img' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertImageElement($element) );
-        }
-
-        if ( 'picture' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertPictureElement($element) );
-        }
-
-        if ( 'iframe' === $tagName ) {
-            return array( 'handled' => true, 'block' => $this->convertIframeElement($element, $fallbacks) );
-        }
-
-        if ( in_array($tagName, array( 'audio', 'video' ), true) ) {
-            return array( 'handled' => true, 'block' => $this->convertMediaElement($element) );
-        }
-
-        if ( 'a' === $tagName ) {
-            $linkedImage = $this->imageBlockFromAnchor($element);
-            if ( null !== $linkedImage ) {
-                return array( 'handled' => true, 'block' => $linkedImage );
-            }
-        }
-
-        return array( 'handled' => false, 'block' => null );
     }
 
     /**
