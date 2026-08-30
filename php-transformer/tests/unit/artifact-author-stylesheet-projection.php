@@ -51,7 +51,10 @@ $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['
 
 $runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => <<<'HTML'
-<style>[data-reveal]{opacity:0;transform:translateY(20px)}[data-reveal].in-view{opacity:1;transform:translateY(0)}</style>
+<style>
+  [data-reveal] { opacity:0; transform:translateY(20px) }
+  [data-reveal].in-view { opacity:1; transform:translateY(0) }
+</style>
 <main><section data-reveal><p>Story</p></section><section data-reveal><p>Menu</p></section></main>
 <script>const revealEls = document.querySelectorAll('[data-reveal]'); const observer = new IntersectionObserver(function (entries) { entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('in-view'); observer.unobserve(entry.target); } }); }); revealEls.forEach(function (el) { observer.observe(el); });</script>
 HTML ),

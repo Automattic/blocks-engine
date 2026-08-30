@@ -3400,6 +3400,7 @@ final class HtmlTransformer
     /** @return list<string>|null */
     private function projectRuntimeAttributeSelector(string $selector): ?array
     {
+        $selector = trim($selector);
         $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
         uksort($selectorMarkers, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
         foreach ( $selectorMarkers as $runtimeSelector => $markers ) {
