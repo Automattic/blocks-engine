@@ -25,7 +25,7 @@ $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unrefe
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');
 
 $referencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="mark"><path d="M0 0h1v1z"/></symbol></defs></svg><svg viewBox="0 0 1 1"><use href="#mark"/></svg></main>');
-$assert(str_contains((string) ($referencedStore['serialized_blocks'] ?? ''), 'id="mark"'), 'referenced SVG store remains available');
+$assert(! str_contains((string) ($referencedStore['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($referencedStore['serialized_blocks'] ?? ''), 'assets/materialized-svg/'), 'referenced SVG store hydrates a typed image instead of remaining raw HTML');
 $materializedSvg = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($referencedStore['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))));
 $assert(str_contains($materializedSvg, 'id="mark"') && str_contains($materializedSvg, 'href="#mark"'), 'referenced SVG symbols remain available to materialized images');
 
@@ -34,7 +34,8 @@ $conditionalStore = $transform($conditionalStyles . '<main><svg data-dom-store s
 $assert(! str_contains((string) ($conditionalStore['serialized_blocks'] ?? ''), 'conditional-unused'), 'unreferenced data DOM store stays inert under conditional SVG styles');
 
 $conditionalReferencedStore = $transform($conditionalStyles . '<main><svg data-dom-store style="display:none"><defs><symbol id="conditional-mark"><path d="M0 0h1v1z"/></symbol></defs></svg><svg viewBox="0 0 1 1"><use href="#conditional-mark"/></svg></main>');
-$assert(str_contains((string) ($conditionalReferencedStore['serialized_blocks'] ?? ''), 'conditional-mark'), 'referenced data DOM store survives conditional SVG styles');
+$conditionalReferencedSvg = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($conditionalReferencedStore['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))));
+$assert(str_contains($conditionalReferencedSvg, 'conditional-mark') && ! str_contains((string) ($conditionalReferencedStore['serialized_blocks'] ?? ''), '<!-- wp:html'), 'referenced data DOM store hydrates its consumer image under conditional SVG styles');
 
 $conditionalOrdinaryStore = $transform($conditionalStyles . '<main><svg style="display:none"><defs><symbol id="ordinary-store"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $conditionalOrdinarySvg = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), array_filter($conditionalOrdinaryStore['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))));
