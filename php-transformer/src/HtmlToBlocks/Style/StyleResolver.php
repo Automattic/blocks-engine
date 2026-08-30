@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
+use WeakMap;
 
 /**
  * Resolves source CSS into native block presentation attributes.
@@ -33,6 +34,9 @@ final class StyleResolver
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
+
+    /** @var WeakMap<DOMElement, string>|null */
+    private ?WeakMap $presentationCacheKeys = null;
 
     /**
      * Resolved presentation attributes for the active transform, keyed by the
@@ -230,6 +234,7 @@ final class StyleResolver
     public function resetPresentationResolutionCache(): void
     {
         $this->context->sourceStyles()->selectorMatchCache = new CssSelectorMatchCache();
+        $this->presentationCacheKeys = null;
     }
 
     public function styleAttributeMapper(): StyleAttributeMapper
@@ -1991,7 +1996,9 @@ final class StyleResolver
 
     private function presentationCacheKey(DOMElement $element): string
     {
-        return spl_object_id($element) . ':' . $element->getNodePath();
+        $this->presentationCacheKeys ??= new WeakMap();
+        return $this->presentationCacheKeys[$element]
+            ??= spl_object_id($element) . ':' . $element->getNodePath();
     }
 
     private function isHighValueStyledElement(DOMElement $element): bool

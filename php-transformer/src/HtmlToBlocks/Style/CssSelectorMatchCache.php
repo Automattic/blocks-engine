@@ -34,6 +34,9 @@ final class CssSelectorMatchCache
     /** @var WeakMap<DOMElement, int> */
     private WeakMap $detachedElementKeys;
 
+    /** @var WeakMap<DOMElement, string> */
+    private WeakMap $connectedElementKeys;
+
     private int $nextDetachedElementKey = 0;
 
     public int $classTokenBuilds = 0;
@@ -68,9 +71,14 @@ final class CssSelectorMatchCache
 
     public int $candidateRulePeakRetained = 0;
 
+    public int $connectedElementKeyBuilds = 0;
+
+    public int $connectedElementKeyHits = 0;
+
     public function __construct()
     {
         $this->detachedElementKeys = new WeakMap();
+        $this->connectedElementKeys = new WeakMap();
     }
 
     /** @return list<string> */
@@ -206,6 +214,7 @@ final class CssSelectorMatchCache
         $this->ruleCandidates = array();
         $this->candidateRulesRetained = 0;
         $this->detachedElementKeys = new WeakMap();
+        $this->connectedElementKeys = new WeakMap();
         $this->nextDetachedElementKey = 0;
     }
 
@@ -217,7 +226,13 @@ final class CssSelectorMatchCache
         // and unique within this per-document cache revision.
         for ( $ancestor = $element; $ancestor instanceof DOMNode; $ancestor = $ancestor->parentNode ) {
             if ( $ancestor instanceof \DOMDocument ) {
-                return 'path:' . $element->getNodePath();
+                if ( isset($this->connectedElementKeys[$element]) ) {
+                    ++$this->connectedElementKeyHits;
+                    return $this->connectedElementKeys[$element];
+                }
+
+                ++$this->connectedElementKeyBuilds;
+                return $this->connectedElementKeys[$element] = 'path:' . $element->getNodePath();
             }
         }
 
