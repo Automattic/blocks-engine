@@ -55,7 +55,7 @@ $percentageHeight = (new HtmlTransformer())->transform(
     . '<footer><div class="mixed-fill">Safe shell</div></footer><div class="definite-frame"><div class="mixed-fill">Definite fill</div></div>'
 )->toArray();
 $percentageHeightCss = $css($percentageHeight);
-$assert(str_contains($percentageHeightCss, '.footer-frame{height:auto!important}') && str_contains($percentageHeightCss, '.footer-grid{display:grid;grid-template-rows:1fr min-content;height:auto}'), 'indefinite-height footer wrappers collapse without changing grid tracks or declaration priority');
+$assert(str_contains($percentageHeightCss, '.footer-frame{height:auto!important}') && str_contains($percentageHeightCss, '.footer-grid{display:grid;height:auto;grid-template-rows:min-content min-content}'), 'indefinite-height footer wrappers and fractional row tracks collapse without changing declaration priority');
 $assert(str_contains($percentageHeightCss, '@media(max-width:600px){.mobile-footer-frame{height:auto}}'), 'responsive structural variants receive the same percentage-height projection');
 $assert(str_contains($percentageHeightCss, '.footer-background{position:absolute;inset:0;height:100%}') && str_contains($percentageHeightCss, '.definite-frame>.fill{height:100%}') && str_contains($percentageHeightCss, '.media-fill{height:100%;object-fit:cover}'), 'positioned layers, definite-height components, and replaced media retain authored fill geometry');
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');

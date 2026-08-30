@@ -2734,6 +2734,7 @@ final class HtmlTransformer
             $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body);
             $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body);
             $body = $this->projectSourceContentBoxSizing($prelude, $body);
+            $body = $this->projectIntrinsicGridRowTracks($prelude, $body);
             $declarations = $this->styleResolver->cssDeclarations($body);
             $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
             $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude);
@@ -2895,6 +2896,154 @@ final class HtmlTransformer
         $retained[] = 'min-width:0' . $important;
         $retained[] = 'max-width:100%' . $important;
         return implode(';', $retained);
+    }
+
+    /**
+     * Fractional row tracks only absorb leftover height when the grid container
+     * has a definite block size. Captured auto-height grids still author `1fr`
+     * so a stretched WordPress parent, or a hidden complementary responsive
+     * sibling that leaves an explicit track empty, opens a blank region between
+     * content rows. Collapse those tracks to `min-content`, which is the auto-
+     * height source rendering.
+     */
+    private function projectIntrinsicGridRowTracks(string $prelude, string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        $rows = (string) ($declarations['grid-template-rows'] ?? '');
+        if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) ) {
+            return $body;
+        }
+
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return $body;
+        }
+
+        $matchedSurface = false;
+        foreach ( $selectors as $selector ) {
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                return $body;
+            }
+            $matches = $this->matchingAuthorSourceElements($selector, $parsed);
+            if ( array() === $matches ) {
+                continue;
+            }
+            $matchedSurface = true;
+            foreach ( $matches as $element ) {
+                if ( ! $this->isIntrinsicallySizedGridContainer($element, $declarations) ) {
+                    return $body;
+                }
+            }
+        }
+
+        if ( ! $matchedSurface ) {
+            return $body;
+        }
+
+        $collapsed = $this->collapseFractionalGridRowTracks($this->cssValueWithoutImportant($rows));
+        if ( $collapsed === $this->cssValueWithoutImportant($rows) ) {
+            return $body;
+        }
+
+        $important = $this->cssValueIsImportant($rows) ? '!important' : '';
+        $retained = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            if ( 'grid-template-rows' !== strtolower(trim((string) strtok($declaration, ':'))) ) {
+                $retained[] = $declaration;
+            }
+        }
+        $retained[] = 'grid-template-rows:' . $collapsed . $important;
+        return implode(';', $retained);
+    }
+
+    /** @param array<string, string> $ruleDeclarations */
+    private function isIntrinsicallySizedGridContainer(DOMElement $element, array $ruleDeclarations = array()): bool
+    {
+        $declarations = $this->styleResolver->mergeCssDeclarationMaps(
+            $this->styleResolver->structuralPresentationDeclarations($element),
+            $ruleDeclarations
+        );
+        $display = strtolower($this->cssValueWithoutImportant((string) ($declarations['display'] ?? '')));
+        if ( 'none' === $display ) {
+            return true;
+        }
+
+        return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
+            && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
+    }
+
+    private function isDefiniteBlockSize(string $value): bool
+    {
+        $value = strtolower($this->cssValueWithoutImportant($value));
+        if ( '' === $value || in_array($value, array( 'auto', 'none', 'unset', 'inherit', 'initial', '0', '0px', '0%', 'min-content', 'max-content', 'fit-content' ), true) ) {
+            return false;
+        }
+        if ( 1 === preg_match('/^-?[\d.]+%$/', $value) ) {
+            return false;
+        }
+        if ( 1 === preg_match('/^-?[\d.]+(?:px|r?em|vh|dvh|svh|lvh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc)$/', $value) ) {
+            return 0.0 < (float) $value;
+        }
+        if ( 1 === preg_match('/^(?:calc|min|max|clamp|var)\(/', $value) ) {
+            return (bool) preg_match('/(?:vh|dvh|svh|lvh|px|r?em)\b/', $value);
+        }
+
+        return false;
+    }
+
+    private function gridTemplateRowsContainFractionalTrack(string $rows): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevelWhitespace($this->cssValueWithoutImportant($rows)) as $track ) {
+            if ( $this->gridRowTrackIsFractional($track) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function gridRowTrackIsFractional(string $track): bool
+    {
+        $track = trim($track);
+        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
+            return true;
+        }
+        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
+            return false;
+        }
+        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
+        $list = $parts[1] ?? '';
+
+        return '' !== $list && $this->gridTemplateRowsContainFractionalTrack($list);
+    }
+
+    private function collapseFractionalGridRowTracks(string $rows): string
+    {
+        $tracks = CssValueSplitter::splitTopLevelWhitespace($rows);
+        $rewritten = array();
+        foreach ( $tracks as $track ) {
+            $rewritten[] = $this->collapseFractionalGridRowTrack($track);
+        }
+
+        return implode(' ', $rewritten);
+    }
+
+    private function collapseFractionalGridRowTrack(string $track): string
+    {
+        $track = trim($track);
+        if ( 1 === preg_match('/^[\d.]+fr$/i', $track) ) {
+            return 'min-content';
+        }
+        if ( 1 !== preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
+            return $track;
+        }
+        $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
+        if ( 2 !== count($parts) ) {
+            return $track;
+        }
+
+        return 'repeat(' . $parts[0] . ', ' . $this->collapseFractionalGridRowTracks($parts[1]) . ')';
     }
 
     private function isWideAbsoluteMinimumWidth(string $value): bool
