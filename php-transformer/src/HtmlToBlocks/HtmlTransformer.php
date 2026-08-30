@@ -1129,6 +1129,9 @@ final class HtmlTransformer
         ));
         $this->session->configurePolicy(! empty($options['extract_global_shell']), ! empty($options['fallback_reduction_mode']));
         $this->runtimeBehavior()->installRuntimeScriptMetadata($this->runtimeIslands->runtimeScriptMetadataFromOptions($options));
+        $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
+            is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
+        );
         $staticCss = (string) ($options['static_css'] ?? '');
         $styleAnalysis = $this->composedStyleAnalysis($this->stylesheetPayloads($html, $staticCss, $options));
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
@@ -1245,6 +1248,7 @@ final class HtmlTransformer
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
         $sourceProvenance = $this->transformationProvenance()->resolveBlockPaths($blocks);
         $authorStylesheetProjections = $this->authorStylesheetProjections();
+        $runtimeScriptProjections = $this->runtimeScriptProjections();
         $this->materializeAuthorStylesheet(
             $html,
             (string) ($options['static_css'] ?? ''),
@@ -1373,6 +1377,9 @@ final class HtmlTransformer
         );
         if ( array() !== $authorStylesheetProjections ) {
             $sourceReports['author_stylesheet_projections'] = $authorStylesheetProjections;
+        }
+        if ( array() !== $runtimeScriptProjections ) {
+            $sourceReports['runtime_script_projections'] = $runtimeScriptProjections;
         }
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
 
@@ -2070,6 +2077,7 @@ final class HtmlTransformer
             : implode("\n\n", array_column($stylesheetAssets, 'content'));
         $this->session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($html, $combinedAuthorCss, $stylesheetAssets, $sourceBody));
         $this->sourceStyles()->setFormLayoutCss($combinedAuthorCss);
+        $this->discoverRuntimeAttributeSelectorPaths($options);
 
         if ( '' === $combinedAuthorCss ) {
             return;
@@ -2237,6 +2245,34 @@ final class HtmlTransformer
                 }
             }
 		}
+    }
+
+    /** @param array<string, mixed> $options */
+    private function discoverRuntimeAttributeSelectorPaths(array $options): void
+    {
+        $selectors = is_array($options['runtime_projection_selectors'] ?? null) ? $options['runtime_projection_selectors'] : array();
+        foreach ( $selectors as $selector ) {
+            if ( ! is_string($selector) || ! preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $selector) ) {
+                continue;
+            }
+            $parsed = $this->parsedCssSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $markers = array();
+            foreach ( $this->matchingAuthorSourceElements($selector, $parsed) as $element ) {
+                $path = $this->sourceElementIdentity($element);
+                if ( '' === $path ) {
+                    continue;
+                }
+                $marker = $this->authorSelectorProjections()->ensureAttributeMarker($path);
+                $element->setAttribute('class', $this->mergeClassNames($this->attr($element, 'class'), $marker));
+                $markers[] = $marker;
+            }
+            if ( array() !== $markers ) {
+                $this->authorSelectorProjections()->installRuntimeAttributeSelectorMarkers($selector, $markers);
+            }
+        }
     }
 
 	/** @param list<array{selector:string,parsed:array<string,mixed>}> $authorSelectors */
@@ -2588,6 +2624,34 @@ final class HtmlTransformer
                 'attribute_state_markers' => $this->authorSelectorProjections()->attributeNegationMarkers(),
             );
         }
+        return $projections;
+    }
+
+    /** @return list<array{path: string, selectors: array<string, list<string>>}> */
+    private function runtimeScriptProjections(): array
+    {
+        $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
+        if ( array() === $selectorMarkers ) {
+            return array();
+        }
+
+        $projections = array();
+        foreach ( $this->runtimeBehavior()->runtimeProjectionScriptAssets() as $asset ) {
+            if ( ! is_array($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                continue;
+            }
+            $selectors = array();
+            foreach ( $selectorMarkers as $selector => $markers ) {
+                $selectorPattern = preg_quote($selector, '~');
+                if ( preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . $selectorPattern . '\1~', $asset['content']) ) {
+                    $selectors[$selector] = $markers;
+                }
+            }
+            if ( array() !== $selectors ) {
+                $projections[] = array('path' => $asset['path'], 'selectors' => $selectors);
+            }
+        }
+
         return $projections;
     }
 
@@ -3200,6 +3264,11 @@ final class HtmlTransformer
 
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $runtimeProjection = $this->projectRuntimeAttributeSelector($selector);
+            if ( null !== $runtimeProjection ) {
+                array_push($rewritten, ...$runtimeProjection);
+                continue;
+            }
             $selector = $this->projectSourceAttributeNegationStateSelector($selector);
             $selector = $this->projectSourceBodyStateSelector($selector);
             $parsed = $this->parsedCssSelector($selector);
@@ -3326,6 +3395,33 @@ final class HtmlTransformer
             }
         }
         return implode(',', $rewritten);
+    }
+
+    /** @return list<string>|null */
+    private function projectRuntimeAttributeSelector(string $selector): ?array
+    {
+        $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
+        uksort($selectorMarkers, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+        foreach ( $selectorMarkers as $runtimeSelector => $markers ) {
+            if ( ! str_starts_with($selector, $runtimeSelector) ) {
+                continue;
+            }
+            $suffix = substr($selector, strlen($runtimeSelector));
+            if ( '' !== $suffix && ! in_array($suffix[0], array('.', ':'), true) ) {
+                continue;
+            }
+            $parsed = $this->parsedCssSelector($runtimeSelector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            $shims = $this->selectorSpecificityShims($parsed);
+            return array_map(
+                static fn (string $marker): string => ':where(.' . $marker . ')' . $shims . $suffix,
+                $markers
+            );
+        }
+
+        return null;
     }
 
     /** @param array<string, mixed> $parsed @param array<int, DOMElement> $matches @return array<int, string>|null */

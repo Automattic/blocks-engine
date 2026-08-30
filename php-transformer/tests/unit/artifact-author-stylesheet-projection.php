@@ -49,6 +49,24 @@ $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.ct
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
 $assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
 
+$runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => <<<'HTML'
+<style>[data-reveal]{opacity:0;transform:translateY(20px)}[data-reveal].in-view{opacity:1;transform:translateY(0)}</style>
+<main><section data-reveal><p>Story</p></section><section data-reveal><p>Menu</p></section></main>
+<script>const revealEls = document.querySelectorAll('[data-reveal]'); const observer = new IntersectionObserver(function (entries) { entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('in-view'); observer.unobserve(entry.target); } }); }); revealEls.forEach(function (el) { observer.observe(el); });</script>
+HTML ),
+) ) )->toArray();
+$runtimeRevealMarkup = (string) ($runtimeReveal['serialized_blocks'] ?? '');
+$runtimeRevealAssets = $runtimeReveal['assets'] ?? array();
+$runtimeRevealCss = implode("\n", array_column(array_filter($runtimeRevealAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$runtimeRevealJs = implode("\n", array_column(array_filter($runtimeRevealAssets, static fn (array $asset): bool => in_array($asset['kind'] ?? '', array('js', 'mjs'), true)), 'content'));
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, $runtimeRevealMarkerMatches);
+$runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
+$assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
+$assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.blocks-engine-specificity-class-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+$assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
+$assert('pass' === ($runtimeReveal['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity validates the projected inline script against materialized block markup');
+
 $contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.cascade-stack{display:block;width:640px;padding:48px;background:#fff;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
 ) ) )->toArray();
