@@ -11,6 +11,9 @@ final class RuntimeBehaviorState
     /** @var array<int, array<string, mixed>> */
     private array $runtimeScriptMetadata = array();
 
+    /** @var array<int, array<string, mixed>> */
+    private array $runtimeProjectionScriptAssets = array();
+
     /** @var array<string, true> */
     private array $nativeDisclosureRootPaths = array();
 
@@ -31,6 +34,18 @@ final class RuntimeBehaviorState
     public function hasRuntimeScriptMetadata(): bool
     {
         return array() !== $this->runtimeScriptMetadata;
+    }
+
+    /** @param array<int, array<string, mixed>> $assets */
+    public function installRuntimeProjectionScriptAssets(array $assets): void
+    {
+        $this->runtimeProjectionScriptAssets = $assets;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function runtimeProjectionScriptAssets(): array
+    {
+        return $this->runtimeProjectionScriptAssets;
     }
 
     /** @param array<string, mixed> $metadata */

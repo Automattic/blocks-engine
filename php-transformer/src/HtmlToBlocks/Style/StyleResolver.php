@@ -1634,7 +1634,7 @@ final class StyleResolver
      */
     private function stripFrozenHiddenState(DOMElement $element, array $declarations): array
     {
-        if ( array() === $declarations || $this->isDecorativeHiddenElement($element) ) {
+        if ( array() === $declarations || $this->isDecorativeHiddenElement($element) || $this->context->hasRetainedPresentationRuntime($element) ) {
             return $declarations;
         }
 

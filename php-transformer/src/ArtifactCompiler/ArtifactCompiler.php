@@ -619,6 +619,7 @@ final class ArtifactCompiler
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
+        $runtimeScriptProjections = $entryBlocks['runtime_script_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
@@ -626,6 +627,7 @@ final class ArtifactCompiler
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
+            $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiledHtmlDocument['runtime_script_projections'] ?? array());
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
             $allGeneratedBlocks = array_merge($allGeneratedBlocks, $compiledHtmlDocument['generated_blocks'] ?? array());
@@ -634,8 +636,12 @@ final class ArtifactCompiler
         }
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
-        $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        $normalized['files'] = $this->applyRuntimeScriptProjections($normalized['files'], $runtimeScriptProjections);
+        $runtimeIslandPackage = $this->applyRuntimeScriptPackageProjections(
+            ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
+            $runtimeScriptProjections
+        );
         $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
@@ -1927,7 +1933,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, runtime_script_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -1945,6 +1951,7 @@ final class ArtifactCompiler
             'interaction_candidates' => $result['interaction_candidates'],
             'superseded_selectors' => $result['superseded_selectors'],
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
+            'runtime_script_projections' => $result['runtime_script_projections'],
             'shell_artifacts' => $result['shell_artifacts'],
             'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
             'runtime_block_paths' => $result['runtime_block_paths'] ?? array(),
@@ -1971,6 +1978,7 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'runtime_script_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
@@ -1990,6 +1998,7 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'runtime_script_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
@@ -2002,6 +2011,7 @@ final class ArtifactCompiler
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
         $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
+        $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
@@ -2014,6 +2024,8 @@ final class ArtifactCompiler
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
+            'runtime_projection_selectors' => $runtimeProjectionSelectors,
+            'runtime_projection_script_assets' => $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
@@ -2046,6 +2058,7 @@ final class ArtifactCompiler
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
             'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
+            'runtime_script_projections' => is_array($result['source_reports']['runtime_script_projections'] ?? null) ? $result['source_reports']['runtime_script_projections'] : array(),
             'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
         );
     }
@@ -2712,6 +2725,149 @@ final class ArtifactCompiler
         }
         unset($file);
         return $files;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $projections
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyRuntimeScriptProjections(array $files, array $projections): array
+    {
+        $byPath = $this->runtimeScriptProjectionMap($projections, 'path');
+
+        foreach ( $files as &$file ) {
+            $pathProjection = $byPath[$file['path'] ?? ''] ?? null;
+            if ( ! is_array($pathProjection) || ! in_array($file['kind'] ?? '', array('js', 'mjs'), true) || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            $content = $this->projectRuntimeScriptContent($file['content'], $pathProjection);
+            if ( $content === $file['content'] ) {
+                continue;
+            }
+            $file['content'] = $content;
+            unset($file['content_base64']);
+            $file['bytes'] = strlen($content);
+            $file['encoding'] = 'text';
+            $file['binary'] = false;
+            $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
+            $file['provenance']['hash'] = hash('sha256', $content);
+        }
+        unset($file);
+
+        return $files;
+    }
+
+    /** @param array<string, mixed> $package @param array<int, array<string, mixed>> $projections @return array<string, mixed> */
+    private function applyRuntimeScriptPackageProjections(array $package, array $projections): array
+    {
+        if ( ! is_array($package['islands'] ?? null) ) {
+            return $package;
+        }
+        foreach ( $package['islands'] as &$island ) {
+            if ( ! is_array($island['scripts'] ?? null) ) {
+                continue;
+            }
+            foreach ( $island['scripts'] as &$script ) {
+                if ( ! is_string($script['content'] ?? null) ) {
+                    continue;
+                }
+                $projection = $this->runtimeScriptProjectionForContent($script['content'], $projections);
+                if ( is_array($projection) ) {
+                    $script['content'] = $this->projectRuntimeScriptContent($script['content'], $projection);
+                }
+            }
+            unset($script);
+        }
+        unset($island);
+
+        return $package;
+    }
+
+    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, true>> */
+    private function runtimeScriptProjectionForContent(string $content, array $projections): array
+    {
+        $matched = array();
+        foreach ( $projections as $projection ) {
+            if ( ! is_array($projection) ) {
+                continue;
+            }
+            foreach ( $projection['selectors'] ?? array() as $selector => $markers ) {
+                if ( ! is_string($selector) || ! is_array($markers) || ! preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . preg_quote($selector, '~') . '\1~', $content) ) {
+                    continue;
+                }
+                foreach ( $markers as $marker ) {
+                    if ( is_string($marker) && '' !== $marker ) {
+                        $matched[$selector][$marker] = true;
+                    }
+                }
+            }
+            foreach ( $projection['superseded_ids'] ?? array() as $id ) {
+                if ( is_string($id) && '' !== $id && preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $content) ) {
+                    $matched['superseded_ids'][$id] = true;
+                }
+            }
+        }
+
+        return $matched;
+    }
+
+    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, array<string, true>>> */
+    private function runtimeScriptProjectionMap(array $projections, string $identityKey): array
+    {
+        $map = array();
+        foreach ( $projections as $projection ) {
+            if ( ! is_array($projection) ) {
+                continue;
+            }
+            $identity = $projection[$identityKey] ?? null;
+            if ( ! is_string($identity) || '' === $identity || ! is_array($projection['selectors'] ?? null) || ! is_array($projection['superseded_ids'] ?? null) ) {
+                continue;
+            }
+            foreach ( $projection['selectors'] as $selector => $markers ) {
+                if ( ! is_string($selector) || ! is_array($markers) ) {
+                    continue;
+                }
+                foreach ( $markers as $marker ) {
+                    if ( is_string($marker) && '' !== $marker ) {
+                        $map[$identity][$selector][$marker] = true;
+                    }
+                }
+            }
+            foreach ( $projection['superseded_ids'] as $id ) {
+                if ( is_string($id) && '' !== $id ) {
+                    $map[$identity]['superseded_ids'][$id] = true;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /** @param array<string, array<string, true>> $projection */
+    private function projectRuntimeScriptContent(string $content, array $projection): string
+    {
+        foreach ( $projection as $selector => $markers ) {
+            if ( 'superseded_ids' === $selector ) {
+                continue;
+            }
+            $projectedSelector = implode(',', array_map(static fn (string $marker): string => '.' . $marker, array_keys($markers)));
+            $selectorPattern = preg_quote($selector, '~');
+            $content = preg_replace_callback(
+                '~((?:querySelector(?:All)?|closest|matches)\s*\(\s*)(["\'])' . $selectorPattern . '\2~',
+                static fn (array $match): string => $match[1] . $match[2] . $projectedSelector . $match[2],
+                $content
+            ) ?? $content;
+        }
+        foreach ( array_keys($projection['superseded_ids'] ?? array()) as $id ) {
+            $content = preg_replace_callback(
+                '~document\s*\.\s*getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~',
+                static fn (array $match): string => '(' . $match[0] . " || document.createElement('div'))",
+                $content
+            ) ?? $content;
+        }
+
+        return $content;
     }
 
     /**
@@ -3500,6 +3656,27 @@ final class ArtifactCompiler
                     continue;
                 }
                 if ( isset($statusFeedbackSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * Presentation-only scripts still need stable DOM identities when editable
+     * block serialization cannot retain their source data attributes.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeProjectionSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->scriptDomSelectors($script) as $selector ) {
+                if ( str_contains($selector, '[data-') && $this->isPresentationOnlyScriptSelector($script, $selector) ) {
                     $selectors[$selector] = true;
                 }
             }
@@ -4516,6 +4693,33 @@ final class ArtifactCompiler
         }
 
         return $this->dedupeRows($metadata);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array{path: string, content: string}>
+     */
+    private function runtimeProjectionScriptAssetsForSource(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $assets = array();
+        $scriptIndex = 0;
+        foreach ( $matches as $match ) {
+            ++$scriptIndex;
+            $src = $this->htmlAttribute((string) $match[1], 'src');
+            $asset = '' === $src
+                ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
+                : $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                continue;
+            }
+            $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
+        }
+
+        return $this->dedupeRows($assets);
     }
 
     /**

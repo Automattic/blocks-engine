@@ -32,6 +32,7 @@ final class StyleResolutionContext
      * @param Closure(string): string                  $promotedClassName
      * @param Closure(string): string                  $resolvedAssetImageUrl
      * @param Closure(string): string                  $safeAnchor
+     * @param Closure(DOMElement): bool                $hasRetainedPresentationRuntime
      */
     public function __construct(
         private readonly Closure $authorStyles,
@@ -47,7 +48,8 @@ final class StyleResolutionContext
         private readonly Closure $parsedCssSelector,
         private readonly Closure $promotedClassName,
         private readonly Closure $resolvedAssetImageUrl,
-        private readonly Closure $safeAnchor
+        private readonly Closure $safeAnchor,
+        private readonly Closure $hasRetainedPresentationRuntime
     ) {
     }
 
@@ -122,5 +124,10 @@ final class StyleResolutionContext
     public function safeAnchor(string $id): string
     {
         return ($this->safeAnchor)($id);
+    }
+
+    public function hasRetainedPresentationRuntime(DOMElement $element): bool
+    {
+        return ($this->hasRetainedPresentationRuntime)($element);
     }
 }

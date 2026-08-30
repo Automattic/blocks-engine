@@ -28,6 +28,9 @@ final class AuthorSelectorProjectionState
     /** @var array<string, string> */
     private array $attributeMarkers = array();
 
+    /** @var array<string, list<string>> */
+    private array $runtimeAttributeSelectorMarkers = array();
+
     /** @var array<string, string> */
     private array $attributeNegationMarkers = array();
 
@@ -135,6 +138,34 @@ final class AuthorSelectorProjectionState
     public function attributeMarker(string $path): string
     {
         return $this->attributeMarkers[$path] ?? '';
+    }
+
+    /** @param list<string> $markers */
+    public function installRuntimeAttributeSelectorMarkers(string $selector, array $markers): void
+    {
+        $this->runtimeAttributeSelectorMarkers[$selector] = array_values(array_unique(array_filter($markers)));
+    }
+
+    /** @return array<string, list<string>> */
+    public function runtimeAttributeSelectorMarkers(): array
+    {
+        return $this->runtimeAttributeSelectorMarkers;
+    }
+
+    public function isRuntimeAttributePath(string $path): bool
+    {
+        $marker = $this->attributeMarkers[$path] ?? '';
+        if ( '' === $marker ) {
+            return false;
+        }
+
+        foreach ( $this->runtimeAttributeSelectorMarkers as $markers ) {
+            if ( in_array($marker, $markers, true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function installAttributeNegationMarker(string $selector, string $marker): void
