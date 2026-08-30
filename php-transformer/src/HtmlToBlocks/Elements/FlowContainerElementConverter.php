@@ -178,6 +178,10 @@ final class FlowContainerElementConverter
                 return ConversionOutcome::handled($block);
             }
         }
+        $block = $this->context->authoredCarouselBlock($element);
+        if ( null !== $block ) {
+            return ConversionOutcome::handled($block);
+        }
         if ( $this->context->isGeneratedComponentCandidate($element) ) {
             $block = $this->context->generatedComponentBlock($element);
             if ( null !== $block ) {

@@ -71,6 +71,7 @@
       "php tests/unit/srcset-parser.php",
        "php tests/unit/responsive-media-block.php",
        "php tests/unit/visual-iframe-block.php",
+       "php tests/unit/authored-carousel-block.php",
        "php tests/unit/authored-marquee-block.php",
        "php tests/unit/responsive-document-variants.php",
        "php tests/unit/captured-dialog-projector.php",

@@ -211,6 +211,35 @@ $assert(
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
     'responsive gallery media is preserved as one reusable editable block instead of a gallery with unsupported children'
 );
+$carouselSource = '<div class="service-carousel"><button aria-label="Previous slide">Previous</button><div role="list"><div role="listitem" aria-label="Back pain"><img src="back.jpg" alt="Back pain"><div class="title">Back pain</div><div class="description">Treatment for back pain.</div></div><div role="listitem" aria-label="Sciatica"><img src="sciatica.jpg" alt="Sciatica"><div class="title">Sciatica</div><div class="description">Treatment for sciatica.</div></div></div><button aria-label="Next slide">Next</button><div class="expanded-gallery"><div role="list"><div role="listitem"><img src="back-expanded.jpg" alt="Back pain expanded"></div><div role="listitem"><img src="sciatica-expanded.jpg" alt="Sciatica expanded"></div></div></div></div>';
+$carouselResult = ( new HtmlTransformer() )->transform($carouselSource)->toArray();
+$carouselBlock = $carouselResult['blocks'][0] ?? array();
+$carouselMarkup = (string) ($carouselResult['serialized_blocks'] ?? '');
+$carouselDefinitions = $carouselResult['source_reports']['generated_blocks'] ?? array();
+$assert(
+    'custom/authored-carousel' === ($carouselBlock['blockName'] ?? null)
+        && 2 === count($carouselBlock['innerBlocks'] ?? array())
+        && 'core/image' === ($carouselBlock['innerBlocks'][0]['blockName'] ?? null)
+        && str_contains($carouselMarkup, 'back.jpg')
+        && str_contains($carouselMarkup, 'sciatica.jpg')
+        && str_contains($carouselMarkup, 'Treatment for back pain.')
+        && ! str_contains($carouselMarkup, 'back-expanded.jpg')
+        && ! str_contains($carouselMarkup, 'expanded-gallery'),
+    'bounded carousel topology lowers one primary ordered rail to editable native slide blocks'
+);
+$assert(
+    1 === count($carouselDefinitions)
+        && 'authored-carousel' === ($carouselDefinitions[0]['name'] ?? null)
+        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScript'] ?? null)
+        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), 'data-carousel-next')
+        && isset($carouselDefinitions[0]['assets']['style.css']),
+    'bounded carousel projection carries one generic editor block with scoped frontend behavior'
+);
+$staticGalleryResult = ( new HtmlTransformer() )->transform('<div class="service-gallery"><div role="list"><div role="listitem"><img src="one.jpg" alt="One"></div><div role="listitem"><img src="two.jpg" alt="Two"></div></div></div>')->toArray();
+$assert(
+    'custom/authored-carousel' !== ($staticGalleryResult['blocks'][0]['blockName'] ?? null),
+    'an ordered image collection without previous and next controls is not promoted to an interactive carousel'
+);
 
 $referenceAnalyzer = new ReferenceAnalyzer();
 $htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');

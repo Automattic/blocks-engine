@@ -70,6 +70,7 @@ $operations = array(
     'visualTextWrapperBlock' => $null,
     'standaloneSearchBlock' => $null,
     'readableFormControlBlock' => $null,
+    'authoredCarouselBlock' => $null,
     'generatedComponentBlock' => $null,
     'textFlowBlock' => $null,
     'convertChildren' => static function () use ($state): array {
