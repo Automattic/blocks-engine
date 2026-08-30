@@ -363,6 +363,29 @@ final class RuntimeIslandAnalyzer
         }
     }
 
+    public function recordBlockRuntimeDomContract(DOMElement $element, string $blockName): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( ! $this->isRuntimeDomTarget($element)
+            || FormControlClassifier::isControlElement($element)
+            || in_array($tagName, array( 'canvas', 'form', 'script' ), true)
+        ) {
+            return false;
+        }
+
+        if ( ! $this->canRetainRuntimeDomContractNatively($element, $blockName) ) {
+            $this->recordRuntimeIsland($element, 'dom', 'runtime_dom_target', 'client_script_execution', array(
+                'events'           => $this->context->eventMetadata($element),
+                'required_scripts' => $this->context->requiredScriptsForElement($element),
+            ));
+            $this->recordRuntimeDomFallback($element, $blockName);
+        } else {
+            $this->recordNativeRuntimeDomPreservation($element, $blockName, in_array($blockName, array( 'core/paragraph', 'core/heading' ), true));
+        }
+
+        return true;
+    }
+
     public function canRetainRuntimeDomContractNatively(DOMElement $element, string $blockName): bool
     {
         if ( ! in_array($blockName, array('core/group', 'core/paragraph', 'core/heading'), true) ) {

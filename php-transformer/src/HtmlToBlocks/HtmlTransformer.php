@@ -284,6 +284,8 @@ final class HtmlTransformer
 
     private readonly BlockFactory $blockFactory;
 
+    private readonly BlockMaterializer $blockMaterializer;
+
     private readonly BackgroundImageExtractor $backgroundImageExtractor;
 
     private readonly TableClassificationPolicy $tableClassificationPolicy;
@@ -556,6 +558,7 @@ final class HtmlTransformer
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
             fn (): HtmlTransformerSession => $this->session,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
@@ -3327,7 +3330,7 @@ final class HtmlTransformer
             }
         }
 
-        $runtimeOwned = false;
+        $sourceMaterializationFacts = null;
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
@@ -3361,40 +3364,27 @@ final class HtmlTransformer
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
-            $this->recordPresentationProvenance($name, $attrs, $sourceElement);
-            $this->recordStructureProvenance($name, $attrs, $sourceElement);
-            if ( $this->runtimeIslands->isRuntimeDomTarget($sourceElement) && ! FormControlClassifier::isControlElement($sourceElement) && ! in_array($sourceTagName, array( 'canvas', 'form', 'script' ), true) ) {
-                $runtimeOwned = true;
-                if ( ! $this->runtimeIslands->canRetainRuntimeDomContractNatively($sourceElement, $name) ) {
-                    $this->runtimeIslands->recordRuntimeIsland($sourceElement, 'dom', 'runtime_dom_target', 'client_script_execution', array(
-                        'events'          => $this->eventMetadata($sourceElement),
-                        'required_scripts' => $this->requiredScriptsForElement($sourceElement),
-                    ));
-                    $this->runtimeIslands->recordRuntimeDomFallback($sourceElement, $name);
-                } else {
-                    $this->runtimeIslands->recordNativeRuntimeDomPreservation($sourceElement, $name, in_array($name, array('core/paragraph', 'core/heading'), true));
-                }
-            }
-            $provenanceId = $this->transformationProvenance()->registerSource(
+            $sourceMaterializationFacts = new SourceBlockMaterializationFacts(
+                $sourceElement,
+                $sourceTagName,
+                $this->elementSelector($sourceElement),
                 $this->sourceProvenanceEntry($name, $sourceElement),
-                $this->sourceElementStartsHidden($sourceElement)
+                $this->sourceElementStartsHidden($sourceElement),
+                $this->htmlAttributes($sourceElement),
+                $this->structureSignals($sourceElement, $attrs),
+                array() === $innerBlocks && 'core/group' === $name
+                    ? $this->emptyVisualTopologyEvidence($sourceElement)
+                    : array()
             );
         }
 
-        $block = $this->blockFactory->create($name, $attrs, $innerBlocks);
-        if ( isset($provenanceId) ) {
-            $block['_source_provenance_id'] = $provenanceId;
-        }
-        if ($runtimeOwned) $block['_editability_runtime_owned'] = true;
-        if ( $sourceElement instanceof DOMElement && array() === $innerBlocks && 'core/group' === $name ) {
-            $visualTopologyEvidence = $this->emptyVisualTopologyEvidence($sourceElement);
-            if ( array() !== $visualTopologyEvidence ) {
-                $block['_editability_visual_owned'] = true;
-                $this->transformationProvenance()->addSourceEvidence($provenanceId, array( 'visual_topology_evidence' => $visualTopologyEvidence ));
-            }
-        }
-
-        return $block;
+        return $this->blockMaterializer->materialize(
+            $name,
+            $attrs,
+            $innerBlocks,
+            $sourceMaterializationFacts,
+            $this->transformationProvenance()
+        );
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -4922,45 +4912,6 @@ final class HtmlTransformer
         }
 
         return $this->styleResolver->presentationClassName(implode(' ', $classes));
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function recordPresentationProvenance(string $blockName, array $attrs, DOMElement $element): void
-    {
-        $signals = array_intersect_key($attrs, array_flip(array( 'className', 'style', 'layout' )));
-        $signals = array_filter($signals, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
-        if ( array() === $signals ) {
-            return;
-        }
-
-        $this->transformationProvenance()->recordPresentationSignal(array(
-            'block_name'        => $blockName,
-            'tag'               => strtolower($element->tagName),
-            'selector'          => $this->elementSelector($element),
-            'signals'           => $signals,
-            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'style', 'data-layout', 'data-wp-layout' ))),
-        ));
-    }
-
-    /**
-     * @param array<string, mixed> $attrs
-     */
-    private function recordStructureProvenance(string $blockName, array $attrs, DOMElement $element): void
-    {
-        $signals = $this->structureSignals($element, $attrs);
-        if ( array() === $signals ) {
-            return;
-        }
-
-        $this->transformationProvenance()->recordStructureSignal(array(
-            'block_name'        => $blockName,
-            'tag'               => strtolower($element->tagName),
-            'selector'          => $this->elementSelector($element),
-            'signals'           => $signals,
-            'source_attributes' => array_intersect_key($this->htmlAttributes($element), array_flip(array( 'class', 'id', 'role', 'style', 'data-layout', 'data-wp-layout' ))),
-        ));
     }
 
     private function shouldPreserveWrapper(DOMElement $element): bool
