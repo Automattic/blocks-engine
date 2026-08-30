@@ -20,7 +20,7 @@ use DOMElement;
  * converter is consulted at exactly the position the extracted branches
  * occupied, and {@see handles()} matches the same tags those branches matched.
  */
-final class TextLeafElementConverter
+final class TextLeafElementConverter implements ElementConverter
 {
     /**
      * Tags this converter owns, in the transformer's dispatch order.

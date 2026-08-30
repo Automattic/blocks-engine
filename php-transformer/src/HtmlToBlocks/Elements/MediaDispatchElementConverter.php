@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use DOMElement;
 
 /** Routes native media, linked images, and placeholder media to their materializers. */
-final class MediaDispatchElementConverter
+final class MediaDispatchElementConverter implements ElementConverter
 {
     public function __construct(private readonly MediaDispatchElementContext $context)
     {

@@ -8,7 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePatt
 use DOMElement;
 
 /** Converts figures and their captions through the ordered figure strategies. */
-final class FigureElementConverter
+final class FigureElementConverter implements ElementConverter
 {
     public function __construct(private readonly FigureElementContext $context)
     {

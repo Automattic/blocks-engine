@@ -18,7 +18,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use DOMElement;
 
 /** Converts flow containers through their ordered runtime, pattern, layout, and child strategies. */
-final class FlowContainerElementConverter
+final class FlowContainerElementConverter implements ElementConverter
 {
     public function __construct(private readonly FlowContainerElementContext $context)
     {

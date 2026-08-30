@@ -9,7 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
 /** Converts phrasing-content elements to editable text or structural carriers. */
-final class InlineContentElementConverter
+final class InlineContentElementConverter implements ElementConverter
 {
     public function __construct(
         private readonly InlineContentElementContext $context,
