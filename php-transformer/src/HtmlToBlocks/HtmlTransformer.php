@@ -289,9 +289,9 @@ final class HtmlTransformer
 
     private readonly SvgMaterializer $svgMaterializer;
 
-    private readonly SvgElementConverter $svgConverter;
-
     private readonly OrderedElementConverterRegistry $structuralContentConverters;
+
+    private readonly OrderedElementConverterRegistry $specializedElementConverters;
 
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
@@ -323,11 +323,7 @@ final class HtmlTransformer
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
-    private readonly ButtonElementConverter $buttonConverter;
-
     private readonly OrderedElementConverterRegistry $tableConverters;
-
-    private readonly DetailsElementConverter $detailsConverter;
 
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
@@ -465,7 +461,7 @@ final class HtmlTransformer
             $this->styleResolver,
             $this->runtime
         );
-        $this->svgConverter = new SvgElementConverter(new SvgElementContext(
+        $svgConverter = new SvgElementConverter(new SvgElementContext(
             fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
@@ -603,7 +599,7 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
-        $this->buttonConverter = new ButtonElementConverter(new ButtonElementContext(
+        $buttonConverter = new ButtonElementConverter(new ButtonElementContext(
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
             fn (DOMElement $element): bool => $this->isImageCarrierButton($element),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -613,7 +609,7 @@ final class HtmlTransformer
             fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element),
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
         ));
-        $this->detailsConverter = new DetailsElementConverter(new DetailsElementContext(
+        $detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
             function (DOMElement $element, array &$fallbacks): array {
                 return $this->capturedDialogBlock($element, $fallbacks);
@@ -621,6 +617,11 @@ final class HtmlTransformer
             function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
                 return $this->recognizePatterns($element, $fallbacks, $patterns);
             }
+        ));
+        $this->specializedElementConverters = new OrderedElementConverterRegistry(array(
+            $detailsConverter,
+            $buttonConverter,
+            $svgConverter,
         ));
         $tableConverter = new TableElementConverter($this->createTableElementContext());
         $parameterTableConverter = new PatternElementConverter(
@@ -4618,18 +4619,9 @@ final class HtmlTransformer
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        $detailsDispatch = $this->detailsConverter->convert($element, $tagName, $fallbacks);
-        if ( $detailsDispatch->handled ) {
-            return $detailsDispatch->block;
-        }
-
-        $buttonDispatch = $this->buttonConverter->convert($element, $tagName, $fallbacks);
-        if ( $buttonDispatch->handled ) {
-            return $buttonDispatch->block;
-        }
-
-        if ( 'svg' === $tagName ) {
-            return $this->svgConverter->convert($element, $tagName, $fallbacks)->block;
+        $specializedDispatch = $this->specializedElementConverters->convert($element, $tagName, $fallbacks);
+        if ( $specializedDispatch->handled ) {
+            return $specializedDispatch->block;
         }
 
         if ( 'canvas' === $tagName ) {
