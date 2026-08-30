@@ -32,6 +32,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMed
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
@@ -321,6 +323,8 @@ final class HtmlTransformer
 
     private readonly ButtonLinkDispatcher $buttonLinkDispatcher;
 
+    private readonly ButtonElementConverter $buttonConverter;
+
     private readonly OrderedElementConverterRegistry $tableConverters;
 
     private readonly DetailsElementConverter $detailsConverter;
@@ -599,6 +603,16 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->pseudoFormAnalyzer->isPseudoForm($element)
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
+        $this->buttonConverter = new ButtonElementConverter(new ButtonElementContext(
+            fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
+            fn (DOMElement $element): bool => $this->isImageCarrierButton($element),
+            function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
+                return $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element),
+            fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
+        ));
         $this->detailsConverter = new DetailsElementConverter(new DetailsElementContext(
             fn (DOMElement $element): ?DOMElement => $this->capturedDisclosureDialog($element),
             function (DOMElement $element, array &$fallbacks): array {
@@ -4609,24 +4623,12 @@ final class HtmlTransformer
             return $detailsDispatch->block;
         }
 
-        if ( 'a' === $tagName ) {
-            return $this->buttonLinkDispatcher->convertAnchor($element, $fallbacks);
+        $buttonDispatch = $this->buttonConverter->convert($element, $tagName, $fallbacks);
+        if ( $buttonDispatch->handled ) {
+            return $buttonDispatch->block;
         }
 
-        if ( 'button' === $tagName ) {
-            if ( $this->searchBlockConverter->isReplacedSearchClusterControl($element) ) {
-                return null;
-            }
-            if ( $this->isImageCarrierButton($element) ) {
-                $children = $this->convertChildren($element, $fallbacks, true);
-                if ( array() !== $children ) {
-                    return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
-                }
-            }
-            return $this->buttonLinkDispatcher->convertButton($element);
-        }
-
-if ( 'svg' === $tagName ) {
+        if ( 'svg' === $tagName ) {
             return $this->svgConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
