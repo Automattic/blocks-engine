@@ -744,7 +744,8 @@ final class HtmlTransformer
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
-            fn (string $id): string => $this->safeAnchor($id)
+            fn (string $id): string => $this->safeAnchor($id),
+            fn (DOMElement $element): bool => $this->authorSelectorProjections()->isRuntimeAttributePath($this->sourceElementIdentity($element))
         );
     }
 
@@ -2627,13 +2628,14 @@ final class HtmlTransformer
         return $projections;
     }
 
-    /** @return list<array{path: string, selectors: array<string, list<string>>}> */
+    /** @return list<array{path: string, selectors: array<string, list<string>>, superseded_ids: list<string>}> */
     private function runtimeScriptProjections(): array
     {
         $selectorMarkers = $this->authorSelectorProjections()->runtimeAttributeSelectorMarkers();
-        if ( array() === $selectorMarkers ) {
-            return array();
-        }
+        $supersededIds = array_values(array_filter(array_map(
+            static fn (string $selector): string => str_starts_with($selector, '#') ? substr($selector, 1) : '',
+            $this->runtimeSelectors()->supersededSelectors()
+        )));
 
         $projections = array();
         foreach ( $this->runtimeBehavior()->runtimeProjectionScriptAssets() as $asset ) {
@@ -2647,8 +2649,11 @@ final class HtmlTransformer
                     $selectors[$selector] = $markers;
                 }
             }
-            if ( array() !== $selectors ) {
-                $projections[] = array('path' => $asset['path'], 'selectors' => $selectors);
+            $assetSupersededIds = array_values(array_filter($supersededIds, static function (string $id) use ($asset): bool {
+                return 1 === preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $asset['content']);
+            }));
+            if ( array() !== $selectors || array() !== $assetSupersededIds ) {
+                $projections[] = array('path' => $asset['path'], 'selectors' => $selectors, 'superseded_ids' => $assetSupersededIds);
             }
         }
 

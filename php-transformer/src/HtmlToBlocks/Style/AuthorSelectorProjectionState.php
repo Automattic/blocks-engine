@@ -152,6 +152,22 @@ final class AuthorSelectorProjectionState
         return $this->runtimeAttributeSelectorMarkers;
     }
 
+    public function isRuntimeAttributePath(string $path): bool
+    {
+        $marker = $this->attributeMarkers[$path] ?? '';
+        if ( '' === $marker ) {
+            return false;
+        }
+
+        foreach ( $this->runtimeAttributeSelectorMarkers as $markers ) {
+            if ( in_array($marker, $markers, true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function installAttributeNegationMarker(string $selector, string $marker): void
     {
         $this->attributeNegationMarkers[$selector] = $marker;

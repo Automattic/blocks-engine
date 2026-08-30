@@ -55,7 +55,7 @@ $runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
   [data-reveal] { opacity:0; transform:translateY(20px) }
   [data-reveal].in-view { opacity:1; transform:translateY(0) }
 </style>
-<main><section data-reveal><p>Story</p></section><section data-reveal><p>Menu</p></section></main>
+<main><section id="story" data-reveal><p>Story</p></section><section data-reveal><p>Menu</p></section></main>
 <script>const revealEls = document.querySelectorAll('[data-reveal]'); const observer = new IntersectionObserver(function (entries) { entries.forEach(function (entry) { if (entry.isIntersecting) { entry.target.classList.add('in-view'); observer.unobserve(entry.target); } }); }); revealEls.forEach(function (el) { observer.observe(el); });</script>
 HTML ),
 ) ) )->toArray();
@@ -67,7 +67,16 @@ preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $runtimeRevealMarkup, 
 $runtimeRevealMarkers = array_keys(array_fill_keys($runtimeRevealMarkerMatches[0] ?? array(), true));
 $assert(2 === count($runtimeRevealMarkers) && ! str_contains($runtimeRevealMarkup, 'wp:html'), 'inline presentation runtime targets remain separate editable native blocks with deterministic identities');
 $assert(! str_contains($runtimeRevealCss, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealCss, ':where(.' . $marker . ')') || ! str_contains($runtimeRevealCss, ':where(.' . $marker . '):not(.blocks-engine-specificity-class-') || ! str_contains($runtimeRevealCss, '.in-view')), 'initial and runtime-mutated author selectors project onto every editable runtime target');
+$assert(array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => str_contains($runtimeRevealCss, ':root .' . $marker . '{opacity:1!important')), 'retained presentation runtimes keep their authored closed state instead of receiving inert-content visibility repairs');
 $assert(! str_contains($runtimeRevealJs, '[data-reveal]') && array() === array_filter($runtimeRevealMarkers, static fn (string $marker): bool => ! str_contains($runtimeRevealJs, '.' . $marker)), 'materialized inline script queries the same projected identities as author CSS');
+
+$restaurantRuntime = ( new ArtifactCompiler() )->compile(array('files' => array(
+    array('path' => 'index.html', 'kind' => 'html', 'content' => file_get_contents(dirname(__DIR__, 2) . '/../fixtures/websites/14-restaurant/index.html')),
+)))->toArray();
+$restaurantRuntimeJs = implode("\n", array_column(array_filter($restaurantRuntime['assets'] ?? array(), static fn (array $asset): bool => in_array($asset['kind'] ?? '', array('js', 'mjs'), true)), 'content'));
+$restaurantIslandPackage = json_encode($restaurantRuntime['source_reports']['runtime_island_package'] ?? array());
+$assert(str_contains($restaurantRuntimeJs, "document.getElementById('nav-toggle') || document.createElement('div')") && str_contains($restaurantRuntimeJs, "document.getElementById('nav-links') || document.createElement('div')"), 'mixed runtime scripts use inert targets for superseded controls so retained presentation behavior can continue');
+$assert(is_string($restaurantIslandPackage) && ! str_contains($restaurantIslandPackage, '[data-reveal]') && str_contains($restaurantIslandPackage, 'blocks-engine-attribute-') && str_contains($restaurantIslandPackage, "document.createElement('div')"), 'companion runtime packages carry the same projected script as the theme asset');
 $assert('pass' === ($runtimeReveal['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime dependency parity validates the projected inline script against materialized block markup');
 
 $contentBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
