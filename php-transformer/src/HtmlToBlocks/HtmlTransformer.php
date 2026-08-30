@@ -12831,7 +12831,7 @@ if ( 'svg' === $tagName ) {
             || '' !== trim($this->attr($element, 'aria-labelledby'))
             || '' !== trim($this->attr($element, 'title'))
             || ! $this->hasOnlySvgDefinitions($element)
-            || $this->hiddenSvgStoreHasExternalReference($element) ) {
+            || $this->hiddenSvgStoreHasNonSvgConsumer($element) ) {
             return false;
         }
 
@@ -12874,7 +12874,7 @@ if ( 'svg' === $tagName ) {
         return $hasDefinition;
     }
 
-    private function hiddenSvgStoreHasExternalReference(DOMElement $store): bool
+    private function hiddenSvgStoreHasNonSvgConsumer(DOMElement $store): bool
     {
         $ids = array();
         foreach ( $store->getElementsByTagName('*') as $definition ) {
@@ -12892,7 +12892,9 @@ if ( 'svg' === $tagName ) {
             }
             foreach ( $candidate->attributes as $attribute ) {
                 foreach ( $ids as $id ) {
-                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value) ) {
+                    if ( preg_match('/(?:^|[\\s,(])(?:url\\(\\s*["\']?#' . preg_quote($id, '/') . '["\']?\\s*\\)|#' . preg_quote($id, '/') . '(?:$|[\\s,)]))/', $attribute->value)
+                        && 'svg' !== strtolower($candidate->tagName)
+                        && null === $this->ancestorElement($candidate, 'svg') ) {
                         return true;
                     }
                 }
