@@ -1244,7 +1244,6 @@ final class HtmlTransformer
             $this->runtime,
             fn (DOMElement $element): array => $this->sourceContext($element)
         );
-        $this->authorStylesUseUniversalBorderBoxReset = null;
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->transformationProvenance()->installFallback(TransformationOptions::provenance($options));
