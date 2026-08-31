@@ -5318,10 +5318,11 @@ final class HtmlTransformer
     }
 
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
-    private function authorStyleRuleCandidates(DOMElement $element): array
+    private function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
     {
         $index = $this->authorStyles()->styleRuleCandidateIndex();
-        return ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, 'author-rules', $index);
+        $selectorCache ??= $this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache();
+        return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
     }
 
     private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
@@ -5364,17 +5365,17 @@ final class HtmlTransformer
         $parent->insertBefore($child, $element);
         $parent->removeChild($element);
         $child->setAttribute('class', $this->mergeClassNames(...$chainClasses));
-        $this->styleResolver->invalidateSourceSelectorMatchCache();
 
         $survives = true;
-        $afterCandidates = $this->authorStyleRuleCandidates($child);
+        $temporarySelectorCache = new CssSelectorMatchCache();
+        $afterCandidates = $this->authorStyleRuleCandidates($child, $temporarySelectorCache);
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
         }
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
-                && ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
+                && $temporarySelectorCache->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
@@ -5391,8 +5392,6 @@ final class HtmlTransformer
         } else {
             $child->setAttribute('class', $childClass);
         }
-        $this->styleResolver->invalidateSourceSelectorMatchCache();
-
         return $survives;
     }
 

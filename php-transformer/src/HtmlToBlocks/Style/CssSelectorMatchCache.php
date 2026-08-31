@@ -220,17 +220,17 @@ final class CssSelectorMatchCache
 
     private function elementKey(DOMElement $element): string
     {
+        if ( isset($this->connectedElementKeys[$element]) ) {
+            ++$this->connectedElementKeyHits;
+            return $this->connectedElementKeys[$element];
+        }
+
         // PHP may return a new wrapper each time the same native DOM node is
         // fetched, and it reuses spl_object_id() as soon as an old wrapper is
         // released. A connected node's document path is stable across wrappers
         // and unique within this per-document cache revision.
         for ( $ancestor = $element; $ancestor instanceof DOMNode; $ancestor = $ancestor->parentNode ) {
             if ( $ancestor instanceof \DOMDocument ) {
-                if ( isset($this->connectedElementKeys[$element]) ) {
-                    ++$this->connectedElementKeyHits;
-                    return $this->connectedElementKeys[$element];
-                }
-
                 ++$this->connectedElementKeyBuilds;
                 return $this->connectedElementKeys[$element] = 'path:' . $element->getNodePath();
             }
