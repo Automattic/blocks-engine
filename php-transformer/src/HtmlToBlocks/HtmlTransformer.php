@@ -2974,6 +2974,11 @@ final class HtmlTransformer
             return null;
         }
 
+        $linkBearingElement = $this->linkBearingElementBlock($element);
+        if ( null !== $linkBearingElement ) {
+            return $linkBearingElement;
+        }
+
         $transparentCustomElement = $this->transparentCustomElementBlock($element, $fallbacks);
         if ( null !== $transparentCustomElement ) {
             return $transparentCustomElement;
@@ -2988,6 +2993,54 @@ final class HtmlTransformer
         }
 
         return null;
+    }
+
+    /**
+     * Lower an otherwise-unsupported static element with a usable destination
+     * to an editable native button link. This deliberately runs only after the
+     * specialized converters: it is a capability-based escape hatch for unknown
+     * element names, including namespaced elements normalized by DOMDocument.
+     *
+     * Runtime-owned elements and elements without a safe destination continue
+     * through the explicit preservation or unsupported-diagnostic paths.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function linkBearingElementBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->isSafeTransparentCustomElement($element) ) {
+            return null;
+        }
+
+        $href = $this->safeLinkUrl($this->attr($element, 'href'));
+        if ( '' === $href ) {
+            return null;
+        }
+
+        $label = trim($this->runtime->stripAllTags($this->innerHtml($element)));
+        if ( '' === $label ) {
+            $label = trim($this->attr($element, 'aria-label'));
+        }
+        if ( '' === $label ) {
+            $label = trim($this->attr($element, 'title'));
+        }
+        if ( '' === $label ) {
+            $label = 'Open link';
+        }
+
+        $attrs = array_merge($this->styleResolver->presentationAttributes($element), array_filter(array(
+            'url'        => $href,
+            'text'       => $label,
+            'linkTarget' => $this->attr($element, 'target'),
+            'rel'        => $this->attr($element, 'rel'),
+        ), static fn (string $value): bool => '' !== trim($value)));
+
+        return $this->createBlock(
+            'core/buttons',
+            array(),
+            array( $this->createBlock('core/button', $attrs, array(), $element) ),
+            $element
+        );
     }
 
     /**
