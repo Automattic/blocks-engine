@@ -13,12 +13,13 @@ $assert = static function (bool $condition, string $message): void { if (!$condi
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
 $artifact = array(
     'entrypoints' => array('index.html'),
+    'provenance' => array('source_url' => 'https://source.example.test/'),
     'files' => array(
         array('path' => 'assets/site.css', 'content' => 'main{color:#123;background:url(logo.png)}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
         array('path' => 'assets/about.css', 'content' => '.about-grid{display:grid;grid-template-columns:1fr 1fr}', 'media' => '(min-width: 48rem)', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'about.html'))),
         array('path' => 'about.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/about.css"><main class="about-grid"><h1>About</h1></main>'),
         array('path' => 'contact.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Contact</h1></main>'),
-        array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Home</h1></main>'),
+        array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><main><h1>Home</h1><a href="https://source.example.test/about.html">About</a><a href="https://external.example.test/about.html">External</a></main>'),
         array('path' => 'assets/logo.png', 'content_base64' => base64_encode('binary-png-fixture'), 'mime_type' => 'image/png', 'metadata' => array('compilation' => array('scope' => 'shared'))),
     ),
 );
@@ -79,6 +80,8 @@ $partialLegacy = $compiler->compose($resumedShared, array($pages['index.html']))
 $assert(array('index.html') === array_column($partialLegacy['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'source_path'), 'Legacy prepared envelopes retain partial composition for batch-local page sets.');
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
+$stagedHome = array_values(array_filter($staged['source_reports']['wordpress_site_plan']['pages'] ?? array(), static fn(array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
+$assert(str_contains((string) ($stagedHome['canonical_block_markup'] ?? ''), 'href="/about"') && str_contains((string) ($stagedHome['canonical_block_markup'] ?? ''), 'href="https://external.example.test/about.html"'), 'Staged compilation retains artifact source provenance so same-origin absolute links become local routes while external links remain unchanged.');
 $assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
 $compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');

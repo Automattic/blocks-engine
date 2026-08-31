@@ -992,7 +992,7 @@ final class ArtifactCompiler
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
      *
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>,identity:array<string,string>,provenance:array<string,mixed>,source_paths:array<int,string>}
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
@@ -1041,6 +1041,7 @@ final class ArtifactCompiler
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
+            'provenance' => is_array($artifact['provenance'] ?? null) ? $artifact['provenance'] : array(),
             'source_paths' => $sourcePaths,
             'canonical_source_hash' => $normalized['source_hash'],
             'canonical_bytes' => $normalized['bytes'],
@@ -1313,7 +1314,7 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>} $partition
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>,provenance:array<string,mixed>} $partition
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
@@ -1330,6 +1331,9 @@ final class ArtifactCompiler
         );
         if ('' !== $partition['schema']) {
             $artifact['schema'] = $partition['schema'];
+        }
+        if (array() !== $partition['provenance']) {
+            $artifact['provenance'] = $partition['provenance'];
         }
         foreach (is_array($partition['identity'] ?? null) ? $partition['identity'] : array() as $key => $value) $artifact[$key] = $value;
         return $artifact;
