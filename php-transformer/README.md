@@ -29,7 +29,7 @@ PHP Transformer does not own product workflows such as importer admin screens, u
 - `HtmlToBlocks` - low-level HTML to core block transforms.
 - `FormatBridge` - declared-format normalization and format-to-format conversion.
 - `ArtifactCompiler` - generated artifact bundle normalization and compilation.
-- `StaticSite` - product-neutral compatibility reports for static-site materialization planning.
+- `StaticSite` - internal static-site compilation support.
 - `WordPress` - runtime adapters around WordPress functions.
 - `Contract` - shared result envelopes and diagnostics.
 
@@ -128,11 +128,11 @@ The result envelope includes generic `metrics` for wrapper reporting: `input_byt
 
 `source_reports.html.source_provenance` exposes bounded source context for converted blocks: selector, safe source attributes, sanitized source fragment, ancestor context, nearby heading text, safe `data-*` attributes, and generic structure hints such as card-like or grid-like wrappers. `source_reports.html.structure_signals` records those card/grid/static layout hints separately so callers can inspect them without relying on block attributes.
 
-`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. `source_reports.materialization_plan` exposes generic site-structure planning rows for routes, navigation links, and menus using source paths, target paths/slugs, titles/labels, parent/source relations, order, and kind. These reports remain product-neutral: callers still own route rewrites, media imports, theme assembly, navigation entity creation, visual repair policy, and acceptance gates.
+`source_reports.conversion_report` exposes a compact generic projection for wrappers that previously reconstructed report slices from lower-level result fields. It includes fallback diagnostics, sanitized fallback context, event attribute projections, source/selector summaries, asset references, navigation candidates, presentation and structure signals, and metrics. Routes, navigation, menus, and theme writes are self-contained in `wordpress-site-plan/v2`; callers still own media imports, navigation entity creation, visual repair policy, and acceptance gates.
 
 Visual parity tooling should use the product-neutral report/config contracts in `docs/contracts/visual-parity-report.md`. The report covers source and target render metadata, viewports, optional screenshot paths, DOM candidate matches, computed-style deltas, optional visual diff metrics, severity, selector evidence, and recommendations. Button, menu, card, and form fields are modeled as generic UI facts rather than product-specific entities.
 
-WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, generic materialization-plan, root asset, document, and block projections.
+WordPress materializers that consume the self-contained `wordpress-site-plan/v2` contract should use `WordPressSitePlan\WordPressSitePlanView::fromResult()`. It preserves the exact canonical plan plus Gutenberg gaps, companion-plugin payload, font materialization metadata, and plan diagnostics while omitting the duplicated compiled-site, root asset, document, and block projections.
 
 `HtmlTransformer` preserves syntax-highlight spans inside `<pre><code>` when they use safe inline tags and bounded attributes, while plain code remains escaped as text. Figure-wrapped testimonials and quote shapes are normalized to core quote or pullquote blocks with attribution from `cite`, `footer`, or `figcaption` content.
 
