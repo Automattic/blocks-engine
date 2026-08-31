@@ -3315,6 +3315,18 @@ $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset):
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
 $assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
+$artifactSummaryToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><nav><details><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary></details></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactSummaryToggleNavigationMarkup = (string) ($artifactSummaryToggleNavigation['serialized_blocks'] ?? '');
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'a semantic details summary menu control promotes its associated menu to native responsive navigation');
+$assert(! str_contains($artifactSummaryToggleNavigationMarkup, '<!-- wp:details') && ! str_contains($artifactSummaryToggleNavigationMarkup, '<summary'), 'native responsive navigation supersedes empty details summary menu chrome', $artifactSummaryToggleNavigationMarkup);
+
 $artifactCheckboxLabelNavigation = $compiler->compile(
     array(
         'entry' => 'index.html',

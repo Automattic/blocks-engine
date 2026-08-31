@@ -332,6 +332,26 @@ final class NavigationToggleSuppressor
             return $this->isCheckboxWithEmptyBoundLabel($element);
         }
 
+        if ( 'details' === $tagName ) {
+            $summary = $element->getElementsByTagName('summary')->item(0);
+            return $summary instanceof DOMElement
+                && $summary->parentNode instanceof DOMElement
+                && $summary->parentNode->isSameNode($element)
+                && $this->isHamburgerMenuToggleControl($summary);
+        }
+
+        if ( 'summary' === $tagName ) {
+            $parent = $element->parentNode;
+            $accessibleName = strtolower(trim(implode(' ', array(
+                $this->context->attr($element, 'aria-label'),
+                $this->context->attr($element, 'title'),
+            ))));
+            return $parent instanceof DOMElement
+                && 'details' === strtolower($parent->tagName)
+                && '' === $this->visibleMenuToggleLabel($element)
+                && 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger)(?:[^a-z0-9]|$)/', $accessibleName);
+        }
+
         $isButton = 'button' === $tagName;
         $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->context->attr($element, 'role'));
         if ( ! $isButton && ! $isButtonRoleAnchor ) {
