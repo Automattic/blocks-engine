@@ -134,7 +134,11 @@ final class AuthorStylesheetProjector
         foreach ( $selectors as $selector ) {
             $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
+            if ( ! $parsed['supported'] ) {
+                array_push($rewritten, ...$this->projectUnsupportedFunctionalControlSelector($selector, $context, true));
+                continue;
+            }
+            if ( null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
@@ -316,7 +320,12 @@ final class AuthorStylesheetProjector
             $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
-                $rewritten[] = $selector;
+                $projectedControls = $this->projectUnsupportedFunctionalControlSelector($selector, $context, $controlWrapper);
+                if ( array() === $projectedControls ) {
+                    $rewritten[] = $selector;
+                } else {
+                    array_push($rewritten, ...$projectedControls);
+                }
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
@@ -429,6 +438,54 @@ final class AuthorStylesheetProjector
             }
         }
         return implode(',', $rewritten);
+    }
+
+    /** @return list<string> */
+    private function projectUnsupportedFunctionalControlSelector(
+        string $selector,
+        AuthorStylesheetProjectionContext $context,
+        bool $wrapper
+    ): array {
+        if ( 1 !== preg_match('/:(?:is|where)\s*\(/i', $selector) ) {
+            return array();
+        }
+
+        $rewritten = array();
+        foreach ( $context->authorStyles->sourceBody()->getElementsByTagName('*') as $element ) {
+            if ( ! $element instanceof DOMElement || ! in_array(strtolower($element->tagName), array( 'a', 'button' ), true) ) {
+                continue;
+            }
+            $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
+            if ( '' === $marker ) {
+                continue;
+            }
+
+            $pattern = '';
+            $specificityShim = '';
+            $id = trim($element->getAttribute('id'));
+            if ( '' !== $id && 1 === preg_match('/#' . preg_quote($id, '/') . '(?![\w-])/', $selector) ) {
+                $pattern = '/#' . preg_quote($id, '/') . '(?![\w-])/';
+                $specificityShim = ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
+            } else {
+                foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $className ) {
+                    if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?![\w-])/', $selector) ) {
+                        $pattern = '/\.' . preg_quote($className, '/') . '(?![\w-])/';
+                        $specificityShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+                        break;
+                    }
+                }
+            }
+            if ( '' === $pattern ) {
+                continue;
+            }
+
+            $target = ':where(.' . $marker . ($wrapper ? '.wp-block-buttons)' : ')> :where(.wp-block-button__link)') . $specificityShim;
+            $projected = preg_replace($pattern, $target, $selector, 1);
+            if ( is_string($projected) && '' !== $projected ) {
+                $rewritten[] = $projected;
+            }
+        }
+        return array_values(array_unique($rewritten));
     }
 
     private function editorDocumentRootRule(string $prelude, string $body): string

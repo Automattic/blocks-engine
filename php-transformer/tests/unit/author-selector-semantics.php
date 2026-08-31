@@ -138,6 +138,17 @@ $assert(
     'rightmost data-attribute flex-grow and settled negated state selectors project through valid synthetic markers without source attributes'
 );
 
+$functionalAttributeState = $transform('<style>@media(prefers-reduced-motion:no-preference){:is(#hero :where(.artwork),[id^="artwork-"]):not([data-motion-enter="done"]){opacity:0;animation:reveal 1s backwards}}</style><main id="hero"><div class="artwork" data-motion-enter="done">Visible</div></main>');
+$functionalAttributeStateMarkup = (string) ($functionalAttributeState['serialized_blocks'] ?? '');
+$functionalAttributeStateCss = $css($functionalAttributeState);
+preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $functionalAttributeStateMarkup, $functionalAttributeStateMarker);
+$assert(
+    isset($functionalAttributeStateMarker[0])
+    && str_contains($functionalAttributeStateCss, ':not(.' . $functionalAttributeStateMarker[0] . ')')
+    && ! str_contains($functionalAttributeStateCss, 'data-motion-enter'),
+    'negated captured state projects through markers even when a functional selector list is outside the conservative matcher subset'
+);
+
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');

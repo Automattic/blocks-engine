@@ -188,27 +188,9 @@ final class AuthorSelectorSemanticPreparer
     {
         foreach ( $authorSelectors as $authorSelector ) {
             $parsed = $authorSelector['parsed'];
+            $this->discoverNegatedDataAttributeState($authorSelector['selector'], $authorStyles, $projections);
             if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
                 continue;
-            }
-
-            if ( self::hasRightmostNegatedDataAttribute($parsed) ) {
-                $matches = $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed);
-                $marker = '';
-                foreach ( $this->matchingSourceElementsIgnoringNegation($authorStyles, $parsed) as $element ) {
-                    if ( in_array($element, $matches, true) ) {
-                        continue;
-                    }
-                    $path = $element->getNodePath() ?? '';
-                    if ( '' !== $path ) {
-                        $marker = '' === $marker ? $authorStyles->allocateMarker('attribute-state') : $marker;
-                        $projections->addAttributeStateMarker($path, $marker);
-                        $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
-                    }
-                }
-                if ( '' !== $marker ) {
-                    $projections->installAttributeNegationMarker($authorSelector['selector'], $marker);
-                }
             }
 
             $rightmostSpan = $parsed['rightmost_compound_span'] ?? null;
@@ -248,6 +230,38 @@ final class AuthorSelectorSemanticPreparer
                     $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
                 }
             }
+        }
+    }
+
+    private function discoverNegatedDataAttributeState(string $selector, AuthorStyleAnalysis $authorStyles, AuthorSelectorProjectionState $projections): void
+    {
+        if ( 1 !== preg_match_all(
+            '/:not\(\s*(\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\])\s*\)/i',
+            $selector,
+            $matches
+        ) || 1 !== count($matches[1] ?? array()) ) {
+            return;
+        }
+
+        $attributeSelector = CssSelectorMatcher::parse($matches[1][0]);
+        if ( ! $attributeSelector['supported'] ) {
+            return;
+        }
+
+        $marker = '';
+        foreach ( $authorStyles->selectorCandidates($attributeSelector) as $element ) {
+            if ( ! CssSelectorMatcher::matches($element, $attributeSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
+                continue;
+            }
+            $path = $element->getNodePath() ?? '';
+            if ( '' !== $path ) {
+                $marker = '' === $marker ? $authorStyles->allocateMarker('attribute-state') : $marker;
+                $projections->addAttributeStateMarker($path, $marker);
+                $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
+            }
+        }
+        if ( '' !== $marker ) {
+            $projections->installAttributeNegationMarker($selector, $marker);
         }
     }
 
@@ -329,37 +343,6 @@ final class AuthorSelectorSemanticPreparer
                 }
             }
         }
-    }
-
-    /** @param array<string, mixed> $parsed @return list<DOMElement> */
-    private function matchingSourceElementsIgnoringNegation(AuthorStyleAnalysis $authorStyles, array $parsed): array
-    {
-        $positive = $parsed;
-        foreach ( $positive['compounds'] as $index => $compound ) {
-            $positive['compounds'][$index]['not'] = array();
-        }
-        $matches = array();
-        foreach ( $authorStyles->selectorCandidates($positive) as $element ) {
-            if ( CssSelectorMatcher::matches($element, $positive, true, $authorStyles->selectorMatchCache())['matches'] ) {
-                $matches[] = $element;
-            }
-        }
-        return $matches;
-    }
-
-    /** @param array<string, mixed> $parsed */
-    private static function hasRightmostNegatedDataAttribute(array $parsed): bool
-    {
-        $compounds = $parsed['compounds'] ?? array();
-        $rightmost = $compounds[array_key_last($compounds)] ?? array();
-        foreach ( $rightmost['not'] ?? array() as $negated ) {
-            foreach ( $negated['attributes'] ?? array() as $attribute ) {
-                if ( str_starts_with($attribute['name'] ?? '', 'data-') ) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /** @param array<string, mixed> $parsed */
