@@ -3123,6 +3123,14 @@ final class HtmlTransformer
             return false;
         }
 
+        // Interactivity API directives express runtime behavior even when they
+        // are not event metadata. Do not lower their host to a static block.
+        foreach ( $element->attributes as $attribute ) {
+            if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
+                return false;
+            }
+        }
+
         return true;
     }
 

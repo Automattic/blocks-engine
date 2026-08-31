@@ -24,4 +24,13 @@ $unsafe = (new HtmlTransformer())->transform('<share-control href="javascript:al
 $destinationless = (new HtmlTransformer())->transform('<share-control class="share-control"><span></span></share-control>')->toArray();
 if ('html_unsupported_element' !== ($unsafe['fallbacks'][0]['diagnostic_code'] ?? null) || 'html_unsupported_element' !== ($destinationless['fallbacks'][0]['diagnostic_code'] ?? null)) throw new RuntimeException('Unsafe or destination-less custom elements must retain explicit unsupported diagnostics.');
 
+$runtimeDirectives = array('data-wp-interactive', 'data-wp-on--click', 'data-wp-bind--hidden', 'data-wp-init', 'data-wp-context');
+foreach ($runtimeDirectives as $directive) {
+    $source = sprintf('<share-control href="/article" %s="store.callback"><span>Share article</span></share-control>', $directive);
+    $first = (new HtmlTransformer())->transform($source)->toArray();
+    $second = (new HtmlTransformer())->transform($source)->toArray();
+    if ('html_unsupported_element' !== ($first['fallbacks'][0]['diagnostic_code'] ?? null) || str_contains((string) ($first['serialized_blocks'] ?? ''), 'core/button')) throw new RuntimeException('WordPress Interactivity API directives on link-bearing custom elements must retain the explicit unsupported path.');
+    if (($first['serialized_blocks'] ?? null) !== ($second['serialized_blocks'] ?? null) || ($first['fallbacks'] ?? null) !== ($second['fallbacks'] ?? null)) throw new RuntimeException('WordPress Interactivity API directive fallback must be deterministic.');
+}
+
 fwrite(STDOUT, "link-bearing element lowering contract passed\n");
