@@ -7,7 +7,6 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use DOMElement;
-use WeakMap;
 
 /**
  * Resolves source CSS into native block presentation attributes.
@@ -34,9 +33,6 @@ final class StyleResolver
     private ?HighValueStyleBoundaryPolicy $highValueStyleBoundaryPolicy = null;
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
-
-    /** @var WeakMap<DOMElement, string>|null */
-    private ?WeakMap $presentationCacheKeys = null;
 
     /**
      * Resolved presentation attributes for the active transform, keyed by the
@@ -231,11 +227,6 @@ final class StyleResolver
         );
     }
 
-    public function resetPresentationResolutionCache(): void
-    {
-        $this->presentationCacheKeys = null;
-    }
-
     public function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
@@ -285,11 +276,11 @@ final class StyleResolver
         bool $carrierOwnsInlineGeometry
     ): array
     {
-        $cacheKey = $this->presentationCacheKey($element)
+        $cache = $this->context->presentationResolutionCache();
+        $cacheKey = $cache->elementKey($element)
             . ':' . implode(',', $excludedGeometryProperties)
             . ':' . implode(',', $forcedGeometryProperties)
             . ':' . ($carrierOwnsInlineGeometry ? 'carrier' : 'inline');
-        $cache = $this->context->presentationResolutionCache();
         if ( isset($cache->attributes[$cacheKey]) ) {
             return $cache->attributes[$cacheKey];
         }
@@ -841,7 +832,7 @@ final class StyleResolver
     {
         $cache = $this->context->sourceStyles();
         sort($properties, SORT_STRING);
-        $cacheKey = $this->presentationCacheKey($element) . ':' . implode(',', $properties);
+        $cacheKey = $this->context->presentationResolutionCache()->elementKey($element) . ':' . implode(',', $properties);
         if ( isset($cache->authorDeclaredPropertyValues[ $cacheKey ]) ) {
             return $cache->authorDeclaredPropertyValues[ $cacheKey ];
         }
@@ -1240,8 +1231,8 @@ final class StyleResolver
      */
     public function presentationDeclarations(DOMElement $element): array
     {
-        $cacheKey = $this->presentationCacheKey($element);
         $cache = $this->context->presentationResolutionCache();
+        $cacheKey = $cache->elementKey($element);
         if ( isset($cache->declarations[$cacheKey]) ) {
             return $cache->declarations[$cacheKey];
         }
@@ -1268,7 +1259,7 @@ final class StyleResolver
     public function structuralPresentationDeclarations(DOMElement $element): array
     {
         $cache = $this->context->sourceStyles();
-        $cacheKey = $this->presentationCacheKey($element);
+        $cacheKey = $this->context->presentationResolutionCache()->elementKey($element);
         if ( isset($cache->structuralDeclarations[$cacheKey]) ) {
             ++$this->analysisCache->sourceStructuralDeclarationHits;
             return $cache->structuralDeclarations[$cacheKey];
@@ -1617,8 +1608,8 @@ final class StyleResolver
      */
     public function mediaTextPresentationStyle(DOMElement $element): string
     {
-        $cacheKey = $this->presentationCacheKey($element);
         $cache = $this->context->presentationResolutionCache();
+        $cacheKey = $cache->elementKey($element);
         if ( isset($cache->mediaTextStyles[$cacheKey]) ) {
             return $cache->mediaTextStyles[$cacheKey];
         }
@@ -1748,8 +1739,8 @@ final class StyleResolver
 
     public function mergedPresentationStyle(DOMElement $element): string
     {
-        $cacheKey = $this->presentationCacheKey($element);
         $cache = $this->context->presentationResolutionCache();
+        $cacheKey = $cache->elementKey($element);
         if ( isset($cache->mergedStyles[$cacheKey]) ) {
             return $cache->mergedStyles[$cacheKey];
         }
@@ -1991,13 +1982,6 @@ final class StyleResolver
         }
 
         return $base;
-    }
-
-    private function presentationCacheKey(DOMElement $element): string
-    {
-        $this->presentationCacheKeys ??= new WeakMap();
-        return $this->presentationCacheKeys[$element]
-            ??= spl_object_id($element) . ':' . $element->getNodePath();
     }
 
     private function isHighValueStyledElement(DOMElement $element): bool
