@@ -393,6 +393,9 @@ final class AuthorStyleRuleProjector
         if ( $element->parentNode === $authorStyles->sourceBody() ) {
             return true;
         }
+        if ( $element->getElementsByTagName('main')->length > 0 ) {
+            return true;
+        }
         if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {
             return true;
         }
