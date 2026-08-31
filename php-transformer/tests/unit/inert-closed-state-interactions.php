@@ -202,6 +202,43 @@ $assert(
     $responsiveDocumentAfterAuthor
 );
 
+$inactiveDialog = <<<'HTML'
+<style>
+#menu-portal { visibility: hidden; opacity: 0; }
+</style>
+<div id="menu-portal" role="dialog" aria-modal="true" data-visible="false">
+  <nav><a href="/about">About</a></nav>
+</div>
+HTML;
+
+$inactiveDialogResult = ( new HtmlTransformer() )->transform($inactiveDialog)->toArray();
+$inactiveDialogAfterAuthor = $cssContent($inactiveDialogResult, 'after-author', 'both');
+$assert(
+    ! str_contains($inactiveDialogAfterAuthor, '#menu-portal{opacity:1')
+        && ! str_contains($inactiveDialogAfterAuthor, '#menu-portal{visibility:visible'),
+    'an explicitly inactive runtime state does not receive a global visibility repair',
+    $inactiveDialogAfterAuthor
+);
+
+$dialogShell = <<<'HTML'
+<style>
+.dialog-shell { opacity: 0; }
+</style>
+<div class="dialog-shell">
+  <div role="dialog" aria-label="Site navigation">
+    <nav><a href="/about">About</a></nav>
+  </div>
+</div>
+HTML;
+
+$dialogShellResult = ( new HtmlTransformer() )->transform($dialogShell)->toArray();
+$dialogShellAfterAuthor = $cssContent($dialogShellResult, 'after-author', 'both');
+$assert(
+    ! str_contains($dialogShellAfterAuthor, '.dialog-shell{opacity:1'),
+    'a hidden shell around dialog content remains inactive instead of becoming a page-covering overlay',
+    $dialogShellAfterAuthor
+);
+
 $products = <<<'HTML'
 <div class="products">
   <div class="item"><h3>Product A</h3><p>Nice chair.</p></div>
