@@ -231,8 +231,31 @@ final class AuthorStyleRuleProjector
         if ( 'none' === $display ) {
             return true;
         }
+        $position = strtolower(CssValueInspector::withoutImportant((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) && $this->hasDefiniteBlockAxisInsets($declarations) ) {
+            return false;
+        }
         return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
             && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasDefiniteBlockAxisInsets(array $declarations): bool
+    {
+        foreach ( array( 'inset', 'inset-block' ) as $property ) {
+            $value = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
+            if ( '' !== $value && ! str_contains($value, 'auto') ) {
+                return true;
+            }
+        }
+        foreach ( array( array( 'top', 'bottom' ), array( 'inset-block-start', 'inset-block-end' ) ) as $properties ) {
+            $start = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$properties[0]] ?? '')));
+            $end = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$properties[1]] ?? '')));
+            if ( '' !== $start && 'auto' !== $start && '' !== $end && 'auto' !== $end ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isDefiniteBlockSize(string $value): bool
