@@ -830,10 +830,10 @@ final class HtmlTransformer
     }
 
 
-    /** Source markup changed, so cached selector inputs are no longer valid. */
+    /** Source markup changed after selector analysis, so cached inputs are stale. */
     private function onSourceMarkupMutated(): void
     {
-        $this->styleResolver->invalidateSourceSelectorMatchCache();
+        $this->sourceStyles()->invalidateSelectorMatches();
     }
 
     /**
@@ -1347,7 +1347,7 @@ final class HtmlTransformer
         $this->fallbackEmitter()->configure($this->transformationProvenance()->fallback(), $this->runtimeBehavior()->runtimeScriptMetadata(), $this->runtimeSelectors(), $this->authorSelectorProjections()->tagMarkers());
         // Author-selector preparation marks source nodes for later projection.
         // General style matching begins only after those source mutations settle.
-        $this->styleResolver->invalidateSourceSelectorMatchCache();
+        $this->sourceStyles()->invalidateSelectorMatches();
         $this->styleResolver->collectEditorHiddenStateFindings($body);
         $this->reusableComponents()->installRecognition($this->reusableComponentRecognizer->recognize($body));
 
@@ -1730,15 +1730,15 @@ final class HtmlTransformer
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($output),
-            'selector_match_cache_hits' => $selectorCache?->matchHits ?? 0,
-            'selector_match_cache_misses' => $selectorCache?->matchMisses ?? 0,
-            'selector_match_cache_evictions' => $selectorCache?->matchEvictions ?? 0,
-            'selector_match_cache_peak_entries' => $selectorCache?->matchPeakEntries ?? 0,
-            'style_rule_candidate_cache_hits' => $selectorCache?->candidateRuleHits ?? 0,
-            'style_rule_candidate_cache_misses' => $selectorCache?->candidateRuleMisses ?? 0,
-            'style_rule_candidate_cache_evictions' => $selectorCache?->candidateRuleEvictions ?? 0,
-            'style_rule_candidate_cache_peak_entries' => $selectorCache?->candidateRulePeakEntries ?? 0,
-            'style_rule_candidate_cache_peak_rule_references' => $selectorCache?->candidateRulePeakRetained ?? 0,
+            'selector_match_cache_hits' => $selectorCache->matchHits,
+            'selector_match_cache_misses' => $selectorCache->matchMisses,
+            'selector_match_cache_evictions' => $selectorCache->matchEvictions,
+            'selector_match_cache_peak_entries' => $selectorCache->matchPeakEntries,
+            'style_rule_candidate_cache_hits' => $selectorCache->candidateRuleHits,
+            'style_rule_candidate_cache_misses' => $selectorCache->candidateRuleMisses,
+            'style_rule_candidate_cache_evictions' => $selectorCache->candidateRuleEvictions,
+            'style_rule_candidate_cache_peak_entries' => $selectorCache->candidateRulePeakEntries,
+            'style_rule_candidate_cache_peak_rule_references' => $selectorCache->candidateRulePeakRetained,
         );
     }
 
@@ -3569,7 +3569,7 @@ final class HtmlTransformer
                 $parsed = $selector['direct_child_parsed'];
                 $last = count($parsed['compounds'] ?? array()) - 1;
                 if ( $parsed['supported'] && $last >= 1 && '>' === ($parsed['combinators'][$last - 1] ?? '')
-                    && ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
+                    && $this->sourceStyles()->selectorMatchCache->matches($child, $selector['selector'], $parsed, true)['matches'] ) {
                     return true;
                 }
             }
@@ -5136,7 +5136,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder])
                 || ! ($candidate['parsed']['supported'] ?? false)
                 || null !== ($candidate['parsed']['pseudo_state_suffix_span'] ?? null)
-                || ! ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
+                || ! $this->sourceStyles()->selectorMatchCache->matches($element, $candidate['selector'], $candidate['parsed'])['matches']
             ) {
                 continue;
             }
@@ -5309,7 +5309,7 @@ final class HtmlTransformer
             if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
                 continue;
             }
-            if ( ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
+            if ( $this->sourceStyles()->selectorMatchCache->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
                 $matchedRules[$ruleOrder] = true;
                 $declarations = $this->styleResolver->mergeCssDeclarationMaps($declarations, $selector['declarations']);
             }
@@ -5321,7 +5321,7 @@ final class HtmlTransformer
     private function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
     {
         $index = $this->authorStyles()->styleRuleCandidateIndex();
-        $selectorCache ??= $this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache();
+        $selectorCache ??= $this->sourceStyles()->selectorMatchCache;
         return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
     }
 
@@ -5354,7 +5354,7 @@ final class HtmlTransformer
         foreach ( $beforeCandidates as $selector ) {
             $matchesBefore[$selector['key']] = $selector['parsed']['supported'] && (bool) array_filter(
                 $chain,
-                fn (DOMElement $node): bool => ($this->sourceStyles()->selectorMatchCache ??= new CssSelectorMatchCache())->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
+                fn (DOMElement $node): bool => $this->sourceStyles()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
             );
         }
 

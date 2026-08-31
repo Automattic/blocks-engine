@@ -233,7 +233,6 @@ final class StyleResolver
 
     public function resetPresentationResolutionCache(): void
     {
-        $this->context->sourceStyles()->selectorMatchCache = new CssSelectorMatchCache();
         $this->presentationCacheKeys = null;
     }
 
@@ -2279,23 +2278,13 @@ final class StyleResolver
     public function matchesCssSelector(DOMElement $element, string $selector): bool
     {
         $cache = $this->context->sourceStyles();
-        $match = ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->matches($element, $selector, $this->context->parsedCssSelector($selector));
+        $match = $cache->selectorMatchCache->matches($element, $selector, $this->context->parsedCssSelector($selector));
         return $match['supported'] && $match['matches'];
-    }
-
-    public function invalidateSourceSelectorMatchCache(): void
-    {
-        $cache = $this->context->sourceStyles();
-        $cache->selectorMatchCache?->clear();
-        $cache->structuralDeclarations = array();
     }
 
     public function recordSourceSelectorMatchWork(): void
     {
         $selectorCache = $this->context->sourceStyles()->selectorMatchCache;
-        if ( ! $selectorCache instanceof CssSelectorMatchCache ) {
-            return;
-        }
         $this->analysisCache->sourceSelectorMatchExecutions += $selectorCache->matchExecutions;
         $this->analysisCache->sourceSelectorMatchHits += $selectorCache->matchHits;
         $this->analysisCache->sourceSelectorMatchMisses += $selectorCache->matchMisses;
@@ -2318,7 +2307,7 @@ final class StyleResolver
     {
         $cache = $this->context->sourceStyles();
         $index = $cache->ruleCandidateIndexes[$collection] ??= $this->styleRuleCandidateIndex($collection);
-        return ($cache->selectorMatchCache ??= new CssSelectorMatchCache())->styleRuleCandidates($element, $collection, $index);
+        return $cache->selectorMatchCache->styleRuleCandidates($element, $collection, $index);
     }
 
     /** @return array{universal: list<array{order: int, rule: array<string, mixed>}>, ids: array<string, list<array{order: int, rule: array<string, mixed>}>>, classes: array<string, list<array{order: int, rule: array<string, mixed>}>>, tags: array<string, list<array{order: int, rule: array<string, mixed>}>>, attributes: array<string, list<array{order: int, rule: array<string, mixed>}>>, total: int} */
