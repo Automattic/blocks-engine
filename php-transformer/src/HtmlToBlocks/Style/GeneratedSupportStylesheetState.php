@@ -13,6 +13,9 @@ final class GeneratedSupportStylesheetState
     private array $nativeButtonRules = array();
 
     /** @var array<string, string> */
+    private array $nativeNavigationToggleRules = array();
+
+    /** @var array<string, string> */
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
@@ -52,6 +55,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeButton(string $marker, string $rule): void
     {
         $this->nativeButtonRules[$marker] = $rule;
+    }
+
+    public function registerNativeNavigationToggle(string $marker, string $rule): void
+    {
+        $this->nativeNavigationToggleRules[$marker] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -141,6 +149,11 @@ final class GeneratedSupportStylesheetState
             }
         }
         foreach ($this->headerRichTextRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) {
+                $parts[] = $rule;
+            }
+        }
+        foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
                 $parts[] = $rule;
             }

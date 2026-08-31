@@ -608,9 +608,15 @@ final class NavigationToggleSuppressor
             return 'mobile';
         }
 
+        return $this->navigationToggleControl($navigation) instanceof DOMElement ? 'mobile' : 'never';
+    }
+
+    public function navigationToggleControl(DOMElement $navigation): ?DOMElement
+    {
+
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
-            return 'never';
+            return null;
         }
 
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
@@ -624,13 +630,13 @@ final class NavigationToggleSuppressor
             $projectedTarget = $this->projectedNavigationTargetForControl($toggle);
             if ( $projectedTarget instanceof DOMElement ) {
                 if ( $projectedTarget->isSameNode($navigation) ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
                 continue;
             }
 
             if ( $this->context->elementContains($navigation, $toggle) ) {
-                return 'mobile';
+                return $this->concreteToggleControl($toggle);
             }
 
             foreach ( preg_split('/\s+/', trim($this->context->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
@@ -638,23 +644,34 @@ final class NavigationToggleSuppressor
                 if ( $target instanceof DOMElement
                     && ($this->context->elementContains($target, $navigation) || $this->context->elementContains($navigation, $target))
                 ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
             }
 
             for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
                 if ( $this->context->elementContains($container, $navigation) ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
             }
 
             $scope = $this->menuToggleScope($toggle);
             if ( 'body' !== strtolower($scope->tagName) && $this->context->elementContains($scope, $navigation) ) {
-                return 'mobile';
+                return $this->concreteToggleControl($toggle);
             }
         }
 
-        return 'never';
+        return null;
+    }
+
+    private function concreteToggleControl(DOMElement $toggle): DOMElement
+    {
+        if ( 'details' === strtolower($toggle->tagName) ) {
+            $summary = $toggle->getElementsByTagName('summary')->item(0);
+            if ( $summary instanceof DOMElement ) {
+                return $summary;
+            }
+        }
+        return $toggle;
     }
 
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool

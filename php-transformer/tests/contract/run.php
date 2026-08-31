@@ -3319,13 +3319,15 @@ $artifactSummaryToggleNavigation = $compiler->compile(
     array(
         'entry' => 'index.html',
         'files' => array(
-            'index.html' => '<header><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><nav><details><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary></details></nav></header>',
+            'index.html' => '<header><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><nav><details><summary aria-label="Menu" style="box-sizing:border-box;width:40px;height:40px;padding:5px"><svg aria-hidden="true"></svg></summary></details></nav></header>',
         ),
     )
 )->toArray();
 $artifactSummaryToggleNavigationMarkup = (string) ($artifactSummaryToggleNavigation['serialized_blocks'] ?? '');
+$artifactSummaryToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactSummaryToggleNavigation['assets'] ?? array()));
 $assert(str_contains($artifactSummaryToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'a semantic details summary menu control promotes its associated menu to native responsive navigation');
 $assert(! str_contains($artifactSummaryToggleNavigationMarkup, '<!-- wp:details') && ! str_contains($artifactSummaryToggleNavigationMarkup, '<summary'), 'native responsive navigation supersedes empty details summary menu chrome', $artifactSummaryToggleNavigationMarkup);
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-navigation-toggle-') && str_contains($artifactSummaryToggleNavigationCss, '>.wp-block-navigation__responsive-container-open{') && str_contains($artifactSummaryToggleNavigationCss, 'width:40px!important') && str_contains($artifactSummaryToggleNavigationCss, 'padding:5px!important'), 'native responsive navigation projects source toggle geometry onto the core open control', $artifactSummaryToggleNavigationCss);
 
 $artifactCheckboxLabelNavigation = $compiler->compile(
     array(

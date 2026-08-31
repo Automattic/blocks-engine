@@ -14,6 +14,7 @@ final class NavigationPatternContext
     private readonly Closure $resolvedStyle;
     private readonly ?Closure $colorInteractionStates;
     private readonly ?Closure $overlayMenu;
+    private readonly ?Closure $responsiveToggleMarker;
 
     /**
      * @param callable(DOMElement): bool|null $runtimeDomTarget
@@ -21,19 +22,22 @@ final class NavigationPatternContext
      * @param callable(DOMElement): string $resolvedStyle
      * @param callable(DOMElement): list<string>|null $colorInteractionStates
      * @param callable(DOMElement): string|null $overlayMenu
+     * @param callable(DOMElement): string|null $responsiveToggleMarker
      */
     public function __construct(
         ?callable $runtimeDomTarget,
         callable $underlineColor,
         callable $resolvedStyle,
         ?callable $colorInteractionStates = null,
-        ?callable $overlayMenu = null
+        ?callable $overlayMenu = null,
+        ?callable $responsiveToggleMarker = null
     ) {
         $this->runtimeDomTarget       = null === $runtimeDomTarget ? null : Closure::fromCallable($runtimeDomTarget);
         $this->underlineColor         = Closure::fromCallable($underlineColor);
         $this->resolvedStyle          = Closure::fromCallable($resolvedStyle);
         $this->colorInteractionStates = null === $colorInteractionStates ? null : Closure::fromCallable($colorInteractionStates);
         $this->overlayMenu            = null === $overlayMenu ? null : Closure::fromCallable($overlayMenu);
+        $this->responsiveToggleMarker = null === $responsiveToggleMarker ? null : Closure::fromCallable($responsiveToggleMarker);
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool
@@ -60,5 +64,10 @@ final class NavigationPatternContext
     public function overlayMenu(DOMElement $element): string
     {
         return null === $this->overlayMenu ? 'never' : ($this->overlayMenu)($element);
+    }
+
+    public function responsiveToggleMarker(DOMElement $element): string
+    {
+        return null === $this->responsiveToggleMarker ? '' : ($this->responsiveToggleMarker)($element);
     }
 }

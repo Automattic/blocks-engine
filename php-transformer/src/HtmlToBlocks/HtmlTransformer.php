@@ -541,7 +541,10 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
         ), $this->styleResolver, $this->runtime);
-        $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
+        $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element)
+        );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
@@ -2621,7 +2624,8 @@ final class HtmlTransformer
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2738,6 +2742,53 @@ final class HtmlTransformer
             $this->sourceStyles()->pseudoElementRules(),
             fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
         );
+    }
+
+    private function responsiveNavigationToggleMarker(DOMElement $navigation): string
+    {
+        $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
+        if ( ! $toggle instanceof DOMElement ) {
+            return '';
+        }
+
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($toggle)
+        );
+        $sourceDeclarations = $this->styleResolver->cssDeclarations($resolved);
+        $declarations = array();
+        foreach ( array(
+            'box-sizing',
+            'width',
+            'height',
+            'min-width',
+            'min-height',
+            'padding',
+            'padding-top',
+            'padding-right',
+            'padding-bottom',
+            'padding-left',
+            'border-top-left-radius',
+            'border-top-right-radius',
+            'border-bottom-right-radius',
+            'border-bottom-left-radius',
+            'background-color',
+            'color',
+        ) as $property ) {
+            $value = trim((string) ($sourceDeclarations[$property] ?? ''));
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $property . ':' . $value . '!important';
+            }
+        }
+        if ( array() === $declarations ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
+        $rule = '@media(max-width:599px){' . $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important}'
+            . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
+        $this->generatedSupportStyles()->registerNativeNavigationToggle($marker, $rule);
+        return $marker;
     }
 
     /**
