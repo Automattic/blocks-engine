@@ -1496,13 +1496,14 @@ final class WordPressSitePlan
         foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null), static fn(mixed $value): bool => null !== $value);
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
-            $lines[] = "\$blocks_engine_presentation_css = static function ( ?WP_Post \$post, bool \$site_editor ) use ( \$blocks_engine_presentation_styles ): string {";
+            $lines[] = "\$blocks_engine_presentation_css = static function ( ?WP_Post \$post, bool \$site_editor, bool \$include_editor_only ) use ( \$blocks_engine_presentation_styles ): string {";
             $lines[] = "    \$presentation = '';";
             $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) {";
+            $lines[] = "        if ( ! \$include_editor_only && ! empty( \$style['editor_only'] ) ) continue;";
             $lines[] = "        \$matches = \$site_editor; if ( ! \$matches ) foreach ( \$style['scopes'] as \$scope ) {";
             $lines[] = "            if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "            if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
@@ -1517,12 +1518,12 @@ final class WordPressSitePlan
             $lines[] = "add_filter( 'wp_theme_json_data_theme', static function ( \$theme_json ) use ( \$blocks_engine_presentation_css ) {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base;";
             $lines[] = "    \$post = \$GLOBALS['post'] ?? null; if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$theme_json;";
-            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor );";
+            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor, \$site_editor );";
             $lines[] = "    return '' === \$presentation ? \$theme_json : \$theme_json->update_with( array( 'version' => 3, 'styles' => array( 'css' => \$presentation ) ) );";
             $lines[] = "} );";
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ) use ( \$blocks_engine_presentation_css ): array {";
             $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
-            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor );";
+            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor, true );";
             $lines[] = "    if ( '' !== \$presentation ) {";
             $lines[] = "        foreach ( \$settings['styles'] as \$editor_style ) if ( true === ( \$editor_style['isGlobalStyles'] ?? false ) && str_contains( (string) ( \$editor_style['css'] ?? '' ), '--blocks-engine-presentation:' ) ) return \$settings;";
             $lines[] = "        \$merged = false; foreach ( \$settings['styles'] as &\$editor_style ) if ( true === ( \$editor_style['isGlobalStyles'] ?? false ) && 'user' === ( \$editor_style['__unstableType'] ?? '' ) ) { \$editor_style['css'] = (string) ( \$editor_style['css'] ?? '' ) . \"\\n\" . \$presentation; \$merged = true; break; } unset( \$editor_style );";
