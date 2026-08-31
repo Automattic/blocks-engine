@@ -287,21 +287,26 @@ final class SemanticParityReporter
         ) {
             $items = $this->sourceNavigationMenuItems($element);
 
-            $signature = $this->sourceNavigationMenuSignature($items);
-            if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
-                return;
-            }
+            // A chrome-bearing landmark can carry the real menu in a descendant
+            // nav without owning items itself. Inventory the descendant menu,
+            // not a synthetic empty menu that would pair with an unrelated block.
+            if ( array() !== $items || 0 === $element->getElementsByTagName('nav')->length ) {
+                $signature = $this->sourceNavigationMenuSignature($items);
+                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
+                    return;
+                }
 
-            if ( '' !== $signature ) {
-                $seen[$signature] = true;
-            }
+                if ( '' !== $signature ) {
+                    $seen[$signature] = true;
+                }
 
-            $menus[] = array(
-                'selector' => $this->elementSelector($element),
-                'item_count' => count($items),
-                'items' => $items,
-                'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
-            );
+                $menus[] = array(
+                    'selector' => $this->elementSelector($element),
+                    'item_count' => count($items),
+                    'items' => $items,
+                    'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
+                );
+            }
         }
 
         foreach ( $element->childNodes as $child ) {

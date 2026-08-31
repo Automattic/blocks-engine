@@ -916,8 +916,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $hidden = $hidden || 'true' === strtolower(trim($this->attr($element, 'aria-hidden')));
         if ( $element->hasAttribute('href') || $element->hasAttribute('src')
-            || '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
-            || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
+            || ( ! $hidden && (
+                '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
+                || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
+            ) )
         ) {
             return false;
         }
@@ -1101,8 +1103,15 @@ final class NavigationPattern implements PatternRecognizerInterface
             $anchorAttrs = $this->withoutAuthoredCurrentNavigationSignals($anchorAttrs);
             $submenuAttrs = $this->withoutAuthoredCurrentNavigationSignals($submenuAttrs);
         }
-        if ( '' === (string) ($itemAttrs['className'] ?? '') && '' !== (string) ($anchorAttrs['className'] ?? '') ) {
-            $itemAttrs['className'] = $anchorAttrs['className'];
+        $itemClasses = preg_split('/\s+/', trim((string) ($itemAttrs['className'] ?? ''))) ?: array();
+        $anchorClasses = preg_split('/\s+/', trim((string) ($anchorAttrs['className'] ?? ''))) ?: array();
+        $classes = array_values(array_unique(array_filter(array_merge($itemClasses, $anchorClasses))));
+        if ( array() === $classes ) {
+            unset($itemAttrs['className']);
+        } else {
+            // The generated navigation item replaces both the list item and its
+            // nested anchor, so retain selectors authored for either element.
+            $itemAttrs['className'] = implode(' ', $classes);
         }
         $itemAttrs = array_replace_recursive($itemAttrs, $this->navigationAnchorTextAttributes($anchorAttrs, 'a' === strtolower($item?->tagName ?? 'a')));
         if ( null !== $navigationContext ) {
@@ -1431,24 +1440,47 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function primaryNavigationAnchor(DOMElement $element): ?DOMElement
     {
+        $anchors = array();
         foreach ( $element->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
             }
 
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
             if ( 'a' === strtolower($child->tagName) ) {
-                return $child;
+                $anchors[] = $child;
+                continue;
             }
 
             if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) ) {
                 $anchor = $this->primaryNavigationAnchor($child);
                 if ( $anchor instanceof DOMElement ) {
-                    return $anchor;
+                    $anchors[] = $anchor;
+                    continue;
                 }
             }
+
+            if ( $this->isInertNavigationSupportWrapper($child) ) {
+                continue;
+            }
+
+            // A nested authored item may retain its menu toggle or submenu beside
+            // the anchor carrier. Neither changes the item's destination.
+            if ( $this->isNavigationChromeElement($child)
+                || in_array(strtolower($child->tagName), array( 'nav', 'ul', 'ol' ), true)
+                || $this->hasSubmenuSignal($child)
+                || ( $this->isNavigationWrapperElement($child)
+                    && ( 0 < $child->getElementsByTagName('ul')->length || 0 < $child->getElementsByTagName('ol')->length ) ) ) {
+                continue;
+            }
+
+            return null;
         }
 
-        return null;
+        return 1 === count($anchors) ? $anchors[0] : null;
     }
 
     /**
