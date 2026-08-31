@@ -228,11 +228,26 @@ $assert(2 === substr_count($galleryCurrentExhibition, '<!-- wp:blocks-engine/des
 $galleryForms = current(array_filter($galleryResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $galleryGraph = array(); foreach ($galleryForms['payload']['entities'] ?? array() as $galleryForm) foreach ($galleryForm['layout_graph']['nodes'] ?? array() as $node) if (in_array('row-2', $node['source']['classes'] ?? array(), true)) { $galleryGraph = $galleryForm['layout_graph']; break 2; }
 $galleryNodes = array_column($galleryGraph['nodes'] ?? array(), null, 'id'); $galleryByClass = array(); foreach ($galleryNodes as $node) foreach ($node['source']['classes'] ?? array() as $class) $galleryByClass[$class] ??= $node;
+$assert('generic/computed-layout-graph/v2' === ($galleryGraph['schema'] ?? null) && 16 === ($galleryGraph['limits']['depth'] ?? null), 'WordPress site plans project newly produced layout graphs with the v2 depth contract.');
 $assert('grid' === ($galleryByClass['form']['layout']['display'] ?? null) && '1fr 1fr' === ($galleryByClass['row-2']['layout']['columns'] ?? null) && 'flex' === ($galleryByClass['field']['layout']['display'] ?? null) && ($galleryByClass['row-2']['parent'] ?? null) === ($galleryByClass['form']['id'] ?? null) && ($galleryByClass['field']['parent'] ?? null) === ($galleryByClass['row-2']['id'] ?? null), 'Fixture 37 form artifact preserves .form, .row-2, and .field exact layouts and parentage without fixture changes.');
 $assert('css/style.css' === ($galleryByClass['form']['provenance'][0]['source_path'] ?? null) && preg_match('/^[a-f0-9]{64}$/', (string) ($galleryByClass['form']['provenance'][0]['source_sha256'] ?? '')) && '.form' === ($galleryByClass['form']['provenance'][0]['selector'] ?? null) && in_array('unsupported_selector:.form button[type="submit"]', $galleryGraph['diagnostics'] ?? array(), true), 'Fixture 37 graph retains authored stylesheet identity and explicitly reports unsupported attribute selector semantics.');
 $invalidCallerGraph = array('entrypoint' => 'index.html', 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => array(array('layout_graph' => array('schema' => 'generic/computed-layout-graph/v1')))))), 'files' => array('index.html' => '<main>Caller</main>'));
 $throws(static fn() => (new ArtifactCompiler())->compile($invalidCallerGraph), 'Runtime declaration intake validates form layout graphs before site-plan projection.');
 $callerGraph = static function (array $graph): array { return array('entrypoint' => 'index.html', 'runtime_declarations' => array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => 'index.html', 'payload' => array('schema' => 'generic/forms/v1', 'entities' => array(array('layout_graph' => $graph))))), 'files' => array('index.html' => '<main>Caller</main>')); };
+$persistedV1Graph = array(
+    'schema' => 'generic/computed-layout-graph/v1',
+    'basis' => 'source_css_cascade',
+    'truncated' => false,
+    'limits' => array('nodes' => 128, 'depth' => 8, 'rules_per_node' => 16),
+    'nodes' => array(array('id' => 'form', 'kind' => 'container', 'order' => 0, 'source' => array('tag' => 'form', 'classes' => array('contact')), 'layout' => array('display' => 'grid'), 'provenance' => array(array('source_path' => 'css/form.css', 'source_sha256' => str_repeat('a', 64), 'selector' => '.contact', 'condition' => null, 'properties' => array('display'))))),
+    'variants' => array(),
+    'diagnostics' => array(),
+);
+$persistedV1Plan = (new ArtifactCompiler())->compile($callerGraph($persistedV1Graph))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$persistedV1Declaration = current(array_filter($persistedV1Plan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert('generic/computed-layout-graph/v1' === ($persistedV1Declaration['payload']['entities'][0]['layout_graph']['schema'] ?? null) && 8 === ($persistedV1Declaration['payload']['entities'][0]['layout_graph']['limits']['depth'] ?? null), 'Runtime declaration intake preserves valid persisted v1 depth-8 layout graphs unchanged.');
+$crossVersionCallerGraph = $persistedV1Graph; $crossVersionCallerGraph['limits']['depth'] = 16;
+$throws(static fn() => (new ArtifactCompiler())->compile($callerGraph($crossVersionCallerGraph)), 'Runtime declaration intake rejects malformed cross-version layout graph limits.');
 $cyclicCallerGraph = $galleryGraph; $cyclicCallerGraph['nodes'][0]['parent'] = $cyclicCallerGraph['nodes'][0]['id'];
 $throws(static fn() => (new ArtifactCompiler())->compile($callerGraph($cyclicCallerGraph)), 'Runtime declaration intake rejects caller-supplied layout graph parent cycles.');
 $mismatchedCallerGraph = $galleryGraph; $mismatchedCallerGraph['nodes'][0]['provenance'][0]['properties'] = array('flex-direction');
