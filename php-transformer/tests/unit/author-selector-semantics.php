@@ -149,6 +149,18 @@ $assert(
     'negated captured state projects through markers even when a functional selector list is outside the conservative matcher subset'
 );
 
+$scopedAttributeState = $transform('<style>.first:not([data-state="done"]){animation:first 1s}.second:not([data-state="done"]){animation:second 1s}</style><div class="first" data-state="done">First</div><div class="second" data-state="done">Second</div><div data-state="done">Unrelated</div>');
+$scopedAttributeStateMarkup = (string) ($scopedAttributeState['serialized_blocks'] ?? '');
+preg_match('/class="[^"]*first[^"]*"/', $scopedAttributeStateMarkup, $firstStateClass);
+preg_match('/class="[^"]*second[^"]*"/', $scopedAttributeStateMarkup, $secondStateClass);
+$unrelatedStateClass = (string) ($scopedAttributeState['blocks'][2]['attrs']['className'] ?? '');
+$assert(
+    1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $firstStateClass[0] ?? '')
+        && 1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $secondStateClass[0] ?? '')
+        && ! str_contains($unrelatedStateClass, 'blocks-engine-attribute-state-'),
+    'negated state markers attach only to the settled targets of their owning selectors'
+);
+
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');

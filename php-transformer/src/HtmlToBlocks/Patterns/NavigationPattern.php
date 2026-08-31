@@ -102,7 +102,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         // hamburger menu functions on the rendered site (#native-interactivity).
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
         if ( $this->isListNavigationSource($element) ) {
-            unset($commonTextAttrs['style']['typography']);
+            $commonTextAttrs = array_replace_recursive(
+                $commonTextAttrs,
+                $this->commonListNavigationTypography($element, $presentationAttributes, $navigationContext)
+            );
         }
         $navigationAttrs = array_replace_recursive(
 			$navigationAttrs,
@@ -363,7 +366,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
         if ( $this->isListNavigationSource($cluster) ) {
-            unset($commonTextAttrs['style']['typography']);
+            $commonTextAttrs = array_replace_recursive(
+                $commonTextAttrs,
+                $this->commonListNavigationTypography($cluster, $presentationAttributes, $navigationContext)
+            );
         }
         $navigationAttrs = array_replace_recursive($navigationAttrs, $commonTextAttrs);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
@@ -648,6 +654,70 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /** @return array<string, mixed> */
+    private function commonListNavigationTypography(DOMElement $element, callable $presentationAttributes, ?NavigationPatternContext $navigationContext): array
+    {
+        $list = $this->navigationListSource($element);
+        if ( ! $list instanceof DOMElement ) {
+            return array();
+        }
+
+        $typographies = array();
+        foreach ( $list->childNodes as $item ) {
+            if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+                continue;
+            }
+            $anchor = $this->primaryNavigationAnchor($item);
+            if ( ! $anchor instanceof DOMElement ) {
+                continue;
+            }
+            $attrs = $presentationAttributes($anchor);
+            $typography = is_array($attrs['style']['typography'] ?? null) ? $attrs['style']['typography'] : array();
+            if ( null !== $navigationContext ) {
+                $typography = array_replace($typography, $this->resolvedNavigationTypography($navigationContext->resolvedStyle($anchor)));
+            }
+            $typographies[] = $typography;
+        }
+
+        $common = $typographies[0] ?? array();
+        foreach ( $common as $name => $value ) {
+            foreach ( $typographies as $typography ) {
+                if ( ($typography[$name] ?? null) !== $value ) {
+                    unset($common[$name]);
+                    break;
+                }
+            }
+        }
+
+        return array() !== $common
+            ? array( 'style' => array( 'typography' => $common ) )
+            : array();
+    }
+
+    /** @return array<string, mixed> */
+    private function resolvedNavigationTypography(string $style): array
+    {
+        $declarations = array();
+        $properties = array_fill_keys(array(
+            'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing',
+            'line-height', 'text-decoration', 'text-transform',
+        ), true);
+        foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+            $separator = strpos($declaration, ':');
+            if ( false === $separator ) {
+                continue;
+            }
+            $property = strtolower(trim(substr($declaration, 0, $separator)));
+            $value = trim(substr($declaration, $separator + 1));
+            if ( isset($properties[$property]) && '' !== $value ) {
+                $declarations[$property] = $value;
+            }
+        }
+
+        $mapped = ( new StyleAttributeMapper() )->map($declarations);
+        return is_array($mapped['style']['typography'] ?? null) ? $mapped['style']['typography'] : array();
     }
 
     /**

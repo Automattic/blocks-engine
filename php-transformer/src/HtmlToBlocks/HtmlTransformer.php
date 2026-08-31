@@ -387,6 +387,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
+
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
      * here and read back by {@see NavigationStyleProjector}, which projects the
@@ -2045,6 +2047,9 @@ final class HtmlTransformer
                 . "\n" . ':root :where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
+            $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none}';
         }
         if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
@@ -5687,6 +5692,8 @@ final class HtmlTransformer
     {
         $attrs = $this->emptyVisualElementAttributes($element);
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
+            $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
             $block = $this->createBlock('core/group', $attrs, array(), $element);
             $block['_editability_visual_owned'] = true;
             return $block;
