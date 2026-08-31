@@ -2048,6 +2048,13 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
+        if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
+            // Gutenberg inserts two editor-only InnerBlocks wrappers between a
+            // core Group and its children. Keep authored grid/flex children as
+            // direct layout items, matching the saved frontend markup.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks,'
+                . ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}';
+        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';
         }

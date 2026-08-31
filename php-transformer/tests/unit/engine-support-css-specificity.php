@@ -80,6 +80,10 @@ $layoutRules = array(
     'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
     'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
 );
+$editorWrapperRules = array(
+    ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks' => array( 0, 2, 0 ),
+    ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout' => array( 0, 3, 0 ),
+);
 
 foreach ( $layoutRules as $name => $rule ) {
     $selector = substr($rule, 0, (int) strpos($rule, '{'));
@@ -87,6 +91,11 @@ foreach ( $layoutRules as $name => $rule ) {
     $assert(array( 0, 1, 0 ) === $specificity($selector), 'C2: ' . $name . ' reset has specificity (0,1,0)');
     $assert(! str_contains($rule, '!important'), 'C3: ' . $name . ' reset does not use !important');
 }
+foreach ( $editorWrapperRules as $selector => $expectedSpecificity ) {
+    $assert(str_contains($beforeCss, $selector), 'C2: Gutenberg editor wrapper bridge is emitted for CSS-owned layouts');
+    $assert($expectedSpecificity === $specificity($selector), 'C2: Gutenberg editor wrapper bridge outranks the corresponding core wrapper rule');
+}
+$assert(! str_contains($beforeCss, '.block-editor-inner-blocks{display:contents!important}'), 'C3: editor wrapper transparency does not require !important');
 
 $authorAssets = $sourceAssets($authorMargin, 'author-css');
 $supportAssets = array_values(array_filter(
