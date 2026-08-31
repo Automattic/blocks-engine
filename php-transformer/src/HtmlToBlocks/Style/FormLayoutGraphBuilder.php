@@ -10,16 +10,20 @@ use InvalidArgumentException;
 final class FormLayoutGraphBuilder
 {
     private const MAX_NODES = 128;
-    private const MAX_DEPTH = 8;
+    private const MAX_DEPTH = 16;
     private const MAX_RULES_PER_NODE = 16;
     private const MAX_CSS_BYTES = 262144;
     private const MAX_RULES = 512;
     private const MAX_SELECTORS = 1024;
+    // Parsing work and retained cascade candidates have independent bounds.
+    private const MAX_SCANNED_SELECTORS = 4096;
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
-    private const LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
+    private const PROPERTIES = array( 'display', 'width', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
+    private const LAYOUT_KEYS = array( 'display', 'width', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
+    private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
+    private const V1_LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
 
     private array $diagnostics = array();
     private bool $truncated = false;
@@ -29,10 +33,6 @@ final class FormLayoutGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
-        $this->diagnostics = $analysis['diagnostics'];
-        $this->truncated = $analysis['truncated'];
-
         $controls = array();
         $relevant = array();
         foreach ( $this->controls($form) as $index => $control ) {
@@ -44,7 +44,29 @@ final class FormLayoutGraphBuilder
 
         $entries = array();
         $wrapper = 0;
-        $this->collect($form, null, 0, 0, $controls, $relevant, $entries, $wrapper);
+        // The form root is outside the topology depth coordinate; its children are depth zero.
+        $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
+        $analysis = (new CssRuleAnalyzer())->analyze(
+            $stylesheets,
+            $inlineCss,
+            self::PROPERTIES,
+            self::MAX_CSS_BYTES,
+            self::MAX_RULES,
+            self::MAX_SELECTORS,
+            self::MAX_CONDITION_DEPTH,
+            static function (array $selector) use ($entries): bool {
+                foreach ( $entries as $entry ) {
+                    $match = CssSelectorMatcher::matches($entry['element'], $selector);
+                    if ( ! $match['supported'] || $match['matches'] ) {
+                        return true;
+                    }
+                }
+                return false;
+            },
+            self::MAX_SCANNED_SELECTORS
+        );
+        $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
+        $this->truncated = $this->truncated || $analysis['truncated'];
         $nodes = array();
         $variants = array();
         foreach ( $entries as $entry ) {
@@ -84,7 +106,7 @@ final class FormLayoutGraphBuilder
         }
 
         $graph = array(
-            'schema' => 'generic/computed-layout-graph/v1',
+            'schema' => 'generic/computed-layout-graph/v2',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'nodes' => self::MAX_NODES, 'depth' => self::MAX_DEPTH, 'rules_per_node' => self::MAX_RULES_PER_NODE ),
@@ -106,7 +128,12 @@ final class FormLayoutGraphBuilder
     /** @param array<string, mixed> $graph */
     public static function assertValid(array $graph): void
     {
-        if ( 'generic/computed-layout-graph/v1' !== ($graph['schema'] ?? null) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || self::MAX_NODES !== ($graph['limits']['nodes'] ?? null) || self::MAX_DEPTH !== ($graph['limits']['depth'] ?? null) || self::MAX_RULES_PER_NODE !== ($graph['limits']['rules_per_node'] ?? null) || ! is_array($graph['nodes'] ?? null) || ! is_array($graph['variants'] ?? null) || ! is_array($graph['diagnostics'] ?? null) ) {
+        $schema = $graph['schema'] ?? null;
+        $v1 = 'generic/computed-layout-graph/v1' === $schema;
+        $depth = $v1 ? 8 : self::MAX_DEPTH;
+        $properties = $v1 ? self::V1_PROPERTIES : self::PROPERTIES;
+        $layoutKeys = $v1 ? self::V1_LAYOUT_KEYS : self::LAYOUT_KEYS;
+        if ( (! $v1 && 'generic/computed-layout-graph/v2' !== $schema) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || self::MAX_NODES !== ($graph['limits']['nodes'] ?? null) || $depth !== ($graph['limits']['depth'] ?? null) || self::MAX_RULES_PER_NODE !== ($graph['limits']['rules_per_node'] ?? null) || ! is_array($graph['nodes'] ?? null) || ! is_array($graph['variants'] ?? null) || ! is_array($graph['diagnostics'] ?? null) ) {
             throw new InvalidArgumentException('Form layout graph envelope is invalid.');
         }
         if ( count($graph['nodes']) > self::MAX_NODES ) {
@@ -136,7 +163,7 @@ final class FormLayoutGraphBuilder
                 }
                 break;
             }
-            self::assertFacts($node['layout'], $node['provenance'], null);
+            self::assertFacts($node['layout'], $node['provenance'], null, $properties, $layoutKeys);
         }
         if ( count($graph['variants']) > self::MAX_VARIANTS ) {
             throw new InvalidArgumentException('Form layout graph exceeds its variant limit.');
@@ -146,18 +173,18 @@ final class FormLayoutGraphBuilder
                 throw new InvalidArgumentException('Form layout graph variant is invalid.');
             }
             foreach ( $variant['precedence'] as $property => $precedence ) {
-                if ( ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($variant['layout_patch'][self::layoutKey($property)]) || ! is_array($precedence) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) {
+                if ( ! is_string($property) || ! in_array($property, $properties, true) || ! isset($variant['layout_patch'][self::layoutKey($property)]) || ! is_array($precedence) || ! is_int($precedence['source_order'] ?? null) || ! is_int($precedence['specificity'] ?? null) || ! is_bool($precedence['important'] ?? null) ) {
                     throw new InvalidArgumentException('Form layout graph variant precedence is invalid.');
                 }
             }
-            self::assertFacts($variant['layout_patch'], $variant['provenance'], $variant['condition']);
+            self::assertFacts($variant['layout_patch'], $variant['provenance'], $variant['condition'], $properties, $layoutKeys);
         }
     }
 
-    private static function assertFacts(array $layout, array $provenance, ?array $condition): void
+    private static function assertFacts(array $layout, array $provenance, ?array $condition, array $properties, array $layoutKeys): void
     {
         foreach ( $layout as $key => $value ) {
-            if ( ! is_string($key) || ! in_array($key, self::LAYOUT_KEYS, true) || ! is_string($value) || '' === trim($value) ) {
+            if ( ! is_string($key) || ! in_array($key, $layoutKeys, true) || ! is_string($value) || '' === trim($value) ) {
                 throw new InvalidArgumentException('Form layout graph value is invalid.');
             }
         }
@@ -165,7 +192,7 @@ final class FormLayoutGraphBuilder
             throw new InvalidArgumentException('Form layout graph provenance exceeds its limit.');
         }
         foreach ( $provenance as $fact ) {
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || ! preg_match('~^(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]+$~', $fact['source_path']) || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count(self::PROPERTIES) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, self::PROPERTIES, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
+            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || ! preg_match('~^(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]+$~', $fact['source_path']) || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count($properties) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
                 throw new InvalidArgumentException('Form layout graph provenance is invalid.');
             }
         }
@@ -248,11 +275,15 @@ final class FormLayoutGraphBuilder
     /** @param list<array<string, mixed>> $rules @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} */
     private function matched(DOMElement $element, array $rules): array
     {
+        $base = array();
         if ( $element->hasAttribute('style') ) {
             $inline = $element->getAttribute('style');
-            $rules[] = array( 'inline' => true, 'selector' => '[style]', 'declarations' => CssRuleAnalyzer::declarations($inline, self::PROPERTIES), 'condition' => null, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'order' => PHP_INT_MAX, 'specificity' => 10000 );
+            foreach ( CssRuleAnalyzer::declarations($inline, self::PROPERTIES) as $declaration ) {
+                $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
+                $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+                CssCascade::apply($base, $declaration['name'], array( 'value' => $value, 'path' => 'inline-style', 'hash' => hash('sha256', $inline), 'selector' => '[style]', 'order' => PHP_INT_MAX, 'specificity' => PHP_INT_MAX, 'important' => $important ));
+            }
         }
-        $base = array();
         $conditional = array();
         $matched = 0;
         foreach ( $rules as $rule ) {

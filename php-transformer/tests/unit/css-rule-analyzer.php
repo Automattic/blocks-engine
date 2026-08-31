@@ -78,6 +78,40 @@ $commentInput = $commentDom->getElementsByTagName('input')->item(0);
 $commentMatch = CssSelectorMatcher::matches($commentInput, $commentRule['parsed_selector'] ?? array());
 $assert('.field input' === ($commentRule['selector'] ?? null) && $commentMatch['supported'] && $commentMatch['matches'], 'comments separating identifier-like selector tokens retain descendant boundaries');
 
+$unrelatedCss = '';
+for ( $index = 0; $index < 1200; ++$index ) {
+    $unrelatedCss .= '.unrelated-' . $index . '{display:grid}';
+}
+$unrelatedCss .= '.retained{display:flex}';
+$filterCalls = 0;
+$filteredAnalysis = (new CssRuleAnalyzer())->analyze(
+    array( array( 'content' => $unrelatedCss, 'source_path' => 'large.css', 'source_hash' => hash('sha256', $unrelatedCss) ) ),
+    '',
+    array( 'display' ),
+    262144,
+    16,
+    16,
+    4,
+    static function (array $selector) use (&$filterCalls): bool {
+        return 1201 === ++$filterCalls;
+    },
+    4096
+);
+$assert(false === $filteredAnalysis['truncated'] && 1 === count($filteredAnalysis['rules']) && '.retained' === ($filteredAnalysis['rules'][0]['selector'] ?? null), 'relevance filtering scans more than 1,024 unrelated selectors without consuming retained selector capacity');
+
+$scanOverflowAnalysis = (new CssRuleAnalyzer())->analyze(
+    array( array( 'content' => str_repeat('.unrelated{display:grid}', 17), 'source_path' => 'overflow.css', 'source_hash' => hash('sha256', 'overflow.css') ) ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4,
+    static fn (array $selector): bool => false,
+    16
+);
+$assert(true === $scanOverflowAnalysis['truncated'] && array() === $scanOverflowAnalysis['rules'] && in_array('css_selector_scan_limit', $scanOverflowAnalysis['diagnostics'], true), 'scanned selector work fails closed before parsing or filtering beyond its independent budget');
+
 $commentGraph = (new HtmlTransformer())->transform('<form><div class="field"><input name="email"></div><button type="submit">Send</button></form>', array( 'static_css' => '.field/**/input { align-self:flex-start }' ))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $commentGraphNodes = array_column($commentGraph['nodes'] ?? array(), null, 'id');
 $assert('flex-start' === ($commentGraphNodes['control-0']['layout']['align_self'] ?? null), 'form layout graphs retain CSS comment selector boundaries');

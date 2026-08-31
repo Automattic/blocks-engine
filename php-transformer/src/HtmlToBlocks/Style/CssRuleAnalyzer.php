@@ -12,12 +12,17 @@ final class CssRuleAnalyzer
     /**
      * @param list<array<string, mixed>> $stylesheets
      * @param list<string> $properties
+     * @param callable(array<string, mixed>): bool|null $retainSelector
      * @return array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool}
      */
-    public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth): array
+    public function analyze(array $stylesheets, string $inlineCss, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, ?callable $retainSelector = null, ?int $maxScannedSelectors = null): array
     {
         $result = array( 'rules' => array(), 'diagnostics' => array(), 'truncated' => false );
         $order = 0;
+        $retainedSelectorCount = 0;
+        $scannedSelectorCount = 0;
+        $scanLimitReached = false;
+        $maxScannedSelectors ??= $maxSelectors;
 
         foreach ( $stylesheets as $sheet ) {
             $this->analyzeStylesheet(
@@ -31,12 +36,20 @@ final class CssRuleAnalyzer
                 $maxSelectors,
                 $maxConditionDepth,
                 $result,
-                $order
+                $order,
+                $retainedSelectorCount,
+                $scannedSelectorCount,
+                $scanLimitReached,
+                $retainSelector,
+                $maxScannedSelectors
             );
+            if ( $scanLimitReached ) {
+                break;
+            }
         }
 
         if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
-            $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order);
+            $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors);
         }
 
         $result['diagnostics'] = array_values(array_unique($result['diagnostics']));
@@ -54,8 +67,11 @@ final class CssRuleAnalyzer
      * @param list<string> $properties
      * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
      */
-    private function analyzeStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, array &$result, int &$order, int $conditionDepth = 0): void
+    private function analyzeStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, array &$result, int &$order, int &$retainedSelectorCount, int &$scannedSelectorCount, bool &$scanLimitReached, ?callable $retainSelector, int $maxScannedSelectors, int $conditionDepth = 0): void
     {
+        if ( $scanLimitReached ) {
+            return;
+        }
         if ( strlen($css) > $maxCssBytes ) {
             $css = substr($css, 0, $maxCssBytes);
             $result['truncated'] = true;
@@ -91,7 +107,10 @@ final class CssRuleAnalyzer
                         $result['diagnostics'][] = 'condition_depth_limit';
                         return;
                     }
-                    $this->analyzeStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $conditionDepth + 1);
+                    $this->analyzeStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $conditionDepth + 1);
+                    if ( $scanLimitReached ) {
+                        return;
+                    }
                 }
                 $offset = $end + 1;
                 continue;
@@ -108,33 +127,38 @@ final class CssRuleAnalyzer
                 if ( '' === $selector ) {
                     continue;
                 }
-                if ( count($result['rules']) >= $maxRules || $this->selectorCount($result['rules']) >= $maxSelectors ) {
+                if ( array() === $declarations ) {
+                    continue;
+                }
+                if ( ++$scannedSelectorCount > $maxScannedSelectors ) {
+                    $result['truncated'] = true;
+                    $result['diagnostics'][] = 'css_selector_scan_limit';
+                    $scanLimitReached = true;
+                    return;
+                }
+                $parsed = CssSelectorMatcher::parse($selector);
+                if ( null !== $retainSelector && ! $retainSelector($parsed) ) {
+                    continue;
+                }
+                if ( $retainedSelectorCount >= $maxSelectors || count($result['rules']) >= $maxRules ) {
                     $result['truncated'] = true;
                     $result['diagnostics'][] = 'css_rule_or_selector_limit';
                     return;
                 }
-                if ( array() !== $declarations ) {
-                    $parsed = CssSelectorMatcher::parse($selector);
-                    $result['rules'][] = array(
-                        'selector' => $selector,
-                        'parsed_selector' => $parsed,
-                        'declarations' => $declarations,
-                        'condition' => $condition,
-                        'path' => $path,
-                        'hash' => $hash,
-                        'order' => $order++,
-                        'specificity' => CssSelectorMatcher::specificity($parsed),
-                    );
-                }
+                ++$retainedSelectorCount;
+                $result['rules'][] = array(
+                    'selector' => $selector,
+                    'parsed_selector' => $parsed,
+                    'declarations' => $declarations,
+                    'condition' => $condition,
+                    'path' => $path,
+                    'hash' => $hash,
+                    'order' => $order++,
+                    'specificity' => CssSelectorMatcher::specificity($parsed),
+                );
             }
             $offset = $end + 1;
         }
-    }
-
-    /** @param list<array<string, mixed>> $rules */
-    private function selectorCount(array $rules): int
-    {
-        return count($rules);
     }
 
     /** @return list<array{name: string, value: string}> */
