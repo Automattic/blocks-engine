@@ -37,11 +37,11 @@ foreach ( $assets as $asset ) {
     $hash = hash('sha256', $content);
     $assert(strlen($content) === ($asset['bytes'] ?? null) && $hash === ($asset['hash'] ?? null), 'rewritten asset bytes and hashes describe emitted content');
 }
-$planAssets = $result['source_reports']['materialization_plan']['assets'] ?? array();
+$planAssets = $result['source_reports']['wordpress_site_plan']['assets'] ?? array();
 foreach ( $planAssets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
     $hash = hash('sha256', $content);
-    $assert(strlen($content) === ($asset['bytes'] ?? null) && $hash === ($asset['hash'] ?? null), 'materialization plan payload hashes describe rewritten content');
+    $assert(strlen($content) === ($asset['bytes'] ?? null) && $hash === ($asset['content_hash'] ?? null), 'canonical plan payload hashes describe rewritten content');
 }
 $assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsByPath['a.css']['source_hash'] ?? null) && ($assetsByPath['a.css']['hash'] ?? '') !== ($assetsByPath['a.css']['source_hash'] ?? ''), 'source hash retains linked pre-projection provenance');
 $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
