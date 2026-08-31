@@ -127,7 +127,7 @@ final class AuthorStyleRuleProjector
     ): string {
         $declarations = $this->styleResolver->cssDeclarations($body);
         $minimumWidth = (string) ($declarations['min-width'] ?? '');
-        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
+        if ( '' === $minimumWidth ) {
             return $body;
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -145,6 +145,11 @@ final class AuthorStyleRuleProjector
                 continue;
             }
             $matchedSurface = true;
+            foreach ( $matches as $element ) {
+                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
+                    return $body;
+                }
+            }
             $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element, $authorStyles));
             if ( count($shellMatches) !== count($matches) ) {
                 if ( array() !== $shellMatches ) {

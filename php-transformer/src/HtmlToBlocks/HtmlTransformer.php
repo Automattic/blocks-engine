@@ -976,6 +976,7 @@ final class HtmlTransformer
         return new NavigationStyleProjectionContext(
             fn (): AuthorStyleAnalysis => $this->authorStyles(),
             fn (): SourceStyleResolutionState => $this->sourceStyles(),
+            fn (): AuthorSelectorProjectionState => $this->session->authorSelectorProjectionState(),
             fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
             fn (): RuntimeBehaviorState => $this->runtimeBehavior(),
             fn (): TransformationEvidenceState => $this->transformationEvidence(),

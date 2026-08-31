@@ -47,6 +47,14 @@ $assert(
     'mixed shell and content minimum-width selectors remain intact and emit a diagnostic'
 );
 
+$variableWidth = (new HtmlTransformer())->transform(
+    '<style>:root{--site-width:980px}body:not(.responsive) #site-root{min-width:var(--site-width)}</style><div id="site-root"><main><p>Content</p></main></div>'
+)->toArray();
+$assert(
+    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:0;max-width:100%}'),
+    'desktop canvas minimum widths expressed through source custom properties receive bounded responsive geometry'
+);
+
 $percentageHeight = (new HtmlTransformer())->transform(
     '<style>footer{height:auto}.footer-frame{height:100%!important}.footer-grid{display:grid;grid-template-rows:1fr min-content;height:100%}.footer-background{position:absolute;inset:0;height:100%}.definite-frame{height:320px}.definite-frame>.fill{height:100%}.media-fill{height:100%;object-fit:cover}.mixed-fill{height:100%}@media(max-width:600px){.mobile-footer-frame{height:100%}}</style>'
     . '<footer><div class="footer-frame"><div class="footer-grid"><nav>Links</nav><p>Copyright</p></div><div class="footer-background"></div></div></footer>'
