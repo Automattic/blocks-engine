@@ -65,6 +65,7 @@ final class FormControlMetadataBuilder
 
         $tagName = strtolower($control->tagName);
         $type = FormControlClassifier::controlType($control);
+        $labelElement = $this->labelElement($control);
         if ( 'button' === $type && FormControlClassifier::isSubmitLikeControl($control) ) {
             $type = 'submit';
         }
@@ -72,6 +73,8 @@ final class FormControlMetadataBuilder
             'tag'          => $tagName,
             'selector'     => ($this->elementSelector)($control),
             'id'           => $this->attr($control, 'id'),
+            'class'        => $this->classNames($control),
+            'label_class'  => $labelElement instanceof DOMElement ? $this->classNames($labelElement) : '',
             'name'         => $this->attr($control, 'name'),
             'type'         => $type,
             'label'        => $this->label($control),
@@ -123,19 +126,9 @@ final class FormControlMetadataBuilder
             return $ariaLabel;
         }
 
-        $id = $this->attr($control, 'id');
-        if ( '' !== $id && $control->ownerDocument instanceof DOMDocument ) {
-            foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-                if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
-                    return $this->labelText($label);
-                }
-            }
-        }
-
-        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( 'label' === strtolower($parent->tagName) ) {
-                return $this->labelText($parent);
-            }
+        $label = $this->labelElement($control);
+        if ( $label instanceof DOMElement ) {
+            return $this->labelText($label);
         }
 
         return '';
@@ -176,6 +169,34 @@ final class FormControlMetadataBuilder
         }
 
         return null;
+    }
+
+    private function labelElement(DOMElement $control): ?DOMElement
+    {
+        $label = $this->associatedLabel($control);
+        if ( $label instanceof DOMElement ) {
+            return $label;
+        }
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'label' === strtolower($parent->tagName) ) {
+                return $parent;
+            }
+        }
+        return null;
+    }
+
+    private function classNames(DOMElement $element): string
+    {
+        $classes = array();
+        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $className ) {
+            if ( count($classes) >= 8 ) {
+                break;
+            }
+            if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $className) ) {
+                $classes[] = $className;
+            }
+        }
+        return implode(' ', $classes);
     }
 
     public function submitText(DOMElement $control, string $fallback): string

@@ -849,12 +849,13 @@ $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ??
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
 $formFallback = ( new HtmlTransformer() )->transform(
-    '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
+    '<main><form action="/contact" method="post" data-action="contact-submit"><label class="field-label" for="email">Email</label><input id="email" class="field-input" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
 $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
+$assert('field-input' === ($formFallbackDiagnostic['controls'][0]['class'] ?? '') && 'field-label' === ($formFallbackDiagnostic['controls'][0]['label_class'] ?? ''), 'data-entry runtime form fallback carries bounded control and label presentation classes');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
 $assert('form' === ($formFallbackDiagnostic['materialization_target']['capability'] ?? ''), 'data-entry runtime form targets a form materializer capability');
 $assert('form_provider' === ($formFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'data-entry runtime form targets a form provider role');
