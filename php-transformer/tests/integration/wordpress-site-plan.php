@@ -36,6 +36,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.home-owned{color:#123456}#content{background:#111;padding:4rem}</style><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
     'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
     'assets/global.css' => 'body{color:#123456;background-color:#fefefe;font-family:Inter,sans-serif;font-size:18px;padding:24px}.global-presentation{display:block}',
+    'assets/editor-media.css' => '.about-media-presentation{display:grid}',
     'assets/head.js' => 'window.headAsset=true;',
     'assets/defer.js' => 'window.deferAsset=true;',
     'assets/async.js' => 'window.asyncAsset=true;',
@@ -43,7 +44,7 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'assets/legacy.js' => 'window.legacyAsset=true;',
     'parts/sidebar.html' => '<aside class="site-sidebar"><p>Integration Sidebar</p></aside>',
     'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
-    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.about-owned{color:#654321}</style><script src="assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
+    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><link rel="stylesheet" href="assets/editor-media.css" media="(min-width: 48rem)"><style>.about-owned{color:#654321}</style><script src="assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="assets/shared.js"></script></body></html>',
     'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
     array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
@@ -151,31 +152,44 @@ $assert('page' === get_option('show_on_front') && $pageIds[$readingOperation['fr
 $essay = get_post($pagesBySource['notes/essay.html'] ?? 0); $essayPlan = $pageDeclarations['notes/essay.html'] ?? array();
 $assert($essay && 'post' === $essay->post_type && 0 === (int) $essay->post_parent && ($essayPlan['reconciliation_identity'] ?? null) === get_post_meta($essay->ID, '_blocks_engine_reconciliation_identity', true), 'Reference materialization honors operation post_type, keeps posts parentless, and persists the runtime reconciliation identity.');
 $frontPage = get_post((int) get_option('page_on_front')); if (!$frontPage) throw new RuntimeException('Could not load front page.');
-$editorStyles = static function (WP_Post $post): array { return get_block_editor_settings(array(), new WP_Block_Editor_Context(array('name' => 'core/edit-post', 'post' => $post)))['styles'] ?? array(); };
-$frontEditorStyles = $editorStyles($frontPage);
-$frontEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $frontEditorStyles));
+$editorSettings = static function (WP_Post $post): array { $GLOBALS['post'] = $post; return get_block_editor_settings(array(), new WP_Block_Editor_Context(array('name' => 'core/edit-post', 'post' => $post))); };
+$frontEditorSettings = $editorSettings($frontPage);
 $nestedAbout = get_post($pagesBySource['nested/about.html']); if (!$nestedAbout) throw new RuntimeException('Could not load nested about page.');
-$aboutEditorStyles = $editorStyles($nestedAbout);
-$aboutEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $aboutEditorStyles));
-$presentationGlobalStyle = current(array_filter($frontEditorStyles, static fn(array $style): bool => true === ($style['isGlobalStyles'] ?? false) && 'user' === ($style['__unstableType'] ?? null) && str_contains((string) ($style['css'] ?? ''), 'blocks-engine-presentation:')));
+$aboutEditorSettings = $editorSettings($nestedAbout);
+$frontEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $frontEditorSettings['styles'] ?? array()));
+$aboutEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $aboutEditorSettings['styles'] ?? array()));
+$frontEditorAssets = (string) ($frontEditorSettings['__unstableResolvedAssets']['styles'] ?? '');
+$aboutEditorAssets = (string) ($aboutEditorSettings['__unstableResolvedAssets']['styles'] ?? '');
+$globalPresentation = array_column($plan['assets'] ?? array(), null, 'source_path')['assets/global.css'] ?? array();
 $post = $frontPage;
 set_current_screen('front');
-$frontRequestThemeJson = apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data();
-$frontRequestThemeJsonCss = (string) ($frontRequestThemeJson['styles']['css'] ?? '');
+$frontRequestThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
 set_current_screen('post');
-$frontEditorThemeJson = apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data();
-$frontEditorThemeJsonCss = (string) ($frontEditorThemeJson['styles']['css'] ?? '');
+$frontEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
 $post = $nestedAbout;
-$aboutEditorThemeJson = apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data();
-$aboutEditorThemeJsonCss = (string) ($aboutEditorThemeJson['styles']['css'] ?? '');
+$aboutEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
+set_current_screen('site-editor');
+$post = null;
+$siteEditorAssets = (string) ((get_block_editor_settings(array(), new WP_Block_Editor_Context(array('name' => 'core/edit-site')))['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
-$assert(str_contains($frontEditorCss, '.global-presentation{display:block}') && str_contains($frontEditorCss, '.home-owned{color:#123456}') && !str_contains($frontEditorCss, '.about-owned{color:#654321}') && str_contains($frontEditorCss, 'blocks-engine-presentation:'), 'Front-page editor receives global and front-page presentation assets with content-addressed evidence.');
-$assert(str_contains($aboutEditorCss, '.global-presentation{display:block}') && str_contains($aboutEditorCss, '.about-owned{color:#654321}') && !str_contains($aboutEditorCss, '.home-owned{color:#123456}') && str_contains($aboutEditorCss, 'blocks-engine-presentation:'), 'Nested-page editor receives global and route-owned presentation assets while excluding unrelated route CSS.');
-$assert(str_contains($frontEditorCss, '.blocks-engine-editor-anchor-content') && !str_contains($frontThemeJsonCss, '.blocks-engine-editor-anchor-content'), 'Editor-only anchor projection CSS reaches Gutenberg without leaking through public Theme JSON.');
-$assert(false !== $presentationGlobalStyle, 'Generated presentation CSS is merged into the user Global Styles bucket that Gutenberg emits after core layout rules.');
-$assert('' === $frontRequestThemeJsonCss, 'Frontend theme JSON excludes generated presentation CSS that the route-aware enqueue path already loads.');
-$assert(str_contains($frontEditorThemeJsonCss, '.home-owned{color:#123456}') && !str_contains($frontEditorThemeJsonCss, '.about-owned{color:#654321}') && str_contains($aboutEditorThemeJsonCss, '.about-owned{color:#654321}') && !str_contains($aboutEditorThemeJsonCss, '.home-owned{color:#123456}'), 'Editor theme JSON receives only the generated presentation CSS owned by the edited route.');
-$assert(str_contains($frontEditorCss, 'blocks-engine-editor-anchor-') && str_contains($frontEditorThemeJsonCss, 'blocks-engine-editor-anchor-'), 'Editor anchor compatibility CSS is present in both editor settings and the editor iframe theme JSON path.');
+$assert(str_contains($frontEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($frontEditorAssets, 'editor-media.css') && str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/editor-media.css')), 'Post editors receive only their route-matched external presentation stylesheets.');
+$assert(str_contains($aboutEditorAssets, 'media="(min-width: 48rem)"') && false !== strpos($aboutEditorAssets, 'global.css') && strpos($aboutEditorAssets, 'global.css') < strpos($aboutEditorAssets, 'editor-media.css') && str_contains($frontEditorAssets, rawurlencode((string) ($globalPresentation['content_hash'] ?? ''))), 'Editor stylesheet links preserve media, cascade order, and the canonical content-hash version.');
+$assert(str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/editor-media.css')), 'The site editor receives the complete declared presentation set through external stylesheet assets.');
+$assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.about-owned{color:#654321}') && !str_contains($frontEditorCss, 'blocks-engine-presentation:'), 'Presentation CSS is absent from serialized editor settings.');
+$assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
+$assert(str_contains($frontEditorCss, 'blocks-engine-editor-anchor-'), 'Editor anchor compatibility CSS remains a bounded editor-settings rule.');
+$largeCssBytes = 123037995;
+$largeCssPath = $themeDir . '/assets/assets/global.css';
+$largeCss = fopen($largeCssPath, 'wb'); if (false === $largeCss) throw new RuntimeException('Could not create oversized presentation stylesheet.');
+$remainingCssBytes = $largeCssBytes; $cssChunk = "/* blocks-engine bounded editor presentation */\n" . str_repeat(' ', 1048528);
+while ($remainingCssBytes > 0) { $chunk = substr($cssChunk, 0, min($remainingCssBytes, strlen($cssChunk))); if (false === fwrite($largeCss, $chunk)) throw new RuntimeException('Could not write oversized presentation stylesheet.'); $remainingCssBytes -= strlen($chunk); }
+fclose($largeCss);
+$largeEditorSettings = $editorSettings($frontPage);
+$largeEditorCssBytes = array_sum(array_map(static fn(array $style): int => strlen((string) ($style['css'] ?? '')), $largeEditorSettings['styles'] ?? array()));
+$largeEditorAssets = (string) ($largeEditorSettings['__unstableResolvedAssets']['styles'] ?? '');
+$largeEditorPeakBytes = memory_get_peak_usage(true);
+$assert($largeCssBytes === filesize($largeCssPath) && $largeEditorCssBytes < 1048576 && str_contains($largeEditorAssets, get_theme_file_uri('assets/assets/global.css')) && $largeEditorPeakBytes < 536870912, 'A 123,037,995-byte presentation stylesheet remains external while editor settings and peak PHP memory stay bounded below the 512 MB limit.');
+fwrite(STDOUT, sprintf("bounded editor presentation: stylesheet bytes: %d; settings CSS bytes: %d; peak PHP memory: %d\n", $largeCssBytes, $largeEditorCssBytes, $largeEditorPeakBytes));
 global $wp_query;
 $setRequest = static function (WP_Post $post, bool $frontPage) use (&$wp_query): void { $page = 'page' === $post->post_type; $uri = $page ? get_page_uri($post) : ''; $wp_query->is_front_page = $frontPage; $wp_query->is_page = $page; $wp_query->is_single = !$page; $wp_query->is_home = false; $wp_query->is_singular = true; $wp_query->post = $post; $wp_query->posts = array($post); $wp_query->queried_object = $post; $wp_query->queried_object_id = $post->ID; $wp_query->query_vars = $page ? array('page_id' => $post->ID, 'pagename' => $uri) : array('p' => $post->ID, 'post_type' => 'post'); setup_postdata($post); };
 $resetScripts = static function (): WP_Scripts { $scripts = wp_scripts(); $scripts->queue = array(); $scripts->to_do = array(); $scripts->done = array(); $scripts->in_footer = array(); $scripts->groups = array(); return $scripts; };
