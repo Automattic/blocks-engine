@@ -1259,7 +1259,6 @@ final class HtmlTransformer
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
         $this->sourceStyles()->installStylesheetAnalysis($this->detectStaticClassPromotions($html), $styleAnalysis);
-        $this->styleResolver->resetPresentationResolutionCache();
         $runtimeDomSelectors = $this->runtimeIslands->runtimeSelectorsFromOptions($options, 'runtime_dom_selectors');
         $this->session->installRuntimeSelectorState(new RuntimeSelectorState(
             $runtimeDomSelectors,
