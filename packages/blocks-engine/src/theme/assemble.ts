@@ -67,7 +67,7 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
 
   return {
     styleCss: styleCssHasFrontEndCss
-      ? appendCarriedSectionGapReset(styleCssWithCarried)
+      ? appendCarriedSectionCompatCss(styleCssWithCarried)
       : styleCssWithCarried,
     ...(styleCssHasFrontEndCss ? { functionsPhp: buildFunctionsPhp(themeSlug) } : {}),
     themeJson: buildThemeJson(parts.tokens, palette, fontFamilies, {
@@ -95,21 +95,20 @@ export function assemble(parts: ThemeAssemblyParts): ThemeModel {
 }
 
 /**
- * Carried full-bleed sections (the align:full wp:group wrappers reconstruction
- * emits) own all inter-section spacing through their carried source CSS. WordPress's
- * global block gap would otherwise inject a ~24px margin above every section after
- * the first, reading as a stray stripe above full-bleed bands. This neutralizes the
- * block gap on those wrappers only — via CSS, so the section block markup stays
- * byte-identical to the DLA reference. Blocks the user adds in the editor are not
- * align:full, so they keep WordPress's default block gap. The selector outweighs
- * core's zero-specificity `:where(...) > * + *` gap rule.
+ * Carried full-bleed sections own all inter-section spacing through their source
+ * CSS. WordPress's global block gap would otherwise inject a ~24px margin above
+ * every section after the first. Source geometry can also force `width:100vw` while
+ * retaining the inset flow position. Keep the markup byte-identical to the DLA
+ * reference and repair both cases with scoped CSS instead.
  */
-function appendCarriedSectionGapReset(styleCss: string): string {
+function appendCarriedSectionCompatCss(styleCss: string): string {
   const prefix = styleCss.endsWith('\n') ? styleCss : `${styleCss}\n`;
   return (
     `${prefix}/* blocks-engine: carried full-bleed sections own their spacing; ` +
     `keep WP block gap for editor-added blocks. */\n` +
-    `:where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}\n`
+    `:where(.is-layout-flow, .is-layout-constrained) > .wp-block-group.alignfull{margin-block-start:0}\n` +
+    `/* blocks-engine: align viewport-width source geometry with the viewport, not its inset WP parent. */\n` +
+    `:where(.is-layout-flow, .is-layout-constrained) > .alignfull{position:relative;left:50%;width:100vw !important;max-width:100vw !important;margin-left:-50vw !important;margin-right:-50vw !important}\n`
   );
 }
 

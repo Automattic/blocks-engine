@@ -575,6 +575,31 @@ describe('site-to-theme P0-3 orchestration', () => {
     );
   });
 
+  it('breaks alignfull source geometry out of inset flow containers at every viewport width', async () => {
+    const { assemble } = await import('../theme/index.js');
+    const carried = assemble({
+      site: siteModel(),
+      tokens: foundationTokens(),
+      pages: { home: [{ spec: imageSpec(0), blocks: imageBlockMarkup(), coverage: 1 }] },
+      meta: themeMeta(),
+      sourceCss: '.slideshow{width:100vw !important}.slideshow .cover{width:120vw}',
+    } as Parameters<typeof assemble>[0]);
+
+    const breakout =
+      ':where(.is-layout-flow, .is-layout-constrained) > .alignfull{position:relative;left:50%;width:100vw !important;max-width:100vw !important;margin-left:-50vw !important;margin-right:-50vw !important}';
+    expect(carried.styleCss).toContain(breakout);
+
+    // `left:50%` plus `margin-left:-50vw` centers the viewport-width box from
+    // either inset parent, so neither responsive composition overflows right.
+    for (const { parentLeft, parentWidth, viewport } of [
+      { parentLeft: 135, parentWidth: 1170, viewport: 1440 },
+      { parentLeft: 20, parentWidth: 350, viewport: 390 },
+    ]) {
+      const left = parentLeft + parentWidth / 2 - viewport / 2;
+      expect({ left, right: left + viewport, width: viewport }).toEqual({ left: 0, right: viewport, width: viewport });
+    }
+  });
+
   it('assemble emits functions.php when only font CSS is appended to style.css', async () => {
     const { assemble } = await import('../theme/index.js');
     const model = assemble({
