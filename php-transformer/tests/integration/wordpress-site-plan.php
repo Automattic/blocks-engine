@@ -152,7 +152,21 @@ $assert('page' === get_option('show_on_front') && $pageIds[$readingOperation['fr
 $essay = get_post($pagesBySource['notes/essay.html'] ?? 0); $essayPlan = $pageDeclarations['notes/essay.html'] ?? array();
 $assert($essay && 'post' === $essay->post_type && 0 === (int) $essay->post_parent && ($essayPlan['reconciliation_identity'] ?? null) === get_post_meta($essay->ID, '_blocks_engine_reconciliation_identity', true), 'Reference materialization honors operation post_type, keeps posts parentless, and persists the runtime reconciliation identity.');
 $frontPage = get_post((int) get_option('page_on_front')); if (!$frontPage) throw new RuntimeException('Could not load front page.');
-$editorSettings = static function (WP_Post $post): array { $GLOBALS['post'] = $post; return get_block_editor_settings(array(), new WP_Block_Editor_Context(array('name' => 'core/edit-post', 'post' => $post))); };
+$editorSettings = static function (?WP_Post $post, string $name = 'core/edit-post'): array {
+    $GLOBALS['post'] = $post;
+    set_current_screen('core/edit-site' === $name ? 'site-editor' : 'post');
+    $styles = wp_styles();
+    foreach (array_keys($styles->registered) as $handle) {
+        if (!str_starts_with($handle, 'blocks-engine-editor-')) continue;
+        $styles->dequeue($handle);
+        $styles->done = array_values(array_diff($styles->done, array($handle)));
+        $styles->to_do = array_values(array_diff($styles->to_do, array($handle)));
+    }
+    do_action('enqueue_block_assets');
+    $context = array('name' => $name);
+    if ($post instanceof WP_Post) $context['post'] = $post;
+    return get_block_editor_settings(array(), new WP_Block_Editor_Context($context));
+};
 $frontEditorSettings = $editorSettings($frontPage);
 $nestedAbout = get_post($pagesBySource['nested/about.html']); if (!$nestedAbout) throw new RuntimeException('Could not load nested about page.');
 $aboutEditorSettings = $editorSettings($nestedAbout);
@@ -168,9 +182,7 @@ set_current_screen('post');
 $frontEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
 $post = $nestedAbout;
 $aboutEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
-set_current_screen('site-editor');
-$post = null;
-$siteEditorAssets = (string) ((get_block_editor_settings(array(), new WP_Block_Editor_Context(array('name' => 'core/edit-site')))['__unstableResolvedAssets']['styles'] ?? ''));
+$siteEditorAssets = (string) (($editorSettings(null, 'core/edit-site')['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
 $assert(str_contains($frontEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($frontEditorAssets, 'editor-media.css') && str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/editor-media.css')), 'Post editors receive only their route-matched external presentation stylesheets.');
 $assert(str_contains($aboutEditorAssets, 'media="(min-width: 48rem)"') && false !== strpos($aboutEditorAssets, 'global.css') && strpos($aboutEditorAssets, 'global.css') < strpos($aboutEditorAssets, 'editor-media.css') && str_contains($frontEditorAssets, rawurlencode((string) ($globalPresentation['content_hash'] ?? ''))), 'Editor stylesheet links preserve media, cascade order, and the canonical content-hash version.');
