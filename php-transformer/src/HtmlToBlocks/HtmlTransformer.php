@@ -3119,15 +3119,24 @@ final class HtmlTransformer
 
     private function isSafeTransparentCustomElement(DOMElement $element): bool
     {
-        if ( $this->runtimeIslands->isRuntimeDomTarget($element) || array() !== $this->eventMetadata($element) || $this->hasMotionStructureToken($element) ) {
-            return false;
-        }
+        foreach ( array_merge(array( $element ), iterator_to_array($element->getElementsByTagName('*'))) as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
 
-        // Interactivity API directives express runtime behavior even when they
-        // are not event metadata. Do not lower their host to a static block.
-        foreach ( $element->attributes as $attribute ) {
-            if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
+            // Runtime metadata on any descendant would be flattened by a
+            // transparent lowering, so preserve the complete custom element.
+            if ( $this->runtimeIslands->isRuntimeDomTarget($candidate)
+                || array() !== $this->eventMetadata($candidate)
+                || $this->hasMotionStructureToken($candidate)
+            ) {
                 return false;
+            }
+
+            foreach ( $candidate->attributes as $attribute ) {
+                if ( str_starts_with(strtolower($attribute->name), 'data-wp-') ) {
+                    return false;
+                }
             }
         }
 
