@@ -338,7 +338,21 @@ final class StyleResolver
 
         $conditionalFamilies = array();
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+            $selector = (string) ($rule['selector'] ?? '');
+            if (! $this->matchesCssSelector($element, $selector)
+                && ! $this->unsupportedSelectorReferencesElement($selector, $element)
+            ) {
+                continue;
+            }
+            foreach (array_keys($rule['declarations']) as $property) {
+                $conditionalFamilies[$this->responsivePropertyFamily($property)] = true;
+            }
+        }
+        foreach ($this->context->sourceStyles()->conditionalRules() as $rule) {
+            $selector = (string) ($rule['selector'] ?? '');
+            if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
+                || ! $this->unsupportedSelectorReferencesElement($selector, $element)
+            ) {
                 continue;
             }
             foreach (array_keys($rule['declarations']) as $property) {
@@ -360,6 +374,20 @@ final class StyleResolver
         }
 
         return $declarations;
+    }
+
+    private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
+    {
+        $id = trim($this->context->attr($element, 'id'));
+        if ( '' !== $id && 1 === preg_match('/#' . preg_quote($id, '/') . '(?![\w-])/', $selector) ) {
+            return true;
+        }
+        foreach ( preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array() as $className ) {
+            if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?![\w-])/', $selector) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1739,7 +1767,7 @@ final class StyleResolver
                     return;
                 }
                 $declarations = array_intersect_key($this->cssDeclarations($body), $this->closedStateNormalizer()->hiddenStateProperties());
-                foreach (explode(',', $prelude) as $selector) {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
                         $rules[] = array('selector' => $selector, 'declarations' => $declarations);
@@ -2113,7 +2141,7 @@ final class StyleResolver
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                         );
                     }
-                    if ($supportedRestingSelector && array() !== $conditions && array() !== $declarations) {
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && array() !== $declarations) {
                         $analysis['conditional'][] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
                     }
                     if ($supportedRestingSelector) {

@@ -127,7 +127,7 @@ final class AuthorStyleRuleProjector
     ): string {
         $declarations = $this->styleResolver->cssDeclarations($body);
         $minimumWidth = (string) ($declarations['min-width'] ?? '');
-        if ( ! $this->isWideAbsoluteMinimumWidth($minimumWidth) ) {
+        if ( '' === $minimumWidth ) {
             return $body;
         }
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -145,6 +145,11 @@ final class AuthorStyleRuleProjector
                 continue;
             }
             $matchedSurface = true;
+            foreach ( $matches as $element ) {
+                if ( ! $this->isWideAbsoluteMinimumWidth($this->styleResolver->resolveCssVariablesInValue($minimumWidth, $element)) ) {
+                    return $body;
+                }
+            }
             $shellMatches = array_filter($matches, fn (DOMElement $element): bool => $this->isPageShellOrSectionSurface($element, $authorStyles));
             if ( count($shellMatches) !== count($matches) ) {
                 if ( array() !== $shellMatches ) {
@@ -226,8 +231,31 @@ final class AuthorStyleRuleProjector
         if ( 'none' === $display ) {
             return true;
         }
+        $position = strtolower(CssValueInspector::withoutImportant((string) ($declarations['position'] ?? '')));
+        if ( in_array($position, array( 'absolute', 'fixed' ), true) && $this->hasDefiniteBlockAxisInsets($declarations) ) {
+            return false;
+        }
         return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
             && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasDefiniteBlockAxisInsets(array $declarations): bool
+    {
+        foreach ( array( 'inset', 'inset-block' ) as $property ) {
+            $value = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
+            if ( '' !== $value && ! str_contains($value, 'auto') ) {
+                return true;
+            }
+        }
+        foreach ( array( array( 'top', 'bottom' ), array( 'inset-block-start', 'inset-block-end' ) ) as $properties ) {
+            $start = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$properties[0]] ?? '')));
+            $end = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$properties[1]] ?? '')));
+            if ( '' !== $start && 'auto' !== $start && '' !== $end && 'auto' !== $end ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function isDefiniteBlockSize(string $value): bool
@@ -386,6 +414,9 @@ final class AuthorStyleRuleProjector
     private function isPageShellOrSectionSurface(DOMElement $element, AuthorStyleAnalysis $authorStyles): bool
     {
         if ( $element->parentNode === $authorStyles->sourceBody() ) {
+            return true;
+        }
+        if ( $element->getElementsByTagName('main')->length > 0 ) {
             return true;
         }
         if ( in_array(strtolower($element->tagName), array( 'header', 'main', 'footer', 'section' ), true) ) {

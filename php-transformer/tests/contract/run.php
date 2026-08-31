@@ -849,12 +849,13 @@ $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ??
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
 $formFallback = ( new HtmlTransformer() )->transform(
-    '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
+    '<main><form action="/contact" method="post" data-action="contact-submit"><label class="field-label" for="email">Email</label><input id="email" class="field-input" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
 $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
+$assert('field-input' === ($formFallbackDiagnostic['controls'][0]['class'] ?? '') && 'field-label' === ($formFallbackDiagnostic['controls'][0]['label_class'] ?? ''), 'data-entry runtime form fallback carries bounded control and label presentation classes');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
 $assert('form' === ($formFallbackDiagnostic['materialization_target']['capability'] ?? ''), 'data-entry runtime form targets a form materializer capability');
 $assert('form_provider' === ($formFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'data-entry runtime form targets a form provider role');
@@ -1812,6 +1813,8 @@ $sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
 $quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
 $quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$inlineQuote = ( new HtmlTransformer() )->transform('<blockquote><span>Inline quote.</span></blockquote>')->toArray();
+$assert('blocks-engine-synthetic-paragraph' === ($inlineQuote['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'inline-wrapped quote content keeps the synthesized paragraph margin-neutral');
 $assert(str_contains($quoteMarginCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
 $assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');

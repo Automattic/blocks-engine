@@ -47,9 +47,17 @@ $assert(
     'mixed shell and content minimum-width selectors remain intact and emit a diagnostic'
 );
 
+$variableWidth = (new HtmlTransformer())->transform(
+    '<style>:root{--site-width:980px}body:not(.responsive) #site-root{min-width:var(--site-width)}</style><div class="document-variant"><div id="site-root"><main><p>Content</p></main></div></div>'
+)->toArray();
+$assert(
+    str_contains($css($variableWidth), 'body:not(.responsive) #site-root{min-width:0;max-width:100%}'),
+    'nested document canvas minimum widths expressed through source custom properties receive bounded responsive geometry'
+);
+
 $percentageHeight = (new HtmlTransformer())->transform(
-    '<style>footer{height:auto}.footer-frame{height:100%!important}.footer-grid{display:grid;grid-template-rows:1fr min-content;height:100%}.footer-background{position:absolute;inset:0;height:100%}.definite-frame{height:320px}.definite-frame>.fill{height:100%}.media-fill{height:100%;object-fit:cover}.mixed-fill{height:100%}@media(max-width:600px){.mobile-footer-frame{height:100%}}</style>'
-    . '<footer><div class="footer-frame"><div class="footer-grid"><nav>Links</nav><p>Copyright</p></div><div class="footer-background"></div></div></footer>'
+    '<style>footer{height:auto}.footer-frame{height:100%!important}.footer-grid{display:grid;grid-template-rows:1fr min-content;height:100%}.footer-background{position:absolute;inset:0;height:100%}.background-grid{position:absolute;inset:0;display:grid;grid-template-rows:1fr}.definite-frame{height:320px}.definite-frame>.fill{height:100%}.media-fill{height:100%;object-fit:cover}.mixed-fill{height:100%}@media(max-width:600px){.mobile-footer-frame{height:100%}}</style>'
+    . '<footer><div class="footer-frame"><div class="footer-grid"><nav>Links</nav><p>Copyright</p></div><div class="footer-background"></div><div class="background-grid"><img src="background.jpg" alt=""></div></div></footer>'
     . '<section><div class="mobile-footer-frame"><p>Mobile links</p><p>Mobile copyright</p></div></section>'
     . '<div class="definite-frame"><div class="fill">Card</div><img class="media-fill" src="card.jpg" alt=""></div>'
     . '<footer><div class="mixed-fill">Safe shell</div></footer><div class="definite-frame"><div class="mixed-fill">Definite fill</div></div>'
@@ -58,8 +66,15 @@ $percentageHeightCss = $css($percentageHeight);
 $assert(str_contains($percentageHeightCss, '.footer-frame{height:auto!important}') && str_contains($percentageHeightCss, '.footer-grid{display:grid;height:auto;grid-template-rows:min-content min-content}'), 'indefinite-height footer wrappers and fractional row tracks collapse without changing declaration priority');
 $assert(str_contains($percentageHeightCss, '@media(max-width:600px){.mobile-footer-frame{height:auto}}'), 'responsive structural variants receive the same percentage-height projection');
 $assert(str_contains($percentageHeightCss, '.footer-background{position:absolute;inset:0;height:100%}') && str_contains($percentageHeightCss, '.definite-frame>.fill{height:100%}') && str_contains($percentageHeightCss, '.media-fill{height:100%;object-fit:cover}'), 'positioned layers, definite-height components, and replaced media retain authored fill geometry');
+$assert(str_contains($percentageHeightCss, '.background-grid{position:absolute;inset:0;display:grid;grid-template-rows:1fr}'), 'positioned fill grids retain fractional tracks sized by their containing block');
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
 $assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
+
+$functionalResponsiveMargin = (new HtmlTransformer())->transform(
+    '<style>*{margin:0}:is(#main :where(.card),[id^="card__"]){margin-bottom:20px}@media(max-width:600px){:is(#main :where(.card),[id^="card__"]){margin-bottom:90px}}</style>'
+    . '<main id="main"><div id="card" class="card">Card</div></main>'
+)->toArray();
+$assert(! str_contains((string) ($functionalResponsiveMargin['serialized_blocks'] ?? ''), 'margin-bottom:0'), 'functional conditional selectors keep responsive margins under stylesheet ownership');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Responsive canvas geometry unit tests: {$failures} failed, {$passes} passed\n");

@@ -1516,6 +1516,7 @@ final class WordPressSitePlan
             $lines[] = "    return \$presentation;";
             $lines[] = "};";
             $lines[] = "add_filter( 'wp_theme_json_data_theme', static function ( \$theme_json ) use ( \$blocks_engine_presentation_css ) {";
+            $lines[] = "    if ( ! is_admin() ) return \$theme_json;";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base;";
             $lines[] = "    \$post = \$GLOBALS['post'] ?? null; if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$theme_json;";
             $lines[] = "    \$block_editor = \$screen instanceof WP_Screen && in_array( \$screen->base, array( 'post', 'site-editor' ), true );";

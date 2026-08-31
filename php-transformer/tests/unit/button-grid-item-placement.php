@@ -22,8 +22,8 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $out = ( new HtmlTransformer() )->transform(
-    '<style>#wrap{display:grid}.cta{grid-area:1/1/2/2;align-self:start;justify-self:start;position:relative;width:7.82%}</style>'
-    . '<main><div id="wrap"><button class="cta" type="button">Contacts</button></div></main>'
+    '<style>#wrap{display:grid}:is(#main :where(.cta),[id^="cta__"]){grid-area:1/1/2/2;align-self:start;justify-self:start;position:relative;width:7.82%;margin:0 0 2.5rem 1.5rem}</style>'
+    . '<main id="main"><div id="wrap"><a id="cta" class="cta" href="/contacts" role="button">Contacts</a></div></main>'
 )->toArray();
 $css = '';
 foreach ( $out['assets'] ?? array() as $asset ) {
@@ -33,7 +33,7 @@ foreach ( $out['assets'] ?? array() as $asset ) {
 }
 
 $assert(
-    (bool) preg_match('/wp-block-buttons\)?\{[^}]*grid-area/', $css),
+    (bool) preg_match('/wp-block-buttons[^}]*\{[^}]*grid-area/', $css),
     '1: grid placement lands on the buttons wrapper',
     $css
 );
@@ -43,9 +43,19 @@ $assert(
     $css
 );
 $assert(
-    (bool) preg_match('/wp-block-buttons\)?\{[^}]*align-self/', $css)
-        && (bool) preg_match('/wp-block-buttons\)?\{[^}]*justify-self/', $css),
+    (bool) preg_match('/wp-block-buttons[^}]*\{[^}]*align-self/', $css)
+        && (bool) preg_match('/wp-block-buttons[^}]*\{[^}]*justify-self/', $css),
     '3: self-alignment travels with the placement',
+    $css
+);
+$assert(
+    (bool) preg_match('/wp-block-buttons[^}]*\{[^}]*margin:(?:0 0 2\.5rem 1\.5rem|[^}]*margin-bottom:2\.5rem[^}]*margin-left:1\.5rem)/', $css),
+    '4: authored grid-item margins land on the buttons wrapper',
+    $css
+);
+$assert(
+    ! preg_match('/wp-block-button(?:__link)?[^}]*\{[^}]*margin-bottom:2\.5rem/', $css),
+    '5: authored grid-item margins do not land on synthetic inner controls',
     $css
 );
 

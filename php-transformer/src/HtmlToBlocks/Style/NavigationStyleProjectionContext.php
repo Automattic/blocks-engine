@@ -27,6 +27,7 @@ final class NavigationStyleProjectionContext
     /**
      * @param Closure(): AuthorStyleAnalysis                              $authorStyles
      * @param Closure(): SourceStyleResolutionState                       $sourceStyles
+     * @param Closure(): AuthorSelectorProjectionState                   $selectorProjections
      * @param Closure(): GeneratedSupportStylesheetState                  $generatedSupportStyles
      * @param Closure(): RuntimeBehaviorState                             $runtimeBehavior
      * @param Closure(): TransformationEvidenceState                      $transformationEvidence
@@ -39,6 +40,7 @@ final class NavigationStyleProjectionContext
     public function __construct(
         private readonly Closure $authorStyles,
         private readonly Closure $sourceStyles,
+        private readonly Closure $selectorProjections,
         private readonly Closure $generatedSupportStyles,
         private readonly Closure $runtimeBehavior,
         private readonly Closure $transformationEvidence,
@@ -58,6 +60,11 @@ final class NavigationStyleProjectionContext
     public function sourceStyles(): SourceStyleResolutionState
     {
         return ($this->sourceStyles)();
+    }
+
+    public function selectorProjections(): AuthorSelectorProjectionState
+    {
+        return ($this->selectorProjections)();
     }
 
     public function generatedSupportStyles(): GeneratedSupportStylesheetState

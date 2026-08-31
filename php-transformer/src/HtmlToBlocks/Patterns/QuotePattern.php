@@ -115,7 +115,6 @@ final class QuotePattern implements PatternRecognizerInterface
             return array();
         }
 
-        $isDirectText = true;
         foreach ( $element->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 continue;
@@ -128,7 +127,6 @@ final class QuotePattern implements PatternRecognizerInterface
             if ( in_array($tagName, array( 'cite', 'footer' ), true) ) {
                 continue;
             }
-            $isDirectText = false;
             if ( 'br' === $tagName || $quotes->isInlineContentElement($tagName) ) {
                 continue;
             }
@@ -138,7 +136,7 @@ final class QuotePattern implements PatternRecognizerInterface
 
         return array( $context->createBlock('core/paragraph', array_filter(array(
             'content'   => $value,
-            'className' => $isDirectText ? 'blocks-engine-synthetic-paragraph' : '',
+            'className' => 'blocks-engine-synthetic-paragraph',
         ), static fn (string $value): bool => '' !== $value)) );
     }
 

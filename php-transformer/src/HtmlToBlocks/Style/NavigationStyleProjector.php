@@ -109,12 +109,21 @@ final class NavigationStyleProjector
         if ( array() === $ids ) {
             return '';
         }
+        $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
         return trim(( new CssStylesheetTransformer() )->transform(
             $this->context->authorStyles()->combinedCss(),
-            static function (string $prelude, string $body) use ($ids): array {
+            static function (string $prelude, string $body) use ($ids, $stateMarkers): array {
                 $projected = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $marker = $stateMarkers[trim($selector)] ?? '';
+                    if ( '' !== $marker ) {
+                        $selector = preg_replace(
+                            '/:not\(\s*\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=\s*(?:"[^"]*"|\'[^\']*\'|[^\]\s]+))?\s*\]\s*\)/i',
+                            ':not(.' . $marker . ')',
+                            $selector
+                        ) ?? $selector;
+                    }
                     $replacement = preg_replace_callback(
                         '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
                         static fn (array $match): string => isset($ids[$match[2]])
