@@ -97,6 +97,20 @@ $rootChildrenCss = $css($rootChildren);
 preg_match_all('/blocks-engine-root-child-[a-f0-9]+-\d+/', $rootChildrenMarkup . "\n" . $rootChildrenCss, $rootChildMarkers);
 $assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && str_contains($rootChildrenCss, ':where(.blocks-engine-root-child-') && str_contains($rootChildrenCss, 'section{color:red}') && 'pass' === ($rootChildren['source_reports']['wp_block_validity']['status'] ?? ''), 'root-child selectors project through isolated markers without rewriting unrelated selectors for the same elements');
 
+$documentRoot = $transform('<style>body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}@media (max-width:600px){body{font-size:15px}}</style><main><p>Document typography</p></main>');
+$documentRootCss = $css($documentRoot);
+$documentRootEditorRule = '';
+if ( preg_match('/:root \.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
+    $documentRootEditorRule = $documentRootEditorMatch[1];
+}
+$assert(
+    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root .editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
+        && ! str_contains($documentRootEditorRule, 'background')
+        && ! str_contains($documentRootEditorRule, 'padding')
+        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root .editor-styles-wrapper{font-size:15px}}'),
+    'inherited document presentation targets the Gutenberg canvas root without duplicating body paint, geometry, assets, or responsive rules'
+);
+
 $rootShells = $transform('<style>body > *{position:relative;z-index:1}</style><header><p>Header</p></header><main><p>Body</p></main><footer><p>Footer</p></footer>');
 $rootShellCss = $css($rootShells);
 $assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 1 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while page content retains isolated marker identities');
