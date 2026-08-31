@@ -80,6 +80,7 @@ final class ConversionFindingContract
         'repair_bucket', 'suggested_repair_class', 'suggested_generic_repair_class',
         'suggested_primitive', 'materialization_hint', 'runtime_island_type',
         'script_role', 'block_name', 'path',
+        'fallback_identity', 'reconciliation_identity',
     );
 
     /**
