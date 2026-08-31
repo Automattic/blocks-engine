@@ -132,6 +132,7 @@ final class NavigationStyleProjector
                     } elseif ( is_string($replacement) ) {
                         array_push($projected, ...$this->editorBlockDirectChildProjections($replacement));
                     }
+                    array_push($projected, ...$this->editorClassAnchorProjections($selector));
                 }
 
                 return array() === $projected
@@ -139,6 +140,23 @@ final class NavigationStyleProjector
                     : array(array('prelude' => implode(',', $projected), 'body' => $body));
             }
         ));
+    }
+
+    /** @return array<int, string> */
+    private function editorClassAnchorProjections(string $selector): array
+    {
+        if ( 1 !== preg_match('/^(\s*(?::where\([^)]*\)\s+)?)(\.([A-Za-z_][A-Za-z0-9_-]*))\s*$/', $selector, $match) ) {
+            return array();
+        }
+
+        $projected = array();
+        foreach ( $this->context->authorStyles()->sourceElementsByClass($match[3]) as $element ) {
+            $anchor = $this->context->safeAnchor($element->getAttribute('id'));
+            if ( '' !== $anchor ) {
+                $projected[] = $match[1] . $match[2] . '.blocks-engine-editor-anchor-' . $anchor;
+            }
+        }
+        return array_values(array_unique($projected));
     }
 
     /** @return array<int, string> */
