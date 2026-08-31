@@ -6,9 +6,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
-/** Composes source stylesheet payloads into cached presentation and selector analyses. */
+/** Composes source stylesheet payloads into presentation and selector analyses. */
 final class StylesheetAnalysisComposer
 {
+    private const MAX_SEPARATE_PRESENTATION_PAYLOADS = 16;
+
     public function __construct(
         private readonly StyleResolver $styleResolver,
         private readonly HtmlTransformerAnalysisCache $analysisCache
@@ -42,7 +44,15 @@ final class StylesheetAnalysisComposer
             return '' === $combined ? array() : array($combined);
         }
 
-        return array_values(array_filter(array_map('trim', $payloads), static fn (string $payload): bool => '' !== $payload));
+        if ( count($payloads) <= self::MAX_SEPARATE_PRESENTATION_PAYLOADS ) {
+            return array_values(array_filter(array_map('trim', $payloads), static fn (string $payload): bool => '' !== $payload));
+        }
+
+        // Presentation analysis only consumes CSS order, not source identities.
+        // One safe stream prevents a large shared stylesheet set from exceeding
+        // the bounded per-payload analysis budget on every staged page.
+        $combined = trim(implode("\n", $payloads));
+        return '' === $combined ? array() : array($combined);
     }
 
     /** @return list<array{content: string, source_path: string, source_hash: string}> */
