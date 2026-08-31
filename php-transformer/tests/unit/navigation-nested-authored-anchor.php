@@ -32,7 +32,10 @@ $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'RMA-shaped nested m
 $assert(str_contains($markup, '"label":"Programs"') && str_contains($markup, '"url":"/programs"'), 'nested authored anchor retains its URL and label', $markup);
 $assert(str_contains($markup, 'programs-link') && str_contains($markup, 'authored-item'), 'nested authored anchor retains link and item presentation classes', $markup);
 $assert(! str_contains($markup, 'anchor-carrier') && ! str_contains($markup, 'authored-label'), 'nested anchor carriers do not remain as anonymous group and paragraph blocks', $markup);
+$assert(! str_contains($markup, 'item-support'), 'empty item support does not prevent native navigation conversion', $markup);
+$assert(! str_contains($markup, 'scroll-support'), 'hidden scroll support does not prevent native navigation conversion', $markup);
 $assert('pass' === ($parity['status'] ?? null), 'nested authored menu preserves semantic item-count parity', json_encode($parity));
+$assert(1 === count($parity['navigation_menus']['source'] ?? array()), 'outer navigation carrier is not inventoried as an empty menu', json_encode($parity));
 $assert(20 >= ($metrics['max_nesting_depth'] ?? PHP_INT_MAX), 'nested authored menu remains within the required maximum nesting depth', json_encode($metrics));
 
 $card = ( new HtmlTransformer() )->transform(

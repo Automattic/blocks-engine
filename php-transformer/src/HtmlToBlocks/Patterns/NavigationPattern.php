@@ -916,8 +916,10 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $hidden = $hidden || 'true' === strtolower(trim($this->attr($element, 'aria-hidden')));
         if ( $element->hasAttribute('href') || $element->hasAttribute('src')
-            || '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
-            || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
+            || ( ! $hidden && (
+                '' !== trim($this->attr($element, 'aria-label') . $this->attr($element, 'title'))
+                || $element->hasAttribute('aria-controls') || $element->hasAttribute('aria-expanded')
+            ) )
         ) {
             return false;
         }
@@ -1459,6 +1461,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $anchors[] = $anchor;
                     continue;
                 }
+            }
+
+            if ( $this->isInertNavigationSupportWrapper($child) ) {
+                continue;
             }
 
             // A nested authored item may retain its menu toggle or submenu beside
