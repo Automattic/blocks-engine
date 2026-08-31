@@ -182,6 +182,26 @@ $assert(
     $hiddenAnswerAfterAuthor
 );
 
+$responsiveDocument = <<<'HTML'
+<style>
+.mobile-document { display: none !important; }
+@media (max-width: 600px) {
+  .desktop-document { display: none !important; }
+  .mobile-document { display: contents !important; }
+}
+</style>
+<div class="desktop-document"><p>Desktop document</p></div>
+<div class="mobile-document"><p>Mobile document</p></div>
+HTML;
+
+$responsiveDocumentResult = ( new HtmlTransformer() )->transform($responsiveDocument)->toArray();
+$responsiveDocumentAfterAuthor = $cssContent($responsiveDocumentResult, 'after-author', 'both');
+$assert(
+    ! str_contains($responsiveDocumentAfterAuthor, '.mobile-document{display:revert'),
+    'a media-revealed responsive document does not receive a global closed-state display repair',
+    $responsiveDocumentAfterAuthor
+);
+
 $products = <<<'HTML'
 <div class="products">
   <div class="item"><h3>Product A</h3><p>Nice chair.</p></div>

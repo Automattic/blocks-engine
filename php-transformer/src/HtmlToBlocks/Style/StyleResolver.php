@@ -1633,7 +1633,19 @@ final class StyleResolver
             return $declarations;
         }
 
+        $responsiveDisplay = null;
+        if (
+            'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
+            && $this->hasConditionalVisibleDisplay($element)
+        ) {
+            $responsiveDisplay = $declarations['display'];
+            unset($declarations['display']);
+        }
+
         $normalized = $this->closedStateNormalizer()->strip($declarations);
+        if ( null !== $responsiveDisplay ) {
+            $normalized['declarations']['display'] = $responsiveDisplay;
+        }
         if ( array() !== $normalized['stripped'] ) {
             $this->context->transformationEvidence()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
@@ -1644,6 +1656,21 @@ final class StyleResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    private function hasConditionalVisibleDisplay(DOMElement $element): bool
+    {
+        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
+            if (! $this->matchesCssSelector($element, $rule['selector'])) {
+                continue;
+            }
+            $display = CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? ''));
+            if ( '' !== $display && 'none' !== $display ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> */
