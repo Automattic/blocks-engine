@@ -129,6 +129,8 @@ final class NavigationStyleProjector
                     if ( is_string($replacement) && $replacement !== $selector ) {
                         $projected[] = $replacement;
                         array_push($projected, ...$this->editorBlockDirectChildProjections($replacement));
+                    } elseif ( is_string($replacement) ) {
+                        array_push($projected, ...$this->editorBlockDirectChildProjections($replacement));
                     }
                 }
 
@@ -143,11 +145,7 @@ final class NavigationStyleProjector
     private function editorBlockDirectChildProjections(string $selector): array
     {
         $anchorOffset = strpos($selector, '.blocks-engine-editor-anchor-');
-        if ( false === $anchorOffset ) {
-            return array();
-        }
-
-        $combinatorOffset = strpos($selector, '>', $anchorOffset);
+        $combinatorOffset = strpos($selector, '>', false === $anchorOffset ? 0 : $anchorOffset);
         if ( false === $combinatorOffset ) {
             return array();
         }
@@ -159,10 +157,29 @@ final class NavigationStyleProjector
 
         $before = substr($selector, 0, $combinatorOffset);
         $after = substr($selector, $afterCombinator);
+        if ( false === $anchorOffset && ! $this->sourceDirectChildClassRelationshipExists($before, $after) ) {
+            return array();
+        }
         return array(
             $before . '>div>' . $after,
             $before . '>.block-editor-inner-blocks>.block-editor-block-list__layout>' . $after,
         );
+    }
+
+    private function sourceDirectChildClassRelationshipExists(string $before, string $after): bool
+    {
+        if ( 1 !== preg_match('/\.([A-Za-z_][A-Za-z0-9_-]*)[^ >+~]*$/', trim($before), $parentMatch)
+            || 1 !== preg_match('/^(?:[A-Za-z][A-Za-z0-9_-]*)?\.([A-Za-z_][A-Za-z0-9_-]*)/', trim($after), $childMatch) ) {
+            return false;
+        }
+
+        foreach ( $this->context->authorStyles()->sourceElementsByClass($childMatch[1]) as $child ) {
+            if ( $child->parentNode instanceof DOMElement
+                && in_array($parentMatch[1], preg_split('/\s+/', trim($child->parentNode->getAttribute('class'))) ?: array(), true) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
