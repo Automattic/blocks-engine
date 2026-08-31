@@ -220,6 +220,25 @@ $assert(
     $inactiveDialogAfterAuthor
 );
 
+$dialogShell = <<<'HTML'
+<style>
+.dialog-shell { opacity: 0; }
+</style>
+<div class="dialog-shell">
+  <div role="dialog" aria-label="Site navigation">
+    <nav><a href="/about">About</a></nav>
+  </div>
+</div>
+HTML;
+
+$dialogShellResult = ( new HtmlTransformer() )->transform($dialogShell)->toArray();
+$dialogShellAfterAuthor = $cssContent($dialogShellResult, 'after-author', 'both');
+$assert(
+    ! str_contains($dialogShellAfterAuthor, '.dialog-shell{opacity:1'),
+    'a hidden shell around dialog content remains inactive instead of becoming a page-covering overlay',
+    $dialogShellAfterAuthor
+);
+
 $products = <<<'HTML'
 <div class="products">
   <div class="item"><h3>Product A</h3><p>Nice chair.</p></div>

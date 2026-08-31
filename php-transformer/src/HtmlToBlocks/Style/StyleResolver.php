@@ -1680,7 +1680,27 @@ final class StyleResolver
 
     private function isExplicitlyInactiveState(DOMElement $element): bool
     {
-        return 'false' === strtolower(trim($this->context->attr($element, 'data-visible')));
+        if (
+            'false' === strtolower(trim($this->context->attr($element, 'data-visible')))
+            || 'dialog' === strtolower(trim($this->context->attr($element, 'role')))
+            || 'true' === strtolower(trim($this->context->attr($element, 'aria-modal')))
+        ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if (
+                $descendant instanceof DOMElement
+                && (
+                    'dialog' === strtolower(trim($this->context->attr($descendant, 'role')))
+                    || 'true' === strtolower(trim($this->context->attr($descendant, 'aria-modal')))
+                )
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> */
