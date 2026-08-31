@@ -80,6 +80,10 @@ final class NavigationStyleProjector
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
         }
+        if ( $this->context->runtimeBehavior()->emptyVisualGroupGenerated() ) {
+            $emptyVisualSelector = ':root .' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder';
+            $rules[] = $emptyVisualSelector . '>.components-placeholder{display:none!important}';
+        }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
         }
@@ -112,7 +116,7 @@ final class NavigationStyleProjector
 
         return trim(( new CssStylesheetTransformer() )->transform(
             $this->context->authorStyles()->combinedCss(),
-            static function (string $prelude, string $body) use ($ids): array {
+            function (string $prelude, string $body) use ($ids): array {
                 $projected = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                     $replacement = preg_replace_callback(
@@ -124,6 +128,7 @@ final class NavigationStyleProjector
                     );
                     if ( is_string($replacement) && $replacement !== $selector ) {
                         $projected[] = $replacement;
+                        array_push($projected, ...$this->editorBlockDirectChildProjections($replacement));
                     }
                 }
 
@@ -132,6 +137,32 @@ final class NavigationStyleProjector
                     : array(array('prelude' => implode(',', $projected), 'body' => $body));
             }
         ));
+    }
+
+    /** @return array<int, string> */
+    private function editorBlockDirectChildProjections(string $selector): array
+    {
+        $anchorOffset = strpos($selector, '.blocks-engine-editor-anchor-');
+        if ( false === $anchorOffset ) {
+            return array();
+        }
+
+        $combinatorOffset = strpos($selector, '>', $anchorOffset);
+        if ( false === $combinatorOffset ) {
+            return array();
+        }
+
+        $afterCombinator = $combinatorOffset + 1;
+        while ( isset($selector[$afterCombinator]) && ctype_space($selector[$afterCombinator]) ) {
+            ++$afterCombinator;
+        }
+
+        $before = substr($selector, 0, $combinatorOffset);
+        $after = substr($selector, $afterCombinator);
+        return array(
+            $before . '>div>' . $after,
+            $before . '>.block-editor-inner-blocks>.block-editor-block-list__layout>' . $after,
+        );
     }
 
     /**

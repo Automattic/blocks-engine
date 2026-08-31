@@ -1162,14 +1162,14 @@ $fixedBackgroundLayer = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks'] ?? '');
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
-$assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', $fixedBackgroundLayerMarkup), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
 
 $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
 )->toArray();
 $styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*footer-wrap[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
-$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*container[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
@@ -2627,7 +2627,7 @@ $emptyFlexUtility = ( new HtmlTransformer() )->transform(
 )->toArray();
 $emptyFlexUtilitySerialized = (string) ($emptyFlexUtility['serialized_blocks'] ?? '');
 $emptyFlexUtilityCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyFlexUtility['assets'] ?? array()));
-$assert(str_contains($emptyFlexUtilitySerialized, 'placeholder blocks-engine-empty-flex-item'), 'preserved empty flex children carry a zero-intrinsic-size compatibility marker');
+$assert(str_contains($emptyFlexUtilitySerialized, 'placeholder') && str_contains($emptyFlexUtilitySerialized, 'blocks-engine-empty-flex-item'), 'preserved empty flex children carry a zero-intrinsic-size compatibility marker');
 $assert(str_contains($emptyFlexUtilityCss, 'flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important'), 'empty flex compatibility CSS prevents core group chrome and margins from adding a source-absent footprint');
 
 $boundedHeaderSearch = ( new HtmlTransformer() )->transform(
@@ -5038,8 +5038,8 @@ $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state']
 $assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
 
 $editorStaticStateResult = (new HtmlTransformer())->transform(
-    '<main><section id="process"><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',
-    array('static_css' => '#process{background:#111;padding:4rem}@media(max-width:600px){#process{padding:2rem}}.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
+    '<main><section id="process"><div class="visual-layer"></div><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',
+    array('static_css' => '#process{background:#111;padding:4rem}#process>.visual-layer{position:absolute;inset:0;background:#800080}@media(max-width:600px){#process{padding:2rem}}.reveal{opacity:0;transform:translateY(2rem);transition:opacity .5s}.reveal.is-visible{opacity:1;transform:none}.animated-copy{transform:translateY(115%);animation:slide-up .9s forwards}@keyframes slide-up{to{transform:none}}')
 )->toArray();
 $editorStaticStateAsset = current(array_filter(
     $editorStaticStateResult['assets'] ?? array(),
@@ -5049,6 +5049,7 @@ $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAss
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
+$assert(str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process>.visual-layer') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process>div>.visual-layer') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process>.block-editor-inner-blocks>.block-editor-block-list__layout>.visual-layer'), 'editor static-state CSS preserves authored direct-child selectors and adds exact Gutenberg block-list bridges', $editorStaticStateCss);
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'
@@ -5061,7 +5062,14 @@ $hiddenEmptyResult = (new HtmlTransformer())->transform(
     )
 )->toArray();
 $assert(null === $findBlockByClass($hiddenEmptyResult['blocks'], 'caption'), 'inert hidden empty elements are pruned instead of becoming empty groups');
-$assert(is_array($findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel')), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
+$responsiveEmptyPanel = $findBlockByClass($hiddenEmptyResult['blocks'], 'responsive-panel');
+$assert(is_array($responsiveEmptyPanel), 'responsive-revealed hidden empty elements remain available at their visible breakpoint');
+$assert(str_contains((string) ($responsiveEmptyPanel['attrs']['className'] ?? ''), HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS), 'preserved source-owned empty visual groups carry an explicit editor marker');
+$hiddenEmptyEditorAsset = current(array_filter(
+    $hiddenEmptyResult['assets'] ?? array(),
+    static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? '')
+));
+$assert(is_array($hiddenEmptyEditorAsset) && str_contains((string) ($hiddenEmptyEditorAsset['content'] ?? ''), '.' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder>.components-placeholder{display:none!important}'), 'editor static-state CSS suppresses Gutenberg layout pickers only for preserved source-owned empty visual groups');
 $assert(str_contains($hiddenEmptyResult['serialized_blocks'], 'id="runtime-panel"') && str_contains($hiddenEmptyResult['serialized_blocks'], 'id="anchor-panel"'), 'runtime-targeted and anchored hidden empty elements preserve their identifiers');
 
 $emptyFeatureShellResult = (new HtmlTransformer())->transform(

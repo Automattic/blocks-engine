@@ -387,6 +387,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
+
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
      * here and read back by {@see NavigationStyleProjector}, which projects the
@@ -5589,6 +5591,8 @@ final class HtmlTransformer
     private function emptyVisualElementAttributes(DOMElement $element): array
     {
         $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_VISUAL_GROUP_CLASS);
+        $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
         $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
             return $attrs;
