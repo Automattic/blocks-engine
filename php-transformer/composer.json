@@ -121,6 +121,7 @@
       "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
       "php tests/unit/navigation-inert-support-children.php",
+      "php tests/unit/navigation-nested-authored-anchor.php",
       "php tests/unit/button-signal-classifier.php",
       "php tests/unit/button-style-resolver.php",
       "php tests/unit/button-font-family-carry.php",
