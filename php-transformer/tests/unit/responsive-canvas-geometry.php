@@ -70,6 +70,12 @@ $assert(str_contains($percentageHeightCss, '.background-grid{position:absolute;i
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
 $assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
 
+$functionalResponsiveMargin = (new HtmlTransformer())->transform(
+    '<style>*{margin:0}:is(#main :where(.card),[id^="card__"]){margin-bottom:20px}@media(max-width:600px){:is(#main :where(.card),[id^="card__"]){margin-bottom:90px}}</style>'
+    . '<main id="main"><div id="card" class="card">Card</div></main>'
+)->toArray();
+$assert(! str_contains((string) ($functionalResponsiveMargin['serialized_blocks'] ?? ''), 'margin-bottom:0'), 'functional conditional selectors keep responsive margins under stylesheet ownership');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Responsive canvas geometry unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
