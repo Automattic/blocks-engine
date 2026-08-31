@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 /** Per-transform source stylesheet matching and declaration state. */
 final class SourceStyleResolutionState
 {
-    public ?CssSelectorMatchCache $selectorMatchCache = null;
+    public readonly CssSelectorMatchCache $selectorMatchCache;
 
     /** @var array<string, array<string, mixed>> */
     public array $ruleCandidateIndexes = array();
@@ -42,6 +42,17 @@ final class SourceStyleResolutionState
     private array $parsedSelectors = array();
 
     private string $formLayoutCss = '';
+
+    public function __construct()
+    {
+        $this->selectorMatchCache = new CssSelectorMatchCache();
+    }
+
+    public function invalidateSelectorMatches(): void
+    {
+        $this->selectorMatchCache->clear();
+        $this->structuralDeclarations = array();
+    }
 
     /**
      * @param array<string, array<int, string>> $classPromotions

@@ -25,7 +25,7 @@ trait DomHelpersTrait
 
     private function innerHtml(DOMElement $element): string
     {
-        $this->canonicalizeLinkUrls($element);
+        $element = $this->canonicalizedSerializationClone($element);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -36,7 +36,7 @@ trait DomHelpersTrait
 
     private function innerHtmlPreservingWhitespace(DOMElement $element): string
     {
-        $this->canonicalizeLinkUrls($element);
+        $element = $this->canonicalizedSerializationClone($element);
         $html = '';
         foreach ( $element->childNodes as $child ) {
             $html .= $element->ownerDocument->saveHTML($child);
@@ -47,20 +47,18 @@ trait DomHelpersTrait
 
     private function outerHtml(DOMElement $element): string
     {
-        $this->canonicalizeLinkUrls($element);
+        $element = $this->canonicalizedSerializationClone($element);
         return trim($element->ownerDocument->saveHTML($element) ?: '');
     }
 
-    /**
-     * Signals that link canonicalization rewrote source markup.
-     *
-     * This trait is shared by four classes; only the transformer owns a
-     * selector-match cache that such a rewrite would invalidate. The default is
-     * a no-op and HtmlTransformer overrides it, so the other consumers do not
-     * need a collaborator they have no use for.
-     */
-    private function onSourceMarkupMutated(): void
+    private function canonicalizedSerializationClone(DOMElement $element): DOMElement
     {
+        $clone = $element->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            throw new \LogicException('Cloning a DOMElement must produce a DOMElement.');
+        }
+        $this->canonicalizeLinkUrls($clone);
+        return $clone;
     }
 
     private function canonicalizeLinkUrls(DOMElement $element): void
@@ -79,14 +77,12 @@ trait DomHelpersTrait
 
             $href = LinkUrlSanitizer::sanitize($anchor->getAttribute('href'));
             if ( '' === $href ) {
-                $this->onSourceMarkupMutated();
                 $anchor->removeAttribute('href');
                 continue;
             }
             if ( $href !== $anchor->getAttribute('href') ) {
-                $this->onSourceMarkupMutated();
+                $anchor->setAttribute('href', $href);
             }
-            $anchor->setAttribute('href', $href);
         }
     }
 
