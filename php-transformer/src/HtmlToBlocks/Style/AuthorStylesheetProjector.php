@@ -39,8 +39,9 @@ final class AuthorStylesheetProjector
                 $svgImageRule = '' === $svgImagePrelude
                     ? ''
                     : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+                $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
                 if ( array() === $margins ) {
-                    return $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule;
+                    return $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
                 }
 
                 $inner = array_diff_key($declarations, $margins);
@@ -50,7 +51,8 @@ final class AuthorStylesheetProjector
                 return $rules
                     . $this->rewriteSelectorPrelude($prelude, $context, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
                     . $imageRule
-                    . $svgImageRule;
+                    . $svgImageRule
+                    . $editorDocumentRootRule;
             }
         );
     }
@@ -484,6 +486,32 @@ final class AuthorStylesheetProjector
             }
         }
         return array_values(array_unique($rewritten));
+    }
+
+    private function editorDocumentRootRule(string $prelude, string $body): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || ! in_array('body', array_map(static fn (string $selector): string => strtolower(trim($selector)), $selectors), true) ) {
+            return '';
+        }
+
+        // Gutenberg establishes an explicit canvas presentation context, so
+        // document-level body inheritance cannot otherwise win in the editor.
+        $inheritedProperties = array(
+            'color', 'direction', 'hyphens', 'letter-spacing', 'line-height',
+            'tab-size', 'text-align', 'text-indent', 'text-shadow', 'text-transform',
+            'visibility', 'white-space', 'word-spacing', 'writing-mode',
+        );
+        $declarations = array_filter(
+            $this->styleResolver->cssDeclarations($body),
+            static fn (string $name): bool => str_starts_with($name, '--')
+                || 'font' === $name
+                || str_starts_with($name, 'font-')
+                || in_array($name, $inheritedProperties, true),
+            ARRAY_FILTER_USE_KEY
+        );
+        $css = $this->styleResolver->cssDeclarationString($declarations);
+        return '' === $css ? '' : ':root .editor-styles-wrapper{' . $css . '}';
     }
 
     /** @return list<string>|null */

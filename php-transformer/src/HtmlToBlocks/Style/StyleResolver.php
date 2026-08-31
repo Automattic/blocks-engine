@@ -1657,7 +1657,12 @@ final class StyleResolver
      */
     private function stripFrozenHiddenState(DOMElement $element, array $declarations): array
     {
-        if ( array() === $declarations || $this->isDecorativeHiddenElement($element) || $this->context->hasRetainedPresentationRuntime($element) ) {
+        if (
+            array() === $declarations
+            || $this->isDecorativeHiddenElement($element)
+            || $this->isExplicitlyInactiveState($element)
+            || $this->context->hasRetainedPresentationRuntime($element)
+        ) {
             return $declarations;
         }
 
@@ -1694,6 +1699,31 @@ final class StyleResolver
             }
             $display = CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? ''));
             if ( '' !== $display && 'none' !== $display ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isExplicitlyInactiveState(DOMElement $element): bool
+    {
+        if (
+            'false' === strtolower(trim($this->context->attr($element, 'data-visible')))
+            || 'dialog' === strtolower(trim($this->context->attr($element, 'role')))
+            || 'true' === strtolower(trim($this->context->attr($element, 'aria-modal')))
+        ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if (
+                $descendant instanceof DOMElement
+                && (
+                    'dialog' === strtolower(trim($this->context->attr($descendant, 'role')))
+                    || 'true' === strtolower(trim($this->context->attr($descendant, 'aria-modal')))
+                )
+            ) {
                 return true;
             }
         }
