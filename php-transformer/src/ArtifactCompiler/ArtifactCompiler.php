@@ -3203,6 +3203,7 @@ final class ArtifactCompiler
      */
     private function scriptCanvasSelectors(string $script): array
     {
+        return (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['canvas_selectors'];
         $selectors = array();
         $getContextPattern = '\.\s*getContext\s*\(';
 
@@ -3372,6 +3373,7 @@ final class ArtifactCompiler
             return $this->scriptDomSelectorCache[$cacheKey];
         }
 
+        return $this->scriptDomSelectorCache[$cacheKey] = (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['selectors'];
         $selectors = array();
         if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
             foreach ( $matches[2] as $id ) {
@@ -3531,6 +3533,7 @@ final class ArtifactCompiler
             return $this->scriptControlSelectorCache[$cacheKey];
         }
 
+        return $this->scriptControlSelectorCache[$cacheKey] = array_fill_keys((new RuntimeScriptEvidenceAnalyzer())->analyze($script)['control_selectors'], true);
         $selectors = array();
         $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
 
