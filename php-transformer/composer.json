@@ -66,6 +66,7 @@
     ],
     "test:unit": [
       "php tests/unit/runtime-declarations-streaming-hash.php",
+      "php tests/unit/runtime-script-evidence-analyzer.php",
       "php tests/unit/font-family-declaration-memory.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
