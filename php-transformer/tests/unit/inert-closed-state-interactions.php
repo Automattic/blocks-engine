@@ -202,6 +202,24 @@ $assert(
     $responsiveDocumentAfterAuthor
 );
 
+$inactiveDialog = <<<'HTML'
+<style>
+#menu-portal { visibility: hidden; opacity: 0; }
+</style>
+<div id="menu-portal" role="dialog" aria-modal="true" data-visible="false">
+  <nav><a href="/about">About</a></nav>
+</div>
+HTML;
+
+$inactiveDialogResult = ( new HtmlTransformer() )->transform($inactiveDialog)->toArray();
+$inactiveDialogAfterAuthor = $cssContent($inactiveDialogResult, 'after-author', 'both');
+$assert(
+    ! str_contains($inactiveDialogAfterAuthor, '#menu-portal{opacity:1')
+        && ! str_contains($inactiveDialogAfterAuthor, '#menu-portal{visibility:visible'),
+    'an explicitly inactive runtime state does not receive a global visibility repair',
+    $inactiveDialogAfterAuthor
+);
+
 $products = <<<'HTML'
 <div class="products">
   <div class="item"><h3>Product A</h3><p>Nice chair.</p></div>

@@ -1629,7 +1629,12 @@ final class StyleResolver
      */
     private function stripFrozenHiddenState(DOMElement $element, array $declarations): array
     {
-        if ( array() === $declarations || $this->isDecorativeHiddenElement($element) || $this->context->hasRetainedPresentationRuntime($element) ) {
+        if (
+            array() === $declarations
+            || $this->isDecorativeHiddenElement($element)
+            || $this->isExplicitlyInactiveState($element)
+            || $this->context->hasRetainedPresentationRuntime($element)
+        ) {
             return $declarations;
         }
 
@@ -1671,6 +1676,11 @@ final class StyleResolver
         }
 
         return false;
+    }
+
+    private function isExplicitlyInactiveState(DOMElement $element): bool
+    {
+        return 'false' === strtolower(trim($this->context->attr($element, 'data-visible')));
     }
 
     /** @return list<string> */
