@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -31,17 +32,17 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasSubmissionMetadata(DOMElement $form): bool
     {
-        $action = trim($this->attr($form, 'action'));
+        $action = trim(SourceDom::attr($form, 'action'));
         if ( '' !== $action && '#' !== $action ) {
             return true;
         }
 
-        if ( '' === $action && '' !== trim($this->attr($form, 'method')) ) {
+        if ( '' === $action && '' !== trim(SourceDom::attr($form, 'method')) ) {
             return true;
         }
 
         foreach ( array( 'enctype', 'target' ) as $attribute ) {
-            if ( '' !== trim($this->attr($form, $attribute)) ) {
+            if ( '' !== trim(SourceDom::attr($form, $attribute)) ) {
                 return true;
             }
         }
@@ -58,12 +59,12 @@ final class FormRuntimeRequirementAnalyzer
 
             $haystack = strtolower(implode(' ', array(
                 $control->textContent ?? '',
-                $this->attr($control, 'value'),
-                $this->attr($control, 'class'),
-                $this->attr($control, 'id'),
-                $this->attr($control, 'name'),
-                $this->attr($control, 'aria-label'),
-                $this->attr($control, 'title'),
+                SourceDom::attr($control, 'value'),
+                SourceDom::attr($control, 'class'),
+                SourceDom::attr($control, 'id'),
+                SourceDom::attr($control, 'name'),
+                SourceDom::attr($control, 'aria-label'),
+                SourceDom::attr($control, 'title'),
             )));
 
             if ( preg_match('/(?:^|[^a-z0-9])(?:add to cart|cart|checkout|payment|purchase|buy|order|register|registration|ticket)(?:[^a-z0-9]|$)/', $haystack) ) {
@@ -91,17 +92,12 @@ final class FormRuntimeRequirementAnalyzer
 
     private function hasRuntimeClassSignal(DOMElement $element): bool
     {
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
             if ( preg_match('/^js-[A-Za-z0-9_-]+$/', $class) ) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }

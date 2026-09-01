@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class DetailsPattern implements PatternRecognizerInterface
@@ -25,7 +26,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                     return $converter->childrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags);
                 },
                 $context->presentationAttributes(...),
-                $context->innerHtml(...),
+                SourceDom::innerHtml(...),
                 $context->createBlock(...)
             );
         } else {
@@ -35,7 +36,7 @@ final class DetailsPattern implements PatternRecognizerInterface
                     return $converter->children($sourceElement, $fallbacks, true);
                 },
                 $context->presentationAttributes(...),
-                $context->innerHtml(...),
+                SourceDom::innerHtml(...),
                 $context->createBlock(...)
             );
         }

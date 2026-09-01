@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class AccordionPattern implements PatternRecognizerInterface
@@ -14,7 +15,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $createBlock = $context->createBlock(...);
         $converter = $context->recursiveConverter();
         $presentationAttributes = $context->presentationAttributes(...);
-        $innerHtml = $context->innerHtml(...);
+        $innerHtml = SourceDom::innerHtml(...);
 
         if ( null === $converter || $this->hasRuntimeHeavyDescendant($element) ) {
             return null;

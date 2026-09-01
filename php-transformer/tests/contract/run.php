@@ -451,7 +451,6 @@ $registry = new PatternRecognizerRegistry(array(
 ));
 $registryContext = new PatternContext(
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): string => '',
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
@@ -630,6 +629,23 @@ $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockNa
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
+
+// A source nav landmark keeps native menu semantics, so its icon-only anchors
+// must not silently lose the artwork core/navigation-link cannot save.
+$navIconResult = ( new HtmlTransformer() )->transform(
+    '<style>.social-nav a svg{width:23px;height:23px}</style><nav class="social-nav" aria-label="Social"><a href="https://www.facebook.com/wix" aria-label="Facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z"></path></svg></a><a href="https://x.com/wix" aria-label="Twitter"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle></svg></a></nav>'
+)->toArray();
+$navIconMarkup = (string) ($navIconResult['serialized_blocks'] ?? '');
+$navIconCss = implode("\n", array_column($navIconResult['assets'] ?? array(), 'content'));
+$assert('core/navigation' === ($navIconResult['blocks'][0]['blockName'] ?? null), 'icon-only anchors inside a nav landmark stay native navigation');
+$assert(str_contains($navIconMarkup, '"label":"Facebook"') && str_contains($navIconMarkup, '"label":"Twitter"'), 'icon-only navigation links keep their accessible name as the saved label');
+$assert(1 === preg_match('/blocks-engine-navigation-link-icon-[a-f0-9]{12}/', $navIconMarkup), 'icon-only navigation links carry an opaque icon marker');
+$assert(str_contains($navIconCss, 'background-image:url("data:image/svg+xml,') && str_contains($navIconCss, 'width:23px;height:23px'), 'recovered navigation icons project the source artwork at its source box');
+$assert(str_contains($navIconCss, 'font-size:0') && ! str_contains($navIconCss, 'visibility:hidden;background-image'), 'recovered navigation icons collapse the label without removing it from the accessibility tree');
+$navTextLinks = ( new HtmlTransformer() )->transform(
+    '<nav class="main-nav" aria-label="Main"><a href="/work">Work</a><a href="/about">About</a></nav>'
+)->toArray();
+$assert(! str_contains((string) ($navTextLinks['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-icon-'), 'text navigation links do not fabricate icon markers');
 
 // A row of button-styled links whose container merely carries a `links` token is
 // a call-to-action button group, not site navigation. It must convert to
@@ -1209,14 +1225,17 @@ $fixedBackgroundLayer = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks'] ?? '');
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
-$assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', $fixedBackgroundLayerMarkup), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+$fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
+$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important'), 'empty painted groups retain frontend geometry while their Gutenberg placeholder is bounded in normal flow');
+$assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
 
 $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
 )->toArray();
 $styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*footer-wrap[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
-$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*container[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
@@ -2604,6 +2623,10 @@ $activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): st
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['color']['text']) && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'navigation link retains source anchor text color in projected CSS instead of an unsupported native attribute');
 $assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
+// The anchors carry their own typography. Projecting it onto the navigation
+// container also re-struts the list, because the li line box is governed by the
+// container font-size/line-height rather than by the inline anchor. Keeping the
+// container typography separate preserves the source line box exactly.
 $assert(! isset($activeNavigationColorAttrs['customTextColor']) && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation') && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'list navigation keeps source container typography separate while retaining shared color through projected CSS');
 $assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
@@ -3319,6 +3342,20 @@ $artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialize
 $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
 $assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
+
+$artifactSummaryToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><nav><details><summary aria-label="Menu" style="box-sizing:border-box;width:40px;height:40px;padding:5px"><svg aria-hidden="true"></svg></summary></details></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactSummaryToggleNavigationMarkup = (string) ($artifactSummaryToggleNavigation['serialized_blocks'] ?? '');
+$artifactSummaryToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactSummaryToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'a semantic details summary menu control promotes its associated menu to native responsive navigation');
+$assert(! str_contains($artifactSummaryToggleNavigationMarkup, '<!-- wp:details') && ! str_contains($artifactSummaryToggleNavigationMarkup, '<summary'), 'native responsive navigation supersedes empty details summary menu chrome', $artifactSummaryToggleNavigationMarkup);
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-navigation-toggle-') && str_contains($artifactSummaryToggleNavigationCss, '>.wp-block-navigation__responsive-container-open{') && str_contains($artifactSummaryToggleNavigationCss, 'width:40px!important') && str_contains($artifactSummaryToggleNavigationCss, 'padding:5px!important'), 'native responsive navigation projects source toggle geometry onto the core open control', $artifactSummaryToggleNavigationCss);
 
 $artifactCheckboxLabelNavigation = $compiler->compile(
     array(
@@ -5080,6 +5117,10 @@ $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAss
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
+
+$hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();
+$hiddenRichTextCss = implode("\n", array_column($hiddenRichTextMarker['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'

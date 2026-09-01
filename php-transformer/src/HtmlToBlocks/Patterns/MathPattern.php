@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
@@ -18,7 +19,7 @@ final class MathPattern implements PatternRecognizerInterface
         }
 
         $tagName = strtolower($element->tagName);
-        $content = 'math' === $tagName ? $markup->safeFallbackHtml($element) : $this->mathExpressionContent($element, $context->innerHtml(...), $markup->escapeHtml(...));
+        $content = 'math' === $tagName ? $markup->safeFallbackHtml($element) : $this->mathExpressionContent($element, SourceDom::innerHtml(...), $markup->escapeHtml(...));
         if ( '' === trim($content) ) {
             return null;
         }

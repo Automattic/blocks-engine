@@ -6,24 +6,25 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use DOMDocument;
 use DOMElement;
 
@@ -2109,7 +2110,7 @@ final class ArtifactCompiler
                     'attributes'         => $this->inlineScriptAttributes($file),
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
             }
-            $runtimeIsland['required_scripts'] = $this->dedupeArrayRows($requiredScripts);
+            $runtimeIsland['required_scripts'] = SourceDom::dedupeArrayRows($requiredScripts);
         }
         unset($runtimeIsland);
 
@@ -2215,15 +2216,6 @@ final class ArtifactCompiler
         }
 
         return $attributes;
-    }
-
-    /**
-     * @param array<int, mixed> $rows
-     * @return array<int, mixed>
-     */
-    private function dedupeArrayRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**
@@ -2543,6 +2535,7 @@ final class ArtifactCompiler
             $reserved[$path] = true;
         }
         $occurrences = array();
+        $variants = array();
         if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
             return $files;
         }
@@ -2563,8 +2556,16 @@ final class ArtifactCompiler
                 $files[$byPath[$originalPath]]['type'] = $type;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
                 $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
+                $variants[$originalPath][$media . "\0" . $type] = true;
                 continue;
             }
+            // Repeating one stylesheet under the same conditions applies it
+            // once, exactly as a browser resolves it. Only a differing media or
+            // type makes a later reference its own participant in the cascade.
+            if ( isset($variants[$originalPath][$media . "\0" . $type]) ) {
+                continue;
+            }
+            $variants[$originalPath][$media . "\0" . $type] = true;
             $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
             $aliasFile = $files[$byPath[$originalPath]];
             $aliasFile['path'] = $alias;

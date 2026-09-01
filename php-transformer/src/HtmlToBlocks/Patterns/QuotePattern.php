@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 use const XML_TEXT_NODE;
@@ -25,7 +26,7 @@ final class QuotePattern implements PatternRecognizerInterface
         }
 
         $citation = $quotes->citationFromElement($element);
-        $value = $quotes->innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
+        $value = SourceDom::innerHtmlWithoutTags($element, array( 'cite', 'footer' ));
         if ( '' === trim($quotes->stripAllTags($value)) ) {
             return null;
         }
@@ -64,14 +65,14 @@ final class QuotePattern implements PatternRecognizerInterface
         $citation = $quotes->citationFromElement($blockquote);
         $caption = $this->firstChildElement($figure, 'figcaption');
         if ( '' === $citation && $caption instanceof DOMElement ) {
-            $citation = $context->innerHtml($caption);
+            $citation = SourceDom::innerHtml($caption);
             $captionClass = trim($this->attr($caption, 'class'));
             if ( '' !== $captionClass ) {
                 $citation = '<span class="' . htmlspecialchars($captionClass, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $citation . '</span>';
             }
         }
 
-        $value = $quotes->innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
+        $value = SourceDom::innerHtmlWithoutTags($blockquote, array( 'cite', 'footer' ));
         if ( '' === trim($quotes->stripAllTags($value)) ) {
             return null;
         }
@@ -89,7 +90,7 @@ final class QuotePattern implements PatternRecognizerInterface
             if ( ! $child instanceof DOMElement || $child->isSameNode($blockquote) || $child->isSameNode($caption) ) {
                 continue;
             }
-            $content = $context->innerHtml($child);
+            $content = SourceDom::innerHtml($child);
             if ( 'true' !== strtolower(trim($this->attr($child, 'aria-hidden'))) || '' === trim($quotes->stripAllTags($content)) ) {
                 continue;
             }

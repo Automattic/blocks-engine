@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
 
@@ -79,15 +80,36 @@ final class NavigationStyleProjector
         $anchorProjectionCss = $this->editorAnchorProjectionCss();
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
+            // The anchor projection restates author rules on the deterministic
+            // wrapper classes, animations included. Settle those copies too, or
+            // the editor keeps the source's hidden start keyframe on exactly the
+            // elements the projection exists to reach.
+            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss) as $settledRule ) {
+                $rules[] = $settledRule;
+            }
         }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->context->authorStyles()->combinedCss()) ) {
-            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+            // The editor shows a settled document, so every animation is wound
+            // past its end. A paused play state and a scroll-driven timeline
+            // both have to be overridden for that to hold: without them the
+            // negative delay lands on an animation that never advances, and the
+            // element stays on whatever keyframe its fill mode paints.
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important;transition:none!important}';
         }
         if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
             $rules[] = $selector . '{flex-basis:auto!important;width:auto!important;min-width:10ch!important;min-height:1.2em!important}'
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
+        }
+        if ( $this->context->runtimeBehavior()->emptyVisualGroupGenerated() ) {
+            $selector = ':root .' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder';
+            // A painted source layer holds geometry, not authored children, so
+            // core's empty-group variation picker stacks unrelated layout
+            // controls at the top of the document. Bound the placeholder and
+            // withhold that picker so the editor shows the source composition.
+            $rules[] = $selector . '{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem!important;overflow:hidden!important}'
+                . $selector . '>*{display:none!important}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
@@ -104,7 +126,7 @@ final class NavigationStyleProjector
     {
         $ids = array_fill_keys(array_filter(
             $this->context->authorStyles()->sourceElementIds(),
-            fn (string $id): bool => '' !== $this->context->safeAnchor($id)
+            fn (string $id): bool => '' !== SourceDom::safeAnchor($id)
         ), true);
         if ( array() === $ids ) {
             return '';
@@ -642,7 +664,7 @@ final class NavigationStyleProjector
         foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $element ) {
             if ( $element instanceof DOMElement
                 && 'a' === strtolower($element->tagName)
-                && isset($selectors[$this->context->elementSelector($element)])
+                && isset($selectors[SourceDom::elementSelector($element)])
             ) {
                 $anchors[] = $element;
             }
@@ -676,7 +698,7 @@ final class NavigationStyleProjector
             foreach ( $item->childNodes as $child ) {
                 if ( $child instanceof DOMElement
                     && 'a' === strtolower($child->tagName)
-                    && isset($selectors[$this->context->elementSelector($child)])
+                    && isset($selectors[SourceDom::elementSelector($child)])
                 ) {
                     $anchors[] = $child;
                 }
@@ -717,7 +739,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($this->context->attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style')));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -859,7 +881,7 @@ final class NavigationStyleProjector
                 return null;
             }
 
-            $itemClasses = preg_split('/\s+/', trim($this->context->attr($item, 'class'))) ?: array();
+            $itemClasses = preg_split('/\s+/', trim(SourceDom::attr($item, 'class'))) ?: array();
             if ( in_array($class, $itemClasses, true) ) {
                 // The class also belonged to the source item. Its item paint is
                 // authored, not an artifact of core moving the anchor class.
@@ -984,6 +1006,46 @@ final class NavigationStyleProjector
      *
      * @return array<int, string>
      */
+    /**
+     * Restore icon-only navigation artwork core/navigation-link cannot save.
+     *
+     * The block keeps the accessible name as its label, so the recovered source
+     * icon replaces that label visually while the name stays in the document.
+     *
+     * @return array<int, string>
+     */
+    public function navigationLinkIconRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-icon-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $declarations = $this->context->generatedSupportStyles()->navigationLinkIcon($class);
+                if ( '' === $declarations ) {
+                    continue;
+                }
+                $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                $rules[$class] = $content . '{' . $declarations . '}';
+            }
+        }
+
+        return array_values($rules);
+    }
+
     public function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -55,13 +56,13 @@ final class UnsupportedElementRecorder
             'diagnostic_code' => 'html_unsupported_element',
             'source_format'   => 'html',
             'tag'             => $tagName,
-            'selector'        => $this->context->elementSelector($element),
-            'attributes'      => $this->context->htmlAttributes($element),
+            'selector'        => SourceDom::elementSelector($element),
+            'attributes'      => SourceDom::htmlAttributes($element),
             'context'         => $this->context->sourceContext($element),
             'classification'  => $this->context->classifyFallbackSubtree($element),
-            'events'          => $this->context->eventMetadata($element),
+            'events'          => SourceDom::eventMetadata($element),
             'text_length'     => strlen(trim($element->textContent ?? '')),
-            'child_count'     => $this->context->childElementCount($element),
+            'child_count'     => SourceDom::childElementCount($element),
             'html'            => $this->context->safeFallbackHtml($element),
         );
 

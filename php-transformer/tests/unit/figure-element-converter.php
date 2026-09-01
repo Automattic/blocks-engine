@@ -47,10 +47,6 @@ $context = new FigureElementContext(
         $calls[] = 'linked';
         return str_starts_with($mode, 'linked-') ? $figure->getElementsByTagName('a')->item(0) : null;
     },
-    static function (DOMElement $element, string $tagName): ?DOMElement {
-        $child = $element->getElementsByTagName($tagName)->item(0);
-        return $child instanceof DOMElement ? $child : null;
-    },
     static fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): array => array(
         'blockName' => 'core/image',
         'attrs' => array( 'source' => 'picture', 'linked' => $link instanceof DOMElement ),
@@ -71,7 +67,6 @@ $context = new FigureElementContext(
         $calls[] = 'generic';
         return array( 'blockName' => 'core/group' );
     },
-    static fn (DOMElement $element): string => $element->ownerDocument?->saveHTML($element) ?: '',
     static fn (string $html): bool => '' !== trim(strip_tags($html)),
     static fn (DOMElement $element): array => array( 'className' => 'caption' ),
     static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(

@@ -3,9 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -31,7 +32,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
-        $innerHtml = $context->innerHtml(...);
+        $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $context->createBlock(...);
         $navigationContext = $context->navigationContext();
 
@@ -87,6 +88,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($element) ?? 'never';
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($element) ?? '');
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
         }
         if ( $label instanceof DOMElement ) {
@@ -338,6 +340,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($cluster) ?? 'never';
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
+            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($cluster) ?? '');
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
@@ -714,12 +717,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return true;
     }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        return LinkUrlSanitizer::sanitize($url);
-    }
-
     private function hasDirectBrandingAnchorBesideListNavigation(DOMElement $element, callable $innerHtml): bool
     {
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) ) {
@@ -1008,7 +1005,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             $submenuAttrs = array(
                 'label' => $this->anchorLabel($anchor, $innerHtml),
-                'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+                'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
             $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
@@ -1024,11 +1021,18 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
     {
-        return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
+        $linkAttrs = $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $this->anchorLabel($anchor, $innerHtml),
-            'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+            'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
-        ), $presentationAttributes, $navigationContext), array(), $anchor);
+        ), $presentationAttributes, $navigationContext);
+        // An icon-only anchor keeps its accessible name as the saved label, but
+        // core/navigation-link has nowhere to store the artwork that name
+        // described. Carry an opaque marker so the recovered source icon can be
+        // projected onto the rendered item without leaving native navigation.
+        $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+
+        return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml): string

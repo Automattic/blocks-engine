@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
@@ -31,7 +32,7 @@ final class GeneratedBlockStyleProjector
         $submenuBackground = 'core/navigation-submenu' === $name ? trim((string) ($fallback['color']['background'] ?? '')) : '';
         if ( '' !== $submenuBackground && array() !== $this->styleResolver->cssDeclarations('background-color:' . $submenuBackground) ) {
             $className = 'blocks-engine-navigation-submenu-background-' . hash('sha256', $submenuBackground);
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
             $generatedStyles->registerNavigationSubmenuBackground($className, $submenuBackground);
         }
         $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
@@ -106,7 +107,7 @@ final class GeneratedBlockStyleProjector
             $fallbackDeclarations
         );
         if ( '' !== $carrier ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
         }
         return $attrs;
     }
@@ -287,18 +288,5 @@ final class GeneratedBlockStyleProjector
     private static function isInheritedCssWideValue(string $value): bool
     {
         return in_array(strtolower(trim($value)), array( 'inherit', 'unset' ), true);
-    }
-
-    private static function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-        return implode(' ', $classes);
     }
 }

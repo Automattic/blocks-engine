@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -43,7 +44,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             array($converter, 'element'),
             $media->mediaTextAttributes(...),
             $media->mediaTextStyle(...),
-            $media->htmlAttributes(...),
+            SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $context->createBlock(...)
         );

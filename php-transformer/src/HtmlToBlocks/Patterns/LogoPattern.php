@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
 
@@ -20,7 +21,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $element,
             $context->presentationAttributes(...),
             fn (DOMElement $source): string => $logo->richText($source),
-            fn (DOMElement $source): string => $logo->outerHtml($source),
+            fn (DOMElement $source): string => SourceDom::outerHtml($source),
             fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
             $context->createBlock(...)
         );
@@ -51,7 +52,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $content = $materializeSvgImages($element, $innerHtml($element)) ?? (preg_replace('/<svg\b[^>]*>.*?<\/svg>/is', '', $innerHtml($element)) ?? $innerHtml($element));
             $attrs = array_filter(array(
                 'text'  => trim($content),
-                'url'   => $this->safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
+                'url'   => SourceDom::safeNavigationUrl($element->hasAttribute('href') ? $element->getAttribute('href') : ''),
                 'title' => trim($element->hasAttribute('aria-label') ? $element->getAttribute('aria-label') : ''),
 				'style' => array(
                     'color' => array( 'background' => 'transparent' ),
@@ -103,7 +104,7 @@ final class LogoPattern implements PatternRecognizerInterface
             return '';
         }
 
-        $href = $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : '');
+        $href = SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : '');
         if ( '' === $href ) {
             return $label;
         }
@@ -115,7 +116,7 @@ final class LogoPattern implements PatternRecognizerInterface
             }
         }
 
-        return '<a' . $this->htmlAttributeString($attrs) . '>' . $label . '</a>';
+        return '<a' . SourceDom::htmlAttributeString($attrs) . '>' . $label . '</a>';
     }
 
     /** @param callable(DOMElement, string): ?string $materializeSvgImages */
@@ -237,24 +238,6 @@ final class LogoPattern implements PatternRecognizerInterface
 
         return '';
     }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        return LinkUrlSanitizer::sanitize($url);
-    }
-
-    /**
-     * @param array<string, string> $attrs
-     */
-    private function htmlAttributeString(array $attrs): string
-    {
-        $html = '';
-        foreach ( $attrs as $name => $value ) {
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
-    }
-
     private function hasLogoSignal(DOMElement $element): bool
     {
         foreach ( array( 'class', 'id' ) as $attribute ) {

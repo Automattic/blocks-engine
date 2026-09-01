@@ -85,6 +85,8 @@
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/artifact-normalizer-source-budget.php",
       "php tests/unit/subtree-classifier.php",
+      "php tests/unit/source-element-classifier.php",
+      "php tests/unit/source-dom.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",
@@ -155,6 +157,7 @@
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/inert-closed-state-interactions.php",
+      "php tests/unit/reveal-animation-settling.php",
       "php tests/unit/geometry-chain-coalescing.php",
       "php tests/unit/pattern-recursive-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
@@ -188,7 +191,8 @@
             "php tests/unit/button-link-dispatcher.php",
             "php tests/unit/button-element-converter.php",
             "php tests/unit/runtime-resource-element-converter.php",
-            "php tests/unit/link-bearing-element-lowering.php"
+            "php tests/unit/link-bearing-element-lowering.php",
+            "php tests/unit/link-wrapper-text-color-parity.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

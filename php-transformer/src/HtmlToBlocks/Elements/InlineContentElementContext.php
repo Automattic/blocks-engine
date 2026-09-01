@@ -17,7 +17,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $ownsPositioningGeometry
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $positionedInlineCarrierBlock
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
-     * @param Closure(DOMElement): string $innerHtml
      * @param Closure(string): bool $richTextContentHasStructuralHtml
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
@@ -25,7 +24,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $hasBlockContentChildren
      * @param Closure(DOMElement): array<string, string> $richTextInlineVisualDeclarations
      * @param Closure(DOMElement): ?string $dynamicTextContent
-     * @param Closure(DOMElement): string $outerHtml
      * @param Closure(DOMElement, string): ?DOMElement $ancestorElement
      * @param Closure(DOMElement): bool $isStructuralListItem
      * @param Closure(DOMElement): bool $shouldPreserveEmptyVisualElement
@@ -39,7 +37,6 @@ final class InlineContentElementContext
         private readonly Closure $ownsPositioningGeometry,
         private readonly Closure $positionedInlineCarrierBlock,
         private readonly Closure $hasAuthorSemanticMarker,
-        private readonly Closure $innerHtml,
         private readonly Closure $richTextContentHasStructuralHtml,
         private readonly Closure $convertChildren,
         private readonly Closure $createBlock,
@@ -47,7 +44,6 @@ final class InlineContentElementContext
         private readonly Closure $hasBlockContentChildren,
         private readonly Closure $richTextInlineVisualDeclarations,
         private readonly Closure $dynamicTextContent,
-        private readonly Closure $outerHtml,
         private readonly Closure $ancestorElement,
         private readonly Closure $isStructuralListItem,
         private readonly Closure $shouldPreserveEmptyVisualElement,
@@ -66,7 +62,6 @@ final class InlineContentElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function positionedInlineCarrierBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->positionedInlineCarrierBlock)($element, $fallbacks); }
     public function hasAuthorSemanticMarker(DOMElement $element): bool { return ($this->hasAuthorSemanticMarker)($element); }
-    public function innerHtml(DOMElement $element): string { return ($this->innerHtml)($element); }
     public function richTextContentHasStructuralHtml(string $content): bool { return ($this->richTextContentHasStructuralHtml)($content); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks, true); }
@@ -77,7 +72,6 @@ final class InlineContentElementContext
     /** @return array<string, string> */
     public function richTextInlineVisualDeclarations(DOMElement $element): array { return ($this->richTextInlineVisualDeclarations)($element); }
     public function dynamicTextContent(DOMElement $element): ?string { return ($this->dynamicTextContent)($element); }
-    public function outerHtml(DOMElement $element): string { return ($this->outerHtml)($element); }
     public function ancestorElement(DOMElement $element, string $tagName): ?DOMElement { return ($this->ancestorElement)($element, $tagName); }
     public function isStructuralListItem(DOMElement $element): bool { return ($this->isStructuralListItem)($element); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }

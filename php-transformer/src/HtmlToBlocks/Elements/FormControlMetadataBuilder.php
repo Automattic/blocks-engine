@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMDocument;
 use DOMElement;
@@ -13,8 +14,10 @@ use DOMNode;
 final class FormControlMetadataBuilder
 {
     /** @param Closure(DOMElement): string $elementSelector */
-    public function __construct(private readonly Closure $elementSelector)
-    {
+    public function __construct(
+        private readonly Closure $elementSelector,
+        private readonly ?Closure $presentationAttributes = null
+    ) {
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -38,15 +41,15 @@ final class FormControlMetadataBuilder
     public function form(DOMElement $form): array
     {
         $metadata = array_filter(array(
-            'id'           => $this->attr($form, 'id'),
-            'name'         => $this->attr($form, 'name'),
-            'class'        => $this->attr($form, 'class'),
-            'aria_label'   => $this->attr($form, 'aria-label'),
-            'action'       => $this->attr($form, 'action'),
-            'method'       => strtolower($this->attr($form, 'method')),
-            'enctype'      => $this->attr($form, 'enctype'),
-            'target'       => $this->attr($form, 'target'),
-            'autocomplete' => $this->attr($form, 'autocomplete'),
+            'id'           => SourceDom::attr($form, 'id'),
+            'name'         => SourceDom::attr($form, 'name'),
+            'class'        => SourceDom::attr($form, 'class'),
+            'aria_label'   => SourceDom::attr($form, 'aria-label'),
+            'action'       => SourceDom::attr($form, 'action'),
+            'method'       => strtolower(SourceDom::attr($form, 'method')),
+            'enctype'      => SourceDom::attr($form, 'enctype'),
+            'target'       => SourceDom::attr($form, 'target'),
+            'autocomplete' => SourceDom::attr($form, 'autocomplete'),
         ), static fn (string $value): bool => '' !== $value);
 
         if ( $form->hasAttribute('novalidate') ) {
@@ -72,20 +75,20 @@ final class FormControlMetadataBuilder
         $metadata = array_filter(array(
             'tag'          => $tagName,
             'selector'     => ($this->elementSelector)($control),
-            'id'           => $this->attr($control, 'id'),
+            'id'           => SourceDom::attr($control, 'id'),
             'class'        => $this->classNames($control),
             'label_class'  => $labelElement instanceof DOMElement ? $this->classNames($labelElement) : '',
-            'name'         => $this->attr($control, 'name'),
+            'name'         => SourceDom::attr($control, 'name'),
             'type'         => $type,
             'label'        => $this->label($control),
-            'placeholder'  => $this->attr($control, 'placeholder'),
-            'autocomplete' => $this->attr($control, 'autocomplete'),
-            'pattern'      => $this->attr($control, 'pattern'),
-            'min'          => $this->attr($control, 'min'),
-            'max'          => $this->attr($control, 'max'),
-            'step'         => $this->attr($control, 'step'),
-            'maxlength'    => $this->attr($control, 'maxlength'),
-            'rows'         => $this->attr($control, 'rows'),
+            'placeholder'  => SourceDom::attr($control, 'placeholder'),
+            'autocomplete' => SourceDom::attr($control, 'autocomplete'),
+            'pattern'      => SourceDom::attr($control, 'pattern'),
+            'min'          => SourceDom::attr($control, 'min'),
+            'max'          => SourceDom::attr($control, 'max'),
+            'step'         => SourceDom::attr($control, 'step'),
+            'maxlength'    => SourceDom::attr($control, 'maxlength'),
+            'rows'         => SourceDom::attr($control, 'rows'),
         ), static fn (string $value): bool => '' !== $value);
 
         if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
@@ -93,9 +96,15 @@ final class FormControlMetadataBuilder
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
             }
+            if ( null !== $this->presentationAttributes ) {
+                $presentation = ($this->presentationAttributes)($control);
+                if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
+                    $metadata['presentation'] = array( 'style' => $presentation['style'] );
+                }
+            }
         }
 
-        if ( $control->hasAttribute('required') || 'true' === strtolower(trim($this->attr($control, 'aria-required'))) ) {
+        if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
@@ -104,7 +113,7 @@ final class FormControlMetadataBuilder
             }
         }
 
-        $value = $this->attr($control, 'value');
+        $value = SourceDom::attr($control, 'value');
         if ( '' !== $value && 'select' !== $tagName ) {
             $metadata['value'] = $value;
         }
@@ -121,7 +130,7 @@ final class FormControlMetadataBuilder
 
     public function label(DOMElement $control): string
     {
-        $ariaLabel = trim($this->attr($control, 'aria-label'));
+        $ariaLabel = trim(SourceDom::attr($control, 'aria-label'));
         if ( '' !== $ariaLabel ) {
             return $ariaLabel;
         }
@@ -138,11 +147,11 @@ final class FormControlMetadataBuilder
     {
         $label = $this->label($control);
         if ( '' === $label ) {
-            $label = $this->attr($control, 'aria-label');
+            $label = SourceDom::attr($control, 'aria-label');
         }
         foreach ( array( 'placeholder', 'name' ) as $attribute ) {
             if ( '' === $label ) {
-                $label = $this->attr($control, $attribute);
+                $label = SourceDom::attr($control, $attribute);
             }
         }
 
@@ -157,13 +166,13 @@ final class FormControlMetadataBuilder
     /** Label associated by `for`; wrapping labels are handled with their control. */
     public function associatedLabel(DOMElement $control): ?DOMElement
     {
-        $id = $this->attr($control, 'id');
+        $id = SourceDom::attr($control, 'id');
         if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
             return null;
         }
 
         foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement && $id === $this->attr($label, 'for') ) {
+            if ( $label instanceof DOMElement && $id === SourceDom::attr($label, 'for') ) {
                 return $label;
             }
         }
@@ -188,8 +197,8 @@ final class FormControlMetadataBuilder
     private function classNames(DOMElement $element): string
     {
         $classes = array();
-        foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $className ) {
-            if ( count($classes) >= 8 ) {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
+            if ( count($classes) >= 16 ) {
                 break;
             }
             if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $className) ) {
@@ -206,7 +215,7 @@ final class FormControlMetadataBuilder
             return $text;
         }
 
-        $value = trim($this->attr($control, 'value'));
+        $value = trim(SourceDom::attr($control, 'value'));
         return '' !== $value ? $value : $fallback;
     }
 
@@ -219,7 +228,7 @@ final class FormControlMetadataBuilder
                 continue;
             }
 
-            $value = $this->attr($option, 'value');
+            $value = SourceDom::attr($option, 'value');
             $optionMetadata = array(
                 'label' => trim(preg_replace('/\s+/', ' ', $option->textContent ?? '') ?? ''),
                 // An explicit empty value is a placeholder semantic, not a missing value.
@@ -251,7 +260,7 @@ final class FormControlMetadataBuilder
         if ( XML_TEXT_NODE === $node->nodeType ) {
             return $node->textContent ?? '';
         }
-        if ( $node instanceof DOMElement && 'true' === strtolower($this->attr($node, 'aria-hidden')) ) {
+        if ( $node instanceof DOMElement && 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
             return '';
         }
         if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
@@ -269,18 +278,13 @@ final class FormControlMetadataBuilder
     private function buttonText(DOMElement $control): string
     {
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $label = trim($this->attr($control, $attribute));
+            $label = trim(SourceDom::attr($control, $attribute));
             if ( '' !== $label ) {
                 return $label;
             }
         }
 
         $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
-        return '' !== $text ? $text : trim($this->attr($control, 'value'));
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
+        return '' !== $text ? $text : trim(SourceDom::attr($control, 'value'));
     }
 }

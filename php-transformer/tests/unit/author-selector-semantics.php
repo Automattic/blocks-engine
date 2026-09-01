@@ -149,6 +149,18 @@ $assert(
     'negated captured state projects through markers even when a functional selector list is outside the conservative matcher subset'
 );
 
+$scopedAttributeState = $transform('<style>.first:not([data-state="done"]){animation:first 1s}.second:not([data-state="done"]){animation:second 1s}</style><div class="first" data-state="done">First</div><div class="second" data-state="done">Second</div><div data-state="done">Unrelated</div>');
+$scopedAttributeStateMarkup = (string) ($scopedAttributeState['serialized_blocks'] ?? '');
+preg_match('/class="[^"]*first[^"]*"/', $scopedAttributeStateMarkup, $firstStateClass);
+preg_match('/class="[^"]*second[^"]*"/', $scopedAttributeStateMarkup, $secondStateClass);
+$unrelatedStateClass = (string) ($scopedAttributeState['blocks'][2]['attrs']['className'] ?? '');
+$assert(
+    1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $firstStateClass[0] ?? '')
+        && 1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $secondStateClass[0] ?? '')
+        && ! str_contains($unrelatedStateClass, 'blocks-engine-attribute-state-'),
+    'negated state markers attach only to the settled targets of their owning selectors'
+);
+
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
@@ -606,6 +618,38 @@ $applicabilitySession = (new ReflectionClass($applicabilityTransformer))->getPro
 $applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?? array();
 $applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
 $assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
+
+$unmatchableTransformer = new HtmlTransformer();
+$unmatchableTransformer->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
+$unmatchableSession = (new ReflectionClass($unmatchableTransformer))->getProperty('session')->getValue($unmatchableTransformer);
+$unmatchableIndex = $unmatchableSession->authorStyleAnalysis()?->styleRuleCandidateIndex() ?? array();
+$indexedAuthorSelectors = array();
+foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
+    $entries = 'universal' === $bucket ? $unmatchableIndex[$bucket] : array_merge(...array_values($unmatchableIndex[$bucket] ?: array(array())));
+    foreach ( $entries as $entry ) {
+        $indexedAuthorSelectors[(string) ($entry['rule']['selector'] ?? '')] = true;
+    }
+}
+$assert(
+    isset($indexedAuthorSelectors['.card'])
+        && isset($indexedAuthorSelectors['.card p::before'])
+        && ! isset($indexedAuthorSelectors['.card:before']),
+    'author candidate index omits selectors this matcher cannot evaluate while retaining direct-child pseudo-element forms'
+);
+
+$indexedSelectors = array();
+foreach ( $applicabilitySession->sourceStyleResolutionState()->ruleCandidateIndexes as $index ) {
+    foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
+        $entries = 'universal' === $bucket ? $index[$bucket] : array_merge(...array_values($index[$bucket] ?: array(array())));
+        foreach ( $entries as $entry ) {
+            $indexedSelectors[(string) ($entry['rule']['selector'] ?? '')] = true;
+        }
+    }
+}
+$assert(
+    array() !== $indexedSelectors && ! isset($indexedSelectors['.absent *']) && ! isset($indexedSelectors['.missing']),
+    'source-style candidate indexes omit selectors whose required source signals are absent'
+);
 
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');

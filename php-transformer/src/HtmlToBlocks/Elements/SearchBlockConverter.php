@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use DOMElement;
 
@@ -19,19 +20,19 @@ final class SearchBlockConverter
     /** @return array<string, mixed>|null */
     public function searchBlockFromForm(DOMElement $form): ?array
     {
-        $method = strtolower(trim($this->context->attr($form, 'method')));
+        $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' !== $method && 'get' !== $method ) {
             return null;
         }
 
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->context->eventMetadata($form) ) {
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($form) ) {
             return null;
         }
 
         $textInput = null;
         $submitControl = null;
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( array() !== $this->context->eventMetadata($control) ) {
+            if ( array() !== SourceDom::eventMetadata($control) ) {
                 return null;
             }
 
@@ -63,16 +64,16 @@ final class SearchBlockConverter
         $label = $this->formControlMetadataBuilder->label($textInput);
         $showLabel = '' !== $label;
         if ( '' === $label ) {
-            $label = trim($this->context->attr($form, 'aria-label'));
+            $label = trim(SourceDom::attr($form, 'aria-label'));
         }
         if ( '' === $label ) {
-            $label = trim($this->context->attr($textInput, 'placeholder'));
+            $label = trim(SourceDom::attr($textInput, 'placeholder'));
         }
 
         $attrs = array_merge($this->context->presentationAttributes($form), array(
             'label'       => '' !== $label ? $label : 'Search',
             'showLabel'   => $showLabel,
-            'placeholder' => $this->context->attr($textInput, 'placeholder'),
+            'placeholder' => SourceDom::attr($textInput, 'placeholder'),
         ));
         if ( $submitControl instanceof DOMElement ) {
             $attrs['buttonPosition'] = 'button-outside';
@@ -129,10 +130,10 @@ final class SearchBlockConverter
         }
 
         $svgDeclarations = $this->context->presentationDeclarations($svg);
-        $width = $this->cssPixelLength((string) ($svgDeclarations['width'] ?? '')) ?? $this->cssPixelLength($this->context->attr($svg, 'width'));
-        $height = $this->cssPixelLength((string) ($svgDeclarations['height'] ?? '')) ?? $this->cssPixelLength($this->context->attr($svg, 'height'));
+        $width = $this->cssPixelLength((string) ($svgDeclarations['width'] ?? '')) ?? $this->cssPixelLength(SourceDom::attr($svg, 'width'));
+        $height = $this->cssPixelLength((string) ($svgDeclarations['height'] ?? '')) ?? $this->cssPixelLength(SourceDom::attr($svg, 'height'));
         if ( null === $width || null === $height ) {
-            $viewBox = preg_split('/[\s,]+/', trim($this->context->attr($svg, 'viewbox'))) ?: array();
+            $viewBox = preg_split('/[\s,]+/', trim(SourceDom::attr($svg, 'viewbox'))) ?: array();
             if ( 4 === count($viewBox) && is_numeric($viewBox[2]) && is_numeric($viewBox[3]) ) {
                 $width ??= (float) $viewBox[2];
                 $height ??= (float) $viewBox[3];
@@ -142,7 +143,7 @@ final class SearchBlockConverter
             return '';
         }
 
-        $svgMarkup = $this->context->restoreSvgCasing($this->context->outerHtml($svg));
+        $svgMarkup = $this->context->restoreSvgCasing(SourceDom::outerHtml($svg));
         if ( ! preg_match('/<svg\b[^>]*\bxmlns=/i', $svgMarkup) ) {
             $svgMarkup = preg_replace('/<svg\b/i', '<svg xmlns="http://www.w3.org/2000/svg"', $svgMarkup, 1) ?? $svgMarkup;
         }
@@ -185,7 +186,7 @@ final class SearchBlockConverter
     /** @return array<string, mixed>|null */
     public function searchBlockFromWrapper(DOMElement $element): ?array
     {
-        if ( 1 !== $this->context->childElementCount($element) ) {
+        if ( 1 !== SourceDom::childElementCount($element) ) {
             return null;
         }
 
@@ -261,28 +262,28 @@ final class SearchBlockConverter
     private function isSearchCloseControl(DOMElement $control): bool
     {
         $haystack = strtolower(implode(' ', array(
-            $this->context->attr($control, 'class'),
-            $this->context->attr($control, 'id'),
-            $this->context->attr($control, 'aria-label'),
-            $this->context->attr($control, 'title'),
+            SourceDom::attr($control, 'class'),
+            SourceDom::attr($control, 'id'),
+            SourceDom::attr($control, 'aria-label'),
+            SourceDom::attr($control, 'title'),
         )));
         return str_contains($haystack, 'search') && str_contains($haystack, 'close');
     }
 
     private function isNativeSearchForm(DOMElement $form): bool
     {
-        $method = strtolower(trim($this->context->attr($form, 'method')));
+        $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' !== $method && 'get' !== $method ) {
             return false;
         }
-        if ( 0 < $form->getElementsByTagName('script')->length || array() !== $this->context->eventMetadata($form) ) {
+        if ( 0 < $form->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($form) ) {
             return false;
         }
 
         $textInput = null;
         $submitControl = null;
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( array() !== $this->context->eventMetadata($control) ) {
+            if ( array() !== SourceDom::eventMetadata($control) ) {
                 return false;
             }
             $tagName = strtolower($control->tagName);
@@ -310,10 +311,10 @@ final class SearchBlockConverter
     private function isIconOnlySearchControl(DOMElement $control): bool
     {
         $haystack = strtolower(implode(' ', array(
-            $this->context->attr($control, 'class'),
-            $this->context->attr($control, 'id'),
-            $this->context->attr($control, 'aria-label'),
-            $this->context->attr($control, 'title'),
+            SourceDom::attr($control, 'class'),
+            SourceDom::attr($control, 'id'),
+            SourceDom::attr($control, 'aria-label'),
+            SourceDom::attr($control, 'title'),
         )));
         if ( ! str_contains($haystack, 'search') || str_contains($haystack, 'close') ) {
             return false;
@@ -329,21 +330,21 @@ final class SearchBlockConverter
             return false;
         }
 
-        $identity = strtolower(trim($this->context->attr($control, 'class') . ' ' . $this->context->attr($control, 'id')));
+        $identity = strtolower(trim(SourceDom::attr($control, 'class') . ' ' . SourceDom::attr($control, 'id')));
         foreach ( preg_split('/\s+/', $identity) ?: array() as $token ) {
             if ( in_array($token, array( 'search-icon', 'search-toggle', 'search-trigger', 'open-search' ), true) ) {
                 return true;
             }
         }
 
-        $accessibleName = strtolower(trim($this->context->attr($control, 'aria-label') . ' ' . $this->context->attr($control, 'title')));
+        $accessibleName = strtolower(trim(SourceDom::attr($control, 'aria-label') . ' ' . SourceDom::attr($control, 'title')));
         return in_array($accessibleName, array( 'search', 'open search', 'expand search', 'toggle search' ), true);
     }
 
     /** @return array<string, mixed>|null */
     public function searchBlockFromStandaloneControl(DOMElement $element): ?array
     {
-        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== $this->context->eventMetadata($element) || $this->context->isRuntimeDomTarget($element) ) {
+        if ( 0 < $element->getElementsByTagName('form')->length || 0 < $element->getElementsByTagName('script')->length || array() !== SourceDom::eventMetadata($element) || $this->context->isRuntimeDomTarget($element) ) {
             return null;
         }
 
@@ -353,7 +354,7 @@ final class SearchBlockConverter
                 $inputs[] = $input;
             }
         }
-        if ( 1 !== count($inputs) || array() !== $this->context->eventMetadata($inputs[0]) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
+        if ( 1 !== count($inputs) || array() !== SourceDom::eventMetadata($inputs[0]) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
         $controls = FormControlClassifier::controlElements($element);
@@ -368,20 +369,20 @@ final class SearchBlockConverter
 
         $label = $this->formControlMetadataBuilder->label($searchInput);
         if ( '' === $label ) {
-            $label = $this->context->attr($searchInput, 'aria-label');
+            $label = SourceDom::attr($searchInput, 'aria-label');
         }
         if ( '' === $label ) {
-            $label = $this->context->attr($searchInput, 'placeholder');
+            $label = SourceDom::attr($searchInput, 'placeholder');
         }
 
-        if ( '' !== $this->context->attr($searchInput, 'id') || 's' !== $this->context->attr($searchInput, 'name') ) {
+        if ( '' !== SourceDom::attr($searchInput, 'id') || 's' !== SourceDom::attr($searchInput, 'name') ) {
             return $this->context->htmlPreservationBlock($element);
         }
-        if ( 1 !== $this->context->childElementCount($element) ) {
+        if ( 1 !== SourceDom::childElementCount($element) ) {
             return null;
         }
 
-        $placeholder = $this->context->attr($searchInput, 'placeholder');
+        $placeholder = SourceDom::attr($searchInput, 'placeholder');
         return $this->context->createBlock('core/search', array_merge($this->context->presentationAttributes($element), array(
             'label'          => '' !== $label ? $label : 'Search',
             'showLabel'      => false,

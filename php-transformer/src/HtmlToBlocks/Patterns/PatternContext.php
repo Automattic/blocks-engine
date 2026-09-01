@@ -10,7 +10,6 @@ final class PatternContext
 {
     /**
      * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
-     * @param Closure(DOMElement): string $innerHtml
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @param PatternRecursiveConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
@@ -25,7 +24,6 @@ final class PatternContext
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
-        private readonly Closure $innerHtml,
         private readonly Closure $createBlock,
         private readonly ?PatternRecursiveConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
@@ -47,11 +45,6 @@ final class PatternContext
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         return ($this->presentationAttributes)($element, $excludedGeometryProperties);
-    }
-
-    public function innerHtml(DOMElement $element): string
-    {
-        return ($this->innerHtml)($element);
     }
 
     /**

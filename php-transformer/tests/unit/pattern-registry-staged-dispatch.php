@@ -27,7 +27,6 @@ if ( ! $spacerElement instanceof DOMElement ) {
 }
 $spacerContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) ),
-    static fn (DOMElement $source): string => '',
     static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children )
 );
 $spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern() )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
@@ -149,7 +148,6 @@ $navigationConverter = new PatternRecursiveConverter(
 );
 $navigationContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
-    $innerHtml,
     $createBlock,
     $navigationConverter,
     new NavigationPatternContext(
@@ -162,7 +160,7 @@ $navigationResult = (new NavigationPattern())->recognize($navigationElement, $na
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');
 $assert('brand_fallback' === ($navigationResult?->fallbacks()[0]['diagnostic_code'] ?? null), 'Navigation commits recursive brand diagnostics through its winning carrier.');
 
-$probeContext = new PatternContext(static fn (DOMElement $source): array => array(), $innerHtml, $createBlock);
+$probeContext = new PatternContext(static fn (DOMElement $source): array => array(), $createBlock);
 (new NavigationPattern())->recognize($navigationElement, $probeContext);
 $assert(1 === $recursiveCalls, 'Navigation probe context performs no recursive conversion side effects.');
 

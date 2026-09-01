@@ -31,10 +31,7 @@ final class NavigationStyleProjectionContext
      * @param Closure(): GeneratedSupportStylesheetState                  $generatedSupportStyles
      * @param Closure(): RuntimeBehaviorState                             $runtimeBehavior
      * @param Closure(): TransformationEvidenceState                      $transformationEvidence
-     * @param Closure(DOMElement, string): string                         $attr
-     * @param Closure(DOMElement): string                                 $elementSelector
      * @param Closure(string): array<string, mixed>                       $parsedCssSelector
-     * @param Closure(string): string                                     $safeAnchor
      * @param Closure(array<int, string>, string, string, string, string): void $materializeStylesheetAsset
      */
     public function __construct(
@@ -44,10 +41,7 @@ final class NavigationStyleProjectionContext
         private readonly Closure $generatedSupportStyles,
         private readonly Closure $runtimeBehavior,
         private readonly Closure $transformationEvidence,
-        private readonly Closure $attr,
-        private readonly Closure $elementSelector,
         private readonly Closure $parsedCssSelector,
-        private readonly Closure $safeAnchor,
         private readonly Closure $materializeStylesheetAsset
     ) {
     }
@@ -82,27 +76,12 @@ final class NavigationStyleProjectionContext
         return ($this->transformationEvidence)();
     }
 
-    public function attr(DOMElement $element, string $name): string
-    {
-        return ($this->attr)($element, $name);
-    }
-
-    public function elementSelector(DOMElement $element): string
-    {
-        return ($this->elementSelector)($element);
-    }
-
     /**
      * @return array<string, mixed>
      */
     public function parsedCssSelector(string $selector): array
     {
         return ($this->parsedCssSelector)($selector);
-    }
-
-    public function safeAnchor(string $id): string
-    {
-        return ($this->safeAnchor)($id);
     }
 
     /**

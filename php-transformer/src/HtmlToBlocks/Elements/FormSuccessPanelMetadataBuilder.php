@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 use DOMNode;
@@ -56,10 +57,10 @@ final class FormSuccessPanelMetadataBuilder
         $boundedHtml = ($this->fallbackHtmlMetadata)($element);
         return array_filter(array(
             'selector'       => ($this->elementSelector)($element),
-            'id'             => $this->attr($element, 'id'),
-            'class'          => $this->attr($element, 'class'),
-            'role'           => $this->attr($element, 'role'),
-            'aria_live'      => $this->attr($element, 'aria-live'),
+            'id'             => SourceDom::attr($element, 'id'),
+            'class'          => SourceDom::attr($element, 'class'),
+            'role'           => SourceDom::attr($element, 'role'),
+            'aria_live'      => SourceDom::attr($element, 'aria-live'),
             'text'           => $this->normalizedText($element),
             'html'           => $boundedHtml['html'],
             'html_bytes'     => $boundedHtml['bytes'],
@@ -75,17 +76,12 @@ final class FormSuccessPanelMetadataBuilder
 
     private function hasSignal(DOMElement $element): bool
     {
-        $role = strtolower($this->attr($element, 'role'));
+        $role = strtolower(SourceDom::attr($element, 'role'));
         if ( in_array($role, array( 'status', 'alert' ), true) ) {
             return true;
         }
 
-        $tokens = strtolower(trim($this->attr($element, 'id') . ' ' . $this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-live')));
+        $tokens = strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'aria-live')));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:success|sent|submitted|thank|thanks|confirmation|confirmed)(?:[^a-z0-9]|$)/', $tokens);
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }
