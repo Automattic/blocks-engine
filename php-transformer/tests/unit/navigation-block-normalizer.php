@@ -52,6 +52,10 @@ $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id
 $normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenance, array());
 $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'removes a mobile duplicate after preserving the first canonical navigation');
 
+$sourceProvenance[2] = array('source_attributes' => array('class' => 'wsite-menu-default'), 'context' => array('class_names' => array('wsite-menu-default'), 'ancestor_class_names' => array('mobile-nav', 'menu')));
+$normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenance, array());
+$assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'recognizes a responsive duplicate from its source ancestor identity');
+
 $group = array(
     'blockName' => 'core/group',
     'innerBlocks' => array($link('One', '/one'), $link('Two', '/two')),

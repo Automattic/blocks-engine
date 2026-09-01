@@ -90,6 +90,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         }
 
         $attrs = $context->presentationAttributes($element);
+        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
+            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $this->attr($carrier, 'style'), $alignment) ) {
+                $attrs['justifyContent'] = strtolower($alignment[1]);
+                break;
+            }
+        }
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
         }

@@ -395,6 +395,8 @@ final class HtmlCompilation
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
+
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
 
     /**
@@ -2026,6 +2028,9 @@ final class HtmlCompilation
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
+        if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
+            $afterAuthorCssParts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{gap:0}';
+        }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
             // because a content-wrapping link was pushed into the block. It
@@ -2056,6 +2061,10 @@ final class HtmlCompilation
             // through that same alignment, for centered and start-aligned
             // containers alike, while an explicit justification still wins.
             $afterAuthorCssParts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
+            $afterAuthorCssParts[] = ':root ul.wp-block-social-links.is-content-justification-left{justify-content:flex-start}'
+                . ':root ul.wp-block-social-links.is-content-justification-center{justify-content:center}'
+                . ':root ul.wp-block-social-links.is-content-justification-right{justify-content:flex-end}'
+                . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
@@ -2297,7 +2306,7 @@ final class HtmlCompilation
             $columns[] = $column;
         }
 
-        return $this->createBlock('core/columns', $this->styleResolver->presentationAttributes($table), $columns, $table);
+        return $this->createBlock('core/columns', $this->layoutTableColumnsAttributes($table), $columns, $table);
     }
 
     /**
@@ -2311,6 +2320,14 @@ final class HtmlCompilation
             $attrs['width'] = $matches[1] . '%';
         }
 
+        return $attrs;
+    }
+
+    /** @return array<string, mixed> */
+    private function layoutTableColumnsAttributes(DOMElement $element): array
+    {
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
         return $attrs;
     }
 
@@ -2339,7 +2356,7 @@ final class HtmlCompilation
                 );
             }
             if (array() !== $columns) {
-                $rows[] = $this->createBlock('core/columns', array(), $columns, $row);
+                $rows[] = $this->createBlock('core/columns', $this->layoutTableColumnsAttributes($row), $columns, $row);
             }
         }
 
@@ -6494,10 +6511,22 @@ final class HtmlCompilation
             'role'                    => $this->attr($element, 'role'),
             'id'                      => $this->attr($element, 'id'),
             'class_names'             => $this->classNames($element),
+            'ancestor_class_names'    => $this->ancestorClassNames($element),
             'data_attributes'         => $this->safeDataAttributes($element),
             'structure_signals'       => $this->structureSignals($element, array()),
             'interactive_attributes'  => $this->interactiveAttributes($element),
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+    }
+
+    /** @return list<string> */
+    private function ancestorClassNames(DOMElement $element): array
+    {
+        $classes = array();
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && 'body' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
+            array_push($classes, ...$this->classNames($ancestor));
+        }
+
+        return array_values(array_unique($classes));
     }
 
     private function nearestPreviousHeadingText(DOMElement $element): string
@@ -9429,10 +9458,15 @@ final class HtmlCompilation
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCarrierElement($child) instanceof DOMElement ) ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || $this->imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    ++$imageChildren;
+                    continue;
+                }
+                // Lightbox links commonly append empty overlay elements beside
+                // their image. They are decoration, not additional link content.
+                if ( '' !== trim($child->textContent ?? '') ) {
                     return false;
                 }
-                ++$imageChildren;
                 continue;
             }
 
@@ -10046,12 +10080,77 @@ final class HtmlCompilation
             $slides[] = $slide;
         }
 
+        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'))));
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
+        $initialSlide = 0;
+        foreach ( $items as $index => $item ) {
+            if ( '' !== $this->attr($item, 'aria-hidden') || '' !== $this->attr($item, 'data-slideshow-slide') ) {
+                $presentation = 'slideshow';
+            }
+            if ( 'false' === strtolower(trim($this->attr($item, 'aria-hidden'))) || str_contains(' ' . strtolower($this->attr($item, 'class')) . ' ', ' active ') ) {
+                $initialSlide = $index;
+            }
+        }
+
+        $showDots = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                if ( ctype_digit(trim($this->attr($candidate, $attribute))) ) {
+                    $showDots = true;
+                    break 2;
+                }
+            }
+        }
+
+        $durationMilliseconds = static function (string $value): int {
+            if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
+                return 0;
+            }
+            $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
+            return (int) round($milliseconds);
+        };
+        $transitionDuration = 0;
+        $autoplayInterval = 0;
+        foreach ( $items as $item ) {
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($item, 'style'))['animation-duration'] ?? '')));
+            foreach ( $item->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($descendant, 'style'))['animation-duration'] ?? '')));
+            }
+        }
+        if ( $autoplayInterval <= $transitionDuration ) {
+            $autoplayInterval = 0;
+        }
+        if ( 0 === $transitionDuration ) {
+            $transitionDuration = 300;
+        }
+
+        $listHeight = (string) ($this->styleResolver->cssDeclarations($this->attr($list, 'style'))['height'] ?? '');
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($listHeight), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
+        $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
+            && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
+
         $generator = new AuthoredCarouselBlockGenerator();
         $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
-            'itemsPerView' => min(4, count($slides)),
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
             'wrap' => true,
+            'presentation' => $presentation,
+            'slideCount' => count($slides),
+            'initialSlide' => $initialSlide,
+            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
+            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
+            'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
+            'showDots' => 'slideshow' === $presentation && $showDots,
+            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
         );
         $shell = $generator->shell($attributes);
         $innerContent = array($shell['opening']);
