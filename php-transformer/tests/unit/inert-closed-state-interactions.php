@@ -200,7 +200,7 @@ $assert(
     ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{display:revert')
         && ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{visibility:visible')
         && ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{opacity:1'),
-    'a hidden positioned alternate layer remains hidden when a visible sibling supplies the resting state',
+    'a hidden positioned layer remains inactive instead of becoming a page-covering static overlay',
     $alternateLayerAfterAuthor
 );
 
