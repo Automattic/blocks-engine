@@ -35,6 +35,9 @@ final class SourceStyleResolutionState
     /** @var array<int, array<string, mixed>> */
     private array $pseudoElementRules = array();
 
+    /** @var array<int, array<string, mixed>> */
+    private array $svgPaintRules = array();
+
     /** @var array<string, string> */
     private array $customProperties = array();
 
@@ -66,6 +69,7 @@ final class SourceStyleResolutionState
         $this->navigationStateRules = $analysis['navigation_state'];
         $this->imageShapeRules = $analysis['image_shape'];
         $this->pseudoElementRules = $analysis['pseudo'];
+        $this->svgPaintRules = $analysis['svg_paint'] ?? array();
         $this->customProperties = $analysis['custom_properties'];
     }
 
@@ -108,6 +112,12 @@ final class SourceStyleResolutionState
     public function pseudoElementRules(): array
     {
         return $this->pseudoElementRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function svgPaintRules(): array
+    {
+        return $this->svgPaintRules;
     }
 
     /** @return array<string, string> */

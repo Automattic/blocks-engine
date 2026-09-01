@@ -1026,6 +1026,22 @@ final class StyleResolver
         return $className;
     }
 
+    /**
+     * core/image has no attribute for `object-position`. Carry an authored
+     * focal point onto the generated <img> the same way {@see injectedFigureHeightClassName}
+     * carries a percentage height: as a generated rule scoped to the figure's
+     * own carrier class, targeting the direct <img> child rather than the
+     * figure itself (object-position only affects a replaced element).
+     */
+    public function injectedFigureImageObjectPositionClassName(DOMElement $image, string $objectPosition): string
+    {
+        $rule = 'object-position:' . $objectPosition;
+        $className = $this->context->layoutGeometry()->allocateCarrier('figure-object-position' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '>img{' . $rule . '}');
+
+        return $className;
+    }
+
     private function authorStylesDriveImageHeight(DOMElement $image): bool
     {
         $declarations = $this->structuralPresentationDeclarations($image);
@@ -2074,12 +2090,22 @@ final class StyleResolver
             'navigation_state' => array(),
             'image_shape' => array(),
             'pseudo' => array(),
+            'svg_paint' => array(),
         );
         $imageOrder = 0;
         (new CssStylesheetTransformer())->visitStyleRules(
             $css,
             function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder): void {
-                $declarations = $this->safeVisualDeclarations($this->cssDeclarations($body));
+                $rawDeclarations = $this->cssDeclarations($body);
+                $declarations = $this->safeVisualDeclarations($rawDeclarations);
+                // A materialized SVG asset is an isolated document: it cannot
+                // inherit `fill`/`stroke`/`color` (or the custom properties they
+                // reference) from the host stylesheet the way the inline source
+                // could. This unfiltered stream — kept separate from the finite
+                // `safeVisualDeclarations()` allow-list used for classification —
+                // lets paint materialization resolve the same cascade a browser
+                // would, including id/class-scoped custom-property indirection.
+                $svgPaintDeclarations = $this->svgPaintRelevantDeclarations($rawDeclarations);
                 $mediaTextDeclarations = array() === $conditions
                     ? array_values(array_filter(
                         $this->mediaTextInlineDeclarationEntries($body),
@@ -2126,6 +2152,9 @@ final class StyleResolver
                                 'order' => $imageOrder++,
                             );
                         }
+                    }
+                    if ($supportedRestingSelector && array() === $conditions && array() !== $svgPaintDeclarations) {
+                        $analysis['svg_paint'][] = array('selector' => $selector, 'declarations' => $svgPaintDeclarations);
                     }
                     if (array() !== $conditions || array() === $declarations) {
                         continue;
@@ -2219,6 +2248,7 @@ final class StyleResolver
             'box-shadow',
             'color',
             'align-items',
+            'align-self',
             'column-gap',
             'direction',
             'display',
@@ -2250,6 +2280,7 @@ final class StyleResolver
             'min-height',
             'min-width',
             'object-fit',
+            'object-position',
             'order',
             'padding',
             'padding-bottom',
@@ -2270,6 +2301,38 @@ final class StyleResolver
         ));
 
         return array_intersect_key($declarations, $safe);
+    }
+
+    /**
+     * The subset of a declaration map relevant to resolving an SVG's effective
+     * paint outside classification: the inheritable paint properties plus any
+     * custom property that might feed them through `var()`. Kept separate from
+     * {@see safeVisualDeclarations()} — whose finite allow-list intentionally
+     * excludes SVG-only and custom properties for general classification — so
+     * widening paint resolution cannot change classification elsewhere.
+     *
+     * @param array<string, string> $declarations
+     * @return array<string, string>
+     */
+    private function svgPaintRelevantDeclarations(array $declarations): array
+    {
+        static $paintProperties = array(
+            'color' => true,
+            'fill' => true,
+            'fill-opacity' => true,
+            'stroke' => true,
+            'stroke-opacity' => true,
+            'stroke-width' => true,
+        );
+
+        $filtered = array();
+        foreach ( $declarations as $name => $value ) {
+            if ( str_starts_with($name, '--') || isset($paintProperties[$name]) ) {
+                $filtered[$name] = $value;
+            }
+        }
+
+        return $filtered;
     }
 
     /**
@@ -2360,6 +2423,7 @@ final class StyleResolver
             'hidden-state' => $this->hiddenStateStyleRules(),
             'static-conditional' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()),
             'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
+            'svg-paint' => $this->context->sourceStyles()->svgPaintRules(),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
@@ -2652,11 +2716,32 @@ final class StyleResolver
             }
         }
 
+        return $this->expandCssVariableReferences($value, $customProperties);
+    }
+
+    /**
+     * @param array<string, string> $customProperties
+     */
+    private function expandCssVariableReferences(string $value, array $customProperties): string
+    {
         for ( $pass = 0; $pass < 5; ++$pass ) {
             $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
                 $name = (string) $matches[1];
-                if ( isset($customProperties[$name]) && '' !== $customProperties[$name] ) {
-                    return $customProperties[$name];
+                $propertyValue = (string) ($customProperties[$name] ?? '');
+                // A custom property authored as a bare CSS-wide keyword
+                // (`--token:unset`) is a common "no override" sentinel: a
+                // design-system token deliberately left unset so a consuming
+                // `var(--token, <default>)` falls through to its own default,
+                // exactly as if `--token` were never declared. Per spec these
+                // keywords have no special meaning once substituted into
+                // another property's value (the declaration would simply be
+                // invalid), so honoring the sentinel intent here -- rather
+                // than substituting the literal word "unset" -- is a closer
+                // approximation of the cascade's real outcome than treating
+                // it as a normal value.
+                $isCssWideKeywordSentinel = in_array(strtolower(trim($propertyValue)), array( 'unset', 'initial', 'inherit', 'revert', 'revert-layer' ), true);
+                if ( isset($customProperties[$name]) && '' !== $propertyValue && ! $isCssWideKeywordSentinel ) {
+                    return $propertyValue;
                 }
 
                 return isset($matches[2]) && '' !== trim((string) $matches[2]) ? trim((string) $matches[2]) : (string) $matches[0];
@@ -2669,5 +2754,100 @@ final class StyleResolver
         }
 
         return trim($value);
+    }
+
+    /**
+     * Matched-CSS-and-inline-style paint declarations for one element, drawn
+     * from the unfiltered `svg-paint` stream (see {@see stylesheetAnalysis()}).
+     * Unlike {@see presentationDeclarations()} this is not gated by whether the
+     * element is a "high value" style boundary and is not restricted to the
+     * finite classification allow-list, because a materialized SVG asset needs
+     * the real paint cascade regardless of which element happens to carry it.
+     *
+     * @return array<string, string>
+     */
+    public function svgCascadeDeclarations(DOMElement $element): array
+    {
+        $declarations = array();
+        foreach ( $this->styleRuleCandidates($element, 'svg-paint') as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
+            }
+        }
+
+        return $this->mergeCssDeclarationMaps(
+            $declarations,
+            $this->svgPaintRelevantDeclarations($this->cssDeclarations($this->context->attr($element, 'style')))
+        );
+    }
+
+    /**
+     * Custom properties visible to `$element` through the same unfiltered
+     * paint cascade, scoped by ancestry rather than limited to `:root`/`html`
+     * — an id- or class-scoped `--token` an ancestor declares is a legitimate
+     * source for `var()` in SVG paint, even though it is invisible to the
+     * general (`:root`/`html`-only) custom-property dictionary.
+     *
+     * @return array<string, string>
+     */
+    public function svgCascadeCustomProperties(DOMElement $element): array
+    {
+        $customProperties = $this->context->sourceStyles()->customProperties();
+        $ancestors = array();
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $ancestors[] = $current;
+        }
+        foreach ( array_reverse($ancestors) as $ancestor ) {
+            foreach ( $this->svgCascadeDeclarations($ancestor) as $name => $propertyValue ) {
+                if ( str_starts_with($name, '--') ) {
+                    $customProperties[$name] = $propertyValue;
+                }
+            }
+        }
+
+        return $customProperties;
+    }
+
+    /**
+     * The element's own resolved value for one paint property — from matched
+     * CSS or inline style directly on `$element`, with any `var()` reference
+     * expanded against its ancestor-scoped custom properties. Returns null when
+     * `$element` declares nothing for `$property` (the caller decides whether
+     * to keep walking its ancestors, since that is an SVG-inheritance decision,
+     * not a CSS-cascade-resolution one).
+     */
+    public function resolvedSvgCascadeValue(DOMElement $element, string $property): ?string
+    {
+        $declared = trim((string) ($this->svgCascadeDeclarations($element)[$property] ?? ''));
+        if ( '' === $declared ) {
+            return null;
+        }
+
+        return false === strpos($declared, 'var(')
+            ? $declared
+            : $this->expandCssVariableReferences($declared, $this->svgCascadeCustomProperties($element));
+    }
+
+    /**
+     * Expand `var()` in an arbitrary structural declaration value (e.g.
+     * `display`, `align-self`) against the unfiltered custom-property cascade
+     * {@see svgCascadeCustomProperties()} tracks. That cascade -- despite its
+     * SVG-paint-focused name -- captures every `--token` declared on any
+     * matched rule regardless of whether that rule also carries paint, so it
+     * is the one place in this resolver already bookkeeping custom properties
+     * without {@see safeVisualDeclarations()}'s finite classification
+     * allow-list. Reused here rather than duplicating that tracking, for
+     * resolving id/class-scoped design-system tokens that gate structural
+     * properties (a common page-builder "override hook" pattern) the same way
+     * {@see resolveCssVariablesInValue()} only resolves `:root`/`html`-scoped
+     * ones plus whatever the classification allow-list happens to expose.
+     */
+    public function resolveStructuralCssVariablesInValue(string $value, DOMElement $element): string
+    {
+        if ( false === strpos($value, 'var(') ) {
+            return $value;
+        }
+
+        return $this->expandCssVariableReferences($value, $this->svgCascadeCustomProperties($element));
     }
 }
