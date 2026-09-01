@@ -230,8 +230,9 @@ $assert(
 $assert(
     1 === count($carouselDefinitions)
         && 'authored-carousel' === ($carouselDefinitions[0]['name'] ?? null)
-        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScript'] ?? null)
-        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), 'data-carousel-next')
+        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScriptModule'] ?? null)
+        && true === ($carouselDefinitions[0]['block_json']['supports']['interactivity'] ?? null)
+        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), "store( 'blocks-engine/carousel'")
         && isset($carouselDefinitions[0]['assets']['style.css']),
     'bounded carousel projection carries one generic editor block with scoped frontend behavior'
 );

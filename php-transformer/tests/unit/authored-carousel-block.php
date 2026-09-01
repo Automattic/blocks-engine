@@ -30,18 +30,20 @@ $definition = $result['source_reports']['generated_blocks'][0] ?? array();
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $view = (string) ($definition['view_js'] ?? '');
 $style = (string) ($definition['assets']['style.css'] ?? '');
-$assert('file:./view.js' === ($definition['block_json']['viewScript'] ?? null) && str_contains($editor, 'InnerBlocks.Content'), 'the companion carries one editable parent block and a scoped frontend script');
+$assert('file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? null) && true === ($definition['block_json']['supports']['interactivity'] ?? null) && ! isset($definition['block_json']['viewScript']) && str_contains($editor, 'InnerBlocks.Content'), 'the companion carries one editable parent block and declares its behavior through the Interactivity API');
+$assert(str_contains($view, "from '@wordpress/interactivity'") && str_contains($view, "store( 'blocks-engine/carousel'"), 'frontend behavior is a script module built on the WordPress Interactivity API');
 $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'") && str_contains($view, 'requested > maximum ? 0'), 'frontend behavior supports keyboard navigation and deterministic wrapping');
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
 
 $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Care & <support>', 'itemsPerView' => 99, 'wrap' => false));
 $shellMarkup = $shell['opening'] . $shell['closing'];
 $assert(str_contains($shellMarkup, 'aria-label="Care &amp; &lt;support&gt;"') && str_contains($shellMarkup, '--items-6') && str_contains($shellMarkup, 'data-wrap="false"'), 'shell attributes are escaped and bounded');
+$assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, 'data-wp-context="{&quot;index&quot;:0,&quot;wrap&quot;:false}"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
 
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $payloadBlock = $payload['blocks'][0] ?? array();
 $assert(CompanionPluginPayload::SCHEMA === ($payload['schema'] ?? null) && 'authored-carousel' === ($payloadBlock['name'] ?? null), 'the generated carousel uses the established companion-plugin payload');
-$assert(isset($payloadBlock['assets']['index.js'], $payloadBlock['assets']['style.css']) && str_contains((string) ($payloadBlock['view_js'] ?? ''), 'data-carousel-next'), 'the companion payload carries editor, style, and frontend behavior assets');
+$assert(isset($payloadBlock['assets']['index.js'], $payloadBlock['assets']['style.css']) && str_contains((string) ($payloadBlock['view_js'] ?? ''), "store( 'blocks-engine/carousel'"), 'the companion payload carries editor, style, and frontend behavior assets');
 $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock['block_json']['render']), 'the carousel needs no executable PHP renderer');
 
 $customHost = (new HtmlTransformer())->transform('<vendor-carousel><button>Previous</button><div role="list"><div role="listitem"><img src="one.jpg"></div><div role="listitem"><img src="two.jpg"></div></div><button>Next</button></vendor-carousel>')->toArray();
