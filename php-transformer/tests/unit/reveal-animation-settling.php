@@ -5,11 +5,9 @@ declare(strict_types=1);
  * A captured reveal must never leave content less visible than its end state.
  *
  * Wix pauses an entrance animation (`animation: motion-fadeIn … backwards paused`)
- * behind a runtime attribute, and capture can hand the same animation to a
- * scroll-driven timeline (`animation-timeline: view()`). Both are carried by
- * import while the driver that would finish them is not, and
- * `animation-fill-mode: backwards` then pins the element to the `0% {opacity:0}`
- * keyframe forever: the content is in the block markup and never paints (#239).
+ * behind a runtime attribute. That runtime driver is absent after import, so
+ * `animation-fill-mode: backwards` pins the element to `opacity:0`. A running
+ * scroll timeline remains browser-driven and must stay authored.
  *
  * The repair replaces an animation that cannot progress with the resolved state
  * it was travelling towards. An animation that can still run, and one whose start
@@ -46,8 +44,8 @@ $assert(
 
 $scrollDriven = $fadeIn . '@supports (animation-timeline: view()){#comp-k3o4lijt{animation:motion-fadeIn 1200ms 1100ms cubic-bezier(0.445, 0.05, 0.55, 0.95) backwards 1;animation-composition:replace;animation-play-state:running;animation-timeline:view();animation-range:entry 0% cover 40%}}';
 $assert(
-    array( ':root #comp-k3o4lijt{animation:none!important;opacity:var(--comp-opacity, 1)!important}' ) === $settler->settleRules($scrollDriven),
-    'a scroll-driven entrance animation settles rather than resting on an unadvanced timeline',
+    array() === $settler->settleRules($scrollDriven),
+    'a running scroll-driven entrance animation keeps its browser-native timeline',
     implode(' | ', $settler->settleRules($scrollDriven))
 );
 
@@ -138,13 +136,8 @@ $collect = static function (array $assets, callable $keep): string {
 };
 
 $afterAuthor = $collect($assets, static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? ''));
-foreach ( array( 'comp-k3nod418', 'comp-k3jrzme8' ) as $id ) {
-    $assert(
-        str_contains($afterAuthor, ':root #' . $id . '{animation:none!important;opacity:var(--comp-opacity, 1)!important}'),
-        'the theme stylesheet settles #' . $id . ' after the author CSS that hides it',
-        $afterAuthor
-    );
-}
+$assert(str_contains($afterAuthor, ':root #comp-k3nod418{animation:none!important;opacity:var(--comp-opacity, 1)!important}'), 'the theme stylesheet settles the paused reveal after author CSS', $afterAuthor);
+$assert(! str_contains($afterAuthor, ':root #comp-k3jrzme8{animation:none!important'), 'the theme stylesheet preserves the running scroll-timeline reveal', $afterAuthor);
 
 // The artifact pipeline materializes the author stylesheets itself and hands the
 // transform the projected copies, so the repair has to read those rather than the
@@ -157,13 +150,8 @@ $pipelineAfterAuthor = $collect(
     is_array($pipelineResult['assets'] ?? null) ? $pipelineResult['assets'] : array(),
     static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')
 );
-foreach ( array( 'comp-k3nod418', 'comp-k3jrzme8' ) as $id ) {
-    $assert(
-        str_contains($pipelineAfterAuthor, ':root #' . $id . '{animation:none!important;opacity:var(--comp-opacity, 1)!important}'),
-        'a pipeline transform that materializes its own author stylesheets still settles #' . $id,
-        $pipelineAfterAuthor
-    );
-}
+$assert(str_contains($pipelineAfterAuthor, ':root #comp-k3nod418{animation:none!important;opacity:var(--comp-opacity, 1)!important}'), 'a pipeline transform settles the paused reveal from its materialized author stylesheet', $pipelineAfterAuthor);
+$assert(! str_contains($pipelineAfterAuthor, ':root #comp-k3jrzme8{animation:none!important'), 'a pipeline transform preserves the running scroll timeline from its materialized author stylesheet', $pipelineAfterAuthor);
 
 $editorStaticState = $collect($assets, static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? ''));
 $assert(

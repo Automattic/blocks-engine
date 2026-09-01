@@ -242,17 +242,9 @@ final class RevealAnimationSettler
             $delay = $this->timeSeconds(strtolower(trim((string) (CssValueSplitter::splitTopLevel($declarations['animation-delay'], array( ',' ))[0] ?? '')))) ?? $delay;
         }
 
-        // A scroll-driven timeline has no document clock behind it. Whether it
-        // ever advances depends on a scroll container the conversion does not
-        // control, and on this import it does not: `getAnimations()` reports the
-        // animation running while its progress — and the element's opacity —
-        // stays at zero.
-        $timeline = strtolower(trim((string) ($declarations['animation-timeline'] ?? '')));
-        $timelineDriven = '' !== $timeline && ! in_array($timeline, array( 'auto', 'none', 'initial', 'inherit', 'unset', 'revert', 'revert-layer' ), true);
-
         return array(
             'names' => $names,
-            'suspended' => $paused || $timelineDriven,
+            'suspended' => $paused,
             // The before phase is what the element shows either because the fill
             // mode paints it there, or because a non-positive delay leaves the
             // stalled animation inside its active phase at time zero.

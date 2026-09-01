@@ -2032,6 +2032,14 @@ final class HtmlTransformer
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks,'
                 . ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}';
         }
+        $layoutShellBlockName = $this->generatedBlocks()->blockName('layout-shell');
+        if ( str_contains($serializedBlocks, '<!-- wp:' . $layoutShellBlockName) ) {
+            // A layout shell preserves the source wrapper chain. Gutenberg's
+            // InnerBlocks wrappers must not become grid or flex items within it.
+            $layoutShellClass = 'wp-block-' . str_replace('/', '-', $layoutShellBlockName);
+            $beforeAuthorCssParts[] = ':root :where(.' . $layoutShellClass . ') .block-editor-inner-blocks,'
+                . ':root :where(.' . $layoutShellClass . ') .block-editor-block-list__layout{display:contents}';
+        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';
         }
