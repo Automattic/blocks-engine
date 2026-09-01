@@ -9581,6 +9581,19 @@ final class HtmlTransformer
         // overrides an attribute already resolved above.
         $attrs += $this->imageShapeConstraintAttributes($image);
 
+        // core/image has no attribute for `object-position` (unlike object-fit,
+        // which is promoted above via `scale`), so an authored crop focal point
+        // -- commonly a per-instance inline declaration, e.g. from a source CMS
+        // recording a focal point per image -- would otherwise be silently
+        // dropped even though the generated <img> tag can carry it directly.
+        $objectPosition = $this->imageObjectPositionDeclaration($image);
+        if ( '' !== $objectPosition ) {
+            $carrier = $this->styleResolver->injectedFigureImageObjectPositionClassName($image, $objectPosition);
+            if ( '' !== $carrier ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $carrier);
+            }
+        }
+
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
@@ -9603,6 +9616,27 @@ final class HtmlTransformer
         }
         $attribute = trim($this->attr($image, $property));
         return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $attribute) ? $attribute . 'px' : $attribute;
+    }
+
+    /**
+     * Resolve the authored `object-position`, preferring the <img>'s own
+     * inline declaration (the common carrier for a per-instance focal point)
+     * and falling back to a matched CSS rule. Returns '' for the CSS initial
+     * value (`50% 50%`/`center`), which carrying forward would only add noise.
+     */
+    private function imageObjectPositionDeclaration(DOMElement $image): string
+    {
+        $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['object-position'] ?? '')));
+        $value = '' !== $inline ? $inline : trim($this->cssValueWithoutImportant((string) ($this->styleResolver->presentationDeclarations($image)['object-position'] ?? '')));
+        if ( '' === $value || in_array(strtolower($value), array( 'auto', 'normal', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
+            return '';
+        }
+        $normalized = strtolower(preg_replace('/\s+/', ' ', $value) ?? $value);
+        if ( in_array($normalized, array( '50% 50%', '50%', 'center', 'center center' ), true) ) {
+            return '';
+        }
+
+        return $value;
     }
 
     /** @return array<string, mixed> */
