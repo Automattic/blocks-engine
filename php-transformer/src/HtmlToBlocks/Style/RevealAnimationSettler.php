@@ -31,20 +31,31 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 final class RevealAnimationSettler
 {
     /**
-     * End-keyframe declarations worth restating. These are the properties a
-     * reveal animates on its way to the resting appearance; anything else the
-     * keyframes touch is left to the element's own cascade once the animation
-     * is gone.
+     * How visible the content is. The reveal reached these values, so restating
+     * them can only leave the element as visible as the source left it — worth
+     * doing even where the element's own cascade would already suffice, because
+     * that cascade is often the very thing the reveal was hiding it with.
      */
-    private const SETTLED_PROPERTIES = array(
+    private const VISIBILITY_PROPERTIES = array(
+        'display' => true,
+        'opacity' => true,
+        'visibility' => true,
+    );
+
+    /**
+     * Where the content sits and how it is painted. Only a fill mode that
+     * retains the end frame leaves these applied once the animation finishes;
+     * under any other fill the element goes back to its own transform, and
+     * restating the keyframe's would move it. Anything the keyframes touch
+     * beyond both lists is left to the element's own cascade.
+     */
+    private const RETAINED_PROPERTIES = array(
         'clip-path' => true,
         'filter' => true,
-        'opacity' => true,
         'rotate' => true,
         'scale' => true,
         'transform' => true,
         'translate' => true,
-        'visibility' => true,
         '-webkit-transform' => true,
     );
 
@@ -146,7 +157,7 @@ final class RevealAnimationSettler
             }
             $settled = array( 'animation' => 'none' );
             foreach ( $frames['end'] as $property => $value ) {
-                if ( isset(self::SETTLED_PROPERTIES[ $property ]) ) {
+                if ( isset(self::VISIBILITY_PROPERTIES[ $property ]) || ( $animation['retains_end'] && isset(self::RETAINED_PROPERTIES[ $property ]) ) ) {
                     $settled[ $property ] = $value;
                 }
             }
@@ -163,7 +174,7 @@ final class RevealAnimationSettler
      * actually shows.
      *
      * @param array<string, string> $declarations
-     * @return array{names: list<string>, suspended: bool, fills_before: bool}
+     * @return array{names: list<string>, suspended: bool, fills_before: bool, retains_end: bool}
      */
     private function animationConfiguration(array $declarations): array
     {
@@ -246,6 +257,7 @@ final class RevealAnimationSettler
             // mode paints it there, or because a non-positive delay leaves the
             // stalled animation inside its active phase at time zero.
             'fills_before' => in_array($fillMode, array( 'backwards', 'both' ), true) || $delay <= 0.0,
+            'retains_end' => in_array($fillMode, array( 'forwards', 'both' ), true),
         );
     }
 

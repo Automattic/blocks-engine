@@ -52,11 +52,20 @@ $assert(
 );
 
 // Reveals expressed with the longhands, and with visibility rather than opacity.
-$longhand = '@keyframes reveal{from{opacity:0;visibility:hidden;transform:translateY(40px)}to{opacity:1;visibility:visible;transform:none}}.reveal{animation-name:reveal;animation-duration:.6s;animation-fill-mode:backwards;animation-play-state:paused}';
+$revealFrames = '@keyframes reveal{from{opacity:0;visibility:hidden;transform:translateY(40px)}to{opacity:1;visibility:visible;transform:none}}';
+$longhand = $revealFrames . '.reveal{animation-name:reveal;animation-duration:.6s;animation-fill-mode:backwards;animation-play-state:paused}';
 $assert(
-    array( ':root .reveal{animation:none!important;opacity:1!important;transform:none!important;visibility:visible!important}' ) === $settler->settleRules($longhand),
-    'longhand reveals settle, restating every end-state property the keyframes animate',
+    array( ':root .reveal{animation:none!important;opacity:1!important;visibility:visible!important}' ) === $settler->settleRules($longhand),
+    'longhand reveals settle at the visibility their end keyframe reached',
     implode(' | ', $settler->settleRules($longhand))
+);
+// Only a fill mode that retains the end frame leaves its geometry applied. Under
+// any other, the element goes back to its own transform when the reveal finishes,
+// and restating the keyframe's would move it instead.
+$assert(
+    array( ':root .reveal{animation:none!important;opacity:1!important;transform:none!important;visibility:visible!important}' ) === $settler->settleRules($revealFrames . '.reveal{animation:reveal .6s both paused}'),
+    'a retaining fill mode also settles the geometry the end keyframe holds',
+    implode(' | ', $settler->settleRules($revealFrames . '.reveal{animation:reveal .6s both paused}'))
 );
 
 // A stalled animation with no fill still shows its start frame when the delay
