@@ -241,7 +241,7 @@ foreach ( $navAssets as $index => $asset ) {
 }
 $assert(is_int($navBeforeIndex) && is_int($navAuthorIndex) && is_int($navAfterIndex) && $navBeforeIndex < $navAuthorIndex && $navAuthorIndex < $navAfterIndex, 'G4: ArtifactCompiler preserves generated support around manifest author CSS');
 
-foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' ) as $reportName ) {
+foreach ( array( 'compiled_site', 'wordpress_site_plan' ) as $reportName ) {
     $reportAssets = $navArtifact['source_reports'][$reportName]['assets'] ?? array();
     $supportRows = array_values(array_filter(
         is_array($reportAssets) ? $reportAssets : array(),
@@ -253,7 +253,7 @@ foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' 
 
 $neutralizer = '.wp-block-group.blocks-engine-css-owned-layout>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
 $layoutCssSurfaces = array($beforeCss);
-foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' ) as $reportName ) {
+foreach ( array( 'compiled_site', 'wordpress_site_plan' ) as $reportName ) {
     foreach ( $layoutItems['source_reports'][$reportName]['assets'] ?? array() as $asset ) {
         if ( is_array($asset) && 'css' === ($asset['kind'] ?? '') ) {
             $layoutCssSurfaces[] = (string) ($asset['content'] ?? '');
