@@ -532,7 +532,6 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->ownsPositioningGeometry($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->positionedInlineCarrierBlock($element, $fallbacks),
             fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
-            fn (DOMElement $element): string => $this->innerHtml($element),
             fn (string $content): bool => $this->richTextContentHasStructuralHtml($content),
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -540,7 +539,6 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             fn (DOMElement $element): array => $this->richTextInlineVisualDeclarations($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
-            fn (DOMElement $element): string => $this->outerHtml($element),
             fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
             fn (DOMElement $element): bool => $this->isStructuralListItem($element),
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
@@ -628,14 +626,9 @@ final class HtmlTransformer
                 fn (): string => $this->sourceStyles()->formLayoutCss(),
                 fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
                 fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
-                fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
-                fn (DOMElement $element): string => $this->elementSelector($element),
-                fn (DOMElement $element): array => $this->htmlAttributes($element),
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-                fn (DOMElement $element): array => $this->eventMetadata($element),
                 fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
-                fn (DOMElement $element): int => $this->childElementCount($element),
                 fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback())
             ),
             $this->formControlMetadataBuilder,
@@ -703,14 +696,12 @@ final class HtmlTransformer
                 return $this->recognizePatterns($element, $fallbacks, $patterns);
             },
             fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure),
-            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
             fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
             fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
             fn (DOMElement $figure, string $tagName): ?DOMElement => $this->figureMediaElement($figure, $tagName),
             function (DOMElement $figure, array &$fallbacks): ?array {
                 return $this->convertFigureGeneric($figure, $fallbacks);
             },
-            fn (DOMElement $element): string => $this->innerHtml($element),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
@@ -787,15 +778,12 @@ final class HtmlTransformer
             hasGalleryMediaItems: fn (DOMElement $element): bool => $this->sourceElementClassifier->hasGalleryMediaItems($element),
             responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
             isDirectChildOfAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
-            attr: fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             authorLayoutBlock: fn (DOMElement $element, array &$fallbacks): array => $this->authorLayoutBlockFromElement($element, $fallbacks),
             hasMultipleRuntimeInlineTextTargets: fn (DOMElement $element): bool => $this->hasMultipleRuntimeInlineTextTargets($element),
             paragraphBlockFromInlineContentWrapper: fn (DOMElement $element): ?array => $this->paragraphBlockFromInlineContentWrapper($element),
-            hasClass: fn (DOMElement $element, string $className): bool => $this->hasClass($element, $className),
             isGeneratedComponentCandidate: fn (DOMElement $element): bool => $this->isGeneratedComponentCandidate($element),
             isAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isAuthorOwnedLayout($element),
             proofBackedWrapperCoalescing: fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            childElementCount: fn (DOMElement $element): int => $this->childElementCount($element),
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             emptyVisualElementAttributes: fn (DOMElement $element): array => $this->emptyVisualElementAttributes($element),
             createBlock: fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -822,7 +810,7 @@ final class HtmlTransformer
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
             presentationAttributes: fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element),
+            emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
         ));
         $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
@@ -856,15 +844,11 @@ final class HtmlTransformer
             fn (): LayoutGeometryState => $this->layoutGeometry(),
             fn (): PresentationResolutionCache => $this->presentationResolutionCache(),
             fn (): TransformationEvidenceState => $this->transformationEvidence(),
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
-            fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): int => $this->cardLikeChildCount($element),
-            fn (DOMElement $element): int => $this->directElementChildCount($element),
             fn (string $value): string => $this->cssComparableValue($value),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
-            fn (string $id): string => $this->safeAnchor($id),
             fn (DOMElement $element): bool => $this->authorSelectorProjections()->isRuntimeAttributePath($this->sourceElementIdentity($element))
         );
     }
@@ -917,9 +901,6 @@ final class HtmlTransformer
     private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
     {
         return new NavigationToggleSuppressionContext(
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
-            fn (DOMElement $container, DOMElement $element): bool => $this->elementContains($container, $element),
-            fn (DOMElement $element): bool => $this->hasSourceNavigationSignal($element),
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
             fn (): RuntimeSelectorState => $this->runtimeSelectors(),
             fn (): NavigationProjectionState => $this->navigationProjection(),
@@ -935,22 +916,15 @@ final class HtmlTransformer
     private function createSvgMaterializationContext(): SvgMaterializationContext
     {
         return new SvgMaterializationContext(
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
                 => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
-            fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->htmlAttributes($element),
-            fn (DOMElement $element, array $excludedTags): string => $this->innerHtmlWithoutTags($element, $excludedTags),
             fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
-            fn (string $content): bool => $this->isSafeSvgContent($content),
             fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
             fn (): LayoutGeometryState => $this->layoutGeometry(),
             fn (): AssetMaterializationState => $this->materializedAssets(),
-            fn (DOMElement $element): string => $this->outerHtml($element),
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-            fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
             fn (): TransformationEvidenceState => $this->transformationEvidence(),
             fn (): TransformationProvenanceState => $this->transformationProvenance()
         );
@@ -960,15 +934,11 @@ final class HtmlTransformer
     private function createSearchBlockConversionContext(): SearchBlockConversionContext
     {
         return new SearchBlockConversionContext(
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
-            fn (DOMElement $element): string => $this->outerHtml($element),
             fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
             fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
-            fn (DOMElement $element): int => $this->childElementCount($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
@@ -988,10 +958,7 @@ final class HtmlTransformer
             fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
             fn (): RuntimeBehaviorState => $this->runtimeBehavior(),
             fn (): TransformationEvidenceState => $this->transformationEvidence(),
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
-            fn (DOMElement $element): string => $this->elementSelector($element),
             fn (string $selector): array => $this->parsedCssSelector($selector),
-            fn (string $id): string => $this->safeAnchor($id),
             function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
                 $this->materializeStylesheetAsset($cssParts, $source, $placement, $pathPrefix, $target);
             }
@@ -1021,11 +988,8 @@ final class HtmlTransformer
             },
             fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
-            fn (DOMElement $element): string => $this->outerHtml($element),
             fn (string $href): string => $this->safeLinkUrl($href),
             fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
-            fn (string $first, string $second): string => $this->mergeClassNames($first, $second),
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element)
         );
     }
@@ -1040,16 +1004,12 @@ final class HtmlTransformer
             fn (): FallbackEmitter => $this->fallbackEmitter(),
             fn (): RuntimeDomState => $this->runtimeDom(),
             fn (): RuntimeSelectorState => $this->runtimeSelectors(),
-            fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): iterable => $this->descendantElements($element),
-            fn (DOMElement $element): string => $this->runtimeIslandSelector($element),
-            fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
             fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
-            fn (string $selector): bool => $this->sourceElementClassifier->isPresentationalAnimationSelector($selector),
-            fn (array $rows): array => $this->dedupeArrayRows($rows)
+            fn (string $selector): bool => $this->sourceElementClassifier->isPresentationalAnimationSelector($selector)
         );
     }
 
@@ -1081,12 +1041,8 @@ final class HtmlTransformer
         return new UnsupportedElementContext(
             fn (DOMElement $element): ?array => $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks()),
             fn (array $generated, DOMElement $element): array => $this->generatedComponentBlock($generated, $element),
-            fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->htmlAttributes($element),
             fn (DOMElement $element): array => $this->sourceContext($element),
             fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-            fn (DOMElement $element): array => $this->eventMetadata($element),
-            fn (DOMElement $element): int => $this->childElementCount($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
             fn (array $fallback): array => FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback())
         );
@@ -1127,13 +1083,10 @@ final class HtmlTransformer
     {
         return new TextLeafElementContext(
             fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
-            fn (DOMElement $element): string => $this->innerHtml($element),
-            fn (DOMElement $element): string => $this->innerHtmlPreservingWhitespace($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
             fn (string $html): string => $this->runtime->stripAllTags($html),
             fn (string $text): string => $this->runtime->escapeHtml($text),
-            fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
             fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
             fn (DOMElement $code): string => $this->codeContent($code),
             fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
@@ -2556,7 +2509,6 @@ final class HtmlTransformer
     {
         return new PatternContext(
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             new PatternRecursiveConverter(
                 function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
@@ -2584,7 +2536,6 @@ final class HtmlTransformer
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
-                fn (DOMElement $sourceElement): array => $this->htmlAttributes($sourceElement),
                 fn (string $url): string => $this->resolvedAssetImageUrl($url),
                 fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->mediaTextPresentationAttributes($sourceElement, $excludedGeometryProperties),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mediaTextPresentationStyle($sourceElement)
@@ -2610,7 +2561,6 @@ final class HtmlTransformer
             ),
             new QuotePatternContext(
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
-                fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
                 fn (string $html): string => $this->runtime->stripAllTags($html),
                 fn (string $inlineTagName): bool => $this->sourceElementClassifier->isInlineContentElement($inlineTagName)
             ),
@@ -2620,7 +2570,6 @@ final class HtmlTransformer
             ),
             new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             new GalleryPatternContext(
@@ -2656,7 +2605,6 @@ final class HtmlTransformer
     {
         return new PatternContext(
             presentationAttributes: fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
-            innerHtml: fn (DOMElement $sourceElement): string => $this->innerHtml($sourceElement),
             createBlock: static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
                 'blockName'   => $name,
                 'attrs'       => $attrs,
@@ -2677,7 +2625,6 @@ final class HtmlTransformer
             ),
             logoContext: new LogoPatternContext(
                 fn (DOMElement $sourceElement): string => $this->richTextContentWithMaterializedInlineStyles($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->svgMaterializer->restoreSvgCasing($this->outerHtml($sourceElement)),
                 fn (DOMElement $sourceElement, string $content): ?string => $this->richTextContentWithMaterializedSvgImages($sourceElement, $content)
             ),
             galleryContext: new GalleryPatternContext(

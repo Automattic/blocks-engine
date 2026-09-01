@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class CodeWindowPattern implements PatternRecognizerInterface
@@ -19,7 +20,7 @@ final class CodeWindowPattern implements PatternRecognizerInterface
         $block = $this->match(
             $element,
             $context->presentationAttributes(...),
-            $context->innerHtml(...),
+            SourceDom::innerHtml(...),
             fn (DOMElement $pre, DOMElement $code): array => $codeWindow->presentationAttributes($pre, $code),
             fn (DOMElement $code): string => $codeWindow->content($code),
             $context->createBlock(...)

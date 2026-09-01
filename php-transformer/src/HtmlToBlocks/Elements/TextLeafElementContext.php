@@ -18,13 +18,10 @@ final class TextLeafElementContext
 {
     /**
      * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed> $presentationAttributes
-     * @param Closure(DOMElement): string                                                      $innerHtml
-     * @param Closure(DOMElement): string                                                      $innerHtmlPreservingWhitespace
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, string>): string                                  $richTextContent
      * @param Closure(string): string                                                          $stripAllTags
      * @param Closure(string): string                                                          $escapeHtml
-     * @param Closure(DOMElement, string): ?DOMElement                                         $firstChildElement
      * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
      * @param Closure(DOMElement): string                                                      $codeContent
      * @param Closure(DOMElement): bool                                                        $hasBlockContentChildren
@@ -32,13 +29,10 @@ final class TextLeafElementContext
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
-        private readonly Closure $innerHtml,
-        private readonly Closure $innerHtmlPreservingWhitespace,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
         private readonly Closure $stripAllTags,
         private readonly Closure $escapeHtml,
-        private readonly Closure $firstChildElement,
         private readonly Closure $codePresentationAttributes,
         private readonly Closure $codeContent,
         private readonly Closure $hasBlockContentChildren,
@@ -54,16 +48,6 @@ final class TextLeafElementContext
     public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
     {
         return ($this->presentationAttributes)($element, $excludedProperties, $excludedGeometryProperties);
-    }
-
-    public function innerHtml(DOMElement $element): string
-    {
-        return ($this->innerHtml)($element);
-    }
-
-    public function innerHtmlPreservingWhitespace(DOMElement $element): string
-    {
-        return ($this->innerHtmlPreservingWhitespace)($element);
     }
 
     /**
@@ -92,11 +76,6 @@ final class TextLeafElementContext
     public function escapeHtml(string $text): string
     {
         return ($this->escapeHtml)($text);
-    }
-
-    public function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return ($this->firstChildElement)($element, $tagName);
     }
 
     /**

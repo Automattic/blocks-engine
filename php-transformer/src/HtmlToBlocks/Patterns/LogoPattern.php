@@ -21,7 +21,7 @@ final class LogoPattern implements PatternRecognizerInterface
             $element,
             $context->presentationAttributes(...),
             fn (DOMElement $source): string => $logo->richText($source),
-            fn (DOMElement $source): string => $logo->outerHtml($source),
+            fn (DOMElement $source): string => SourceDom::outerHtml($source),
             fn (DOMElement $source, string $content): ?string => $logo->materializeSvgImages($source, $content),
             $context->createBlock(...)
         );

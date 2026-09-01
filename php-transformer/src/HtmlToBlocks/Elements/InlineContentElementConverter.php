@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -58,7 +59,7 @@ final class InlineContentElementConverter implements ElementConverter
         }
 
         if ( $this->context->hasAuthorSemanticMarker($element) ) {
-            $content = $this->context->innerHtml($element);
+            $content = SourceDom::innerHtml($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                 if ( $this->context->richTextContentHasStructuralHtml($content) ) {
                     $children = $this->context->convertChildren($element, $fallbacks);
@@ -74,13 +75,13 @@ final class InlineContentElementConverter implements ElementConverter
 
         $richTextMarker = $this->context->richTextMarker($element);
         if ( '' !== $richTextMarker ) {
-            if ( $this->context->hasBlockContentChildren($element) || $this->context->richTextContentHasStructuralHtml($this->context->innerHtml($element)) ) {
+            if ( $this->context->hasBlockContentChildren($element) || $this->context->richTextContentHasStructuralHtml(SourceDom::innerHtml($element)) ) {
                 $children = $this->context->convertChildren($element, $fallbacks);
                 if ( array() !== $children ) {
                     return ConversionOutcome::handled($this->group($element, $children));
                 }
             }
-            $content = $this->context->innerHtml($element);
+            $content = SourceDom::innerHtml($element);
             if ( '' !== trim($this->runtime->stripAllTags($content)) ) {
                 $declarations = $this->context->richTextInlineVisualDeclarations($element);
                 if ( 'transparent' === strtolower((string) ($declarations['-webkit-text-fill-color'] ?? '')) ) {
@@ -102,7 +103,7 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $this->runtime->escapeHtml($dynamicText) )), array(), $element));
         }
 
-        $content = $this->context->outerHtml($element);
+        $content = SourceDom::outerHtml($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
             if ( 1 === count($children) && array() === $this->styleResolver->presentationAttributes($element) ) {

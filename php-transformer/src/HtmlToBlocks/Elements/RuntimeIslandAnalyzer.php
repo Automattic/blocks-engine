@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use DOMElement;
@@ -73,12 +74,12 @@ final class RuntimeIslandAnalyzer
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        $id = trim($this->context->attr($element, 'id'));
+        $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) && ! $this->isPresentationalRuntimeSelector('#' . $id) ) {
             return true;
         }
 
-        foreach ( preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array() as $class ) {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) {
             if ( '' !== $class && $this->context->runtimeSelectors()->hasDom('.' . $class) && ! $this->isPresentationalRuntimeSelector('.' . $class) ) {
                 return true;
             }
@@ -97,9 +98,9 @@ final class RuntimeIslandAnalyzer
     public function runtimeDomSelectorsForElement(DOMElement $element): array
     {
         $selectors = array();
-        $id = trim($this->context->attr($element, 'id'));
+        $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && $this->context->runtimeSelectors()->hasDom('#' . $id) ) $selectors[] = '#' . $id;
-        foreach ( preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->context->runtimeSelectors()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $class ) if ( '' !== $class && $this->context->runtimeSelectors()->hasDom('.' . $class) ) $selectors[] = '.' . $class;
         foreach ( array_keys($this->context->runtimeSelectors()->domSelectors()) as $selector ) {
             if ( str_starts_with((string) $selector, '.') || str_starts_with((string) $selector, '#') || strtolower((string) $selector) === strtolower($element->tagName) ) continue;
             if ( ! $this->isPresentationalRuntimeSelector((string) $selector) && $this->elementMatchesRuntimeSelector($element, (string) $selector) ) $selectors[] = (string) $selector;
@@ -140,7 +141,7 @@ final class RuntimeIslandAnalyzer
         foreach ( $this->context->descendantElements($element) as $descendant ) {
             if ( $this->isRuntimeDomTarget($descendant) || $this->isRuntimeCanvasTarget($descendant) ) {
                 $targets[] = array_filter(array(
-                    'selector'   => $this->context->runtimeIslandSelector($descendant),
+                    'selector'   => SourceDom::runtimeIslandSelector($descendant),
                     'tag'        => strtolower($descendant->tagName),
                     'attributes' => $this->boundedRuntimeTargetAttributes($descendant),
                 ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
@@ -197,7 +198,7 @@ final class RuntimeIslandAnalyzer
                 if ( $element instanceof DOMElement && $this->shouldRecordRuntimeHtmlSubtreeIsland($element) ) {
                     $targets = $this->runtimeTargetsInSubtree($element, 8);
                     $this->recordRuntimeIsland($element, 'app_shell', 'runtime_html_subtree', 'client_script_execution', array(
-                        'events'            => $this->context->eventMetadata($element),
+                        'events'            => SourceDom::eventMetadata($element),
                         'target_count'      => count($targets),
                         'targets'           => $targets,
                         'app_shell_signals' => $this->runtimeAppShellSignals($element),
@@ -230,7 +231,7 @@ final class RuntimeIslandAnalyzer
 
     public function hasRuntimeAppRootToken(DOMElement $element): bool
     {
-        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim($this->context->attr($element, 'id') . ' ' . $this->context->attr($element, 'class')))) ?: array();
+        $tokens = preg_split('/[^A-Za-z0-9]+/', strtolower(trim(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class')))) ?: array();
         foreach ( $tokens as $token ) {
             if ( in_array($token, self::RUNTIME_APP_ROOT_TOKENS, true) ) {
                 return true;
@@ -279,7 +280,7 @@ final class RuntimeIslandAnalyzer
     {
         $attributes = array();
         foreach ( array( 'id', 'class', 'role', 'aria-label', 'type', 'name' ) as $name ) {
-            $value = trim($this->context->attr($element, $name));
+            $value = trim(SourceDom::attr($element, $name));
             if ( '' !== $value ) {
                 $attributes[$name] = substr($value, 0, 160);
             }
@@ -322,7 +323,7 @@ final class RuntimeIslandAnalyzer
             return true;
         }
         if ( preg_match('/^([a-z][a-z0-9-]*)\.([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array(), true);
+            return $tag === strtolower((string) $match[1]) && in_array((string) $match[2], preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(), true);
         }
         if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
             return ( '' === (string) ($match[1] ?? '') || $tag === strtolower((string) $match[1]) ) && $element->hasAttribute(strtolower((string) $match[2]));
@@ -375,7 +376,7 @@ final class RuntimeIslandAnalyzer
 
         if ( ! $this->canRetainRuntimeDomContractNatively($element, $blockName) ) {
             $this->recordRuntimeIsland($element, 'dom', 'runtime_dom_target', 'client_script_execution', array(
-                'events'           => $this->context->eventMetadata($element),
+                'events'           => SourceDom::eventMetadata($element),
                 'required_scripts' => $this->context->requiredScriptsForElement($element),
             ));
             $this->recordRuntimeDomFallback($element, $blockName);
@@ -432,7 +433,7 @@ final class RuntimeIslandAnalyzer
             ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
         }
 
-        return $this->context->dedupeArrayRows($metadata);
+        return SourceDom::dedupeArrayRows($metadata);
     }
 
     /**

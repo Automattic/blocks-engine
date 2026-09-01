@@ -58,13 +58,10 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
 
     return new TextLeafElementConverter(new TextLeafElementContext(
         $c['presentationAttributes'],
-        $c['innerHtml'],
-        $c['innerHtmlPreservingWhitespace'],
         $c['createBlock'],
         $c['richTextContent'],
         $c['stripAllTags'],
         $c['escapeHtml'],
-        $c['firstChildElement'],
         $c['codePresentationAttributes'],
         $c['codeContent'],
         $c['hasBlockContentChildren'],

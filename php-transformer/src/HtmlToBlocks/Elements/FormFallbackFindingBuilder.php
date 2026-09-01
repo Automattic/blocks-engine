@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use DOMElement;
@@ -33,7 +34,7 @@ final class FormFallbackFindingBuilder
         $bindingBlock ??= $readableFormBlock;
         $supersededRuntimeSelectors = $this->context->runtimeDomSelectors($element);
         if ( $replacesRuntimeIsland ) {
-            $supersededRuntimeSelectors[] = $this->context->runtimeIslandSelector($element);
+            $supersededRuntimeSelectors[] = SourceDom::runtimeIslandSelector($element);
         }
 
         $finding = array(
@@ -43,13 +44,13 @@ final class FormFallbackFindingBuilder
             'message'          => 'Form intent and controls were extracted as provider-materializable metadata; the source form markup is preserved until a form provider materializes it.',
             'source_format'    => 'html',
             'tag'              => strtolower($element->tagName),
-            'selector'         => $this->context->elementSelector($element),
-            'attributes'       => $this->context->htmlAttributes($element),
+            'selector'         => SourceDom::elementSelector($element),
+            'attributes'       => SourceDom::htmlAttributes($element),
             'form'             => $this->metadataBuilder->form($element),
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
             'context'          => $this->context->sourceContext($element),
             'classification'   => $this->context->classifyFallbackSubtree($element),
-            'events'           => $this->context->eventMetadata($element),
+            'events'           => SourceDom::eventMetadata($element),
             'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
             'binding'          => null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array(),
             'controls'         => $controls,
@@ -57,7 +58,7 @@ final class FormFallbackFindingBuilder
             'layout_graph'     => $layoutGraph,
             'control_count'    => count($controls),
             'text_length'      => strlen(trim($element->textContent ?? '')),
-            'child_count'      => $this->context->childElementCount($element),
+            'child_count'      => SourceDom::childElementCount($element),
             'html'             => $boundedHtml['html'],
             'html_bytes'       => $boundedHtml['bytes'],
             'html_truncated'   => $boundedHtml['truncated'],

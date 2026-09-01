@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPattern;
@@ -61,7 +62,7 @@ final class ButtonLinkDispatcher
 
         // An icon-only link still carries an accessible name, so it must survive
         // even though it has no text content.
-        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl($this->context->attr($element, 'href')) && '' !== trim($this->context->attr($element, 'aria-label')) ) {
+        if ( '' === trim($element->textContent ?? '') && '' !== $this->context->safeLinkUrl(SourceDom::attr($element, 'href')) && '' !== trim(SourceDom::attr($element, 'aria-label')) ) {
             return $this->paragraphHost($element);
         }
 
@@ -106,7 +107,7 @@ final class ButtonLinkDispatcher
     {
         return $this->context->createBlock(
             'core/paragraph',
-            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => $this->context->outerHtml($element) )),
+            array_merge($this->nonButtonAnchorWrapperAttributes($element), array( 'content' => SourceDom::outerHtml($element) )),
             array(),
             $element
         );
@@ -121,7 +122,7 @@ final class ButtonLinkDispatcher
         unset($attrs['anchor']);
 
         if ( $this->isPositionedFragmentLink($anchor) ) {
-            $attrs['className'] = $this->context->mergeClassNames(
+            $attrs['className'] = SourceDom::mergeClassNames(
                 (string) ($attrs['className'] ?? ''),
                 self::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS
             );
@@ -129,7 +130,7 @@ final class ButtonLinkDispatcher
 
         // Source class identity belongs exclusively to the saved link. Keep only
         // generated geometry classes and mapped presentation on its paragraph host.
-        $sourceClasses = preg_split('/\s+/', trim($this->context->attr($anchor, 'class'))) ?: array();
+        $sourceClasses = preg_split('/\s+/', trim(SourceDom::attr($anchor, 'class'))) ?: array();
         $classes = array_values(array_filter(
             preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array(),
             static fn (string $class): bool => ! in_array($class, $sourceClasses, true)
@@ -145,8 +146,8 @@ final class ButtonLinkDispatcher
 
     private function isPositionedFragmentLink(DOMElement $anchor): bool
     {
-        $href = trim($this->context->attr($anchor, 'href'));
-        if ( ! str_starts_with($href, '#') || '#' === $href || 'button' === strtolower($this->context->attr($anchor, 'role')) ) {
+        $href = trim(SourceDom::attr($anchor, 'href'));
+        if ( ! str_starts_with($href, '#') || '#' === $href || 'button' === strtolower(SourceDom::attr($anchor, 'role')) ) {
             return false;
         }
 

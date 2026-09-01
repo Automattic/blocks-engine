@@ -71,11 +71,8 @@ $makeDispatcher = static function (array $overrides = array()): ButtonLinkDispat
         $c['linkWrapper'],
         $c['presentation'],
         $c['createBlock'],
-        $c['attr'],
-        $c['outerHtml'],
         $c['safeLinkUrl'],
         $c['hasBlockChildren'],
-        $c['mergeClassNames'],
         $c['structural']
     ));
 };

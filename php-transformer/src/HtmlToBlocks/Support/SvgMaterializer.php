@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -37,7 +38,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // Only preserve when there is actual artwork to keep. An SVG whose only
         // content is unsafe (e.g. a lone <script>) has nothing left to render
         // once sanitized, so it defers to the bounded fallback diagnostic.
-        if ( ! $this->context->svgHasDrawableContent($element) ) {
+        if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
@@ -53,7 +54,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         // provably free of script/event-handler/javascript: vectors and still
         // contains an <svg>. If sanitization could not fully clean it, defer to
         // the bounded fallback metadata path rather than emit unsafe markup.
-        if ( ! $this->context->isSafeSvgContent($html) ) {
+        if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
         }
 
@@ -103,13 +104,13 @@ final class SvgMaterializer implements SvgElementMaterializer
         $url = $this->sourceRelativeMaterializedSvgPath($path);
         $occurrence = array_filter(array(
             'source_path' => $this->transformSourcePath(),
-            'selector' => $this->context->elementSelector($element),
+            'selector' => SourceDom::elementSelector($element),
             'fingerprint' => $this->context->reusableComponentFingerprintFor($element),
         ), static fn (mixed $value): bool => is_string($value) && '' !== $value);
         $asset = array(
             'source'      => 'inline-svg',
             'source_path' => $this->transformSourcePath(),
-            'selector'    => $this->context->elementSelector($element),
+            'selector'    => SourceDom::elementSelector($element),
             'path'        => $path,
             'target_path' => $path,
             'source_url'  => $url,
@@ -150,8 +151,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             ($isFlexOrGridItem && $parent instanceof DOMElement && $this->declarationsOwnMediaBox($parentPresentation))
             || ($isPositionedMediaBox && in_array($sourceObjectFit, array( 'contain', 'cover', 'fill', 'none', 'scale-down' ), true))
         )
-            && null !== $this->svgPercentageWidth(trim($this->context->attr($element, 'width')))
-            && null !== $this->svgPercentageWidth(trim($this->context->attr($element, 'height')));
+            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width')))
+            && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'height')));
         if ( $isResponsiveFillSvg ) {
             $dimensions = array();
             // This is generated fill geometry, not an authored image support.
@@ -169,7 +170,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             $attrs = array(
                 'url'       => $url,
                 'alt'       => $this->svgImageAlt($element),
-                'className'  => $this->styleResolver->mergePresentationClassNames($this->context->attr($element, 'class'), $fillClass),
+                'className'  => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $fillClass),
             );
 
             return array_filter($attrs, static fn ($value): bool => null !== $value && '' !== $value);
@@ -198,7 +199,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $attrs = array_filter(array_merge(array(
             'url'          => $url,
             'alt'          => $this->svgImageAlt($element),
-            'className'    => $this->styleResolver->mergePresentationClassNames($this->context->attr($element, 'class'), $geometryClass),
+            'className'    => $this->styleResolver->mergePresentationClassNames(SourceDom::attr($element, 'class'), $geometryClass),
         ), $dimensions), static fn ($value): bool => null !== $value && '' !== $value);
 
         return $attrs;
@@ -211,12 +212,12 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     public function inlineSvgRichTextImageMarkup(DOMElement $element, bool $includeLink = true): ?string
     {
-        if ( ! $this->context->svgHasDrawableContent($element) ) {
+        if ( ! SourceDom::svgHasDrawableContent($element) ) {
             return null;
         }
 
         $html = $this->context->sanitizeInlineSvgMarkup($element);
-        if ( ! $this->context->isSafeSvgContent($html) ) {
+        if ( ! SourceDom::isSafeSvgContent($html) ) {
             return null;
         }
 
@@ -229,10 +230,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        $style = trim($this->context->attr($element, 'style'));
+        $style = trim(SourceDom::attr($element, 'style'));
         $sourceDimensions = array_filter(array(
-            'width' => trim($this->context->attr($element, 'width')),
-            'height' => trim($this->context->attr($element, 'height')),
+            'width' => trim(SourceDom::attr($element, 'width')),
+            'height' => trim(SourceDom::attr($element, 'height')),
         ), static fn (string $value): bool => '' !== $value);
         $resolvedSourceDimensions = $this->richTextSvgDimensions($element, $sourceDimensions);
         foreach ( array( 'width', 'height' ) as $dimension ) {
@@ -303,7 +304,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                     continue 2;
                 }
 
-                $sourceVisualDimension = trim($this->context->attr($parent, 'data-source-visual-' . $dimension));
+                $sourceVisualDimension = trim(SourceDom::attr($parent, 'data-source-visual-' . $dimension));
                 if ( '' === $fallback && is_numeric($sourceVisualDimension) && (float) $sourceVisualDimension > 0 ) {
                     $fallback = $this->normalizedSvgDimension((float) $sourceVisualDimension * $scale) . 'px';
                 }
@@ -337,22 +338,22 @@ final class SvgMaterializer implements SvgElementMaterializer
             return array();
         }
 
-        $href = trim($this->context->attr($parent, 'href'));
+        $href = trim(SourceDom::attr($parent, 'href'));
         if ( '' === $href || preg_match('/^\s*javascript\s*:/i', $href) ) {
             return array();
         }
 
         return array_filter(array(
             'href' => $href,
-            'target' => trim($this->context->attr($parent, 'target')),
-            'rel' => trim($this->context->attr($parent, 'rel')),
-            'aria-label' => trim($this->context->attr($parent, 'aria-label')),
+            'target' => trim(SourceDom::attr($parent, 'target')),
+            'rel' => trim(SourceDom::attr($parent, 'rel')),
+            'aria-label' => trim(SourceDom::attr($parent, 'aria-label')),
         ), static fn (string $value): bool => '' !== $value);
     }
 
     public function svgNeedsPhrasingHost(DOMElement $element): bool
     {
-        if ( $this->context->isVisualLayerElement($element) || 'none' === strtolower(trim($this->context->attr($element, 'preserveaspectratio'))) ) {
+        if ( $this->context->isVisualLayerElement($element) || 'none' === strtolower(trim(SourceDom::attr($element, 'preserveaspectratio'))) ) {
             return false;
         }
 
@@ -362,10 +363,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             if ( 'p' === $parentTag ) {
                 return true;
             }
-            if ( 'article' === $parentTag && 'img' === strtolower(trim($this->context->attr($element, 'role'))) ) {
+            if ( 'article' === $parentTag && 'img' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
                 return false;
             }
-            if ( ( $this->context->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags($this->context->innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
+            if ( ( $this->context->isInlineContentElement($parentTag) || 'a' === $parentTag ) && '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($parent, array( 'svg' )))) ) {
                 return true;
             }
         }
@@ -445,7 +446,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         foreach ( $element->getElementsByTagName('*') as $localDefinition ) {
             if ( $localDefinition instanceof DOMElement ) {
-                unset($references[trim($this->context->attr($localDefinition, 'id'))]);
+                unset($references[trim(SourceDom::attr($localDefinition, 'id'))]);
             }
         }
         if ( array() === $references ) {
@@ -458,7 +459,7 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
             foreach ( $defs->getElementsByTagName('*') as $definition ) {
-                if ( $definition instanceof DOMElement && isset($references[trim($this->context->attr($definition, 'id'))]) ) {
+                if ( $definition instanceof DOMElement && isset($references[trim(SourceDom::attr($definition, 'id'))]) ) {
                     $definitions[] = $this->context->safeFallbackHtml($defs);
                     break;
                 }
@@ -613,7 +614,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         $this->context->transformationEvidence()->recordGutenbergIncompatibility(array(
             'type'     => 'svg_materialization_incompatibility',
             'element'  => 'svg',
-            'selector' => $this->context->elementSelector($element),
+            'selector' => SourceDom::elementSelector($element),
             'reason'   => $reason,
             'message'  => $message,
         ));
@@ -636,7 +637,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
-        foreach ( $this->styleResolver->cssDeclarations($this->context->attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
             if ( preg_match('/var\s*\(/i', $value) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }
@@ -653,7 +654,7 @@ final class SvgMaterializer implements SvgElementMaterializer
      */
     private function svgImageDimensions(DOMElement $element, string $html): array
     {
-        $sourceWidth = trim($this->context->attr($element, 'width'));
+        $sourceWidth = trim(SourceDom::attr($element, 'width'));
         // A percentage SVG width has a used size from its containing block. Keep
         // that responsive width on the native image and let its viewBox provide
         // the intrinsic aspect ratio instead of pinning a viewBox-height value.
@@ -662,7 +663,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         $width = $this->svgLengthAttributeForImage($sourceWidth);
-        $height = $this->svgLengthAttributeForImage($this->context->attr($element, 'height'));
+        $height = $this->svgLengthAttributeForImage(SourceDom::attr($element, 'height'));
         if ( '' !== $width && '' !== $height ) {
             return array( 'width' => $width, 'height' => $height );
         }
@@ -705,12 +706,12 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function svgImageAlt(DOMElement $element): string
     {
-        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) ) {
+        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) ) {
             return '';
         }
 
         foreach ( array( 'aria-label', 'title' ) as $attribute ) {
-            $value = trim($this->context->attr($element, $attribute));
+            $value = trim(SourceDom::attr($element, $attribute));
             if ( '' !== $value ) {
                 return $value;
             }
@@ -774,7 +775,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $html;
         }
 
-        $existingDeclarations = $this->styleResolver->cssDeclarations($this->context->attr($element, 'style'));
+        $existingDeclarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
         foreach ( array_keys($existingDeclarations) as $name ) {
             unset($boxDeclarations[$name]);
         }
@@ -854,12 +855,12 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     public function isSafeDecorativeSvgElement(DOMElement $element): bool
     {
-        if ( ! $this->context->isSafeSvgContent($this->context->outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
+        if ( ! SourceDom::isSafeSvgContent(SourceDom::outerHtml($element)) || ! $this->isPassiveSvgMarkup($element) ) {
             return false;
         }
 
-        $role = strtolower(trim($this->context->attr($element, 'role')));
-        if ( 'true' === strtolower(trim($this->context->attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
+        $role = strtolower(trim(SourceDom::attr($element, 'role')));
+        if ( 'true' === strtolower(trim(SourceDom::attr($element, 'aria-hidden'))) || in_array($role, array( 'presentation', 'none' ), true) ) {
             return true;
         }
 
@@ -870,10 +871,10 @@ final class SvgMaterializer implements SvgElementMaterializer
     {
         for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
             $context = strtolower(trim(implode(' ', array(
-                $this->context->attr($current, 'class'),
-                $this->context->attr($current, 'id'),
-                $this->context->attr($current, 'aria-label'),
-                $this->context->attr($current, 'title'),
+                SourceDom::attr($current, 'class'),
+                SourceDom::attr($current, 'id'),
+                SourceDom::attr($current, 'aria-label'),
+                SourceDom::attr($current, 'title'),
             ))));
 
             if ( preg_match('/(?:^|[\s_-])(?:icon|logo)(?:$|[\s_-])/', $context) ) {
@@ -959,7 +960,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        foreach ( $this->context->htmlAttributes($element) as $name => $value ) {
+        foreach ( SourceDom::htmlAttributes($element) as $name => $value ) {
             $name = strtolower($name);
             $isInertDataAttribute = str_starts_with($name, 'data-') && 'data-dom-store' !== $name;
             if ( (! isset($allowedAttributes[$name]) && ! $isInertDataAttribute) || preg_match('/^on[a-z]+$/i', $name) || preg_match('/javascript\s*:|\b(?:expression|behavior)\s*:/i', $value) ) {
