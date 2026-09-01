@@ -2800,17 +2800,18 @@ final class HtmlTransformer
     }
 
     /**
-     * Deliver navigation presentation the source inherits, as CSS.
+     * Recover navigation presentation from the source elements native markup replaces.
      *
-     * Native navigation replaces the source structure, so a menu that took its
-     * colour and type from an ancestor loses them: the anchor declares only
-     * `inherit`, and the destination theme supplies the value instead. Resolve
-     * what the source would have inherited and state it on the navigation.
+     * Builders commonly declare menu type and colour on a wrapper between the
+     * anchor and the nav. core/navigation emits its own item markup, so that
+     * wrapper does not survive and its rule is left in the stylesheet with
+     * nothing to match, which drops the menu to the destination theme's
+     * defaults. Read the presentation from the source element the native item
+     * stands in for, and state it on that native counterpart.
      *
-     * The rule hangs off classes the block already carries, so nothing about
-     * the emitted markup changes. That matters: shell identity compares block
-     * markup across documents, and a value that varies per page would split one
-     * shared template part into one part per page.
+     * Delivered as CSS rather than written onto the block: shell identity
+     * compares block markup across documents, so a value that varies per page
+     * would split one shared template part into one part per page.
      *
      * @param array<int, string> $authorClasses
      */
@@ -2820,9 +2821,20 @@ final class HtmlTransformer
             return;
         }
 
+        $anchor = null;
+        foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $anchor = $candidate;
+                break;
+            }
+        }
+        if ( ! $anchor instanceof DOMElement ) {
+            return;
+        }
+
         $declarations = array();
         foreach ( array( 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
-            $value = $this->inheritedNavigationValue($navigation, $property);
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
             if ( '' !== $value ) {
                 $declarations[] = $property . ':' . $value;
             }
@@ -2831,7 +2843,7 @@ final class HtmlTransformer
             return;
         }
 
-        $selector = '.wp-block-navigation.' . implode('.', $authorClasses);
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
         $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
             $selector,
             $selector . '{' . implode(';', $declarations) . '}'
@@ -2839,16 +2851,18 @@ final class HtmlTransformer
     }
 
     /**
-     * Resolve a value the source inherits, by walking its ancestor chain.
+     * Resolve an item's presentation from within the navigation only.
      *
-     * Stops at the nearest ancestor stating a usable value, which is what CSS
-     * inheritance would have produced in the source document.
+     * The search is bounded by the navigation element: anything above it is
+     * document chrome that the destination theme legitimately supplies, and
+     * reading it would recover the destination's own default rather than the
+     * source's menu styling.
      */
-    private function inheritedNavigationValue(DOMElement $element, string $property): string
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
     {
-        $node  = $element;
+        $node  = $anchor;
         $depth = 0;
-        while ( $node instanceof DOMElement && $depth < 24 ) {
+        while ( $node instanceof DOMElement && $depth < 12 ) {
             ++$depth;
             $resolved     = $this->styleResolver->resolveCssVariablesInValue(
                 $this->styleResolver->specificityResolvedPresentationStyle($node)
@@ -2860,6 +2874,9 @@ final class HtmlTransformer
                 && ! preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
             ) {
                 return $value;
+            }
+            if ( $node->isSameNode($navigation) ) {
+                break;
             }
             $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
         }
