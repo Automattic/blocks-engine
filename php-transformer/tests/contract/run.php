@@ -1230,6 +1230,9 @@ $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', 
 $fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
 $assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important'), 'empty painted groups retain frontend geometry while their Gutenberg placeholder is bounded in normal flow');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
+// Reserving height for a withheld picker displaces every following block, which
+// moves the whole source composition down the editor canvas.
+$assert(str_contains($fixedBackgroundEditorCss, 'min-height:0!important') && ! str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem'), 'painted source layers reserve no editor height for the picker they withhold');
 
 $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
