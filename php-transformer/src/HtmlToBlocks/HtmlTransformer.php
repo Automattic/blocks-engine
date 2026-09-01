@@ -385,6 +385,10 @@ final class HtmlTransformer
 
     private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
 
+    private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
+
+    private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
+
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
 
@@ -2008,6 +2012,16 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
+            // The source painted this image as a background, where the element's
+            // own box decides the size and the image never overflows it. core's
+            // scale attribute only reaches the image when width and height are
+            // saved, so the sized cases carry that contract here instead.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){height:100%}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
+        }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
@@ -2064,6 +2078,21 @@ final class HtmlTransformer
         }
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
+        }
+        if ( str_contains($serializedBlocks, 'wp-social-link') ) {
+            // core/social-links paints its own icon for every service. The source
+            // cluster painted icon-font glyphs through pseudo-elements on the very
+            // items core now owns, so both icons would render on each link.
+            $afterAuthorCssParts[] = ':root :where(.wp-block-social-links .wp-social-link)::before,'
+                . ':root :where(.wp-block-social-links .wp-social-link)::after,'
+                . ':root :where(.wp-block-social-links .wp-social-link)>a::before,'
+                . ':root :where(.wp-block-social-links .wp-social-link)>a::after{content:none}';
+            // The source cluster was an inline box, so its container's text
+            // alignment placed it. core's list is a full-width flex row, which
+            // packs the items at the start instead. An inline flex row resolves
+            // through that same alignment, for centered and start-aligned
+            // containers alike, while an explicit justification still wins.
+            $afterAuthorCssParts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
@@ -9017,13 +9046,19 @@ final class HtmlTransformer
         $height = trim((string) ($declarations['height'] ?? ''));
         $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
 
+        $sized = in_array($scale, array( 'cover', 'contain' ), true);
+
         return $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
-            'className' => 'blocks-engine-background-image',
+            // A painted background never contributes intrinsic size, so the
+            // materialized image resolves its box from the source element.
+            'className' => $sized
+                ? self::BACKGROUND_IMAGE_CLASS . ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale
+                : self::BACKGROUND_IMAGE_CLASS,
             'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
-            'scale'     => in_array($scale, array( 'cover', 'contain' ), true) ? $scale : '',
+            'scale'     => $sized ? $scale : '',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
     }
 
