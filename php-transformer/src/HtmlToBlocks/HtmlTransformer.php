@@ -2882,7 +2882,9 @@ final class HtmlTransformer
             return;
         }
 
-        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . '>.wp-block-navigation__container';
+        // Descendant, not child: core nests the container inside its responsive
+        // wrapper, so a child combinator never reaches it.
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
         $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
             $selector,
             $selector . '{background:none!important;border-radius:0!important;box-shadow:none!important}'
