@@ -482,14 +482,14 @@ final class SourceElementClassifier
 
     public function hasCarouselIdentity(DOMElement $element): bool
     {
-        $identity = strtolower(implode(' ', array(
+        $identity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),
             SourceDom::attr($element, 'class'),
             SourceDom::attr($element, 'role'),
             SourceDom::attr($element, 'data-hook'),
             SourceDom::attr($element, 'data-testid'),
-        )));
+        ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
     }
