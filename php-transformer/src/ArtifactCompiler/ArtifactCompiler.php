@@ -303,6 +303,8 @@ final class ArtifactCompiler
             }
             $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
         }
+        $this->htmlTransformerAnalysisCache = $stageCompiler->htmlTransformerAnalysisCache;
+        $this->stylesheetAssetDiscoveryCount = $stageCompiler->stylesheetAssetDiscoveryCount;
         return $receipts;
     }
 
