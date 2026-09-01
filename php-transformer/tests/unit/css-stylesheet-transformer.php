@@ -26,6 +26,12 @@ $assert($css === $transformer->transform($css, static fn (string $prelude): stri
 $css = '@media screen { @supports (display: grid) { .before { color:red } } } @font-face { font-family:"x"; src:url("x;{}.woff2"); } @keyframes spin { from { opacity:0 } }';
 $expected = '@media screen { @supports (display: grid) { .after { color:red } } } @font-face { font-family:"x"; src:url("x;{}.woff2"); } @keyframes spin { from { opacity:0 } }';
 $assert($expected === $transformer->transform($css, $rename), 'nested media/supports rules transform while font-face and keyframes remain opaque');
+$conditions = array();
+$transformer->transform($css, static function (string $prelude, string $body, array $ancestors) use (&$conditions): string {
+    $conditions[trim($prelude)] = $ancestors;
+    return $prelude;
+});
+$assert(array( '@media screen', '@supports (display: grid)' ) === ($conditions['.before'] ?? null), 'transform callbacks receive the enclosing at-rule stack');
 
 // 5: commas inside nested syntax are not selector-list separators.
 $parts = CssStylesheetTransformer::splitSelectorList(':is(.a,.b), :not([data-x="a,b"]), [title="x,y"]');
