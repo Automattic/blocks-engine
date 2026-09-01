@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPattern;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -944,17 +945,17 @@ $assertSame('right', $roundTrip['attrs']['mediaPosition'] ?? null, 'Round-trip D
 $assertContains('has-media-on-the-right', (string) ($roundTrip['innerHTML'] ?? ''), 'Round-trip save shape restores right class.');
 
 // Media-text style resolution memoizes by the shared presentation cache key.
-$memoizedTransformer = new HtmlTransformer();
+$memoizedCompilation = new HtmlCompilation();
 $memoizedElement = $elementFromHtml('<section style="display:flex"><img src="memo.jpg"><div><p>Memo</p></div></section>');
 // Style resolution moved to StyleResolver under #242; reach it through the
-// transformer's collaborator rather than reflecting on the transformer.
-$styleResolverProperty = new ReflectionProperty(HtmlTransformer::class, 'styleResolver');
-$memoizedResolver = $styleResolverProperty->getValue($memoizedTransformer);
-$sessionProperty = new ReflectionProperty(HtmlTransformer::class, 'session');
+// run-scoped compilation collaborator rather than the public facade.
+$styleResolverProperty = new ReflectionProperty(HtmlCompilation::class, 'styleResolver');
+$memoizedResolver = $styleResolverProperty->getValue($memoizedCompilation);
+$sessionProperty = new ReflectionProperty(HtmlCompilation::class, 'session');
 $firstMediaStyle = $memoizedResolver->mediaTextPresentationStyle($memoizedElement);
 $memoizedElement->setAttribute('style', 'display:grid');
 $secondMediaStyle = $memoizedResolver->mediaTextPresentationStyle($memoizedElement);
-$presentationCache = $sessionProperty->getValue($memoizedTransformer)->presentationResolutionCache();
+$presentationCache = $sessionProperty->getValue($memoizedCompilation)->presentationResolutionCache();
 $mediaStyleCache = $presentationCache->mediaTextStyles;
 $presentationKey = $presentationCache->elementKey($memoizedElement);
 $assertSame('display:flex', $firstMediaStyle, 'Media-text presentation style resolves initial authored style.');

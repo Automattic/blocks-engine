@@ -28,5 +28,23 @@ $assert(in_array('#app', $minified['mutation_selectors'], true), 'Minified mutat
 $oversized = $analyzer->analyze(str_repeat('x', 1048577), 'index.html', 'assets/large.js');
 $assert('runtime_script_analysis_truncated' === $oversized['diagnostics'][0]['code'] && true === $oversized['diagnostics'][0]['fail_closed'], 'Oversized scripts emit a deterministic fail-closed diagnostic.');
 
+$presentation = array_column($analyzer->analyze('document.querySelector(".fade-in");')['dependencies'], null, 'selector');
+$assert(true === $presentation['.fade-in']['presentation_only'], 'Canonical unmutated animation selectors remain presentation-only.');
+foreach (array('.hero-banner', '#promo-block', '.cart-drawer') as $selector) {
+    $dependencies = array_column($analyzer->analyze('document.querySelector("' . $selector . '");')['dependencies'], null, 'selector');
+    $assert(false === $dependencies[$selector]['presentation_only'], 'Non-animation selector ' . $selector . ' remains a fail-closed runtime dependency.');
+}
+$assignedMutation = array_column($analyzer->analyze('const target=document.querySelector(".fade-in");target.classList.add("visible");')['dependencies'], null, 'selector');
+$assert(false === $assignedMutation['.fade-in']['presentation_only'], 'Mutation through an assigned selector remains behavioral evidence.');
+$idLookup = array_column($analyzer->analyze('document.getElementById("fade-in");')['dependencies'], null, 'selector');
+$assert(false === $idLookup['#fade-in']['presentation_only'], 'Presentational IDs reached outside querySelector remain fail-closed runtime dependencies.');
+$closestLookup = array_column($analyzer->analyze('target.closest(".fade-in");')['dependencies'], null, 'selector');
+$assert(false === $closestLookup['.fade-in']['presentation_only'], 'Presentational closest selectors remain fail-closed runtime dependencies.');
+
+$cachedScript = 'document.querySelector("#runtime-root");';
+$analyzer->analyze($cachedScript, 'first.html', 'assets/runtime.js');
+$secondOwner = $analyzer->analyze($cachedScript, 'second.html', 'assets/runtime.js');
+$assert('second.html' === $secondOwner['source_path'], 'Memoized evidence keeps ownership-specific cache entries.');
+
 if ($failures) throw new RuntimeException(implode("\n", $failures));
 fwrite(STDOUT, "runtime-script-evidence-analyzer: {$assertions} assertions\n");

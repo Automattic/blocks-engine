@@ -95,6 +95,15 @@ foreach ( $families as $name => $family ) {
 $sessionReflection = new ReflectionClass(HtmlTransformerSession::class);
 $transformerReflection = new ReflectionClass(HtmlTransformer::class);
 $assert(array() === $sessionReflection->getProperties(ReflectionProperty::IS_PUBLIC), 'Transform session state must remain encapsulated behind typed lifecycle APIs.');
+$transformerProperties = array_map(
+    static fn (ReflectionProperty $property): string => $property->getName(),
+    $transformerReflection->getProperties()
+);
+sort($transformerProperties);
+$assert(
+    array('analysisCache', 'runtime') === $transformerProperties,
+    'HtmlTransformer must remain a stateless facade over immutable shared inputs.'
+);
 foreach ( array('__get', '__set', '__isset') as $magicAccessor ) {
     $assert(! $transformerReflection->hasMethod($magicAccessor), 'HtmlTransformer must not delegate state through ' . $magicAccessor . '.');
 }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
@@ -198,6 +199,10 @@ $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
 $assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+
+$nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
+$nestedLabelButtonCss = $css($nestedLabelButton);
+$assert(str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){color:#eeffff;font:400 15.75px/1 helvetica}') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'removed button label selectors own native link text presentation without a root-colour override');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
@@ -621,16 +626,16 @@ $assert(! str_contains($css($second), 'blocks-engine-source-p-') && 1 === substr
 $third = $instance->transform('<style>.cta:hover{color:red}</style><p>Read <span class="cta">this</span>.</p>')->toArray();
 $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains($css($third), '> :where(.wp-block-button__link)'), 'repeated selector text resolves against each transform source DOM');
 
-$applicabilityTransformer = new HtmlTransformer();
-$applicabilityTransformer->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
-$applicabilitySession = (new ReflectionClass($applicabilityTransformer))->getProperty('session')->getValue($applicabilityTransformer);
+$applicabilityCompilation = new HtmlCompilation();
+$applicabilityCompilation->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
+$applicabilitySession = (new ReflectionClass($applicabilityCompilation))->getProperty('session')->getValue($applicabilityCompilation);
 $applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?? array();
 $applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
 $assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
 
-$unmatchableTransformer = new HtmlTransformer();
-$unmatchableTransformer->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
-$unmatchableSession = (new ReflectionClass($unmatchableTransformer))->getProperty('session')->getValue($unmatchableTransformer);
+$unmatchableCompilation = new HtmlCompilation();
+$unmatchableCompilation->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
+$unmatchableSession = (new ReflectionClass($unmatchableCompilation))->getProperty('session')->getValue($unmatchableCompilation);
 $unmatchableIndex = $unmatchableSession->authorStyleAnalysis()?->styleRuleCandidateIndex() ?? array();
 $indexedAuthorSelectors = array();
 foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {

@@ -14,6 +14,16 @@ final class RuntimeDependencyParityReport
 {
     public const SCHEMA = 'blocks-engine/php-transformer/runtime-dependency-parity/v1';
 
+    private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
+
+    private readonly bool $ownsRuntimeScriptEvidenceAnalyzer;
+
+    public function __construct(?RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer = null)
+    {
+        $this->ownsRuntimeScriptEvidenceAnalyzer = null === $runtimeScriptEvidenceAnalyzer;
+        $this->runtimeScriptEvidenceAnalyzer = $runtimeScriptEvidenceAnalyzer ?? new RuntimeScriptEvidenceAnalyzer();
+    }
+
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
      *
@@ -42,6 +52,10 @@ final class RuntimeDependencyParityReport
      */
     public function fromArtifact(array $files, string $sourceHtml, string $generatedHtml, string $sourcePath = '', array $runtimeIslands = array(), array $assetReferences = array(), array $interactionCandidates = array(), array $supersededSelectors = array(), array $generatedBlocks = array()): array
     {
+        if ($this->ownsRuntimeScriptEvidenceAnalyzer) {
+            $this->runtimeScriptEvidenceAnalyzer->resetCache();
+        }
+
         $sourceTargets = $this->sourceTargets($sourceHtml, $sourcePath);
         $generatedTargets = $this->withBlockCommentAnchorTargets(
             $this->withRuntimeIslandTargets($this->htmlTargets($generatedHtml), $runtimeIslands),
@@ -752,7 +766,7 @@ final class RuntimeDependencyParityReport
      */
     private function scriptDependencies(string $script, array $bundleCanvasSelectors = array()): array
     {
-        $evidence = (new RuntimeScriptEvidenceAnalyzer())->analyze($script);
+        $evidence = $this->runtimeScriptEvidenceAnalyzer->analyze($script);
         $dependencies = array();
         foreach ($evidence['dependencies'] as $dependency) {
             if (true === $dependency['presentation_only']) {
@@ -826,14 +840,6 @@ final class RuntimeDependencyParityReport
     private function dataAttributeSelectorsFromCssSelector(string $selector): array
     {
         return RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($selector);
-    }
-
-    private function isPresentationalRuntimeSelector(string $selector): bool
-
-    {
-
-        return RuntimeSelectorVocabulary::isPresentationalAnimation($selector);
-
     }
 
     /**
