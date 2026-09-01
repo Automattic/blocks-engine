@@ -18,6 +18,7 @@ require $testsDir . '/includes/bootstrap.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
@@ -188,7 +189,7 @@ $assert(str_contains($aboutEditorAssets, "media='(min-width: 48rem)'") && false 
 $assert(str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($siteEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'The site editor receives the complete declared presentation set through external stylesheet assets.');
 $assert(!str_contains($frontEditorCss, '.global-presentation{display:block}') && !str_contains($aboutEditorCss, '.about-owned{color:#654321}') && !str_contains($frontEditorCss, 'blocks-engine-presentation:'), 'Presentation CSS is absent from serialized editor settings.');
 $assert('' === $frontRequestThemeJsonCss && '' === $frontEditorThemeJsonCss && '' === $aboutEditorThemeJsonCss, 'Presentation CSS is not duplicated through frontend or editor theme JSON.');
-$assert(str_contains($frontEditorCss, 'blocks-engine-editor-anchor-'), 'Editor anchor compatibility CSS remains a bounded editor-settings rule.');
+$assert(str_contains($frontEditorCss, WordPressSitePlan::EDITOR_CORE_IMAGE_INTERACTION_CSS) && str_contains($frontEditorCss, WordPressSitePlan::EDITOR_POST_TITLE_INTERACTION_CSS), 'Editor interaction compatibility remains a bounded editor-settings rule.');
 $largeCssBytes = 123037995;
 $largeCssPath = $themeDir . '/assets/assets/global.css';
 $largeCss = fopen($largeCssPath, 'wb'); if (false === $largeCss) throw new RuntimeException('Could not create oversized presentation stylesheet.');
