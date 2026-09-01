@@ -192,7 +192,7 @@ $assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($n
 
 $nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
 $nestedLabelButtonCss = $css($nestedLabelButton);
-$assert(str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){color:#eeffff;font:400 15.75px/1 helvetica}') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'removed button label selectors project their text presentation onto the native link');
+$assert(str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){color:#eeffff;font:400 15.75px/1 helvetica}') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'removed button label selectors own native link text presentation without a root-colour override');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
