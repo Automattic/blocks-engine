@@ -2833,7 +2833,9 @@ final class HtmlTransformer
         }
 
         $declarations = array();
-        foreach ( array( 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
+        // `font` first: builders commonly state menu type as the shorthand, and
+        // a longhand found further out should not silently outrank it.
+        foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
             if ( '' !== $value ) {
                 $declarations[] = $property . ':' . $value;
