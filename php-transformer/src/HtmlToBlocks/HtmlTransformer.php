@@ -2079,14 +2079,14 @@ final class HtmlTransformer
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
         }
-        if ( str_contains($serializedBlocks, 'wp-social-link') ) {
+        if ( str_contains($serializedBlocks, 'wp:social-link') ) {
             // core/social-links paints its own icon for every service. The source
             // cluster painted icon-font glyphs through pseudo-elements on the very
             // items core now owns, so both icons would render on each link.
-            $afterAuthorCssParts[] = ':root :where(.wp-block-social-links .wp-social-link)::before,'
-                . ':root :where(.wp-block-social-links .wp-social-link)::after,'
-                . ':root :where(.wp-block-social-links .wp-social-link)>a::before,'
-                . ':root :where(.wp-block-social-links .wp-social-link)>a::after{content:none}';
+            $afterAuthorCssParts[] = ':root .wp-block-social-links .wp-social-link::before,'
+                . ':root .wp-block-social-links .wp-social-link::after,'
+                . ':root .wp-block-social-links .wp-social-link>a::before,'
+                . ':root .wp-block-social-links .wp-social-link>a::after{content:none}';
             // The source cluster was an inline box, so its container's text
             // alignment placed it. core's list is a full-width flex row, which
             // packs the items at the start instead. An inline flex row resolves
