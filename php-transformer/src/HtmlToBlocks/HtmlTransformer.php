@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
@@ -364,6 +365,7 @@ final class HtmlTransformer
 
     private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
+    private readonly SourceElementClassifier $sourceElementClassifier;
     private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
 
     private readonly DiagnosticsCollector $diagnosticsCollector;
@@ -455,6 +457,7 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->sourceContext($element)
         );
         $this->blockFactory      = new BlockFactory();
+        $this->sourceElementClassifier = new SourceElementClassifier();
         $this->backgroundImageExtractor = new BackgroundImageExtractor();
         $this->tableClassificationPolicy = new TableClassificationPolicy();
         $this->patternRecognizers = PatternRecognizerRegistry::createDefault();
@@ -479,7 +482,7 @@ final class HtmlTransformer
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
             new AuthorSelectorSemanticContext(
                 fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
-                fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+                fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
                 fn (DOMElement $element): bool => $this->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
@@ -513,7 +516,7 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => $this->isSafeSvgContent($html),
-            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
             fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -534,7 +537,7 @@ final class HtmlTransformer
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
-            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             fn (DOMElement $element): array => $this->richTextInlineVisualDeclarations($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
             fn (DOMElement $element): string => $this->outerHtml($element),
@@ -657,7 +660,7 @@ final class HtmlTransformer
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter(new ButtonElementContext(
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
-            fn (DOMElement $element): bool => $this->isImageCarrierButton($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->isImageCarrierButton($element),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
@@ -751,7 +754,7 @@ final class HtmlTransformer
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
-            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element)
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element)
         ));
         $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
             $inlineContentConverter,
@@ -780,8 +783,8 @@ final class HtmlTransformer
             recognizePatterns: fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             flankedSeparatorBlock: fn (DOMElement $element): ?array => $this->flankedSeparatorBlockFromElement($element),
             capturedMediaLayoutBlock: fn (DOMElement $element): ?array => $this->capturedMediaLayoutBoundaryBlock($element),
-            hasResponsiveImageSources: fn (DOMElement $element): bool => $this->hasResponsiveImageSources($element),
-            hasGalleryMediaItems: fn (DOMElement $element): bool => $this->hasGalleryMediaItems($element),
+            hasResponsiveImageSources: fn (DOMElement $element): bool => $this->sourceElementClassifier->hasResponsiveImageSources($element),
+            hasGalleryMediaItems: fn (DOMElement $element): bool => $this->sourceElementClassifier->hasGalleryMediaItems($element),
             responsiveMediaBlock: fn (DOMElement $element): array => $this->responsiveMediaBlock($element),
             isDirectChildOfAuthorOwnedLayout: fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
             attr: fn (DOMElement $element, string $name): string => $this->attr($element, $name),
@@ -814,7 +817,7 @@ final class HtmlTransformer
             },
             textFlowBlock: fn (DOMElement $element): ?array => $this->textFlowBlockFromElement($element),
             convertChildren: fn (DOMElement $element, array &$fallbacks): array => $this->convertChildren($element, $fallbacks, true),
-            hasDirectMediaChild: fn (DOMElement $element): bool => $this->hasDirectMediaChild($element),
+            hasDirectMediaChild: fn (DOMElement $element): bool => $this->sourceElementClassifier->hasDirectMediaChild($element),
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
@@ -938,9 +941,9 @@ final class HtmlTransformer
             fn (DOMElement $element): string => $this->elementSelector($element),
             fn (DOMElement $element): array => $this->htmlAttributes($element),
             fn (DOMElement $element, array $excludedTags): string => $this->innerHtmlWithoutTags($element, $excludedTags),
-            fn (string $tagName): bool => $this->isInlineContentElement($tagName),
+            fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
             fn (string $content): bool => $this->isSafeSvgContent($content),
-            fn (DOMElement $element): bool => $this->isVisualLayerElement($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
             fn (): LayoutGeometryState => $this->layoutGeometry(),
             fn (): AssetMaterializationState => $this->materializedAssets(),
             fn (DOMElement $element): string => $this->outerHtml($element),
@@ -1021,7 +1024,7 @@ final class HtmlTransformer
             fn (DOMElement $element, string $name): string => $this->attr($element, $name),
             fn (DOMElement $element): string => $this->outerHtml($element),
             fn (string $href): string => $this->safeLinkUrl($href),
-            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             fn (string $first, string $second): string => $this->mergeClassNames($first, $second),
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element)
         );
@@ -1044,8 +1047,8 @@ final class HtmlTransformer
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
             fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
-            fn (string $tagName): bool => $this->isInlineContentElement($tagName),
-            fn (string $selector): bool => $this->isPresentationalAnimationSelector($selector),
+            fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
+            fn (string $selector): bool => $this->sourceElementClassifier->isPresentationalAnimationSelector($selector),
             fn (array $rows): array => $this->dedupeArrayRows($rows)
         );
     }
@@ -1133,7 +1136,7 @@ final class HtmlTransformer
             fn (DOMElement $element, string $tagName): ?DOMElement => $this->firstChildElement($element, $tagName),
             fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
             fn (DOMElement $code): string => $this->codeContent($code),
-            fn (DOMElement $element): bool => $this->hasBlockContentChildren($element),
+            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             }
@@ -1912,14 +1915,14 @@ final class HtmlTransformer
             && '' === trim($this->attr($element, 'style'))
             && array() === $this->interactiveAttributes($element)
             && ! $this->runtimeIslands->isRuntimeDomTarget($element)
-            && ! $this->hasMotionStructureToken($element);
+            && ! $this->sourceElementClassifier->hasMotionStructureToken($element);
     }
 
     private function collectGeneratedComponentCandidates(DOMElement $element, int $depth = 0): void
     {
         if (self::GENERATED_COMPONENT_MIN_SOURCE_DEPTH <= $depth
             && ('div' === strtolower($element->tagName) || str_contains(strtolower($element->tagName), '-'))
-            && ($this->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
+            && ($this->sourceElementClassifier->hasRepeatedDirectChildTags($element) || str_contains(strtolower($element->tagName), '-'))
             && ($this->fallbackEmitter()->isRepeatableContentComponent($element) || $this->fallbackEmitter()->isSafeCustomElementHost($element))
         ) {
             $this->reusableComponents()->markGeneratedCandidate((string) $element->getNodePath());
@@ -1931,22 +1934,6 @@ final class HtmlTransformer
                 $this->collectGeneratedComponentCandidates($child, $depth + 1);
             }
         }
-    }
-
-    private function hasRepeatedDirectChildTags(DOMElement $element): bool
-    {
-        $counts = array();
-        foreach ($element->childNodes as $child) {
-            if (! $child instanceof DOMElement) {
-                continue;
-            }
-            $tag = strtolower($child->tagName);
-            $counts[$tag] = ($counts[$tag] ?? 0) + 1;
-            if (2 <= $counts[$tag]) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private function isGeneratedComponentCandidate(DOMElement $element): bool
@@ -2510,7 +2497,7 @@ final class HtmlTransformer
 
             if ( $unsupportedRuntimeMediaOwner instanceof DOMElement
                 && 'svg' === strtolower($child->tagName)
-                && $this->isDependentRuntimeMediaMask($child)
+                && $this->sourceElementClassifier->isDependentRuntimeMediaMask($child)
                 && is_int($ownerFallbackIndex)
             ) {
                 $this->recordDependentRuntimeMediaMaskLoss($unsupportedRuntimeMediaOwner, $child, $fallbacks, $ownerFallbackIndex);
@@ -2526,7 +2513,7 @@ final class HtmlTransformer
             $block = $this->convertElement($child, $fallbacks, $captureUnsupported);
             if ( null !== $block ) {
                 $blocks[] = $block;
-            } elseif ( $this->isRuntimeMediaSurfaceElement($child) ) {
+            } elseif ( $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($child) ) {
                 $ownerSelector = $this->elementSelector($child);
                 for ( $index = $fallbackOffset; $index < count($fallbacks); ++$index ) {
                     if ( $ownerSelector === ($fallbacks[$index]['selector'] ?? null)
@@ -2541,47 +2528,6 @@ final class HtmlTransformer
         }
 
         return $blocks;
-    }
-
-    private function isRuntimeMediaSurfaceElement(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'iframe', 'canvas', 'embed', 'object' ), true) ) {
-            return true;
-        }
-
-        return str_contains($tagName, '-')
-            && 1 === preg_match('/(?:^|-)(?:audio|carousel|gallery|iframe|media|player|slideshow|video)(?:-|$)/', $tagName);
-    }
-
-    private function isDependentRuntimeMediaMask(DOMElement $element): bool
-    {
-        if ( '' !== trim($this->attr($element, 'aria-label'))
-            || in_array(strtolower(trim($this->attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
-            || 0 < $element->getElementsByTagName('title')->length
-            || 0 < $element->getElementsByTagName('desc')->length
-        ) {
-            return false;
-        }
-
-        $identity = strtolower(implode(' ', array(
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($element, 'data-role'),
-        )));
-        if ( 1 === preg_match('/\b(?:clip|mask|overlay)\b/', $identity) ) {
-            return true;
-        }
-
-        $paths = $element->getElementsByTagName('path');
-        $path = 1 === $paths->length ? $paths->item(0) : null;
-        return $path instanceof DOMElement
-            && 1 === $element->getElementsByTagName('*')->length
-            && '' !== trim($this->attr($path, 'd'))
-            && '' === trim($this->attr($element, 'fill'))
-            && '' === trim($this->attr($element, 'stroke'))
-            && '' === trim($this->attr($path, 'fill'))
-            && '' === trim($this->attr($path, 'stroke'));
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -2666,7 +2612,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
                 fn (DOMElement $sourceElement, array $excludedTags): string => $this->innerHtmlWithoutTags($sourceElement, $excludedTags),
                 fn (string $html): string => $this->runtime->stripAllTags($html),
-                fn (string $inlineTagName): bool => $this->isInlineContentElement($inlineTagName)
+                fn (string $inlineTagName): bool => $this->sourceElementClassifier->isInlineContentElement($inlineTagName)
             ),
             new CodeWindowPatternContext(
                 fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
@@ -3213,7 +3159,7 @@ final class HtmlTransformer
         // A non-semantic custom element is transparent only as a single
         // structural wrapper. Larger arbitrary subtrees remain eligible for
         // the custom-block generator rather than being prematurely flattened.
-        if ( ! $isList && (1 !== count($children) || ! $this->isStructuralTransparentCustomWrapperChild($children[0])) ) {
+        if ( ! $isList && (1 !== count($children) || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($children[0])) ) {
             return null;
         }
 
@@ -3259,7 +3205,7 @@ final class HtmlTransformer
             // transparent lowering, so preserve the complete custom element.
             if ( $this->runtimeIslands->isRuntimeDomTarget($candidate)
                 || array() !== $this->eventMetadata($candidate)
-                || $this->hasMotionStructureToken($candidate)
+                || $this->sourceElementClassifier->hasMotionStructureToken($candidate)
             ) {
                 return false;
             }
@@ -3276,7 +3222,7 @@ final class HtmlTransformer
 
     private function isInertRuntimeMediaPlaceholder(DOMElement $element): bool
     {
-        if ( ! $this->isRuntimeMediaSurfaceElement($element)
+        if ( ! $this->sourceElementClassifier->isRuntimeMediaSurfaceElement($element)
             || ! str_contains(strtolower($element->tagName), '-')
             || '' !== trim($element->textContent ?? '')
         ) {
@@ -3304,17 +3250,12 @@ final class HtmlTransformer
                 }
             }
 
-            if ( $candidate !== $element && ! $this->isStructuralTransparentCustomWrapperChild($candidate) ) {
+            if ( $candidate !== $element && ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($candidate) ) {
                 return false;
             }
         }
 
         return true;
-    }
-
-    private function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
-    {
-        return in_array(strtolower($element->tagName), array( 'article', 'aside', 'blockquote', 'div', 'dl', 'figure', 'footer', 'form', 'header', 'main', 'nav', 'ol', 'p', 'pre', 'section', 'table', 'ul' ), true);
     }
 
     /**
@@ -3326,10 +3267,10 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( $this->hasResponsiveImageSources($element) ) {
+        if ( $this->sourceElementClassifier->hasResponsiveImageSources($element) ) {
             // GalleryPattern probes child conversions before it knows whether it
             // has enough images. Preserve the collection as one companion block.
-            return $this->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
+            return $this->sourceElementClassifier->hasGalleryMediaItems($element) ? $this->responsiveMediaBlock($element) : null;
         }
 
         return $this->recognizePatterns($element, $fallbacks, array(GalleryPattern::class));
@@ -3364,28 +3305,6 @@ final class HtmlTransformer
         }
 
         return true;
-    }
-
-    private function hasGalleryMediaItems(DOMElement $element): bool
-    {
-        $items = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || 'figcaption' === strtolower($child->tagName) ) {
-                if ( ! $child instanceof DOMElement ) {
-                    return false;
-                }
-                continue;
-            }
-            if ( ! in_array(strtolower($child->tagName), array( 'figure', 'img', 'picture' ), true) ) {
-                return false;
-            }
-            ++$items;
-        }
-
-        return $items >= 2;
     }
 
     /**
@@ -3546,7 +3465,7 @@ final class HtmlTransformer
                     || ('' !== $this->authorStyles()->combinedCss()
                         && 'a' === strtolower($logicalControl->tagName)
                         && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
-            $preserveGeneratedStyle = ('core/button' === $name && $this->hasLogoBrandSignal($sourceElement))
+            $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(
                 $name,
@@ -3555,7 +3474,7 @@ final class HtmlTransformer
                 $sourceElement,
                 $logicalControl,
                 new SourceBlockAttributeProjectionFacts(
-                    $this->isInlineSourceElement($sourceTagName),
+                    $this->sourceElementClassifier->isInlineSourceElement($sourceTagName),
                     'core/group' === $name
                         && $this->isDirectChildOfAuthorOwnedLayout($sourceElement)
                         && $this->hasAuthorSemanticMarker($sourceElement),
@@ -3661,7 +3580,7 @@ final class HtmlTransformer
      */
     private function ownsPositioningGeometry(DOMElement $element): bool
     {
-        if ( ! $this->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
+        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) || $this->isRichTextInlineContext($element) ) {
             return false;
         }
 
@@ -3678,24 +3597,11 @@ final class HtmlTransformer
         }
 
         if ( 'sticky' === $position ) {
-            return $this->hasResolvedInset($declarations) || $hasZIndex;
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
         }
 
         if ( 'relative' === $position ) {
-            return $this->hasResolvedInset($declarations) || $hasZIndex;
-        }
-
-        return false;
-    }
-
-    /** @param array<string, string> $declarations */
-    private function hasResolvedInset(array $declarations): bool
-    {
-        foreach ( array( 'inset', 'inset-block', 'inset-inline', 'inset-block-start', 'inset-block-end', 'inset-inline-start', 'inset-inline-end', 'top', 'right', 'bottom', 'left' ) as $property ) {
-            $value = strtolower(trim((string) ($declarations[$property] ?? '')));
-            if ( ! in_array($value, array( '', 'auto', 'inherit', 'initial', 'unset', '0', '0px', '0rem', '0em', '0%' ), true) ) {
-                return true;
-            }
+            return $this->sourceElementClassifier->hasResolvedInset($declarations) || $hasZIndex;
         }
 
         return false;
@@ -3826,7 +3732,7 @@ final class HtmlTransformer
 
             $tagName = strtolower($descendant->tagName);
             if ( $this->ownsPositioningGeometry($descendant)
-                || ! $this->isInlineContentElement($tagName)
+                || ! $this->sourceElementClassifier->isInlineContentElement($tagName)
                 || in_array($tagName, array( 'a', 'button', 'input', 'select', 'textarea' ), true)
             ) {
                 return true;
@@ -3884,7 +3790,7 @@ final class HtmlTransformer
             if ( in_array($tag, array( 'img', 'svg' ), true) ) {
                 return true;
             }
-            if ( 'br' !== $tag && ! $this->isInlineContentElement($tag) ) {
+            if ( 'br' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
                 return false;
             }
             foreach ( $candidate->childNodes as $child ) {
@@ -3928,7 +3834,7 @@ final class HtmlTransformer
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
-        if ( ! $this->isInlineContentElement(strtolower($element->tagName))
+        if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
             return false;
         }
@@ -4344,7 +4250,7 @@ final class HtmlTransformer
             return $attrs;
         }
 
-        $listItemHasBlockContent = 'core/list-item' === $name && $this->hasBlockContentChildren($body);
+        $listItemHasBlockContent = 'core/list-item' === $name && $this->sourceElementClassifier->hasBlockContentChildren($body);
 
         $hoistedClasses      = '';
         $hoistedDeclarations = array();
@@ -4826,7 +4732,7 @@ final class HtmlTransformer
     {
         $chain = array();
         $cursor = $block;
-        while ($this->isSingleGroupShellCandidate($cursor)) {
+        while ($this->sourceElementClassifier->isSingleGroupShellCandidate($cursor)) {
             $descriptor = $this->groupWrapperDescriptor($cursor);
             if (null === $descriptor) {
                 break;
@@ -4862,12 +4768,12 @@ final class HtmlTransformer
             $emptyEndpoint = true;
         } else {
             $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
-            $terminalIsShell = $this->isLayoutShellBlock($terminal);
+            $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
             $terminalBlocks = $terminalIsShell
                 ? $terminal['innerBlocks']
                 : array($terminal);
         }
-        $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->hasSourceProjectionClass($entry['block'])));
+        $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->sourceElementClassifier->hasSourceProjectionClass($entry['block'])));
         $minimumLength = $branchEndpoint || $emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3);
         if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
             $wrappers = array_column($chain, 'descriptor');
@@ -4903,32 +4809,6 @@ final class HtmlTransformer
         return $block;
     }
 
-    /** @param array<string, mixed> $block */
-    private function isLayoutShellBlock(array $block): bool
-    {
-        return str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell')
-            && 0 < count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array());
-    }
-
-    /** @param array<string, mixed> $block */
-    private function isSingleGroupShellCandidate(array $block): bool
-    {
-        if ('core/group' !== ($block['blockName'] ?? null)
-            || 1 !== count(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array())
-            || isset($block['_binding_token'])
-            || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
-        ) {
-            return false;
-        }
-        return true;
-    }
-
-    /** @param array<string, mixed> $block */
-    private function hasSourceProjectionClass(array $block): bool
-    {
-        return (bool) preg_match('/(?:^|\s)blocks-engine-(?:attribute|css-owned|editor-anchor|semantic|source)-/', (string) ($block['attrs']['className'] ?? ''));
-    }
-
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     private function groupWrapperDescriptor(array $block): ?array
     {
@@ -4952,18 +4832,10 @@ final class HtmlTransformer
         foreach ($element->attributes ?? array() as $attribute) {
             $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
         }
-        if (!$this->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
+        if (!$this->sourceElementClassifier->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
             return null;
         }
         return array('tagName' => $tagName, 'attributes' => $attributes, 'opening' => $opening, 'closing' => $closing);
-    }
-
-    private function isLayoutShellSerializableStyle(string $style): bool
-    {
-        // React style objects cannot express declaration priority. Other
-        // canonical serialized values remain strings and are parsed directly
-        // by layout-shell without a normalizing CSSOM round trip.
-        return !preg_match('/!\s*important/i', $style);
     }
 
     /**
@@ -5138,7 +5010,7 @@ final class HtmlTransformer
             || array() !== $this->interactiveAttributes($element)
             || (null === $proof && array() !== $this->safeDataAttributes($element))
             || (null === $proof && array() !== $this->structureSignals($element, array()) && ! $redundantNestedLayout)
-            || $this->hasMotionStructureToken($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
         ) {
             return null;
         }
@@ -5153,7 +5025,7 @@ final class HtmlTransformer
         if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
         if ( ! $sourceChild instanceof DOMElement
             || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
-            || $this->hasMotionStructureToken($sourceChild)
+            || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)
             || (null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)))
             || (null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
             || ('core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
@@ -5197,7 +5069,7 @@ final class HtmlTransformer
     private function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
         $proof = $this->layoutGeometryProofFor($element);
-        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->hasMotionStructureToken($element)) return null;
+        if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)) return null;
         $sourceChild = $this->soleElementChild($element);
@@ -5287,7 +5159,7 @@ final class HtmlTransformer
             || array() !== $this->interactiveAttributes($element)
             || array() !== $this->safeDataAttributes($element)
             || array() !== $this->structureSignals($element, array())
-            || $this->hasMotionStructureToken($element)
+            || $this->sourceElementClassifier->hasMotionStructureToken($element)
             || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
         ) {
             return false;
@@ -5322,12 +5194,6 @@ final class HtmlTransformer
         return $child;
     }
 
-    private function hasMotionStructureToken(DOMElement $element): bool
-    {
-        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:band|carousel|loop|marquee|mask|rail|scroller|slider|ticker|track|viewport)(?:[^a-z0-9]|$)/', $identity);
-    }
-
     /**
      * Return resting stylesheet declarations which prove an otherwise empty group
      * is authored layout, paint, or control topology. Stateful selectors never
@@ -5351,7 +5217,7 @@ final class HtmlTransformer
             $matchedRules[$ruleOrder] = true;
             $declarations = array_filter(
                 $candidate['declarations'],
-                fn (string $value, string $property): bool => $this->isNonNeutralVisualTopologyDeclaration($property, $value),
+                fn (string $value, string $property): bool => $this->sourceElementClassifier->isNonNeutralVisualTopologyDeclaration($property, $value),
                 ARRAY_FILTER_USE_BOTH
             );
             if ( array() !== $declarations ) {
@@ -5366,18 +5232,6 @@ final class HtmlTransformer
             }
         }
         return $evidence;
-    }
-
-    private function isNonNeutralVisualTopologyDeclaration(string $property, string $value): bool
-    {
-        $value = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', $value) ?? $value));
-        if ( '' === $value || in_array($value, array( 'auto', 'none', 'normal', 'static', 'visible', 'transparent', 'inherit', 'initial', 'revert', 'revert-layer', 'unset' ), true) ) {
-            return false;
-        }
-        if ( in_array($property, array( 'color', 'font-family', 'font-size', 'font-style', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration' ), true) ) {
-            return false;
-        }
-        return 1 === preg_match('/^(?:align-|appearance|aspect-ratio|background|border|bottom|box-shadow|column|contain|cursor|display|filter|flex|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|table-layout|top|transform|vertical-align|width|z-index)/', $property);
     }
 
     /**
@@ -5639,7 +5493,7 @@ final class HtmlTransformer
             return true;
         }
 
-        if ( $this->isInlineContentElement(strtolower($element->tagName)) ) {
+        if ( $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
             return $this->runtimeIslands->isRuntimeDomTarget($element)
                 || in_array(strtolower($this->attr($element, 'role')), array( 'presentation', 'none' ), true)
                 || 'true' === strtolower($this->attr($element, 'aria-hidden'))
@@ -5678,7 +5532,7 @@ final class HtmlTransformer
     {
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'height', 'min-height', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
@@ -5899,7 +5753,7 @@ final class HtmlTransformer
             }
 
             $height = SpacerPattern::heightFromStyle($this->attr($flank, 'style'));
-            if ( '' === $height || ! $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($height, $flank)) ) {
+            if ( '' === $height || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($height, $flank)) ) {
                 return null;
             }
             $margins[ $side ] = $height;
@@ -5914,7 +5768,7 @@ final class HtmlTransformer
 
     private function isEmptyVisualInlineCandidate(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->isInlineContentElement(strtolower($element->tagName)) ) {
+        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) || ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName)) ) {
             return false;
         }
 
@@ -5926,7 +5780,7 @@ final class HtmlTransformer
     private function hasExplicitEmptyVisualDimensions(array $declarations): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            if ( ! isset($declarations[$property]) || ! $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property])) ) {
+            if ( ! isset($declarations[$property]) || ! $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property])) ) {
                 return false;
             }
         }
@@ -5934,57 +5788,30 @@ final class HtmlTransformer
         return true;
     }
 
-    private function isPositiveCssLength(string $value): bool
-    {
-        if ( ! preg_match('/^([+]?(?:\d+(?:\.\d+)?|\.\d+))(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)$/i', trim($value), $matches) ) {
-            return false;
-        }
-
-        return (float) $matches[1] > 0;
-    }
-
     /** @param array<string, string> $declarations */
     private function hasVisibleEmptyVisualPaint(array $declarations, ?DOMElement $element = null): bool
     {
         foreach ( array( 'background', 'background-color', 'box-shadow', 'outline' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         foreach ( array( 'border', 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isVisibleEmptyVisualBorder($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isVisibleEmptyVisualBorder($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $element)) ) {
                 return true;
             }
         }
 
         return isset($declarations['border-color'], $declarations['border-width'])
-            && $this->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations['border-color'], $element))
-            && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations['border-width'], $element));
-    }
-
-    private function isVisibleEmptyVisualPaint(string $value): bool
-    {
-        $value = strtolower(trim($value));
-        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
-            return false;
-        }
-
-        return ! preg_match('/^#[0-9a-f]{4}$|^#[0-9a-f]{8}$/i', $value) || ! str_ends_with($value, '0');
-    }
-
-    private function isVisibleEmptyVisualBorder(string $value): bool
-    {
-        return ! str_contains(strtolower($value), 'transparent')
-            && ! preg_match('/rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/i', $value)
-            && $this->isVisibleEmptyVisualPaint($value)
-            && ! preg_match('/(?:^|\s)0(?:\.0+)?(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)?(?:\s|$)/i', trim($value));
+            && $this->sourceElementClassifier->isVisibleEmptyVisualPaint($this->styleResolver->resolveCssVariablesInValue($declarations['border-color'], $element))
+            && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations['border-width'], $element));
     }
 
     private function hasEmptyVisualInlineChild(DOMElement $element): bool
     {
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
+            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) && $this->shouldPreserveEmptyVisualElement($child) ) {
                 return true;
             }
         }
@@ -6005,29 +5832,6 @@ final class HtmlTransformer
         return strtolower(trim(preg_replace('/\s*!important\s*$/i', '', (string) ($inline['display'] ?? $display)) ?? ''));
     }
 
-    private function isInlineContentElement(string $tagName): bool
-    {
-        return InlineContentElementConverter::handlesTag($tagName);
-    }
-
-    private function isInlineSourceElement(string $tagName): bool
-    {
-        return $this->isInlineContentElement($tagName)
-            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
-    }
-
-    private function hasBlockContentChildren(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
-            if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -6043,22 +5847,9 @@ final class HtmlTransformer
 
     private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
     {
-        return $this->hasLogoBrandSignal($anchor)
+        return $this->sourceElementClassifier->hasLogoBrandSignal($anchor)
             && 0 < $anchor->getElementsByTagName('svg')->length
             && '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' ))));
-    }
-
-    private function hasLogoBrandSignal(DOMElement $element): bool
-    {
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
-                if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -6080,7 +5871,7 @@ final class HtmlTransformer
             if ( 'br' === $tagName ) {
                 $hasLineBreak = true;
             }
-            if ( 'br' !== $tagName && ! $this->isInlineContentElement($tagName) && 'a' !== $tagName ) {
+            if ( 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) && 'a' !== $tagName ) {
                 return null;
             }
         }
@@ -6129,7 +5920,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+            if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
                 return null;
             }
 
@@ -6139,7 +5930,7 @@ final class HtmlTransformer
                 }
 
                 $descendantTagName = strtolower($descendant->tagName);
-                if ( 'a' !== $descendantTagName && 'br' !== $descendantTagName && ! $this->isInlineContentElement($descendantTagName) ) {
+                if ( 'a' !== $descendantTagName && 'br' !== $descendantTagName && ! $this->sourceElementClassifier->isInlineContentElement($descendantTagName) ) {
                     return null;
                 }
             }
@@ -6263,7 +6054,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->hasInlineTokenGroupSignal($element) ) {
+        if ( ! $this->sourceElementClassifier->hasInlineTokenGroupSignal($element) ) {
             return null;
         }
 
@@ -6280,7 +6071,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( ! $this->isInlineTokenItemElement($child) ) {
+            if ( ! $this->sourceElementClassifier->isInlineTokenItemElement($child) ) {
                 return null;
             }
 
@@ -6308,48 +6099,9 @@ final class HtmlTransformer
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
     }
 
-    private function hasInlineTokenGroupSignal(DOMElement $element): bool
-    {
-        if ( $this->hasInlineTokenSignal($element) ) {
-            return true;
-        }
-
-        $tokenChildren = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->isInlineTokenItemElement($child) ) {
-                ++$tokenChildren;
-            }
-        }
-
-        return 1 < $tokenChildren;
-    }
-
-    private function isInlineTokenItemElement(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( ! in_array($tagName, array( 'a', 'button' ), true) && ! $this->isInlineContentElement($tagName) ) {
-            return false;
-        }
-
-        return $this->hasInlineTokenSignal($element);
-    }
-
-    private function hasInlineTokenSignal(DOMElement $element): bool
-    {
-        $tokens = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'role'),
-            $this->attr($element, 'data-filter'),
-            $this->attr($element, 'data-tag'),
-        ))));
-
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
-    }
-
     private function visualTextWrapperBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || $this->hasBlockContentChildren($element) ) {
+        if ( ! in_array(strtolower($element->tagName), array( 'div', 'span' ), true) || $this->sourceElementClassifier->hasBlockContentChildren($element) ) {
             return null;
         }
 
@@ -6490,7 +6242,7 @@ final class HtmlTransformer
             }
         }
 
-        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return null;
         }
 
@@ -6527,7 +6279,7 @@ final class HtmlTransformer
 
     private function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool
     {
-        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->hasOnlyPhrasingChildren($element) ) {
+        if ( ! ShellLandmarkPolicy::isInlineContentWrapperTag($element->tagName) || ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return false;
         }
 
@@ -6546,7 +6298,7 @@ final class HtmlTransformer
 
     private function inlineNavigationGroupBlockFromElement(DOMElement $element): ?array
     {
-        if ( ! $this->hasOnlyPhrasingChildren($element) ) {
+        if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return null;
         }
 
@@ -6585,38 +6337,6 @@ final class HtmlTransformer
         return false;
     }
 
-    private function hasOnlyPhrasingChildren(DOMElement $element): bool
-    {
-        $nonAnchorText = false;
-
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                if ( '' !== trim($child->textContent ?? '') ) {
-                    $nonAnchorText = true;
-                }
-                continue;
-            }
-
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($child->tagName);
-            if ( 'a' === $tagName ) {
-                continue;
-            }
-
-            if ( 'br' === $tagName || $this->isInlineContentElement($tagName) ) {
-                $nonAnchorText = true;
-                continue;
-            }
-
-            return false;
-        }
-
-        return $nonAnchorText;
-    }
-
     /**
      * @return array<int, array<string, mixed>>|null
      */
@@ -6640,7 +6360,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( ! $this->isClassedPhrasingItem($child) ) {
+            if ( ! $this->sourceElementClassifier->isClassedPhrasingItem($child) ) {
                 return null;
             }
 
@@ -6662,16 +6382,6 @@ final class HtmlTransformer
         }
 
         return 1 < count($blocks) ? $blocks : null;
-    }
-
-    private function isClassedPhrasingItem(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( 'br' === $tagName || ( 'a' !== $tagName && ! $this->isInlineContentElement($tagName) ) ) {
-            return false;
-        }
-
-        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'style'));
     }
 
     private function dynamicTextContent(DOMElement $element): ?string
@@ -6785,17 +6495,17 @@ final class HtmlTransformer
         if ( preg_match('/(?:^|[\s_-])(?:hero|masthead|intro|banner|container|wrap|wrapper|inner|shell)(?:$|[\s_-])/', $className) ) {
             $signals['section_container_like'] = true;
         }
-        if ( $this->isVisualLayerElement($element) ) {
+        if ( $this->sourceElementClassifier->isVisualLayerElement($element) ) {
             $signals['visual_layer'] = true;
         }
-        if ( $this->hasCommerceToken($element, array( 'badge', 'featured', 'popular', 'recommended' )) ) {
+        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'badge', 'featured', 'popular', 'recommended' )) ) {
             $signals['featured_badge_like'] = true;
         }
         $priceText = 'div' === strtolower($element->tagName) ? $this->directTextContent($element) : ($element->textContent ?? '');
-        if ( $this->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->looksLikePriceText($priceText) ) {
+        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->looksLikePriceText($priceText) ) {
             $signals['price_like'] = true;
         }
-        if ( $this->hasCommerceToken($element, array( 'product', 'menu', 'dish', 'plan', 'tier', 'name', 'title' )) ) {
+        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'product', 'menu', 'dish', 'plan', 'tier', 'name', 'title' )) ) {
             $signals['commerce_content_like'] = true;
         }
         if ( $this->looksLikeNamePriceRow($element) ) {
@@ -6814,52 +6524,12 @@ final class HtmlTransformer
     {
         $itemCount = 0;
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $this->isCardLikeElement($child) ) {
+            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isCardLikeElement($child) ) {
                 ++$itemCount;
             }
         }
 
         return $itemCount;
-    }
-
-    private function isCardLikeElement(DOMElement $element): bool
-    {
-        $className = strtolower($this->attr($element, 'class'));
-        return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className);
-    }
-
-    private function isVisualLayerElement(DOMElement $element): bool
-    {
-        $context = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'aria-label'),
-        ))));
-        $style = strtolower($this->attr($element, 'style'));
-
-        if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $context) ) {
-            return true;
-        }
-
-        return (bool) ( preg_match('/(?:^|;)\s*position\s*:\s*(?:fixed|absolute)\b/', $style)
-            && preg_match('/(?:^|;)\s*(?:inset|top|right|bottom|left|z-index|pointer-events|mix-blend-mode|opacity|filter|background|background-image)\s*:/', $style) );
-    }
-
-    /**
-     * @param array<int, string> $tokens
-     */
-    private function hasCommerceToken(DOMElement $element, array $tokens): bool
-    {
-        foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
-            $value = strtolower($this->attr($element, $attribute));
-            foreach ( preg_split('/[^a-z0-9]+/', $value) ?: array() as $token ) {
-                if ( in_array($token, $tokens, true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     private function looksLikePriceText(string $text): bool
@@ -7459,7 +7129,7 @@ final class HtmlTransformer
         }
 
         foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
+            if ( $descendant instanceof DOMElement && $this->sourceElementClassifier->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
                 $text = $this->collapsedText($descendant);
                 if ( '' !== $text ) {
                     return $text;
@@ -7511,7 +7181,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( $this->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
+            if ( $this->sourceElementClassifier->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
                 $sale = '' === $sale ? $formatted : $sale;
                 continue;
             }
@@ -7558,7 +7228,7 @@ final class HtmlTransformer
 
         // A schema.org price content attribute is bare numeric (e.g. "24.00");
         // keep it as-is when the element is a declared price.
-        if ( $this->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
+        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
             return $text;
         }
 
@@ -8107,7 +7777,7 @@ final class HtmlTransformer
         $declarations = $this->styleResolver->structuralPresentationDeclarations($figure);
         $hasBoundedHeight = false;
         foreach ( array( 'height', 'min-height' ) as $property ) {
-            if ( isset($declarations[$property]) && $this->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
+            if ( isset($declarations[$property]) && $this->sourceElementClassifier->isPositiveCssLength($this->styleResolver->resolveCssVariablesInValue($declarations[$property], $figure)) ) {
                 $hasBoundedHeight = true;
                 break;
             }
@@ -8513,7 +8183,7 @@ final class HtmlTransformer
             }
 
             $tag = strtolower($child->tagName);
-            if ( 'a' !== $tag && 'br' !== $tag && ! $this->isInlineContentElement($tag) ) {
+            if ( 'a' !== $tag && 'br' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
                 return false;
             }
             foreach ( $child->attributes as $attribute ) {
@@ -8683,11 +8353,11 @@ final class HtmlTransformer
         }
 
         $style = $this->metadataPresentationStyle($element);
-        if ( ! $this->isMetadataLayoutStyle($style) ) {
+        if ( ! $this->sourceElementClassifier->isMetadataLayoutStyle($style) ) {
             return null;
         }
 
-        if ( $this->isFlexMetadataStyle($style) && ! $this->hasStrongFlexMetadataEvidence($element, $children, $isDefinitionList, $style) ) {
+        if ( $this->sourceElementClassifier->isFlexMetadataStyle($style) && ! $this->hasStrongFlexMetadataEvidence($element, $children, $isDefinitionList, $style) ) {
             return null;
         }
 
@@ -8725,7 +8395,7 @@ final class HtmlTransformer
             if ( ! $child instanceof DOMElement ) {
                 return array();
             }
-            if ( $this->hasBlockContentChildren($child) ) {
+            if ( $this->sourceElementClassifier->hasBlockContentChildren($child) ) {
                 return array();
             }
             $cells[] = $child;
@@ -8748,7 +8418,7 @@ final class HtmlTransformer
 
         $matchingRows = 0;
         foreach ( $parent->childNodes as $sibling ) {
-            if ( ! $sibling instanceof DOMElement || ! $this->isMetadataLayoutStyle($this->metadataPresentationStyle($sibling)) ) {
+            if ( ! $sibling instanceof DOMElement || ! $this->sourceElementClassifier->isMetadataLayoutStyle($this->metadataPresentationStyle($sibling)) ) {
                 continue;
             }
             $cells = $this->directMetadataCells($sibling);
@@ -8779,16 +8449,6 @@ final class HtmlTransformer
         }
 
         return false;
-    }
-
-    private function isMetadataLayoutStyle(string $style): bool
-    {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?(?:grid|flex)\b/i', $style);
-    }
-
-    private function isFlexMetadataStyle(string $style): bool
-    {
-        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex\b/i', $style);
     }
 
     /** @param array<int, DOMElement> $children */
@@ -8899,7 +8559,7 @@ final class HtmlTransformer
                 }
 
                 $tagName = strtolower($descendant->tagName);
-                if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                if ( 'a' !== $tagName && 'br' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
                     return true;
                 }
             }
@@ -9041,11 +8701,11 @@ final class HtmlTransformer
 
             // A block-level child means this is not an inline card (e.g. a
             // product card with <img>/<h3>/<p>); leave it to the normal path.
-            if ( 'br' !== $tag && 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+            if ( 'br' !== $tag && 'a' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
                 return false;
             }
 
-            if ( $this->hasBlockContentChildren($child) || $this->richTextContentHasStructuralHtml($this->innerHtml($child)) ) {
+            if ( $this->sourceElementClassifier->hasBlockContentChildren($child) || $this->richTextContentHasStructuralHtml($this->innerHtml($child)) ) {
                 return false;
             }
 
@@ -9068,7 +8728,7 @@ final class HtmlTransformer
         if ( 'span' === $tag ) {
             return $this->isStylingHookSpan($element);
         }
-        if ( 'a' !== $tag && ! $this->isInlineContentElement($tag) ) {
+        if ( 'a' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
             return false;
         }
 
@@ -9330,30 +8990,6 @@ final class HtmlTransformer
         return false;
     }
 
-    private function isPresentationalAnimationSelector(string $selector): bool
-    {
-        $name = '';
-        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
-            $name = substr(strtolower((string) $match[1]), 5);
-        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        }
-
-        if ( '' === $name ) {
-            return false;
-        }
-
-        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * @return array<int, array<string, mixed>>
      */
@@ -9410,17 +9046,6 @@ final class HtmlTransformer
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
             'scale'     => in_array($scale, array( 'cover', 'contain' ), true) ? $scale : '',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
-    }
-
-    private function hasDirectMediaChild(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'img', 'picture', 'svg', 'video', 'audio' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -9528,7 +9153,7 @@ final class HtmlTransformer
             if ( ! $child instanceof DOMElement ) {
                 return null;
             }
-            if ( ! $this->isInlineCommerceRowChild($child) ) {
+            if ( ! $this->sourceElementClassifier->isInlineCommerceRowChild($child) ) {
                 return null;
             }
             $children[] = $child;
@@ -9544,7 +9169,7 @@ final class HtmlTransformer
         $secondIsPrice = $this->isPriceElement($second);
         if ( $firstIsPrice !== $secondIsPrice ) {
             $other = $firstIsPrice ? $second : $first;
-            if ( $this->isNameElement($other) || $this->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
+            if ( $this->sourceElementClassifier->isNameElement($other) || $this->sourceElementClassifier->hasCommerceToken($element, array( 'menu', 'product', 'pricing', 'price', 'plan', 'tier', 'dish', 'item', 'row' )) ) {
                 return $children;
             }
         }
@@ -9560,76 +9185,45 @@ final class HtmlTransformer
         return null;
     }
 
-    private function isInlineCommerceRowChild(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'span', 'strong', 'em', 'small', 'time' ), true) ) {
-            return ! $this->hasBlockContentChildren($element);
-        }
-
-        return false;
-    }
-
     private function isPriceElement(DOMElement $element): bool
     {
-        return $this->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '');
-    }
-
-    private function isNameElement(DOMElement $element): bool
-    {
-        return $this->hasCommerceToken($element, array( 'name', 'title', 'product', 'dish', 'item', 'plan', 'tier' )) || preg_match('/^h[1-6]$/', strtolower($element->tagName));
+        return $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '');
     }
 
     private function looksLikeHoursRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
     {
-        if ( ! $this->hasCommerceToken($row, array( 'hours', 'hour', 'schedule', 'time', 'row' )) ) {
+        if ( ! $this->sourceElementClassifier->hasCommerceToken($row, array( 'hours', 'hour', 'schedule', 'time', 'row' )) ) {
             return false;
         }
 
-        return ( $this->isDayElement($first) && $this->isTimeValueElement($second) )
-            || ( $this->isDayElement($second) && $this->isTimeValueElement($first) );
+        return ( $this->sourceElementClassifier->isDayElement($first) && $this->sourceElementClassifier->isTimeValueElement($second) )
+            || ( $this->sourceElementClassifier->isDayElement($second) && $this->sourceElementClassifier->isTimeValueElement($first) );
     }
 
     private function looksLikeLabelValueRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
     {
-        if ( ! $this->hasCommerceToken($row, array( 'row', 'item', 'pair', 'line', 'entry', 'schedule', 'session', 'meta', 'detail' )) ) {
+        if ( ! $this->sourceElementClassifier->hasCommerceToken($row, array( 'row', 'item', 'pair', 'line', 'entry', 'schedule', 'session', 'meta', 'detail' )) ) {
             return false;
         }
 
         $firstIsLabel = $this->isLabelValueLabelElement($first);
         $secondIsLabel = $this->isLabelValueLabelElement($second);
-        $firstIsValue = $this->isLabelValueValueElement($first);
-        $secondIsValue = $this->isLabelValueValueElement($second);
+        $firstIsValue = $this->sourceElementClassifier->isLabelValueValueElement($first);
+        $secondIsValue = $this->sourceElementClassifier->isLabelValueValueElement($second);
 
         return ( $firstIsLabel && $secondIsValue ) || ( $secondIsLabel && $firstIsValue );
     }
 
     private function isLabelValueLabelElement(DOMElement $element): bool
     {
-        return $this->hasCommerceToken($element, array( 'label', 'term', 'key', 'day', 'date', 'time', 'hour', 'hours', 'duration' ))
+        return $this->sourceElementClassifier->hasCommerceToken($element, array( 'label', 'term', 'key', 'day', 'date', 'time', 'hour', 'hours', 'duration' ))
             || 'time' === strtolower($element->tagName)
             || $this->looksLikeDateOrTimeText($element->textContent ?? '');
-    }
-
-    private function isLabelValueValueElement(DOMElement $element): bool
-    {
-        return $this->hasCommerceToken($element, array( 'value', 'detail', 'title', 'name', 'content', 'description', 'desc', 'meta', 'session', 'event', 'location', 'venue' ))
-            || preg_match('/^h[1-6]$/', strtolower($element->tagName));
     }
 
     private function looksLikeDateOrTimeText(string $text): bool
     {
         return (bool) preg_match('/\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:min|mins|minutes|hr|hrs|hours)|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|day\s+\d+)\b/i', trim($text));
-    }
-
-    private function isDayElement(DOMElement $element): bool
-    {
-        return $this->hasCommerceToken($element, array( 'day', 'date', 'label' )) || (bool) preg_match('/\b(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|weekdays?|weekends?)\b/i', $element->textContent ?? '');
-    }
-
-    private function isTimeValueElement(DOMElement $element): bool
-    {
-        return $this->hasCommerceToken($element, array( 'time', 'hours', 'value', 'closed' )) || (bool) preg_match('/\b(?:closed|open|\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:[\x{2013}\x{2014}-]|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/iu', $element->textContent ?? '');
     }
 
     /**
@@ -9644,7 +9238,7 @@ final class HtmlTransformer
                 continue;
             }
 
-            if ( $child instanceof DOMElement && $this->isNavigationSectionHeading($child) ) {
+            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isNavigationSectionHeading($child) ) {
                 if ( $heading instanceof DOMElement ) {
                     return null;
                 }
@@ -9664,7 +9258,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( ! $this->hasNavigationContainerSignal($element) && ! $this->hasSoftNavigationSectionHeadingSignal($heading) ) {
+        if ( ! $this->sourceElementClassifier->hasNavigationContainerSignal($element) && ! $this->sourceElementClassifier->hasSoftNavigationSectionHeadingSignal($heading) ) {
             return null;
         }
 
@@ -9686,46 +9280,6 @@ final class HtmlTransformer
         $blocks[] = $this->createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array_values(array_filter($blocks)), $element);
-    }
-
-    private function isNavigationSectionHeading(DOMElement $element): bool
-    {
-        if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {
-            return true;
-        }
-
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) || '' === trim($element->textContent ?? '') ) {
-            return false;
-        }
-
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role') . ' ' . $this->attr($element, 'aria-label')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
-    }
-
-    private function hasSoftNavigationSectionHeadingSignal(DOMElement $element): bool
-    {
-        return ! preg_match('/^h[1-6]$/i', $element->tagName) && $this->isNavigationSectionHeading($element);
-    }
-
-    private function hasNavigationContainerSignal(DOMElement $element): bool
-    {
-        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
-            return true;
-        }
-
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
-    }
-
-    private function hasDirectChildElement(DOMElement $element, string $tagName): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && $tagName === strtolower($child->tagName) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function convertMediaElement(DOMElement $element): ?array
@@ -9813,7 +9367,7 @@ final class HtmlTransformer
             return null;
         }
 
-        if ( $this->hasPictureSourceSelection($picture) ) {
+        if ( $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
         }
 
@@ -9879,7 +9433,7 @@ final class HtmlTransformer
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
-        if ( $picture instanceof DOMElement && $this->hasPictureSourceSelection($picture) ) {
+        if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
 
@@ -10072,17 +9626,6 @@ final class HtmlTransformer
         return $src;
     }
 
-    private function hasPictureSourceSelection(DOMElement $element): bool
-    {
-        foreach ( $element->getElementsByTagName('source') as $source ) {
-            if ( $source instanceof DOMElement && '' !== $this->attr($source, 'srcset') ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private function imageOnlyCustomElement(DOMElement $element): ?DOMElement
     {
         if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') ) {
@@ -10194,34 +9737,6 @@ final class HtmlTransformer
         return $image;
     }
 
-    private function isImageCarrierButton(DOMElement $element): bool
-    {
-        if ( '' !== trim($element->textContent ?? '') || 'submit' === strtolower($this->attr($element, 'type')) ) {
-            return false;
-        }
-
-        return 0 < $element->getElementsByTagName('img')->length;
-    }
-
-    private function hasResponsiveImageSources(DOMElement $element): bool
-    {
-        if ( 'img' === strtolower($element->tagName) ) {
-            return '' !== $this->attr($element, 'srcset') || '' !== $this->attr($element, 'sizes');
-        }
-
-        if ( $this->hasPictureSourceSelection($element) ) {
-            return true;
-        }
-
-        foreach ( $element->getElementsByTagName('img') as $image ) {
-            if ( $image instanceof DOMElement && ( '' !== $this->attr($image, 'srcset') || '' !== $this->attr($image, 'sizes') ) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /** @return array<string, mixed> */
     private function responsiveMediaBlock(DOMElement $element): array
     {
@@ -10247,7 +9762,7 @@ final class HtmlTransformer
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
-            || ! $this->hasCapturedMediaContent($element)
+            || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
             || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
         ) {
             return null;
@@ -10359,13 +9874,6 @@ final class HtmlTransformer
         return false;
     }
 
-    private function hasCapturedMediaContent(DOMElement $element): bool
-    {
-        return 0 < $element->getElementsByTagName('img')->length
-            || 0 < $element->getElementsByTagName('svg')->length
-            || 0 < $element->getElementsByTagName('video')->length;
-    }
-
     private function hasRuntimeTargetInSubtree(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
@@ -10466,7 +9974,7 @@ final class HtmlTransformer
     /** @return array<string, mixed>|null */
     private function authoredCarouselBlock(DOMElement $element): ?array
     {
-        if ( ! $this->hasCarouselIdentity($element) ) {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             return null;
         }
 
@@ -10493,7 +10001,7 @@ final class HtmlTransformer
         $list = null;
         $items = array();
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->isCarouselList($candidate) || $this->isExpandedCarouselState($candidate, $element) ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $element) ) {
                 continue;
             }
             $candidateItems = $this->carouselListItems($candidate);
@@ -10548,26 +10056,6 @@ final class HtmlTransformer
         );
     }
 
-    private function hasCarouselIdentity(DOMElement $element): bool
-    {
-        $identity = strtolower(implode(' ', array(
-            $element->tagName,
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($element, 'role'),
-            $this->attr($element, 'data-hook'),
-            $this->attr($element, 'data-testid'),
-        )));
-
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
-    }
-
-    private function isCarouselList(DOMElement $element): bool
-    {
-        return 'list' === strtolower(trim($this->attr($element, 'role')))
-            || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
-    }
-
     /** @return array<int, DOMElement> */
     private function carouselListItems(DOMElement $list): array
     {
@@ -10591,23 +10079,6 @@ final class HtmlTransformer
         }
 
         return true;
-    }
-
-    private function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
-    {
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
-            $identity = strtolower(implode(' ', array(
-                $ancestor->tagName,
-                $this->attr($ancestor, 'class'),
-                $this->attr($ancestor, 'role'),
-                $this->attr($ancestor, 'data-hook'),
-            )));
-            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:dialog|expanded|lightbox|modal)(?:[^a-z0-9]|$)/', $identity) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function carouselItemCaption(DOMElement $item): string
@@ -10707,7 +10178,7 @@ final class HtmlTransformer
             || '' !== trim($this->attr($element, 'aria-label'))
             || '' !== trim($this->attr($element, 'aria-labelledby'))
             || '' !== trim($this->attr($element, 'title'))
-            || ! $this->hasOnlySvgDefinitions($element)
+            || ! $this->sourceElementClassifier->hasOnlySvgDefinitions($element)
             || $this->hiddenSvgStoreHasNonSvgConsumer($element) ) {
             return false;
         }
@@ -10735,22 +10206,6 @@ final class HtmlTransformer
         return true;
     }
 
-    private function hasOnlySvgDefinitions(DOMElement $element): bool
-    {
-        $hasDefinition = false;
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'defs', 'symbol' ), true) ) {
-                return false;
-            }
-            $hasDefinition = true;
-        }
-
-        return $hasDefinition;
-    }
-
     private function hiddenSvgStoreHasNonSvgConsumer(DOMElement $store): bool
     {
         $ids = array();
@@ -10764,7 +10219,7 @@ final class HtmlTransformer
         }
 
         foreach ( $store->ownerDocument->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || $this->isDescendantOf($candidate, $store) ) {
+            if ( ! $candidate instanceof DOMElement || $this->sourceElementClassifier->isDescendantOf($candidate, $store) ) {
                 continue;
             }
             foreach ( $candidate->attributes as $attribute ) {
@@ -10782,17 +10237,6 @@ final class HtmlTransformer
                         return true;
                     }
                 }
-            }
-        }
-
-        return false;
-    }
-
-    private function isDescendantOf(DOMElement $element, DOMElement $ancestor): bool
-    {
-        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            if ( $node->isSameNode($ancestor) ) {
-                return true;
             }
         }
 
@@ -11310,7 +10754,7 @@ final class HtmlTransformer
         $urls = array();
         $credentials = false;
         foreach ( $rawValues as $value ) {
-            if ( $this->isUnsafeIframeDestination($value) ) {
+            if ( $this->sourceElementClassifier->isUnsafeIframeDestination($value) ) {
                 $unsafe = true;
                 continue;
             }
@@ -11335,7 +10779,7 @@ final class HtmlTransformer
         }
         if ( $this->runtimeIslands->isRuntimeDomTarget($host)
             || array() !== $this->eventMetadata($host)
-            || $this->hasMotionStructureToken($host)
+            || $this->sourceElementClassifier->hasMotionStructureToken($host)
         ) {
             return $rejected('source_runtime_only_iframe');
         }
@@ -11398,7 +10842,7 @@ final class HtmlTransformer
             if ( ! $descendant instanceof DOMElement || $descendant === $iframe ) {
                 continue;
             }
-            if ( ! $this->isStructuralTransparentCustomWrapperChild($descendant)
+            if ( ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($descendant)
                 || $this->runtimeIslands->isRuntimeDomTarget($descendant)
                 || array() !== $this->eventMetadata($descendant)
                 || ( ! $iframe instanceof DOMElement && '' !== trim($descendant->textContent ?? '') )
@@ -11416,7 +10860,7 @@ final class HtmlTransformer
         foreach ( array( $host, $surface ) as $element ) {
             foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
                 foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $candidate ) {
-                    if ( $this->isUnsafeIframeDestination($candidate) || $this->iframeUrlHasCredentials($candidate) ) {
+                    if ( $this->sourceElementClassifier->isUnsafeIframeDestination($candidate) || $this->iframeUrlHasCredentials($candidate) ) {
                         return '';
                     }
                     $url = $this->safeEmbedUrl($candidate);
@@ -11468,11 +10912,6 @@ final class HtmlTransformer
         return $found;
     }
 
-    private function isUnsafeIframeDestination(string $value): bool
-    {
-        return 1 === preg_match('/^(?:javascript|data|vbscript)\s*:/i', $value);
-    }
-
     private function iframeUrlHasCredentials(string $url): bool
     {
         $parts = parse_url($url);
@@ -11497,7 +10936,7 @@ final class HtmlTransformer
     /** @return array<string, mixed>|null */
     private function boundedVisualIframeAttributes(DOMElement $iframe, string $url): ?array
     {
-        if ( ! $this->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
+        if ( ! $this->sourceElementClassifier->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
             return null;
         }
 
@@ -11522,50 +10961,25 @@ final class HtmlTransformer
         ), static fn (mixed $value): bool => '' !== $value && false !== $value);
     }
 
-    private function isSafeVisualIframeUrl(string $url): bool
-    {
-        $parts = parse_url($url);
-        return is_array($parts)
-            && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
-            && '' !== trim((string) ($parts['host'] ?? ''))
-            && ! isset($parts['user'])
-            && ! isset($parts['pass']);
-    }
-
     private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string
     {
         $attribute = trim($this->attr($iframe, $dimension));
-        if ( $this->isPositiveIframeDimension($attribute) ) {
+        if ( $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ) {
             return $attribute;
         }
 
-        if ( $this->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe) ) {
+        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe) ) {
             return $attribute;
         }
 
         $declaration = trim((string) ($this->styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
-        if ( $this->isPositiveIframeDimension($declaration) ) {
+        if ( $this->sourceElementClassifier->isPositiveIframeDimension($declaration) ) {
             return $declaration;
         }
 
-        return $this->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe)
+        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe)
             ? $declaration
             : null;
-    }
-
-    private function isPositiveIframeDimension(string $value): bool
-    {
-        if ( ! preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/i', $value, $matches) ) {
-            return false;
-        }
-
-        return (float) $matches[0] > 0;
-    }
-
-    private function isRelativeIframeDimension(string $value): bool
-    {
-        return (bool) preg_match('/^(?:\d+|\d*\.\d+)%$/', $value)
-            && (float) $value > 0;
     }
 
     private function iframeHasBoundedAncestor(DOMElement $iframe): bool
@@ -11574,7 +10988,7 @@ final class HtmlTransformer
             $declarations = $this->styleResolver->presentationDeclarations($ancestor);
             $width = trim($this->attr($ancestor, 'width')) ?: trim((string) ($declarations['width'] ?? ''));
             $height = trim($this->attr($ancestor, 'height')) ?: trim((string) ($declarations['height'] ?? ''));
-            if ( $this->isPositiveIframeDimension($width) && $this->isPositiveIframeDimension($height) ) {
+            if ( $this->sourceElementClassifier->isPositiveIframeDimension($width) && $this->sourceElementClassifier->isPositiveIframeDimension($height) ) {
                 return true;
             }
         }
