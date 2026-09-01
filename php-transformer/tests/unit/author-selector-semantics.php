@@ -619,6 +619,20 @@ $applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?
 $applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
 $assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
 
+$indexedSelectors = array();
+foreach ( $applicabilitySession->sourceStyleResolutionState()->ruleCandidateIndexes as $index ) {
+    foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
+        $entries = 'universal' === $bucket ? $index[$bucket] : array_merge(...array_values($index[$bucket] ?: array(array())));
+        foreach ( $entries as $entry ) {
+            $indexedSelectors[(string) ($entry['rule']['selector'] ?? '')] = true;
+        }
+    }
+}
+$assert(
+    array() !== $indexedSelectors && ! isset($indexedSelectors['.absent *']) && ! isset($indexedSelectors['.missing']),
+    'source-style candidate indexes omit selectors whose required source signals are absent'
+);
+
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
 $assert(! str_contains($customPropertyCardsMarkup, '--tone:') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), '--tone:#f06 !important') && str_contains($css($customPropertyCards), '--tone:#0af !important') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values in generated carrier CSS without unused-property or cross-card leakage');

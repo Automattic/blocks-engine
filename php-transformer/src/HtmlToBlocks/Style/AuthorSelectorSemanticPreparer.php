@@ -60,6 +60,10 @@ final class AuthorSelectorSemanticPreparer
             }
         }
         $authorStyles->installStyleRules($applicableAuthorStyleRules);
+        $sourceStyles->retainMatchableRules(static function (array $rule) use ($sourceStyles, $authorStyles): bool {
+            $parsed = $sourceStyles->parsedSelector((string) ($rule['selector'] ?? ''));
+            return null === $parsed || ! ($parsed['supported'] ?? false) || $authorStyles->selectorCanMatch($parsed);
+        });
         $this->discoverAuthorInlineSemanticPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverInlineLayoutCarrierPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorAttributePaths($authorSelectors, $authorStyles, $projections);
