@@ -398,6 +398,15 @@ final class HtmlTransformer
      */
     public const EMPTY_RUNTIME_TARGET_CLASS = 'blocks-engine-empty-runtime-target';
 
+    /**
+     * Marks a RichText block whose text was painted by the source, and into
+     * whose content a content-wrapping anchor's link had to be pushed. The
+     * synthesized inline `<a>` becomes the text's nearest painted ancestor, so
+     * the browser's link colour would replace the source colour; the projected
+     * rule makes that anchor inherit its host block's colour instead.
+     */
+    private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
+
     private const CSS_OWNED_LAYOUT_CLASS = 'blocks-engine-css-owned-layout';
 
     private const CSS_OWNED_FLOW_CLASS = 'blocks-engine-css-owned-flow';
@@ -2084,6 +2093,13 @@ final class HtmlTransformer
             // A semantic Group used as a direct grid/flex item contains native
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
+            // The source painted this text; the anchor around it only exists
+            // because a content-wrapping link was pushed into the block. It
+            // follows the author cascade so a later authored rule can still
+            // repaint the link deliberately.
+            $afterAuthorCssParts[] = ':root :where(.' . self::PROPAGATED_LINK_COLOR_CARRIER_CLASS . ')>a{color:inherit}';
         }
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
@@ -10368,7 +10384,72 @@ final class HtmlTransformer
             'target'         => $this->attr($anchor, 'target'),
             'rel'            => $this->attr($anchor, 'rel'),
             'textDecoration' => 'none' === $textDecoration ? 'none' : '',
+            'color'          => $this->linkWrapperPaintsAuthoredTextColor($anchor) ? 'inherit' : '',
         ), static fn (string $value): bool => '' !== trim($value));
+    }
+
+    /**
+     * Whether an element strictly inside a content-wrapping anchor paints every
+     * run of the anchor's text.
+     *
+     * Pushing the wrapper's href down onto an inner RichText block (see
+     * {@see self::propagateInlineLink()}) rebuilds the anchor INSIDE the block
+     * that the painting element became, so the synthesized `<a>` — not that
+     * element — is now the text's nearest painted ancestor and the browser's
+     * link colour replaces the source colour. Making the anchor inherit
+     * restores the source's painted colour, whatever it is, because the block
+     * that inherits from still carries the source's own styling hooks.
+     *
+     * The wrapper's own colour is deliberately not counted. It has no painting
+     * element inside the anchor to lose: source rules that reach the anchor by
+     * type still reach the rebuilt one, and no repaint is owed. Text sitting
+     * directly in the anchor is likewise unpainted from within, so a wrapper
+     * that holds any is left exactly as it is today.
+     */
+    private function linkWrapperPaintsAuthoredTextColor(DOMElement $anchor): bool
+    {
+        $textOwners = array();
+        foreach ( array_merge(array( $anchor ), $this->descendantElements($anchor)) as $element ) {
+            foreach ( $element->childNodes as $node ) {
+                if ( XML_TEXT_NODE === $node->nodeType && '' !== trim($node->textContent ?? '') ) {
+                    $textOwners[] = $element;
+                    break;
+                }
+            }
+        }
+
+        if ( array() === $textOwners ) {
+            return false;
+        }
+
+        foreach ( $textOwners as $textOwner ) {
+            if ( ! $this->paintsTextColorBelow($textOwner, $anchor) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether the cascade paints `$element` — or an ancestor of it below
+     * `$anchor` — with a colour of its own. That is the inheritance chain the
+     * rebuilt anchor severs, so it is the chain that decides whether the anchor
+     * must inherit.
+     */
+    private function paintsTextColorBelow(DOMElement $element, DOMElement $anchor): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement && ! $node->isSameNode($anchor); $node = $node->parentNode ) {
+            $declarations = $this->styleResolver->cssDeclarations(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $color = strtolower(trim((string) ($declarations['color'] ?? '')));
+            if ( '' !== $color && ! in_array($color, array( 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'currentcolor' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -10486,6 +10567,12 @@ final class HtmlTransformer
         }
 
         $replacementAttrs = array_merge($attrs, array( 'content' => $wrapped ));
+        if ( 'inherit' === (string) ($linkAttrs['color'] ?? '') ) {
+            $replacementAttrs['className'] = $this->mergeClassNames(
+                (string) ($replacementAttrs['className'] ?? ''),
+                self::PROPAGATED_LINK_COLOR_CARRIER_CLASS
+            );
+        }
         if ( 'none' === (string) ($linkAttrs['textDecoration'] ?? '') ) {
             $style = is_array($replacementAttrs['style'] ?? null) ? $replacementAttrs['style'] : array();
             $typography = is_array($style['typography'] ?? null) ? $style['typography'] : array();
