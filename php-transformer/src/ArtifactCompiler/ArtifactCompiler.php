@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
@@ -46,7 +47,6 @@ final class ArtifactCompiler
      *
      * @var array<int, string>
      */
-    private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
 	/** @var array<string, string> */
 	private array $themeStaticCssCache = array();
@@ -3485,49 +3485,15 @@ final class ArtifactCompiler
      */
     private function dataAttributeSelectorsFromCssSelector(string $selector): array
     {
-        $selectors = array();
-        if ( preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches, PREG_SET_ORDER) ) {
-            foreach ( $matches as $match ) {
-                $selector = strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches) ) {
-            foreach ( $matches[1] as $attribute ) {
-                $selector = '[' . strtolower((string) $attribute) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
+        return RuntimeSelectorVocabulary::dataAttributeSelectorsFromCssSelector($selector);
     }
 
     private function isPresentationalRuntimeSelector(string $selector): bool
+
     {
-        $name = '';
-        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
-            $name = substr(strtolower((string) $match[1]), 5);
-        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        }
 
-        if ( '' === $name ) {
-            return false;
-        }
+        return RuntimeSelectorVocabulary::isPresentationalAnimation($selector);
 
-        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -3580,9 +3546,11 @@ final class ArtifactCompiler
     }
 
     private function scriptSelectorPattern(): string
+
     {
-        $name = '[A-Za-z][A-Za-z0-9_-]*';
-        return '(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|' . $name . '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')';
+
+        return RuntimeSelectorVocabulary::scriptSelectorPattern();
+
     }
 
     private function canonicalRuntimeSelector(string $selector): string

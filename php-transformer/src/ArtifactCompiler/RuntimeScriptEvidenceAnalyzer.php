@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
+
 /**
  * Bounded, side-effect-free evidence extraction for one runtime script.
  * Consumers decide whether a fact requires DOM preservation or a diagnostic.
@@ -10,7 +12,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 final class RuntimeScriptEvidenceAnalyzer
 {
     private const MAX_SCRIPT_BYTES = 1048576;
-    private const RUNTIME_TAG_SELECTORS = array('button', 'input', 'select', 'textarea', 'ul', 'ol', 'li');
 
     /** @return array<string, mixed> */
     public function analyze(string $script, string $sourcePath = '', string $scriptPath = ''): array
@@ -145,8 +146,7 @@ final class RuntimeScriptEvidenceAnalyzer
         foreach (preg_split('/[^a-z0-9]+/', strtolower($match[1] ?? '')) ?: array() as $token) if (in_array($token, array('animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition'), true)) return true;
         return false;
     }
-
-    private function selectorPattern(): string { $name = '[A-Za-z][A-Za-z0-9_-]*'; return '(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|' . $name . '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')'; }
+    private function selectorPattern(): string { return RuntimeSelectorVocabulary::scriptSelectorPattern(); }
     private function canonicalSelector(string $selector): string { $selector = trim($selector); return preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ? strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']' : $selector; }
     private function selectorKind(string $selector): string { return str_starts_with($selector, '#') ? 'id' : (str_starts_with($selector, '.') ? 'class' : (str_contains($selector, '[') ? 'attribute' : 'element')); }
     /** @return array<int, string> */

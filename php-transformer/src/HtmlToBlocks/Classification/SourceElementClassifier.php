@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -373,27 +374,11 @@ final class SourceElementClassifier
     }
 
     public function isPresentationalAnimationSelector(string $selector): bool
+
     {
-        $name = '';
-        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
-            $name = substr(strtolower((string) $match[1]), 5);
-        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        }
 
-        if ( '' === $name ) {
-            return false;
-        }
+        return RuntimeSelectorVocabulary::isPresentationalAnimation($selector);
 
-        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public function hasDirectMediaChild(DOMElement $element): bool
