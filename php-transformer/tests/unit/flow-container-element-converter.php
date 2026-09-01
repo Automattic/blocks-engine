@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
@@ -39,8 +40,7 @@ $operations = array(
     },
     'flankedSeparatorBlock' => $null,
     'capturedMediaLayoutBlock' => $null,
-    'hasResponsiveImageSources' => $false,
-    'hasGalleryMediaItems' => $false,
+    'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),
     'isDirectChildOfAuthorOwnedLayout' => $false,
     'authorLayoutBlock' => static fn (): array => array( 'blockName' => 'author-layout' ),
@@ -80,7 +80,6 @@ $operations = array(
         }
         return array();
     },
-    'hasDirectMediaChild' => $false,
     'backgroundImageBlock' => $null,
     'coalescedSingleGroupWrapper' => $null,
     'shouldPreserveWrapper' => $false,
