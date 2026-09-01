@@ -2872,6 +2872,9 @@ final class HtmlTransformer
             $declarations = $this->styleResolver->cssDeclarations($resolved);
             $value        = trim((string) ($declarations[$property] ?? ''));
             if ( '' === $value ) {
+                $value = $this->styleResolver->conditionalDeclaration($node, $property);
+            }
+            if ( '' === $value ) {
                 $value = $this->styleResolver->unsupportedSelectorDeclaration($node, $property);
             }
             if ( '' !== $value

@@ -377,6 +377,29 @@ final class StyleResolver
     }
 
     /**
+     * Value stated for this element by media-conditional rules.
+     *
+     * `specificityResolvedPresentationStyle()` reads the static collection
+     * only. A capture serialises its desktop stylesheet behind a width query,
+     * so properties a builder states there are absent from that view even
+     * though they are what the document renders with. Later rules win, matching
+     * declaration order within the collection.
+     */
+    public function conditionalDeclaration(DOMElement $element, string $property): string
+    {
+        $value = '';
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
+            if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            $value = $declared;
+        }
+
+        return $value;
+    }
+
+    /**
      * Value a rule states for this element that the matcher cannot evaluate.
      *
      * Selectors using `:is`, `:where`, `:not` or `:has` are not matched
