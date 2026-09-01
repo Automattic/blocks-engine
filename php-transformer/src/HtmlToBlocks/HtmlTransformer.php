@@ -6532,10 +6532,22 @@ final class HtmlTransformer
             'role'                    => $this->attr($element, 'role'),
             'id'                      => $this->attr($element, 'id'),
             'class_names'             => $this->classNames($element),
+            'ancestor_class_names'    => $this->ancestorClassNames($element),
             'data_attributes'         => $this->safeDataAttributes($element),
             'structure_signals'       => $this->structureSignals($element, array()),
             'interactive_attributes'  => $this->interactiveAttributes($element),
         ), static fn (mixed $value): bool => '' !== $value && array() !== $value);
+    }
+
+    /** @return list<string> */
+    private function ancestorClassNames(DOMElement $element): array
+    {
+        $classes = array();
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && 'body' !== strtolower($ancestor->tagName); $ancestor = $ancestor->parentNode ) {
+            array_push($classes, ...$this->classNames($ancestor));
+        }
+
+        return array_values(array_unique($classes));
     }
 
     private function nearestPreviousHeadingText(DOMElement $element): string
@@ -9467,10 +9479,15 @@ final class HtmlTransformer
         $imageChildren = 0;
         foreach ( $anchor->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) && ! ( $this->imageOnlyCarrierElement($child) instanceof DOMElement ) ) {
+                if ( in_array(strtolower($child->tagName), array( 'img', 'picture' ), true) || $this->imageOnlyCarrierElement($child) instanceof DOMElement ) {
+                    ++$imageChildren;
+                    continue;
+                }
+                // Lightbox links commonly append empty overlay elements beside
+                // their image. They are decoration, not additional link content.
+                if ( '' !== trim($child->textContent ?? '') ) {
                     return false;
                 }
-                ++$imageChildren;
                 continue;
             }
 
