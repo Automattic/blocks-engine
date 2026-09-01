@@ -215,8 +215,7 @@ final class GeneratedBlockStyleProjector
             if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
                 $declarations[] = 'background-color:transparent!important';
             }
-            $border = CssValueInspector::comparable((string) ($sourceDeclarations['border'] ?? ''));
-            if ( preg_match('/^(?:0(?:px)?|none)$/', $border) ) {
+            if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
                 if ( '' === trim((string) ($style['border']['style'] ?? '')) ) {
                     $declarations[] = 'border-style:none!important';
                 }
@@ -283,6 +282,81 @@ final class GeneratedBlockStyleProjector
                 . $button . '{display:block!important;margin:0!important;width:100%!important}'
                 . $link . '{box-sizing:border-box;width:100%!important}';
         $generatedStyles->registerButtonWidth($marker, $rule);
+    }
+
+    /**
+     * Decide whether a source control's resolved cascade contributes any
+     * visible border, considering the `border` shorthand together with every
+     * longhand that can carry a border (`border-top|right|bottom|left`,
+     * `border-width`, `border-style`, and their per-side variants). The
+     * neutralizer must only fire when none of them do — a stale `border: 0`
+     * reset must not force-kill a real border declared later in the cascade
+     * through longhands, which is exactly what happens with `var()`-driven
+     * custom-property borders. A longhand whose value references `var(...)`
+     * cannot be proven zero statically, so it is treated as visible.
+     *
+     * @param array<string, mixed> $sourceDeclarations
+     */
+    private static function sourceControlHasVisibleBorder(array $sourceDeclarations): bool
+    {
+        $shorthand = CssValueInspector::comparable((string) ($sourceDeclarations['border'] ?? ''));
+        if ( '' !== $shorthand && ! preg_match('/^(?:0(?:px)?|none)$/', $shorthand) ) {
+            return true;
+        }
+
+        foreach ( array( 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            if ( '' !== $value && self::borderSideShorthandIsVisible($value) ) {
+                return true;
+            }
+        }
+
+        foreach ( array( 'border-width', 'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            if ( '' !== $value && ( str_contains($value, 'var(') || str_contains($value, 'calc(') || CssValueInspector::isNonZero($value) ) ) {
+                return true;
+            }
+        }
+
+        foreach ( array( 'border-style', 'border-top-style', 'border-right-style', 'border-bottom-style', 'border-left-style' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($sourceDeclarations[$property] ?? ''));
+            if ( '' === $value ) {
+                continue;
+            }
+            if ( str_contains($value, 'var(') ) {
+                return true;
+            }
+            foreach ( preg_split('/\s+/', $value) ?: array() as $token ) {
+                if ( '' !== $token && ! in_array($token, array( 'none', 'hidden' ), true) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** A `border-top|right|bottom|left` shorthand value is visible unless it resolves to no width or a `none`/`hidden` style. */
+    private static function borderSideShorthandIsVisible(string $value): bool
+    {
+        if ( str_contains($value, 'var(') || str_contains($value, 'calc(') ) {
+            return true;
+        }
+        if ( preg_match('/^(?:0(?:px)?|none)$/', $value) ) {
+            return false;
+        }
+        $styleKeywords = array( 'none', 'hidden', 'dotted', 'dashed', 'solid', 'double', 'groove', 'ridge', 'inset', 'outset' );
+        $styleToken = null;
+        foreach ( CssValueSplitter::splitTopLevelWhitespace($value) as $token ) {
+            $token = strtolower($token);
+            if ( in_array($token, $styleKeywords, true) ) {
+                $styleToken = $token;
+                break;
+            }
+        }
+        // No explicit style component means the shorthand resets border-*-style to its
+        // initial value of `none`, so the side has no visible border.
+        return null !== $styleToken && ! in_array($styleToken, array( 'none', 'hidden' ), true);
     }
 
     private static function isInheritedCssWideValue(string $value): bool
