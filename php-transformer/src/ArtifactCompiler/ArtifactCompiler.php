@@ -53,6 +53,8 @@ final class ArtifactCompiler
 
 	private WordPressCompatCss $wordpressCompat;
 
+    private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
+
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
     /** Observational only: excludes receipt cache hits. */
@@ -64,6 +66,7 @@ final class ArtifactCompiler
     public function __construct(private readonly bool $cacheHtmlAnalysis = true)
     {
         $this->wordpressCompat = new WordPressCompatCss();
+        $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
     }
 
     /** @return array<string, int> */
@@ -97,12 +100,6 @@ final class ArtifactCompiler
 
     /** @var array<int, string> */
     private array $scriptContents = array();
-
-    /** @var array<string, array<int, string>> */
-    private array $scriptDomSelectorCache = array();
-
-    /** @var array<string, array<string, bool>> */
-    private array $scriptControlSelectorCache = array();
 
     /** @var array<string,mixed> Optional normalized proof for the current artifact. */
     private array $layoutGeometryProof = array();
@@ -764,7 +761,7 @@ final class ArtifactCompiler
         if ( array() !== $entryBlocks['superseded_selectors'] ) {
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
         foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
             if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
                 continue;
@@ -3049,12 +3046,12 @@ final class ArtifactCompiler
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
-                if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
+                if ( isset($controlSelectors[$selector]) && true !== $dependency['control_runtime'] ) {
                     continue;
                 }
                 $selectors[$selector] = true;
@@ -3062,8 +3059,9 @@ final class ArtifactCompiler
         }
 
         foreach ( $this->allScriptContents($files) as $script ) {
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
                 if ( isset($statusFeedbackSelectors[$selector]) ) {
@@ -3086,8 +3084,9 @@ final class ArtifactCompiler
     {
         $selectors = array();
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
-                if ( str_contains($selector, '[data-') && $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( str_contains($selector, '[data-') && true === $dependency['presentation_only'] ) {
                     $selectors[$selector] = true;
                 }
             }
@@ -3161,7 +3160,7 @@ final class ArtifactCompiler
         $selectors = array();
         $scripts = $this->documentScriptContents($html, $sourcePath, $files);
         foreach ( $scripts as $script ) {
-            foreach ( $this->scriptCanvasSelectors($script) as $selector ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['canvas_selectors'] as $selector ) {
                 if ( isset($canvasSelectors[$selector]) ) {
                     $selectors[$selector] = true;
                 }
@@ -3203,14 +3202,6 @@ final class ArtifactCompiler
         }
 
         return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptCanvasSelectors(string $script): array
-    {
-        return (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['canvas_selectors'];
     }
 
     /**
@@ -3332,80 +3323,6 @@ final class ArtifactCompiler
         }
 
         return $scripts;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptDomSelectors(string $script): array
-    {
-        $cacheKey = hash('sha256', $script);
-        if ( isset($this->scriptDomSelectorCache[$cacheKey]) ) {
-            return $this->scriptDomSelectorCache[$cacheKey];
-        }
-
-        return $this->scriptDomSelectorCache[$cacheKey] = (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['selectors'];
-    }
-
-    private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
-    {
-        if ( $this->isBehavioralRuntimeSelector($selector) ) {
-            return false;
-        }
-
-        $selectorPattern = preg_quote($selector, '/');
-        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ($assignments as $assignment) {
-                if (preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|hidden|disabled|style|dataset)\b/', $script)) {
-                    return false;
-                }
-            }
-        }
-        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)([^;]{0,700})/', $script, $matches) ) {
-            return false;
-        }
-
-        foreach ( $matches[2] as $tail ) {
-            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', (string) $tail) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function isBehavioralRuntimeSelector(string $selector): bool
-    {
-        if ( $this->isPresentationalRuntimeSelector($selector) ) {
-            return false;
-        }
-
-        if ( str_contains($selector, '[') || in_array($selector, array('button', 'input', 'select', 'textarea', 'canvas', 'svg'), true) ) {
-            return true;
-        }
-
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|modal|drawer|cart|checkout|search|filter|tab|accordion|slider|carousel|canvas|stage|player|map|app|editor|playground|demo)(?:[^a-z0-9]|$)/i', $selector);
-    }
-
-    private function isPresentationalRuntimeSelector(string $selector): bool
-
-    {
-
-        return RuntimeSelectorVocabulary::isPresentationalAnimation($selector);
-
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function scriptControlRuntimeSelectors(string $script): array
-    {
-        $cacheKey = hash('sha256', $script);
-        if ( isset($this->scriptControlSelectorCache[$cacheKey]) ) {
-            return $this->scriptControlSelectorCache[$cacheKey];
-        }
-
-        return $this->scriptControlSelectorCache[$cacheKey] = array_fill_keys((new RuntimeScriptEvidenceAnalyzer())->analyze($script)['control_selectors'], true);
     }
 
     private function scriptSelectorPattern(): string
@@ -4658,8 +4575,7 @@ final class ArtifactCompiler
         $this->filesByPath = array();
         $this->imageFiles = array();
         $this->scriptContents = array();
-        $this->scriptDomSelectorCache = array();
-        $this->scriptControlSelectorCache = array();
+        $this->runtimeScriptEvidenceAnalyzer->resetCache();
 
         foreach ( $files as $file ) {
             if ( ! is_array($file) ) {
