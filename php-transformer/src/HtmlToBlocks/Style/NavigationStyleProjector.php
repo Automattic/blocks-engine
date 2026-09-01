@@ -79,9 +79,21 @@ final class NavigationStyleProjector
         $anchorProjectionCss = $this->editorAnchorProjectionCss();
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
+            // The anchor projection restates author rules on the deterministic
+            // wrapper classes, animations included. Settle those copies too, or
+            // the editor keeps the source's hidden start keyframe on exactly the
+            // elements the projection exists to reach.
+            foreach ( ( new RevealAnimationSettler() )->settleRules($anchorProjectionCss) as $settledRule ) {
+                $rules[] = $settledRule;
+            }
         }
         if ( preg_match('/(?:^|[;{])\s*(?:-webkit-)?animation(?:-[a-z-]+)?\s*:/i', $this->context->authorStyles()->combinedCss()) ) {
-            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;transition:none!important}';
+            // The editor shows a settled document, so every animation is wound
+            // past its end. A paused play state and a scroll-driven timeline
+            // both have to be overridden for that to hold: without them the
+            // negative delay lands on an animation that never advances, and the
+            // element stays on whatever keyframe its fill mode paints.
+            $rules[] = ':root *,:root *::before,:root *::after{animation-delay:-999999s!important;animation-iteration-count:1!important;animation-fill-mode:both!important;animation-play-state:running!important;animation-timeline:auto!important;transition:none!important}';
         }
         if ( $this->context->runtimeBehavior()->emptyRuntimeTargetGenerated() ) {
             $selector = ':root .' . HtmlTransformer::EMPTY_RUNTIME_TARGET_CLASS . '.wp-block-group__placeholder';
