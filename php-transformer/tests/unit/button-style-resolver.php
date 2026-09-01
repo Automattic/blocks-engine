@@ -124,6 +124,7 @@ $customPropertyBorderButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $customPropertyBorderCss = implode("\n", array_column($customPropertyBorderButton['assets'] ?? array(), 'content'));
 $assert(! str_contains($customPropertyBorderCss, 'border-style:none!important') && ! str_contains($customPropertyBorderCss, 'border-width:0!important'), 'a var()-driven longhand border after a `border:0` shorthand reset is not statically provable as zero and is not neutralized', $customPropertyBorderCss);
+$assert(1 === preg_match('/\.blocks-engine-control-[^\s.]+\.blocks-engine-control-[^\s>]+>\.wp-block-button__link\{[^}]*border-top:var\(--border-top\)!important[^}]*border-right:var\(--border-right\)!important[^}]*border-bottom:var\(--border-bottom\)!important[^}]*border-left:var\(--border-left\)!important/', $customPropertyBorderCss), 'the generated native link rule consumes each var()-driven border side rather than relying on the source selector', $customPropertyBorderCss);
 
 $genuinelyBorderlessButton = ( new HtmlTransformer() )->transform(
     '<style>a{border:0;background:0 0}.btn{background:#173b64;border-radius:6px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'

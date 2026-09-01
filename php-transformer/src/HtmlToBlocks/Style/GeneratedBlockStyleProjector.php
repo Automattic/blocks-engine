@@ -199,6 +199,15 @@ final class GeneratedBlockStyleProjector
         if ( $sourceControl instanceof DOMElement ) {
             $sourceDeclarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($sourceControl));
             $sourceStructuralDeclarations = $this->styleResolver->structuralPresentationDeclarations($sourceControl);
+            // Native button attributes preserve only uniform border values. Keep
+            // authored side shorthands on the generated link rule so `var()`
+            // values retain their width, style, and color after conversion.
+            foreach ( array( 'border-top', 'border-right', 'border-bottom', 'border-left' ) as $property ) {
+                $value = trim((string) ($sourceDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                    $declarations[] = $property . ':' . $value . '!important';
+                }
+            }
             $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
