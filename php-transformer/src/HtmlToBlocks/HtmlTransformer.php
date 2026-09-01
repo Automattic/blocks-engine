@@ -10008,7 +10008,7 @@ final class HtmlTransformer
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        if ( ! $hasPrevious || ! $hasNext ) {
+        if ( ( ! $hasPrevious || ! $hasNext ) && ! $this->sourceElementClassifier->hasSlideSelectionNavigation($element) ) {
             return null;
         }
 

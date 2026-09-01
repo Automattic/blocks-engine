@@ -556,7 +556,9 @@ final class StyleResolver
             $geometry[$property] = $value;
         }
 
-        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry) ) {
+        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry)
+            || $this->isCapturedViewportWidthBreakout($element, $geometry, $declarations)
+        ) {
             // A WordPress flow container is commonly inset from the viewport.
             // Re-anchor a carried 100vw box to that viewport and clip oversized
             // cover descendants within the source's full-bleed carrier.
@@ -644,6 +646,40 @@ final class StyleResolver
     }
 
     /** @param array<string, string> $geometry */
+    /**
+     * A viewport-wide box the source pulled back to the viewport edge itself.
+     *
+     * Sites that break a section out of an inset container commonly measure the
+     * offset while rendering and write it onto the element, so the captured
+     * document carries a pixel offset that is only true at the width it was
+     * captured at. The same breakout expressed against the viewport resolves at
+     * every width, so the measured offset is replaced rather than carried.
+     *
+     * @param array<string, string> $geometry
+     * @param array<string, string> $declarations
+     */
+    private function isCapturedViewportWidthBreakout(DOMElement $element, array $geometry, array $declarations): bool
+    {
+        if ( '100vw' !== strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? '')))) ) {
+            return false;
+        }
+        $offset = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($declarations['left'] ?? '')
+        )));
+        if ( 1 !== preg_match('/^-\s*(?:\d+|\d*\.\d+)(?:px|rem|em|%)$/', $offset) ) {
+            return false;
+        }
+        $position = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['position'] ?? 'static')
+        )));
+
+        return in_array($position, array( '', 'static', 'relative' ), true);
+    }
+
     private function isNormalFlowViewportWidthGeometry(DOMElement $element, array $geometry): bool
     {
         $width = strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? ''))));

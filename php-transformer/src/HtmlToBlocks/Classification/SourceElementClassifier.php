@@ -524,9 +524,22 @@ final class SourceElementClassifier
             || 0 < $element->getElementsByTagName('video')->length;
     }
 
+    /**
+     * Identifier text with camel-case word boundaries separated.
+     *
+     * `booXSlider` names the same component as `boo-slider`, and an acronym
+     * boundary such as `XSlider` separates into its own words too.
+     */
+    private static function wordSeparatedIdentity(string $identity): string
+    {
+        $identity = (string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', $identity);
+
+        return strtolower((string) preg_replace('/([A-Z]+)([A-Z][a-z])/', '$1 $2', $identity));
+    }
+
     public function hasCarouselIdentity(DOMElement $element): bool
     {
-        $identity = strtolower(implode(' ', array(
+        $identity = self::wordSeparatedIdentity(implode(' ', array(
             $element->tagName,
             SourceDom::attr($element, 'id'),
             SourceDom::attr($element, 'class'),
@@ -536,6 +549,34 @@ final class SourceElementClassifier
         )));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
+    }
+
+    /**
+     * Whether a descendant advances the slides through dot or bullet controls.
+     *
+     * A slider states its navigation either as previous and next controls or as
+     * one control per slide. Arrow markup is also commonly written by the
+     * script that drives the slider, so a captured document can carry the dot
+     * controls alone.
+     */
+    public function hasSlideSelectionNavigation(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $identity = self::wordSeparatedIdentity(implode(' ', array(
+                SourceDom::attr($candidate, 'class'),
+                SourceDom::attr($candidate, 'role'),
+                SourceDom::attr($candidate, 'data-hook'),
+                SourceDom::attr($candidate, 'data-testid'),
+            )));
+            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:dotnav|dots|bullets?|pagination|indicators?|tablist)(?:[^a-z0-9]|$)/', $identity) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function isCarouselList(DOMElement $element): bool
