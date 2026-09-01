@@ -43,6 +43,7 @@ $assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $payloadBlock = $payload['blocks'][0] ?? array();
 $assert(CompanionPluginPayload::SCHEMA === ($payload['schema'] ?? null) && 'authored-carousel' === ($payloadBlock['name'] ?? null), 'the generated carousel uses the established companion-plugin payload');
+$assert(array('@wordpress/interactivity') === ($payloadBlock['script_dependencies']['view.js'] ?? null), 'the view module declares the Interactivity API import so the generated asset manifest resolves it');
 $assert(isset($payloadBlock['assets']['index.js'], $payloadBlock['assets']['style.css']) && str_contains((string) ($payloadBlock['view_js'] ?? ''), "store( 'blocks-engine/carousel'"), 'the companion payload carries editor, style, and frontend behavior assets');
 $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock['block_json']['render']), 'the carousel needs no executable PHP renderer');
 

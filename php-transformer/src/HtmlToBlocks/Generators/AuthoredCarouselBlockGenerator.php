@@ -137,7 +137,10 @@ JS;
                 'style.css' => $style,
             ),
             'view_js' => $view,
-            'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element')),
+            'script_dependencies' => array(
+                'index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element'),
+                'view.js' => array('@wordpress/interactivity'),
+            ),
         );
     }
 
