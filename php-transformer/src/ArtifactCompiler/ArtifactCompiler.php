@@ -2543,6 +2543,7 @@ final class ArtifactCompiler
             $reserved[$path] = true;
         }
         $occurrences = array();
+        $variants = array();
         if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
             return $files;
         }
@@ -2563,8 +2564,16 @@ final class ArtifactCompiler
                 $files[$byPath[$originalPath]]['type'] = $type;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
                 $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
+                $variants[$originalPath][$media . "\0" . $type] = true;
                 continue;
             }
+            // Repeating one stylesheet under the same conditions applies it
+            // once, exactly as a browser resolves it. Only a differing media or
+            // type makes a later reference its own participant in the cascade.
+            if ( isset($variants[$originalPath][$media . "\0" . $type]) ) {
+                continue;
+            }
+            $variants[$originalPath][$media . "\0" . $type] = true;
             $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
             $aliasFile = $files[$byPath[$originalPath]];
             $aliasFile['path'] = $alias;

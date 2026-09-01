@@ -30,8 +30,8 @@ $assets = $result['assets'] ?? array();
 $assetPaths = array_column($assets, 'path');
 $assetsByPath = array_column($assets, null, 'path');
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $assetPaths[0] ?? '')
-    && array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2-generated-1.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 1, 6)
-    && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[7] ?? ''), 'allocated repeated-link alias preserves source occurrence order around before- and after-author support assets');
+    && array( 'index.inline-1.css', 'a.css', 'index.inline-2.css', 'b.css', 'a.occurrence-2.css' ) === array_slice($assetPaths, 1, 5)
+    && 1 === preg_match('#^assets/css/engine-support-after-author-[a-f0-9]{16}\.css$#', $assetPaths[6] ?? ''), 'source stylesheet order is preserved around before- and after-author support assets, and a repeated identical link adds no second copy');
 foreach ( $assets as $asset ) {
     $content = (string) ($asset['content'] ?? '');
     $hash = hash('sha256', $content);
@@ -47,7 +47,27 @@ $assert(hash('sha256', base64_encode('a.cta:hover{padding:1rem}')) === ($assetsB
 $assert('text' === ($assetsByPath['a.css']['content_encoding'] ?? '') && ! isset($assetsByPath['a.css']['content_base64']), 'projected linked CSS invalidates the stale source payload encoding');
 $assert(! str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), 'a.cta:hover') && str_contains((string) ($assetsByPath['a.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover'), 'linked button CSS is rewritten in place');
 $assert(hash('sha256', '.hero p{color:green}') === ($assetsByPath['index.inline-2.css']['source_hash'] ?? null) && ! str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), '.hero p') && str_contains((string) ($assetsByPath['index.inline-2.css']['content'] ?? ''), ':where(.blocks-engine-source-p-'), 'inline CSS is rewritten in place with original source provenance');
-$assert(str_contains((string) ($assetsByPath['a.occurrence-2-generated-1.css']['content'] ?? ''), '> :where(.wp-block-button__link):hover') && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'allocated occurrence alias is referenced while authored collision CSS remains a deterministic orphan asset');
+$assert(! isset($assetsByPath['a.occurrence-2-generated-1.css']) && '.authored-collision{color:purple}' === ($assetsByPath['a.occurrence-2.css']['content'] ?? ''), 'a repeated identical link materializes no alias while authored collision CSS remains a deterministic orphan asset');
+
+// A repeat under a different media condition is a distinct cascade
+// participant, so it still earns its own asset, allocated around the authored
+// path collision.
+$mediaVariant = ( new ArtifactCompiler() )->compile(array(
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<!doctype html><html><head><link rel="stylesheet" href="a.css"><link rel="stylesheet" href="a.css" media="print"><link rel="stylesheet" href="a.css"></head><body><p class="copy">Copy</p></body></html>' ),
+        array( 'path' => 'a.css', 'kind' => 'css', 'content' => '.copy{color:red}' ),
+        array( 'path' => 'a.occurrence-2.css', 'kind' => 'css', 'content' => '.authored-collision{color:purple}' ),
+    ),
+) )->toArray();
+$mediaVariantPaths = array_column($mediaVariant['assets'] ?? array(), 'path');
+$mediaVariantAssets = array_column($mediaVariant['assets'] ?? array(), null, 'path');
+$assert(
+    in_array('a.css', $mediaVariantPaths, true)
+        && in_array('a.occurrence-2-generated-1.css', $mediaVariantPaths, true)
+        && 'print' === ($mediaVariantAssets['a.occurrence-2-generated-1.css']['media'] ?? null)
+        && 1 === count(array_filter($mediaVariantPaths, static fn (string $path): bool => str_contains($path, 'occurrence-2-generated'))),
+    'a repeated link under a different media condition still materializes its own asset, and the third identical link adds no further copy'
+);
 
 $runtimeReveal = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => <<<'HTML'
