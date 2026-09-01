@@ -103,6 +103,7 @@
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/engine-support-css-asset.php",
       "php tests/unit/engine-support-css-specificity.php",
+      "php tests/unit/full-bleed-geometry.php",
       "php tests/unit/inline-display-carrier.php",
       "php tests/unit/exact-fit-inline-flow.php",
       "php tests/unit/css-owned-flex-carrier.php",
@@ -186,7 +187,8 @@
             "php tests/unit/runtime-island-analyzer.php",
             "php tests/unit/button-link-dispatcher.php",
             "php tests/unit/button-element-converter.php",
-            "php tests/unit/runtime-resource-element-converter.php"
+            "php tests/unit/runtime-resource-element-converter.php",
+            "php tests/unit/link-bearing-element-lowering.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",

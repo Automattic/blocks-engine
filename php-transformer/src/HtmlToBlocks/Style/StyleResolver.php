@@ -555,6 +555,17 @@ final class StyleResolver
             $geometry[$property] = $value;
         }
 
+        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry) ) {
+            // A WordPress flow container is commonly inset from the viewport.
+            // Re-anchor a carried 100vw box to that viewport and clip oversized
+            // cover descendants within the source's full-bleed carrier.
+            $geometry['position'] = 'relative';
+            $geometry['left'] = '50%';
+            $geometry['margin-left'] = '-50vw';
+            $geometry['margin-right'] = '-50vw';
+            $geometry['overflow-x'] = 'clip';
+        }
+
         // `text-align` rides an EXISTING container carrier and never mints one on
         // its own. A carrier class is what promotes an otherwise attribute-less
         // wrapper into a core/group, so minting one here would add block-tree
@@ -629,6 +640,23 @@ final class StyleResolver
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
+    }
+
+    /** @param array<string, string> $geometry */
+    private function isNormalFlowViewportWidthGeometry(DOMElement $element, array $geometry): bool
+    {
+        $width = strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? ''))));
+        if ( '100vw' !== $width ) {
+            return false;
+        }
+
+        $position = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['position'] ?? 'static')
+        )));
+
+        return '' === $position || 'static' === $position;
     }
 
     /**
