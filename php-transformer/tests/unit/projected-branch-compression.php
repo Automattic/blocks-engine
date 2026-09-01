@@ -101,6 +101,7 @@ $formMarkup = (string) ($formPlan['pages'][0]['canonical_block_markup'] ?? '');
 $formDeclaration = current(array_filter($formPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $formBindings = array_map(static fn(array $entity): array => $entity['bindings'][0] ?? array(), $formDeclaration['payload']['entities'] ?? array());
 $formTopologies = array_column($formDeclaration['payload']['entities'] ?? array(), 'control_topology');
+$formIdentities = array_column($formDeclaration['payload']['entities'] ?? array(), 'fallback_identity');
 
 $assert(2 === substr_count($formMarkup, '<!-- wp:custom/layout-shell'), 'Both responsive form copies compress into projected layout shells.');
 $assert(2 === count($formBindings), 'Both projected form copies remain provider-materializable entities.');
@@ -108,5 +109,6 @@ $assert(array_reduce($formTopologies, static fn(bool $valid, array $topology): b
 $assert(array_reduce($formBindings, static fn(bool $valid, array $binding): bool => $valid
     && str_starts_with((string) ($binding['search_block_markup'] ?? ''), '<!-- wp:custom/layout-shell')
     && ($binding['search_block_markup'] ?? '') === substr($formMarkup, (int) ($binding['position']['offset'] ?? -1), (int) ($binding['position']['length'] ?? 0)), true), 'Projected form bindings rebase onto their exact final layout-shell ranges.');
+$assert(2 === count(array_unique($formIdentities)) && array_reduce($formDeclaration['payload']['entities'] ?? array(), static fn(bool $valid, array $entity): bool => $valid && ($entity['fallback_identity'] ?? null) === ($entity['reconciliation_identity'] ?? null) && preg_match('/^[a-f0-9]{64}$/', $entity['fallback_identity'] ?? '') === 1, true), 'Responsive duplicate provider forms retain distinct stable source fallback identities.');
 
 fwrite(STDOUT, "Projected branch compression tests passed.\n");

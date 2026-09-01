@@ -157,6 +157,8 @@ final class ConversionReportProjection
                     'source'          => $fallback['source'] ?? '',
                     'scope'           => $fallback['scope'] ?? '',
                     'source_path'            => $fallback['source_path'] ?? '',
+                    'fallback_identity'      => $fallback['fallback_identity'] ?? '',
+                    'reconciliation_identity' => $fallback['reconciliation_identity'] ?? '',
                     'tag'                    => $fallback['tag'] ?? '',
                     'selector'               => $fallback['selector'] ?? '',
                     'container_selector'     => $fallback['container_selector'] ?? '',
