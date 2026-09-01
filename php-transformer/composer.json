@@ -156,6 +156,7 @@
       "php tests/unit/core-html-fallback-reduction.php",
       "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/inert-closed-state-interactions.php",
+      "php tests/unit/reveal-animation-settling.php",
       "php tests/unit/geometry-chain-coalescing.php",
       "php tests/unit/pattern-recursive-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",

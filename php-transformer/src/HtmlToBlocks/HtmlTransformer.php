@@ -124,6 +124,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryStat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\RevealAnimationSettler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
@@ -2183,6 +2184,10 @@ final class HtmlTransformer
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
         array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
+        // A captured reveal whose driver did not survive import must still
+        // settle at the appearance it was travelling towards, not at the hidden
+        // keyframe it starts from (#239).
+        array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($authorCss));
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
