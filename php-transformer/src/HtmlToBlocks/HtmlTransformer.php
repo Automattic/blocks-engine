@@ -2586,6 +2586,7 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement),
                 function (DOMElement $sourceElement, array $authorClasses): void {
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
+                    $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
                 }
             ),
             new MediaPatternContext(
@@ -2849,6 +2850,42 @@ final class HtmlTransformer
         $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
             $selector,
             $selector . '{' . implode(';', $declarations) . '}'
+        );
+    }
+
+    /**
+     * Keep a painted menu painted once.
+     *
+     * WordPress copies a navigation block's classes onto both the `nav` and its
+     * responsive container, so a source rule that paints the menu through one
+     * of those classes matches twice and the source's single painted region
+     * renders stacked on itself. Where the source paints the menu, state that
+     * paint once by neutralising it on the inner container.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordNavigationContainerPaintReset(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $paints = false;
+        foreach ( array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' ) as $property ) {
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)' ), true) ) {
+                $paints = true;
+                break;
+            }
+        }
+        if ( ! $paints ) {
+            return;
+        }
+
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . '>.wp-block-navigation__container';
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{background:none!important;border-radius:0!important;box-shadow:none!important}'
         );
     }
 
