@@ -49,12 +49,31 @@ final class AuthorStylesheetProjector
                     ? ''
                     : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context);
                 return $rules
-                    . $this->rewriteSelectorPrelude($prelude, $context, true) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
+                    . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
                     . $imageRule
                     . $svgImageRule
                     . $editorDocumentRootRule;
             }
         );
+    }
+
+    private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        $projected = $this->rewriteSelectorPrelude($prelude, $context, true);
+        $selectors = CssStylesheetTransformer::splitSelectorList($projected);
+        if ( null === $selectors ) {
+            return $projected;
+        }
+
+        // Linked author CSS precedes Gutenberg's inline flow resets, so authored margins cannot rely on source order.
+        $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
+        return implode(',', array_map(static function (string $selector) use ($shim): string {
+            $selector = trim($selector);
+            if ( 1 !== preg_match('/::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?$/', $selector) ) {
+                return $selector . $shim;
+            }
+            return preg_replace('/(::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
+        }, $selectors));
     }
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string

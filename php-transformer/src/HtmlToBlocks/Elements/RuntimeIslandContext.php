@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Closure;
@@ -12,17 +13,12 @@ use DOMElement;
 /**
  * Explicit collaborator surface for {@see RuntimeIslandAnalyzer}.
  *
- * The session state objects and the fallback emitter are resolved lazily
- * through closures because they are per-transform: the analyzer is constructed
- * once with the transformer, but must see the state belonging to the transform
- * currently running.
+ * Per-transform state is read from the compilation's typed session. Closures
+ * remain only for transformer-owned operations.
  */
 final class RuntimeIslandContext
 {
     /**
-     * @param Closure(): FallbackEmitter                                      $fallbackEmitter
-     * @param Closure(): RuntimeDomState                                      $runtimeDom
-     * @param Closure(): RuntimeSelectorState                                 $runtimeSelectors
      * @param Closure(DOMElement): iterable<DOMElement>                       $descendantElements
      * @param Closure(DOMElement): array<int, array<string, mixed>>           $requiredScriptsForElement
      * @param Closure(string): ?DOMElement                                    $preservedHtmlRootElement
@@ -31,9 +27,7 @@ final class RuntimeIslandContext
      * @param Closure(string): bool                                           $isPresentationalAnimationSelector
      */
     public function __construct(
-        private readonly Closure $fallbackEmitter,
-        private readonly Closure $runtimeDom,
-        private readonly Closure $runtimeSelectors,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $descendantElements,
         private readonly Closure $requiredScriptsForElement,
         private readonly Closure $preservedHtmlRootElement,
@@ -45,17 +39,17 @@ final class RuntimeIslandContext
 
     public function fallbackEmitter(): FallbackEmitter
     {
-        return ($this->fallbackEmitter)();
+        return $this->session->fallbackEmitter();
     }
 
     public function runtimeDom(): RuntimeDomState
     {
-        return ($this->runtimeDom)();
+        return $this->session->runtimeDomState();
     }
 
     public function runtimeSelectors(): RuntimeSelectorState
     {
-        return ($this->runtimeSelectors)();
+        return $this->session->runtimeSelectorState();
     }
 
     /**
