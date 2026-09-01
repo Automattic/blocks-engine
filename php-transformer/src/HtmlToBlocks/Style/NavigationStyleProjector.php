@@ -993,6 +993,46 @@ final class NavigationStyleProjector
      *
      * @return array<int, string>
      */
+    /**
+     * Restore icon-only navigation artwork core/navigation-link cannot save.
+     *
+     * The block keeps the accessible name as its label, so the recovered source
+     * icon replaces that label visually while the name stays in the document.
+     *
+     * @return array<int, string>
+     */
+    public function navigationLinkIconRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-icon-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $declarations = $this->context->generatedSupportStyles()->navigationLinkIcon($class);
+                if ( '' === $declarations ) {
+                    continue;
+                }
+                $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                $rules[$class] = $content . '{' . $declarations . '}';
+            }
+        }
+
+        return array_values($rules);
+    }
+
     public function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';

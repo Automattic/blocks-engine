@@ -1096,11 +1096,18 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
     {
-        return $createBlock('core/navigation-link', $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
+        $linkAttrs = $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $this->anchorLabel($anchor, $innerHtml),
             'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
-        ), $presentationAttributes, $navigationContext), array(), $anchor);
+        ), $presentationAttributes, $navigationContext);
+        // An icon-only anchor keeps its accessible name as the saved label, but
+        // core/navigation-link has nowhere to store the artwork that name
+        // described. Carry an opaque marker so the recovered source icon can be
+        // projected onto the rendered item without leaving native navigation.
+        $linkAttrs = $this->withClassName($linkAttrs, $navigationContext?->linkIconMarker($anchor) ?? '');
+
+        return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
 
     private function anchorLabel(DOMElement $anchor, callable $innerHtml): string

@@ -15,6 +15,7 @@ final class NavigationPatternContext
     private readonly ?Closure $colorInteractionStates;
     private readonly ?Closure $overlayMenu;
     private readonly ?Closure $responsiveToggleMarker;
+    private readonly ?Closure $linkIconMarker;
 
     /**
      * @param callable(DOMElement): bool|null $runtimeDomTarget
@@ -23,6 +24,7 @@ final class NavigationPatternContext
      * @param callable(DOMElement): list<string>|null $colorInteractionStates
      * @param callable(DOMElement): string|null $overlayMenu
      * @param callable(DOMElement): string|null $responsiveToggleMarker
+     * @param callable(DOMElement): string|null $linkIconMarker
      */
     public function __construct(
         ?callable $runtimeDomTarget,
@@ -30,8 +32,10 @@ final class NavigationPatternContext
         callable $resolvedStyle,
         ?callable $colorInteractionStates = null,
         ?callable $overlayMenu = null,
-        ?callable $responsiveToggleMarker = null
+        ?callable $responsiveToggleMarker = null,
+        ?callable $linkIconMarker = null
     ) {
+        $this->linkIconMarker         = null === $linkIconMarker ? null : Closure::fromCallable($linkIconMarker);
         $this->runtimeDomTarget       = null === $runtimeDomTarget ? null : Closure::fromCallable($runtimeDomTarget);
         $this->underlineColor         = Closure::fromCallable($underlineColor);
         $this->resolvedStyle          = Closure::fromCallable($resolvedStyle);
@@ -69,5 +73,17 @@ final class NavigationPatternContext
     public function responsiveToggleMarker(DOMElement $element): string
     {
         return null === $this->responsiveToggleMarker ? '' : ($this->responsiveToggleMarker)($element);
+    }
+
+    /**
+     * Marker for an icon-only navigation anchor whose artwork core cannot save.
+     *
+     * core/navigation-link stores only a label and URL, so a source anchor whose
+     * visible content is an inline SVG loses that artwork. The owning transformer
+     * registers the recovered presentation and returns an opaque marker class.
+     */
+    public function linkIconMarker(DOMElement $element): string
+    {
+        return null === $this->linkIconMarker ? '' : ($this->linkIconMarker)($element);
     }
 }

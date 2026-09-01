@@ -28,6 +28,9 @@ final class GeneratedSupportStylesheetState
     private array $navigationLinkColors = array();
 
     /** @var array<string, string> */
+    private array $navigationLinkIcons = array();
+
+    /** @var array<string, string> */
     private array $navigationSubmenuBackgrounds = array();
 
     /** @var array<string, string> */
@@ -92,6 +95,16 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkColor(string $className): string
     {
         return $this->navigationLinkColors[$className] ?? '';
+    }
+
+    public function registerNavigationLinkIcon(string $className, string $declarations): void
+    {
+        $this->navigationLinkIcons[$className] = $declarations;
+    }
+
+    public function navigationLinkIcon(string $className): string
+    {
+        return $this->navigationLinkIcons[$className] ?? '';
     }
 
     public function registerNavigationSubmenuBackground(string $className, string $color): void

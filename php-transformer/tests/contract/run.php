@@ -631,6 +631,23 @@ $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockNa
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
 
+// A source nav landmark keeps native menu semantics, so its icon-only anchors
+// must not silently lose the artwork core/navigation-link cannot save.
+$navIconResult = ( new HtmlTransformer() )->transform(
+    '<style>.social-nav a svg{width:23px;height:23px}</style><nav class="social-nav" aria-label="Social"><a href="https://www.facebook.com/wix" aria-label="Facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z"></path></svg></a><a href="https://x.com/wix" aria-label="Twitter"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle></svg></a></nav>'
+)->toArray();
+$navIconMarkup = (string) ($navIconResult['serialized_blocks'] ?? '');
+$navIconCss = implode("\n", array_column($navIconResult['assets'] ?? array(), 'content'));
+$assert('core/navigation' === ($navIconResult['blocks'][0]['blockName'] ?? null), 'icon-only anchors inside a nav landmark stay native navigation');
+$assert(str_contains($navIconMarkup, '"label":"Facebook"') && str_contains($navIconMarkup, '"label":"Twitter"'), 'icon-only navigation links keep their accessible name as the saved label');
+$assert(1 === preg_match('/blocks-engine-navigation-link-icon-[a-f0-9]{12}/', $navIconMarkup), 'icon-only navigation links carry an opaque icon marker');
+$assert(str_contains($navIconCss, 'background-image:url("data:image/svg+xml,') && str_contains($navIconCss, 'width:23px;height:23px'), 'recovered navigation icons project the source artwork at its source box');
+$assert(str_contains($navIconCss, 'font-size:0') && ! str_contains($navIconCss, 'visibility:hidden;background-image'), 'recovered navigation icons collapse the label without removing it from the accessibility tree');
+$navTextLinks = ( new HtmlTransformer() )->transform(
+    '<nav class="main-nav" aria-label="Main"><a href="/work">Work</a><a href="/about">About</a></nav>'
+)->toArray();
+$assert(! str_contains((string) ($navTextLinks['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-icon-'), 'text navigation links do not fabricate icon markers');
+
 // A row of button-styled links whose container merely carries a `links` token is
 // a call-to-action button group, not site navigation. It must convert to
 // core/buttons (preserving pill geometry) instead of being flattened into a

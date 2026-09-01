@@ -2101,6 +2101,9 @@ final class HtmlTransformer
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
+        foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
+            $afterAuthorCssParts[] = $navigationLinkIconRule;
+        }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
@@ -2630,7 +2633,8 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2794,6 +2798,77 @@ final class HtmlTransformer
             . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
         $this->generatedSupportStyles()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    /**
+     * Recover the artwork of an icon-only navigation anchor.
+     *
+     * The anchor's accessible name becomes the saved navigation-link label, but
+     * the inline SVG that name described has nowhere to live on the block. Keep
+     * the native menu and re-present the source icon from generated CSS, with
+     * the label collapsed rather than hidden so it stays an accessible name.
+     */
+    private function navigationLinkIconMarker(DOMElement $anchor): string
+    {
+        // Only an anchor with no visible text is described by its icon. An
+        // anchor that also shows a word keeps that word as its presentation.
+        if ( '' !== trim($anchor->textContent ?? '') ) {
+            return '';
+        }
+
+        $svg = null;
+        foreach ( $anchor->getElementsByTagName('svg') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $svg = $candidate;
+                break;
+            }
+        }
+        if ( ! $svg instanceof DOMElement || ! $this->svgHasDrawableContent($svg) ) {
+            return '';
+        }
+
+        $markup = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $markup || ! $this->isSafeSvgContent($markup) ) {
+            return '';
+        }
+
+        $box = $this->navigationLinkIconBox($svg);
+        if ( '' === $box ) {
+            return '';
+        }
+
+        $declarations = 'display:inline-block;' . $box
+            . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
+            . ';background-repeat:no-repeat;background-position:center;background-size:contain'
+            . ';font-size:0;line-height:0;color:transparent';
+        $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations), 0, 12);
+        $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
+
+        return $marker;
+    }
+
+    /** Resolve the rendered box of a navigation icon from its source geometry. */
+    private function navigationLinkIconBox(DOMElement $svg): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($svg)
+            )
+        );
+        $dimensions = array();
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $value = trim((string) ($declarations[$property] ?? ''));
+            if ( '' === $value || preg_match('/[{}<>;]/', $value) ) {
+                $value = trim($this->attr($svg, $property));
+                $value = '' === $value || ! is_numeric($value) ? '' : $value . 'px';
+            }
+            if ( '' === $value || 1 === preg_match('/^(?:0|auto|none)$/i', $value) ) {
+                return '';
+            }
+            $dimensions[] = $property . ':' . $value;
+        }
+
+        return implode(';', $dimensions);
     }
 
     /**
