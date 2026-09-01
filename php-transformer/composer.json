@@ -103,6 +103,7 @@
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/engine-support-css-asset.php",
       "php tests/unit/engine-support-css-specificity.php",
+      "php tests/unit/full-bleed-geometry.php",
       "php tests/unit/inline-display-carrier.php",
       "php tests/unit/exact-fit-inline-flow.php",
       "php tests/unit/css-owned-flex-carrier.php",

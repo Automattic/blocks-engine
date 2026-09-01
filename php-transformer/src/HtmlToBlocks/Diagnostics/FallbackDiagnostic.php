@@ -12,7 +12,22 @@ final class FallbackDiagnostic
      */
     public static function build(array $fields, array $provenance = array()): array
     {
-        return self::withGenericFindingMetadata(array_merge(self::defaults($fields), $fields, $provenance));
+        $finding = array_merge(self::defaults($fields), $fields, $provenance);
+        if ( 'html_form_fallback' === ($finding['diagnostic_code'] ?? null) ) {
+            // Source location, rather than mutable form content, is the stable
+            // reconciliation key a successful provider projection consumes.
+            $identity = hash('sha256', implode("\n", array(
+                'blocks-engine/form-fallback/v1',
+                (string) ($finding['source_format'] ?? ''),
+                (string) ($finding['source'] ?? ''),
+                (string) ($finding['scope'] ?? ''),
+                (string) ($finding['selector'] ?? ''),
+            )));
+            $finding['fallback_identity'] = $identity;
+            $finding['reconciliation_identity'] = $identity;
+        }
+
+        return self::withGenericFindingMetadata($finding);
     }
 
     /**
