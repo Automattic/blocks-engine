@@ -119,6 +119,7 @@ final class SourceBlockAttributeProjector
         SourceBlockAttributeProjectionContext $context
     ): array {
         $logicalControlPath = $logicalControl->getNodePath() ?? '';
+        $presentationPath = $sourceElement->getNodePath() ?? '';
         $nativeButtonTextAlignment = '';
         $hasNativeButtonColor = false;
         $hasNativeButtonStyle = false;
@@ -129,6 +130,15 @@ final class SourceBlockAttributeProjector
                 'a' === strtolower($logicalControl->tagName) && ($sourceElement === $logicalControl || $sourceElement->parentNode === $logicalControl)
             );
             $attrs = $nativeButtonProjection['attrs'];
+            if ( $this->buttonLabelHasAuthoredColor($sourceElement, $logicalControl, (string) ($attrs['text'] ?? ''), $presentationPath, $logicalControlPath) ) {
+                unset($attrs['style']['color']['text']);
+                if ( array() === ($attrs['style']['color'] ?? null) ) {
+                    unset($attrs['style']['color']);
+                }
+                if ( array() === ($attrs['style'] ?? null) ) {
+                    unset($attrs['style']);
+                }
+            }
             $nativeButtonTextAlignment = $nativeButtonProjection['text_alignment'];
             $hasNativeButtonColor = $nativeButtonProjection['color_changed'];
             $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
@@ -145,9 +155,19 @@ final class SourceBlockAttributeProjector
                     self::registerButtonWidth($attrs, $controlMarker, $context, $this->generatedStyleProjector);
                 }
             }
-            $presentationPath = $sourceElement->getNodePath() ?? '';
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
                 $context->selectorProjections->installButtonPresentationMarker($presentationPath, $controlMarker);
+            }
+            // The element that renders the label is styled separately from the
+            // control that boxes it, and core/button renders the label inside
+            // the link. Register it too, so rules written for the label reach
+            // the link instead of leaving the box's own colour to paint text.
+            if ( '' !== $controlMarker ) {
+                foreach ( self::buttonLabelPaths($sourceElement, $logicalControl, (string) ($attrs['text'] ?? '')) as $labelPath ) {
+                    if ( $labelPath !== $logicalControlPath && $labelPath !== $presentationPath ) {
+                        $context->selectorProjections->installButtonPresentationMarker($labelPath, $controlMarker);
+                    }
+                }
             }
         }
         if ( 'core/button' === $name && $hasNativeButtonStyle && '' === $context->selectorProjections->controlMarker($logicalControlPath) ) {
@@ -159,6 +179,71 @@ final class SourceBlockAttributeProjector
             self::registerButtonWidth($attrs, $nativeButtonMarker, $context, $this->generatedStyleProjector);
         }
         return $attrs;
+    }
+
+    /**
+     * Paths of the elements that render a button's visible label.
+     *
+     * @return array<int, string>
+     */
+    private static function buttonLabelPaths(DOMElement $sourceElement, ?DOMElement $logicalControl, string $label): array
+    {
+        $label = trim(html_entity_decode(strip_tags($label), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+        if ( '' === $label ) {
+            return array();
+        }
+
+        $paths = array();
+        foreach ( array( $sourceElement, $logicalControl ) as $host ) {
+            if ( ! $host instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $host->getElementsByTagName('*') as $candidate ) {
+                if ( ! $candidate instanceof DOMElement ) {
+                    continue;
+                }
+                if ( trim($candidate->textContent ?? '') !== $label ) {
+                    continue;
+                }
+                $path = $candidate->getNodePath() ?? '';
+                if ( '' !== $path ) {
+                    $paths[$path] = true;
+                }
+            }
+        }
+
+        return array_keys($paths);
+    }
+
+    private function buttonLabelHasAuthoredColor(
+        DOMElement $sourceElement,
+        ?DOMElement $logicalControl,
+        string $label,
+        string $presentationPath,
+        string $logicalControlPath
+    ): bool
+    {
+        $paths = array_fill_keys(self::buttonLabelPaths($sourceElement, $logicalControl, $label), true);
+        if ( array() === $paths ) {
+            return false;
+        }
+        foreach ( array( $sourceElement, $logicalControl ) as $host ) {
+            if ( ! $host instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $host->getElementsByTagName('*') as $candidate ) {
+                $candidatePath = $candidate instanceof DOMElement ? ($candidate->getNodePath() ?? '') : '';
+                if ( $candidate instanceof DOMElement
+                    && $candidatePath !== $presentationPath
+                    && $candidatePath !== $logicalControlPath
+                    && isset($paths[$candidatePath])
+                    && array() !== $this->styleResolver->authorDeclaredPropertyValues($candidate, array( 'color' ))
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** @param array<string, mixed> $attrs */
