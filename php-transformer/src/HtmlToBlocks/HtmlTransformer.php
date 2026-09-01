@@ -10084,12 +10084,77 @@ final class HtmlTransformer
             $slides[] = $slide;
         }
 
+        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'))));
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
+        $initialSlide = 0;
+        foreach ( $items as $index => $item ) {
+            if ( '' !== $this->attr($item, 'aria-hidden') || '' !== $this->attr($item, 'data-slideshow-slide') ) {
+                $presentation = 'slideshow';
+            }
+            if ( 'false' === strtolower(trim($this->attr($item, 'aria-hidden'))) || str_contains(' ' . strtolower($this->attr($item, 'class')) . ' ', ' active ') ) {
+                $initialSlide = $index;
+            }
+        }
+
+        $showDots = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                if ( ctype_digit(trim($this->attr($candidate, $attribute))) ) {
+                    $showDots = true;
+                    break 2;
+                }
+            }
+        }
+
+        $durationMilliseconds = static function (string $value): int {
+            if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
+                return 0;
+            }
+            $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
+            return (int) round($milliseconds);
+        };
+        $transitionDuration = 0;
+        $autoplayInterval = 0;
+        foreach ( $items as $item ) {
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($item, 'style'))['animation-duration'] ?? '')));
+            foreach ( $item->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($descendant, 'style'))['animation-duration'] ?? '')));
+            }
+        }
+        if ( $autoplayInterval <= $transitionDuration ) {
+            $autoplayInterval = 0;
+        }
+        if ( 0 === $transitionDuration ) {
+            $transitionDuration = 300;
+        }
+
+        $listHeight = (string) ($this->styleResolver->cssDeclarations($this->attr($list, 'style'))['height'] ?? '');
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($listHeight), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
+        $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
+        $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
+            && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
+
         $generator = new AuthoredCarouselBlockGenerator();
         $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
-            'itemsPerView' => min(4, count($slides)),
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
             'wrap' => true,
+            'presentation' => $presentation,
+            'slideCount' => count($slides),
+            'initialSlide' => $initialSlide,
+            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
+            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
+            'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
+            'showDots' => 'slideshow' === $presentation && $showDots,
+            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
         );
         $shell = $generator->shell($attributes);
         $innerContent = array($shell['opening']);

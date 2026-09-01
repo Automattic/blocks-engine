@@ -38,7 +38,7 @@ $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@
 $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Care & <support>', 'itemsPerView' => 99, 'wrap' => false));
 $shellMarkup = $shell['opening'] . $shell['closing'];
 $assert(str_contains($shellMarkup, 'aria-label="Care &amp; &lt;support&gt;"') && str_contains($shellMarkup, '--items-6') && str_contains($shellMarkup, 'data-wrap="false"'), 'shell attributes are escaped and bounded');
-$assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, 'data-wp-context="{&quot;index&quot;:0,&quot;wrap&quot;:false,&quot;count&quot;:0,&quot;visible&quot;:6}"') && str_contains($shellMarkup, 'data-wp-init="callbacks.init"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
+$assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, '&quot;presentation&quot;:&quot;track&quot;') && str_contains($shellMarkup, 'data-wp-init="callbacks.init"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
 
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $payloadBlock = $payload['blocks'][0] ?? array();
@@ -49,5 +49,14 @@ $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock
 
 $customHost = (new HtmlTransformer())->transform('<vendor-carousel><button>Previous</button><div role="list"><div role="listitem"><img src="one.jpg"></div><div role="listitem"><img src="two.jpg"></div></div><button>Next</button></vendor-carousel>')->toArray();
 $assert('custom/authored-carousel' === ($customHost['blocks'][0]['blockName'] ?? null), 'custom-element carousel hosts use the same generic block before generated HTML fallback');
+
+$slideshowSource = '<div class="heroSlider" style="width:100vw;left:-120px"><ul class="hero-slideshow" style="height:720px"><li data-slideshow-slide="img" aria-hidden="true" style="animation-duration:500ms"><div style="animation-duration:12000ms"></div><img src="one.jpg"></li><li data-slideshow-slide="img" aria-hidden="false" style="animation-duration:500ms"><div style="animation-duration:12000ms"></div><img src="two.jpg"></li></ul><button class="previous">Previous</button><button class="next">Next</button><ol><li data-slideshow-item="0"></li><li data-slideshow-item="1"></li></ol></div>';
+$slideshowResult = (new HtmlTransformer())->transform($slideshowSource)->toArray();
+$slideshow = $slideshowResult['blocks'][0] ?? array();
+$slideshowMarkup = (string) ($slideshowResult['serialized_blocks'] ?? '');
+$assert('custom/authored-carousel' === ($slideshow['blockName'] ?? null) && 'slideshow' === ($slideshow['attrs']['presentation'] ?? null) && 1 === ($slideshow['attrs']['itemsPerView'] ?? null), 'a one-at-a-time authored slideshow uses the same parameterized carousel primitive');
+$assert(720 === ($slideshow['attrs']['viewportHeight'] ?? null) && 500 === ($slideshow['attrs']['transitionDuration'] ?? null) && 12000 === ($slideshow['attrs']['autoplayInterval'] ?? null), 'slideshow timing and captured viewport height are recovered from source declarations');
+$assert(1 === ($slideshow['attrs']['initialSlide'] ?? null) && true === ($slideshow['attrs']['showDots'] ?? null) && true === ($slideshow['attrs']['fullBleed'] ?? null), 'active slide, dot navigation, and viewport breakout survive conversion');
+$assert(str_contains($slideshowMarkup, '--slideshow') && 2 === substr_count($slideshowMarkup, 'data-carousel-index=') && str_contains($slideshowMarkup, '--blocks-engine-carousel-height:720px'), 'slideshow markup carries stacked presentation, indexed dots, and source height');
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
