@@ -1387,7 +1387,8 @@ final class HtmlTransformer
             (string) ($options['static_css'] ?? ''),
             true !== ($options['skip_author_stylesheet_materialization'] ?? false),
             $serializedBlocks,
-            $sourceProvenance
+            $sourceProvenance,
+            $authorStylesheetProjections
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
@@ -2002,8 +2003,11 @@ final class HtmlTransformer
         return array_slice($entries, 0, 20);
     }
 
-    /** @param array<int, array<string, mixed>> $sourceProvenance */
-    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array()): void
+    /**
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @param list<array{path: string, content: string, bytes: int, hash: string, source_hash: string}> $authorStylesheetProjections
+     */
+    private function materializeAuthorStylesheet(string $html, string $staticCss, bool $includeAuthorStyles = true, string $serializedBlocks = '', array $sourceProvenance = array(), array $authorStylesheetProjections = array()): void
     {
         $beforeAuthorCssParts = array();
         $authorCssParts = array();
@@ -2186,8 +2190,15 @@ final class HtmlTransformer
         array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still
         // settle at the appearance it was travelling towards, not at the hidden
-        // keyframe it starts from (#239).
-        array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($authorCss));
+        // keyframe it starts from (#239). Read the projected author CSS the
+        // theme actually ships: when the artifact pipeline materializes the
+        // author stylesheets itself, that is the per-asset projection rather
+        // than the copy inlined here, and only the projected form carries the
+        // state markers the repair has to reproduce in its selectors.
+        $settleableAuthorCss = '' !== trim($authorCss)
+            ? $authorCss
+            : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
+        array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');

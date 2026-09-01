@@ -137,6 +137,25 @@ foreach ( array( 'comp-k3nod418', 'comp-k3jrzme8' ) as $id ) {
     );
 }
 
+// The artifact pipeline materializes the author stylesheets itself and hands the
+// transform the projected copies, so the repair has to read those rather than the
+// author CSS this method would otherwise inline.
+$pipelineResult = ( new HtmlTransformer() )->transform($html, array(
+    'skip_author_stylesheet_materialization' => true,
+    'author_stylesheet_assets' => array( array( 'path' => 'assets/css/capture.css', 'content' => $css ) ),
+))->toArray();
+$pipelineAfterAuthor = $collect(
+    is_array($pipelineResult['assets'] ?? null) ? $pipelineResult['assets'] : array(),
+    static fn (array $asset): bool => 'engine-support' === ($asset['source'] ?? '') && 'after-author' === ($asset['stylesheet_placement'] ?? '')
+);
+foreach ( array( 'comp-k3nod418', 'comp-k3jrzme8' ) as $id ) {
+    $assert(
+        str_contains($pipelineAfterAuthor, ':root #' . $id . '{animation:none!important;opacity:var(--comp-opacity, 1)!important}'),
+        'a pipeline transform that materializes its own author stylesheets still settles #' . $id,
+        $pipelineAfterAuthor
+    );
+}
+
 $editorStaticState = $collect($assets, static fn (array $asset): bool => 'editor-static-state' === ($asset['source'] ?? ''));
 $assert(
     str_contains($editorStaticState, 'animation-play-state:running!important') && str_contains($editorStaticState, 'animation-timeline:auto!important'),
