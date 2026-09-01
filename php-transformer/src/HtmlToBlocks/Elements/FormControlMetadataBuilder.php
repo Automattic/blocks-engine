@@ -120,7 +120,7 @@ final class FormControlMetadataBuilder
     {
         $ariaLabel = trim($this->attr($control, 'aria-label'));
         if ( '' !== $ariaLabel ) {
-            return $ariaLabel;
+            return $this->collapseRepeatedLabel($ariaLabel);
         }
 
         $id = $this->attr($control, 'id');
@@ -222,7 +222,7 @@ final class FormControlMetadataBuilder
 
     public function labelText(DOMElement $label): string
     {
-        return trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '');
+        return $this->collapseRepeatedLabel(trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? ''));
     }
 
     private function labelTextWithoutControls(DOMNode $node): string
@@ -261,5 +261,13 @@ final class FormControlMetadataBuilder
     private function attr(DOMElement $element, string $name): string
     {
         return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
+    }
+
+    private function collapseRepeatedLabel(string $label): string
+    {
+        if ( preg_match('/^\s*(.+?)[.!?]\s+\1\s*$/iu', $label, $match) ) {
+            return trim($match[1]);
+        }
+        return $label;
     }
 }
