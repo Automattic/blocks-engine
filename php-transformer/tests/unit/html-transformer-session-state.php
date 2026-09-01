@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -106,6 +107,20 @@ $assert(
 );
 foreach ( array('__get', '__set', '__isset') as $magicAccessor ) {
     $assert(! $transformerReflection->hasMethod($magicAccessor), 'HtmlTransformer must not delegate state through ' . $magicAccessor . '.');
+}
+
+$unpreparedSession = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+foreach ( array(
+    'authorStyleAnalysis' => 'Author styles have not been prepared for this transform.',
+    'layoutGeometryState' => 'Layout geometry state has not been prepared for this transform.',
+    'assetMaterializationState' => 'Asset materialization state has not been prepared for this transform.',
+) as $method => $message ) {
+    try {
+        $unpreparedSession->{$method}();
+        $assert(false, $method . ' must fail before its lifecycle state is installed.');
+    } catch ( LogicException $exception ) {
+        $assert($message === $exception->getMessage(), $method . ' must preserve its lifecycle failure.');
+    }
 }
 
 fwrite(STDOUT, "HTML transformer session state passed\n");

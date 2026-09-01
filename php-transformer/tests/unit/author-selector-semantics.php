@@ -629,14 +629,14 @@ $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains(
 $applicabilityCompilation = new HtmlCompilation();
 $applicabilityCompilation->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
 $applicabilitySession = (new ReflectionClass($applicabilityCompilation))->getProperty('session')->getValue($applicabilityCompilation);
-$applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?? array();
+$applicableRules = $applicabilitySession->authorStyleAnalysis()->styleRules();
 $applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
 $assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
 
 $unmatchableCompilation = new HtmlCompilation();
 $unmatchableCompilation->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
 $unmatchableSession = (new ReflectionClass($unmatchableCompilation))->getProperty('session')->getValue($unmatchableCompilation);
-$unmatchableIndex = $unmatchableSession->authorStyleAnalysis()?->styleRuleCandidateIndex() ?? array();
+$unmatchableIndex = $unmatchableSession->authorStyleAnalysis()->styleRuleCandidateIndex();
 $indexedAuthorSelectors = array();
 foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
     $entries = 'universal' === $bucket ? $unmatchableIndex[$bucket] : array_merge(...array_values($unmatchableIndex[$bucket] ?: array(array())));

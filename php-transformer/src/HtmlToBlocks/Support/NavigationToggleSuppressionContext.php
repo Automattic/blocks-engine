@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Closure;
@@ -13,24 +14,19 @@ use DOMElement;
 /**
  * Explicit collaborator surface for {@see NavigationToggleSuppressor}.
  *
- * Per-transform state (runtime selectors, navigation projection) and the probe
- * pattern context are resolved through closures because the suppressor is constructed once with the
- * transformer but must see the state belonging to the transform currently
- * running.
+ * Per-transform state is read from the compilation's typed session. Closures
+ * remain only for transformer-owned operations.
  */
 final class NavigationToggleSuppressionContext
 {
     /**
      * @param Closure(DOMElement): bool            $sourceElementStartsHidden
-     * @param Closure(): RuntimeSelectorState      $runtimeSelectors
-     * @param Closure(): NavigationProjectionState $navigationProjection
      * @param Closure(): PatternRecognizerRegistry $patternRecognizers
      * @param Closure(): PatternContext            $probePatternContext
      */
     public function __construct(
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $sourceElementStartsHidden,
-        private readonly Closure $runtimeSelectors,
-        private readonly Closure $navigationProjection,
         private readonly Closure $patternRecognizers,
         private readonly Closure $probePatternContext
     ) {
@@ -43,12 +39,12 @@ final class NavigationToggleSuppressionContext
 
     public function runtimeSelectors(): RuntimeSelectorState
     {
-        return ($this->runtimeSelectors)();
+        return $this->session->runtimeSelectorState();
     }
 
     public function navigationProjection(): NavigationProjectionState
     {
-        return ($this->navigationProjection)();
+        return $this->session->navigationProjectionState();
     }
 
     public function patternRecognizers(): PatternRecognizerRegistry

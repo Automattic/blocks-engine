@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
@@ -13,10 +14,8 @@ use DOMElement;
 /**
  * Explicit collaborator surface for {@see SvgMaterializer}.
  *
- * Per-transform state (layout geometry, materialized assets, transformation
- * evidence and provenance) is resolved through closures because the materializer
- * is constructed once with the transformer but must see the state belonging to
- * the transform currently running.
+ * Per-transform state is read from the compilation's typed session. Closures
+ * remain only for transformer-owned operations.
  */
 final class SvgMaterializationContext
 {
@@ -24,25 +23,18 @@ final class SvgMaterializationContext
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): bool                                                                $isInlineContentElement
      * @param Closure(DOMElement): bool                                                            $isVisualLayerElement
-     * @param Closure(): LayoutGeometryState                                                       $layoutGeometry
-     * @param Closure(): AssetMaterializationState                                                 $materializedAssets
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
-     * @param Closure(): TransformationEvidenceState                                               $transformationEvidence
-     * @param Closure(): TransformationProvenanceState                                             $transformationProvenance
      */
     public function __construct(
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $createBlock,
         private readonly Closure $isInlineContentElement,
         private readonly Closure $isVisualLayerElement,
-        private readonly Closure $layoutGeometry,
-        private readonly Closure $materializedAssets,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
-        private readonly Closure $sanitizeInlineSvgMarkup,
-        private readonly Closure $transformationEvidence,
-        private readonly Closure $transformationProvenance
+        private readonly Closure $sanitizeInlineSvgMarkup
     ) {
     }
 
@@ -73,12 +65,12 @@ final class SvgMaterializationContext
 
     public function layoutGeometry(): LayoutGeometryState
     {
-        return ($this->layoutGeometry)();
+        return $this->session->layoutGeometryState();
     }
 
     public function materializedAssets(): AssetMaterializationState
     {
-        return ($this->materializedAssets)();
+        return $this->session->assetMaterializationState();
     }
 
     public function reusableComponentFingerprintFor(DOMElement $element): ?string
@@ -98,11 +90,11 @@ final class SvgMaterializationContext
 
     public function transformationEvidence(): TransformationEvidenceState
     {
-        return ($this->transformationEvidence)();
+        return $this->session->transformationEvidenceState();
     }
 
     public function transformationProvenance(): TransformationProvenanceState
     {
-        return ($this->transformationProvenance)();
+        return $this->session->transformationProvenanceState();
     }
 }
