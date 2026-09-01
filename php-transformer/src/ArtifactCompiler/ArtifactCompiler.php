@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
@@ -46,7 +47,6 @@ final class ArtifactCompiler
      *
      * @var array<int, string>
      */
-    private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
 	/** @var array<string, string> */
 	private array $themeStaticCssCache = array();
@@ -3211,42 +3211,6 @@ final class ArtifactCompiler
     private function scriptCanvasSelectors(string $script): array
     {
         return (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['canvas_selectors'];
-        $selectors = array();
-        $getContextPattern = '\.\s*getContext\s*\(';
-
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-
-        if ( preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selectors[(string) $selector] = true;
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
-                    $selectors['#' . (string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
-                    $selectors[(string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas', $getContextPattern) as $selector ) {
-            $selectors[$selector] = true;
-        }
-
-        return array_keys($selectors);
     }
 
     /**
@@ -3381,44 +3345,6 @@ final class ArtifactCompiler
         }
 
         return $this->scriptDomSelectorCache[$cacheKey] = (new RuntimeScriptEvidenceAnalyzer())->analyze($script)['selectors'];
-        $selectors = array();
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'svg') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptAppendedRootSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-
-        return $this->scriptDomSelectorCache[$cacheKey] = array_keys($selectors);
     }
 
     private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
@@ -3461,73 +3387,12 @@ final class ArtifactCompiler
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|modal|drawer|cart|checkout|search|filter|tab|accordion|slider|carousel|canvas|stage|player|map|app|editor|playground|demo)(?:[^a-z0-9]|$)/i', $selector);
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function scriptDataAttributeSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( ! preg_match_all('/(?:querySelector(?:All)?|closest)\s*\(\s*(["\'`])(.{1,240}?)\1\s*\)/s', $script, $calls, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $calls as $call ) {
-            foreach ( $this->dataAttributeSelectorsFromCssSelector((string) $call[2]) as $selector ) {
-                $selectors[$selector] = true;
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function dataAttributeSelectorsFromCssSelector(string $selector): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches, PREG_SET_ORDER) ) {
-            foreach ( $matches as $match ) {
-                $selector = strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches) ) {
-            foreach ( $matches[1] as $attribute ) {
-                $selector = '[' . strtolower((string) $attribute) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
     private function isPresentationalRuntimeSelector(string $selector): bool
+
     {
-        $name = '';
-        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
-            $name = substr(strtolower((string) $match[1]), 5);
-        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        }
 
-        if ( '' === $name ) {
-            return false;
-        }
+        return RuntimeSelectorVocabulary::isPresentationalAnimation($selector);
 
-        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -3541,103 +3406,14 @@ final class ArtifactCompiler
         }
 
         return $this->scriptControlSelectorCache[$cacheKey] = array_fill_keys((new RuntimeScriptEvidenceAnalyzer())->analyze($script)['control_selectors'], true);
-        $selectors = array();
-        $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
-
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selectors[(string) $selector] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*\.\s*forEach\s*\(\s*(?:\(\s*)?([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\))?\s*=>\s*\{([\s\S]{0,2000}?)\n\s*\}\s*\)/', $script, $callbacks, PREG_SET_ORDER) ) {
-            foreach ( $callbacks as $callback ) {
-                if ( preg_match('/\b' . preg_quote((string) $callback[3], '/') . '\s*' . $runtimeUsePattern . '/', (string) $callback[4]) ) {
-                    $selectors[(string) $callback[2]] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
-                    $selectors['#' . (string) $assignment[3]] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
-                    $selectors[(string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        return $this->scriptControlSelectorCache[$cacheKey] = $selectors;
     }
 
     private function scriptSelectorPattern(): string
+
     {
-        $name = '[A-Za-z][A-Za-z0-9_-]*';
-        return '(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|' . $name . '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')';
-    }
 
-    private function canonicalRuntimeSelector(string $selector): string
-    {
-        $selector = trim($selector);
-        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
-            return strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
-        }
+        return RuntimeSelectorVocabulary::scriptSelectorPattern();
 
-        return $selector;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptScopedElementSelectors(string $script, string $tag, string $usePattern = ''): array
-    {
-        $selectors = array();
-        if ( ! preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $roots as $root ) {
-            $rootVar = (string) $root[1];
-            $childPattern = '/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\b' . preg_quote($rootVar, '/') . '\s*\.\s*querySelector\s*\(\s*(["\'])' . preg_quote($tag, '/') . '\2\s*\)/';
-            if ( ! preg_match_all($childPattern, $script, $children, PREG_SET_ORDER) ) {
-                continue;
-            }
-
-            foreach ( $children as $child ) {
-                $childVar = (string) $child[1];
-                if ( '' === $usePattern || preg_match('/\b' . preg_quote($childVar, '/') . '\s*' . $usePattern . '/', $script) ) {
-                    $selectors[] = $tag;
-                }
-            }
-        }
-
-        return array_values(array_unique($selectors));
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptAppendedRootSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER) ) {
-            foreach ( $roots as $root ) {
-                if ( preg_match('/\b' . preg_quote((string) $root[1], '/') . '\s*\.\s*appendChild\s*\(/', $script) ) {
-                    $selectors[] = '' !== (string) ($root[3] ?? '') ? '#' . (string) $root[3] : (string) $root[5];
-                }
-            }
-        }
-
-        return array_values(array_unique($selectors));
     }
 
     private function htmlAttribute(string $tag, string $name): string

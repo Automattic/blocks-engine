@@ -106,9 +106,11 @@ final class NavigationStyleProjector
             $selector = ':root .' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder';
             // A painted source layer holds geometry, not authored children, so
             // core's empty-group variation picker stacks unrelated layout
-            // controls at the top of the document. Bound the placeholder and
-            // withhold that picker so the editor shows the source composition.
-            $rules[] = $selector . '{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem!important;overflow:hidden!important}'
+            // controls at the top of the document. Withhold that picker, and
+            // reserve no height for it: the source layer is painted out of
+            // normal flow, so any reserved height displaces every block after
+            // it and moves the composition down the canvas.
+            $rules[] = $selector . '{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;overflow:hidden!important}'
                 . $selector . '>*{display:none!important}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {

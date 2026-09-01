@@ -377,6 +377,62 @@ final class StyleResolver
         return $declarations;
     }
 
+    /**
+     * Value stated for this element by media-conditional rules.
+     *
+     * `specificityResolvedPresentationStyle()` reads the static collection
+     * only. A capture serialises its desktop stylesheet behind a width query,
+     * so properties a builder states there are absent from that view even
+     * though they are what the document renders with. Later rules win, matching
+     * declaration order within the collection.
+     */
+    public function conditionalDeclaration(DOMElement $element, string $property): string
+    {
+        $value = '';
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
+            if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            $value = $declared;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Value a rule states for this element that the matcher cannot evaluate.
+     *
+     * Selectors using `:is`, `:where`, `:not` or `:has` are not matched
+     * structurally, so declarations they carry never reach the cascade. When
+     * such a rule names this element by id or class, the value is still the
+     * source's stated intent for it, and losing it silently drops the element
+     * to the destination default.
+     *
+     * Later rules win, matching declaration order, since specificity cannot be
+     * compared for a selector that was never parsed.
+     */
+    public function unsupportedSelectorDeclaration(DOMElement $element, string $property): string
+    {
+        $value = '';
+        foreach ( array( $this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules() ) as $rules ) {
+            foreach ( $rules as $rule ) {
+                $selector = (string) ( $rule['selector'] ?? '' );
+                if ( 1 !== preg_match('/:(?:is|where|not|has)\s*\(/i', $selector)
+                    || ! $this->unsupportedSelectorReferencesElement($selector, $element)
+                ) {
+                    continue;
+                }
+                $declared = trim((string) ( $rule['declarations'][$property] ?? '' ));
+                if ( '' !== $declared ) {
+                    $value = $declared;
+                }
+            }
+        }
+
+        return $value;
+    }
+
     private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
     {
         $id = trim(SourceDom::attr($element, 'id'));
@@ -556,7 +612,9 @@ final class StyleResolver
             $geometry[$property] = $value;
         }
 
-        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry) ) {
+        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry)
+            || $this->isCapturedViewportWidthBreakout($element, $geometry, $declarations)
+        ) {
             // A WordPress flow container is commonly inset from the viewport.
             // Re-anchor a carried 100vw box to that viewport and clip oversized
             // cover descendants within the source's full-bleed carrier.
@@ -644,6 +702,40 @@ final class StyleResolver
     }
 
     /** @param array<string, string> $geometry */
+    /**
+     * A viewport-wide box the source pulled back to the viewport edge itself.
+     *
+     * Sites that break a section out of an inset container commonly measure the
+     * offset while rendering and write it onto the element, so the captured
+     * document carries a pixel offset that is only true at the width it was
+     * captured at. The same breakout expressed against the viewport resolves at
+     * every width, so the measured offset is replaced rather than carried.
+     *
+     * @param array<string, string> $geometry
+     * @param array<string, string> $declarations
+     */
+    private function isCapturedViewportWidthBreakout(DOMElement $element, array $geometry, array $declarations): bool
+    {
+        if ( '100vw' !== strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? '')))) ) {
+            return false;
+        }
+        $offset = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($declarations['left'] ?? '')
+        )));
+        if ( 1 !== preg_match('/^-\s*(?:\d+|\d*\.\d+)(?:px|rem|em|%)$/', $offset) ) {
+            return false;
+        }
+        $position = strtolower(trim((string) preg_replace(
+            '/\s*!\s*important\s*$/i',
+            '',
+            (string) ($this->structuralPresentationDeclarations($element)['position'] ?? 'static')
+        )));
+
+        return in_array($position, array( '', 'static', 'relative' ), true);
+    }
+
     private function isNormalFlowViewportWidthGeometry(DOMElement $element, array $geometry): bool
     {
         $width = strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? ''))));

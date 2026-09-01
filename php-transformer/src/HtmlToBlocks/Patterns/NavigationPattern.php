@@ -109,6 +109,27 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        // core/navigation collapses the wrappers a builder places between the
+        // list item and its anchor, and source rules commonly style the menu
+        // through those wrappers' classes. Carry the classes every item shares
+        // so those rules keep matching; taking only the shared set excludes
+        // route-current state, which would otherwise differ per document and
+        // fragment a shared shell into one template part per page.
+        $sharedWrapperClasses = $this->sharedReplacedWrapperClassNames($element);
+        if ( '' !== $sharedWrapperClasses ) {
+            foreach ( $links as $linkIndex => $link ) {
+                if ( in_array($link['blockName'] ?? '', array( 'core/navigation-link', 'core/navigation-submenu' ), true) ) {
+                    $links[$linkIndex]['attrs'] = $this->withClassName(is_array($link['attrs'] ?? null) ? $link['attrs'] : array(), $sharedWrapperClasses);
+                }
+            }
+        }
+        // Presentation the source inherits is recorded for CSS delivery rather
+        // than written onto the block, so documents that share this shell keep
+        // identical markup and continue to collapse into one template part.
+        $navigationContext?->recordInheritedPresentation(
+            $element,
+            $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''))
+        );
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
             if ( '' !== $defaultTextColorClass ) {
@@ -1171,6 +1192,69 @@ final class NavigationPattern implements PatternRecognizerInterface
         // Core does not register either attribute, so serializing them would make
         // an editor parse/save discard CSS projection input.
         return array_filter(array_replace_recursive($itemAttrs, $baseAttrs), static fn ($value): bool => '' !== $value);
+    }
+
+    /**
+     * Classes shared by every item's replaced wrappers.
+     *
+     * Only classes present on all items are kept. A class that appears on one
+     * item is route-current state, and carrying it would make this document's
+     * markup differ from its siblings that share the same shell.
+     */
+    private function sharedReplacedWrapperClassNames(DOMElement $navigation): string
+    {
+        $sets = array();
+        foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement ) {
+                continue;
+            }
+            $classes = array();
+            $node    = $anchor->parentNode;
+            $depth   = 0;
+            while ( $node instanceof DOMElement && ! $node->isSameNode($navigation) && $depth < 6 ) {
+                ++$depth;
+                if ( 'li' === strtolower($node->tagName) ) {
+                    break;
+                }
+                foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
+                    if ( '' !== $candidate && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $candidate) ) {
+                        $classes[$candidate] = true;
+                    }
+                }
+                $node = $node->parentNode;
+            }
+            $sets[] = $classes;
+        }
+        if ( array() === $sets ) {
+            return '';
+        }
+
+        $shared = array_shift($sets);
+        foreach ( $sets as $classes ) {
+            $shared = array_intersect_key($shared, $classes);
+        }
+
+        return implode(' ', array_keys($shared));
+    }
+
+    /**
+     * Classes already carried by the block that a stylesheet can target.
+     *
+     * Engine markers are excluded: a generated selector should hang off the
+     * source's own identity, not off vocabulary this engine invented.
+     *
+     * @return array<int, string>
+     */
+    private function authorClassNames(string $className): array
+    {
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+
+        return array_values(array_filter(
+            $classes,
+            static fn (string $candidate): bool => '' !== $candidate
+                && ! str_starts_with($candidate, 'blocks-engine-')
+                && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $candidate)
+        ));
     }
 
     private function navigationTextColorFromStyle(string $style): string

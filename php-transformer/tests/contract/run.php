@@ -630,6 +630,30 @@ $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockNa
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
 
+// core/navigation emits its own item markup, so a builder wrapper that carried
+// the menu's type and colour does not survive and its rule matches nothing.
+// Recover that presentation onto the native counterpart, and deliver it as CSS:
+// shell identity compares block markup across documents, so a per-page value in
+// that markup would split one shared template part into several.
+$navInherited = ( new HtmlTransformer() )->transform(
+    '<style>body{font-family:Arial;font-size:10px;color:#000}.labelBox{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}</style>'
+    . '<body><header><nav class="menu navbar" aria-label="Main"><ul>'
+    . '<li><div class="labelBox"><a href="/features">Features</a></div></li>'
+    . '<li><div class="labelBox"><a href="/benefits">Benefits</a></div></li>'
+    . '</ul></nav></header></body>'
+)->toArray();
+$navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
+$navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'), 'menu presentation on a replaced source wrapper is recovered onto the native navigation item');
+$assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
+preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
+$navInheritedBlock = $navInheritedAttrs[1] ?? '';
+$assert('' !== $navInheritedBlock && ! str_contains($navInheritedBlock, 'customTextColor') && ! str_contains($navInheritedBlock, 'helvetica-w01-roman'), 'recovered navigation presentation stays out of the navigation block so documents sharing a shell keep identical markup: ' . $navInheritedBlock);
+$navNoInheritance = ( new HtmlTransformer() )->transform(
+    '<header><nav class="plain-nav" aria-label="Main"><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav></header>'
+)->toArray();
+$assert(! str_contains(implode("\n", array_column($navNoInheritance['assets'] ?? array(), 'content')), '.wp-block-navigation.plain-nav '), 'a menu with no distinct presentation gets no fabricated rule');
+
 // A source nav landmark keeps native menu semantics, so its icon-only anchors
 // must not silently lose the artwork core/navigation-link cannot save.
 $navIconResult = ( new HtmlTransformer() )->transform(
@@ -1229,6 +1253,9 @@ $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', 
 $fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
 $assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important'), 'empty painted groups retain frontend geometry while their Gutenberg placeholder is bounded in normal flow');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
+// Reserving height for a withheld picker displaces every following block, which
+// moves the whole source composition down the editor canvas.
+$assert(str_contains($fixedBackgroundEditorCss, 'min-height:0!important') && ! str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem'), 'painted source layers reserve no editor height for the picker they withhold');
 
 $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
@@ -2170,9 +2197,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // Slice 4 L6: support-derived color and spacing declarations retain canonical
 // wrapper attribute order before the cover-owned min-height declaration.

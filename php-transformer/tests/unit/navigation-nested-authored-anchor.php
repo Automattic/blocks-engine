@@ -31,7 +31,11 @@ $metrics = $result['source_reports']['editability_report']['metrics'] ?? array()
 $assert(1 === substr_count($markup, '<!-- wp:navigation '), 'RMA-shaped nested mobile menu emits one core navigation block', $markup);
 $assert(str_contains($markup, '"label":"Programs"') && str_contains($markup, '"url":"/programs"'), 'nested authored anchor retains its URL and label', $markup);
 $assert(str_contains($markup, 'programs-link') && str_contains($markup, 'authored-item'), 'nested authored anchor retains link and item presentation classes', $markup);
-$assert(! str_contains($markup, 'anchor-carrier') && ! str_contains($markup, 'authored-label'), 'nested anchor carriers do not remain as anonymous group and paragraph blocks', $markup);
+$navigationInner = preg_match('/<!-- wp:navigation .*?<!-- \/wp:navigation -->/s', $markup, $navigationRegion) ? $navigationRegion[0] : '';
+$assert('' !== $navigationInner && ! str_contains($navigationInner, '<!-- wp:group') && ! str_contains($navigationInner, '<!-- wp:paragraph') && ! str_contains($markup, 'authored-label'), 'nested anchor carriers do not remain as anonymous group and paragraph blocks', $markup);
+// The carrier's own class is still carried onto the native item, because source
+// rules commonly style a menu through the wrappers core replaces.
+$assert(str_contains($navigationInner, 'anchor-carrier'), 'a replaced carrier keeps its class on the native item so source rules still match', $markup);
 $assert(! str_contains($markup, 'item-support'), 'empty item support does not prevent native navigation conversion', $markup);
 $assert(! str_contains($markup, 'scroll-support'), 'hidden scroll support does not prevent native navigation conversion', $markup);
 $assert('pass' === ($parity['status'] ?? null), 'nested authored menu preserves semantic item-count parity', json_encode($parity));

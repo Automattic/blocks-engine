@@ -385,6 +385,10 @@ final class HtmlTransformer
 
     private const SYNTHETIC_IMAGE_FIGURE_CLASS = SourceBlockAttributeProjector::SYNTHETIC_IMAGE_FIGURE_CLASS;
 
+    private const BACKGROUND_IMAGE_CLASS = 'blocks-engine-background-image';
+
+    private const BACKGROUND_IMAGE_SCALE_CLASS_PREFIX = 'blocks-engine-background-image-';
+
     private const INLINE_LAYOUT_CARRIER_CLASS = AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS;
 
 
@@ -2008,6 +2012,16 @@ final class HtmlTransformer
         if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
+        if ( str_contains($serializedBlocks, self::BACKGROUND_IMAGE_CLASS) ) {
+            // The source painted this image as a background, where the element's
+            // own box decides the size and the image never overflows it. core's
+            // scale attribute only reaches the image when width and height are
+            // saved, so the sized cases carry that contract here instead.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::BACKGROUND_IMAGE_CLASS . ') img{max-width:100%}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover,.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain){height:100%}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'cover) img{width:100%;height:100%;object-fit:cover}'
+                . "\n" . ':root :where(.' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . 'contain) img{width:100%;height:100%;object-fit:contain}';
+        }
         if ( str_contains($serializedBlocks, self::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(p.' . self::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
         }
@@ -2062,8 +2076,26 @@ final class HtmlTransformer
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
+        foreach ( $this->generatedSupportStyles()->navigationInheritedPresentationRules() as $navigationInheritedRule ) {
+            $afterAuthorCssParts[] = $navigationInheritedRule;
+        }
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
+        }
+        if ( str_contains($serializedBlocks, 'wp:social-link') ) {
+            // core/social-links paints its own icon for every service. The source
+            // cluster painted icon-font glyphs through pseudo-elements on the very
+            // items core now owns, so both icons would render on each link.
+            $afterAuthorCssParts[] = ':root .wp-block-social-links .wp-social-link::before,'
+                . ':root .wp-block-social-links .wp-social-link::after,'
+                . ':root .wp-block-social-links .wp-social-link>a::before,'
+                . ':root .wp-block-social-links .wp-social-link>a::after{content:none}';
+            // The source cluster was an inline box, so its container's text
+            // alignment placed it. core's list is a full-width flex row, which
+            // packs the items at the start instead. An inline flex row resolves
+            // through that same alignment, for centered and start-aligned
+            // containers alike, while an explicit justification still wins.
+            $afterAuthorCssParts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
@@ -2564,7 +2596,11 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement),
+                function (DOMElement $sourceElement, array $authorClasses): void {
+                    $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
+                    $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
+                }
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2770,6 +2806,137 @@ final class HtmlTransformer
         $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * Recover navigation presentation from the source elements native markup replaces.
+     *
+     * Builders commonly declare menu type and colour on a wrapper between the
+     * anchor and the nav. core/navigation emits its own item markup, so that
+     * wrapper does not survive and its rule is left in the stylesheet with
+     * nothing to match, which drops the menu to the destination theme's
+     * defaults. Read the presentation from the source element the native item
+     * stands in for, and state it on that native counterpart.
+     *
+     * Delivered as CSS rather than written onto the block: shell identity
+     * compares block markup across documents, so a value that varies per page
+     * would split one shared template part into one part per page.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordInheritedNavigationPresentation(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $anchor = null;
+        foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $anchor = $candidate;
+                break;
+            }
+        }
+        if ( ! $anchor instanceof DOMElement ) {
+            return;
+        }
+
+        $declarations = array();
+        // `font` first: builders commonly state menu type as the shorthand, and
+        // a longhand found further out should not silently outrank it.
+        foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            if ( '' !== $value ) {
+                $declarations[] = $property . ':' . $value;
+            }
+        }
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{' . implode(';', $declarations) . '}'
+        );
+    }
+
+    /**
+     * Keep a painted menu painted once.
+     *
+     * WordPress copies a navigation block's classes onto both the `nav` and its
+     * responsive container, so a source rule that paints the menu through one
+     * of those classes matches twice and the source's single painted region
+     * renders stacked on itself. Where the source paints the menu, state that
+     * paint once by neutralising it on the inner container.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordNavigationContainerPaintReset(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $paints = false;
+        foreach ( array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' ) as $property ) {
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)' ), true) ) {
+                $paints = true;
+                break;
+            }
+        }
+        if ( ! $paints ) {
+            return;
+        }
+
+        // Descendant, not child: core nests the container inside its responsive
+        // wrapper, so a child combinator never reaches it.
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{background:none!important;border-radius:0!important;box-shadow:none!important}'
+        );
+    }
+
+    /**
+     * Resolve an item's presentation from within the navigation only.
+     *
+     * The search is bounded by the navigation element: anything above it is
+     * document chrome that the destination theme legitimately supplies, and
+     * reading it would recover the destination's own default rather than the
+     * source's menu styling.
+     */
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
+    {
+        $node  = $anchor;
+        $depth = 0;
+        while ( $node instanceof DOMElement && $depth < 12 ) {
+            ++$depth;
+            $resolved     = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $value        = trim((string) ($declarations[$property] ?? ''));
+            if ( '' === $value ) {
+                $value = $this->styleResolver->conditionalDeclaration($node, $property);
+            }
+            if ( '' === $value ) {
+                $value = $this->styleResolver->unsupportedSelectorDeclaration($node, $property);
+            }
+            if ( '' !== $value
+                && ! in_array(strtolower($value), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer' ), true)
+                && ! preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
+            ) {
+                return $value;
+            }
+            if ( $node->isSameNode($navigation) ) {
+                break;
+            }
+            $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+        }
+
+        return '';
     }
 
     /** Resolve the rendered box of a navigation icon from its source geometry. */
@@ -3090,6 +3257,7 @@ final class HtmlTransformer
             'linkTarget' => $this->attr($element, 'target'),
             'rel'        => $this->attr($element, 'rel'),
         ), static fn (string $value): bool => '' !== trim($value)));
+        $attrs = $this->withButtonLabelTextPresentation($attrs, $element, $label);
 
         return $this->createBlock(
             'core/buttons',
@@ -3097,6 +3265,57 @@ final class HtmlTransformer
             array( $this->createBlock('core/button', $attrs, array(), $element) ),
             $element
         );
+    }
+
+    /**
+     * Take a button's text presentation from the element that renders the text.
+     *
+     * Builders commonly wrap a button's label in its own element, styling that
+     * element for the text while the button root carries the box. core/button
+     * renders the label inside the link itself, so reading only the root paints
+     * the text with the box's colour: a light label on a dark control arrives
+     * as dark text, because the root states the dark value the label overrode.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withButtonLabelTextPresentation(array $attrs, DOMElement $element, string $label): array
+    {
+        if ( '' === trim($label) ) {
+            return $attrs;
+        }
+
+        $labelElement = null;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( trim($this->runtime->stripAllTags($this->innerHtml($candidate))) === trim($label) ) {
+                // Document order descends, so the last match is the innermost
+                // element still holding the whole label.
+                $labelElement = $candidate;
+            }
+        }
+        if ( ! $labelElement instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $labelStyle = $this->styleResolver->presentationAttributes($labelElement)['style'] ?? array();
+        if ( ! is_array($labelStyle) ) {
+            return $attrs;
+        }
+
+        $labelColor = trim((string) ( $labelStyle['color']['text'] ?? '' ));
+        if ( '' !== $labelColor ) {
+            $attrs['style']['color']['text'] = $labelColor;
+        }
+        foreach ( is_array($labelStyle['typography'] ?? null) ? $labelStyle['typography'] : array() as $property => $value ) {
+            if ( is_scalar($value) && '' !== trim((string) $value) ) {
+                $attrs['style']['typography'][$property] = $value;
+            }
+        }
+
+        return $attrs;
     }
 
     /**
@@ -3805,12 +4024,6 @@ final class HtmlTransformer
         return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
     }
 
-    private function isDirectChildOfLoweredAuthorControl(DOMElement $element): bool
-    {
-        return $element->parentNode instanceof DOMElement
-            && $this->authorSelectorProjections()->isControlPath($element->parentNode->getNodePath() ?? '');
-    }
-
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
@@ -4093,42 +4306,6 @@ final class HtmlTransformer
             $tags[] = AuthorLayoutBlockGenerator::NAME === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
-    }
-
-    /** @return array<string, string> */
-    private function authorLayoutSourceAttributes(DOMElement $element): array
-    {
-        $attributes = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( ('role' === strtolower($name) || preg_match('/^(?:aria|data)-[a-z0-9_-]+$/i', $name)) && strlen($value) <= 300 ) {
-                $attributes[$name] = $value;
-            }
-        }
-        return $attributes;
-    }
-
-    /** @param array<string, mixed> $attrs */
-    private function authorLayoutHtmlAttributes(array $attrs): string
-    {
-        $attributes = array();
-        if ( '' !== (string) ($attrs['anchor'] ?? '') ) {
-            $attributes['id'] = (string) $attrs['anchor'];
-        }
-        if ( 'a' === ($attrs['tagName'] ?? '') && '' !== (string) ($attrs['url'] ?? '') ) {
-            $attributes['href'] = (string) $attrs['url'];
-        }
-        $classes = array_filter(array( 'wp-block-blocks-engine-author-layout', (string) ($attrs['className'] ?? '') ));
-        $attributes['class'] = implode(' ', $classes);
-        foreach ( $attrs['sourceAttributes'] ?? array() as $name => $value ) {
-            if ( is_string($name) && is_string($value) ) {
-                $attributes[$name] = $value;
-            }
-        }
-        $html = '';
-        foreach ( $attributes as $name => $value ) {
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
     }
 
     /** @return array<string, string> */
@@ -9017,13 +9194,19 @@ final class HtmlTransformer
         $height = trim((string) ($declarations['height'] ?? ''));
         $scale = strtolower(trim((string) ($declarations['background-size'] ?? '')));
 
+        $sized = in_array($scale, array( 'cover', 'contain' ), true);
+
         return $this->createBlock('core/image', array_filter(array(
             'url'       => $this->resolvedAssetImageUrl($url),
             'alt'       => $this->backgroundImageExtractor->altFromAttributes($this->htmlAttributes($element)),
-            'className' => 'blocks-engine-background-image',
+            // A painted background never contributes intrinsic size, so the
+            // materialized image resolves its box from the source element.
+            'className' => $sized
+                ? self::BACKGROUND_IMAGE_CLASS . ' ' . self::BACKGROUND_IMAGE_SCALE_CLASS_PREFIX . $scale
+                : self::BACKGROUND_IMAGE_CLASS,
             'width'     => ! in_array(strtolower($width), array( '', 'auto' ), true) ? $width : '',
             'height'    => ! in_array(strtolower($height), array( '', 'auto' ), true) ? $height : '',
-            'scale'     => in_array($scale, array( 'cover', 'contain' ), true) ? $scale : '',
+            'scale'     => $sized ? $scale : '',
         ), static fn (string $value): bool => '' !== $value), array(), $element);
     }
 
