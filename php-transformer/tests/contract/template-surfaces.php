@@ -23,7 +23,7 @@ $templates = array_column($plan['templates'] ?? array(), null, 'slug');
 $operations = array_values(array_filter($plan['operations'] ?? array(), static fn(array $operation): bool => 'create_page' === ($operation['kind'] ?? null)));
 $writes = array_column($plan['writes'] ?? array(), null, 'target_path');
 $assert(isset($templates['single'], $templates['archive'], $templates['404'], $writes['templates/single.html'], $writes['templates/archive.html'], $writes['templates/404.html']) && 'single.html' === ($templates['single']['source_path'] ?? null) && 'archive.html' === ($templates['archive']['source_path'] ?? null) && '404' === ($templates['404']['template_surface']['role'] ?? null) && 'single.html' === ($templates['single']['template_surface']['source_provenance']['source_path'] ?? null), 'Typed template-surface declarations emit source-provenanced WordPress template writes.');
-$assert(array('index.html') === array_column($operations, 'source_path') && isset($result['source_reports']['materialization_plan']['template_surfaces'][0]['template_surface']), 'Declared template surfaces are excluded from page operations and represented by the materialization plan.');
+$assert(array('index.html') === array_column($operations, 'source_path') && isset($templates['single']['template_surface']), 'Declared template surfaces are excluded from page operations and represented by canonical template writes.');
 $assert(true === (static function () use ($plan): bool { WordPressSitePlan::assertValid($plan); return true; })(), 'Canonical site-plan validation accepts declared template surfaces.');
 $tamperedPlan = $plan; $tamperedPlan['templates'][3]['template_surface']['slug'] = 'detached';
 $throws = static function (callable $callback): bool { try { $callback(); } catch (InvalidArgumentException) { return true; } return false; };
@@ -48,8 +48,8 @@ foreach (array(
 $editabilityBySource = array_column($result['source_reports']['editability_report']['documents'] ?? array(), null, 'source_path');
 $singleEvidence = $editabilityBySource['single.html']['template_surface_selection'] ?? array();
 $assert('single' === ($singleEvidence['role'] ?? null) && 'single.html' === ($singleEvidence['selected_source_path'] ?? null) && 'artifact_metadata' === ($singleEvidence['declaration_provenance']['kind'] ?? null) && 'single.html' === ($singleEvidence['source_provenance']['source_path'] ?? null), 'Editability evidence records selected template role and declaration/source provenance.');
-$materializedSurface = $result['source_reports']['materialization_plan']['template_surfaces'][0] ?? array();
-$assert('single.html' === ($materializedSurface['provenance']['source_path'] ?? null), 'Materialization template surfaces retain source artifact provenance from page projection.');
+$materializedSurface = $templates['single']['template_surface'] ?? array();
+$assert('single.html' === ($materializedSurface['source_provenance']['source_path'] ?? null), 'Canonical template surfaces retain source artifact provenance from page projection.');
 
 $legoShape = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'news.html' => '<main data-template-type="archive" data-template-slug="archive"><h1>News</h1></main>')))->toArray();
 $legoTemplates = array_column($legoShape['source_reports']['wordpress_site_plan']['templates'] ?? array(), null, 'slug');
@@ -85,8 +85,7 @@ $undeclared = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.htm
 $assert(2 === count($undeclared['pages'] ?? array()) && 2 === count(array_filter($undeclared['operations'] ?? array(), static fn(array $operation): bool => 'create_page' === ($operation['kind'] ?? null))), 'Undeclared documents retain existing page/post materialization behavior.');
 $legacyUndeclared = $undeclared; unset($legacyUndeclared['source']['source_documents']);
 $assert(true === (static function () use ($legacyUndeclared): bool { WordPressSitePlan::assertValid($legacyUndeclared); return true; })(), 'The additive source document catalog preserves v2 validation compatibility for undeclared plans.');
-$legacyMaterializationEnvelope = $result; unset($legacyMaterializationEnvelope['source_reports']['materialization_plan']['template_surfaces']);
-$assert(true === (static function () use ($legacyMaterializationEnvelope): bool { TransformerResult::assertCanonicalEnvelope($legacyMaterializationEnvelope); return true; })(), 'Legacy materialization-plan v1 envelopes remain valid when template_surfaces is absent.');
+$assert(true === (static function () use ($result): bool { TransformerResult::assertCanonicalEnvelope($result); return true; })(), 'Canonical artifact envelopes do not require a superseded materialization projection.');
 $pageAttributes = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main data-template-type="front_page" data-template-slug="front-page">Home</main>', 'about.html' => '<main data-template-type="page" data-template-slug="page">About</main>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
 $pageOperations = array_values(array_filter($pageAttributes['operations'] ?? array(), static fn(array $operation): bool => 'create_page' === ($operation['kind'] ?? null)));
 $assert(2 === count($pageAttributes['pages'] ?? array()) && 2 === count($pageOperations) && 'index.html' === (($pageAttributes['operations'][2]['front_page_source_path'] ?? null)), 'HTML page and front_page attributes remain ordinary content pages with front-page operations.');

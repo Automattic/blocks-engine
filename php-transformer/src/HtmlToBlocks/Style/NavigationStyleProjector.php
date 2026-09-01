@@ -549,69 +549,48 @@ final class NavigationStyleProjector
     /**
      * Ordered authored rules used only by navigation anchor compatibility CSS.
      *
-     * Shared presentation rule sets intentionally flatten contexts and omit
-     * pseudo states. This collector keeps the authored rule identity, condition
-     * stack, pseudo suffix, specificity, and source order needed to decide
-     * whether a declaration was a source-cascade winner before re-pointing it.
+     * The canonical author analysis retains rule identity, condition stack,
+     * pseudo suffix, and source order. Navigation adds only its compatibility
+     * declaration filter and specificity projection.
      *
      * @return array<int, array<string, mixed>>
      */
     private function navigationAuthorStyleRules(): array
     {
-        if ( '' === trim($this->context->authorStyles()->combinedCss()) ) {
-            return array();
-        }
-
         $rules = array();
         $order = 0;
-        ( new CssStylesheetTransformer() )->visitStyleRules(
-            $this->context->authorStyles()->combinedCss(),
-            function (string $prelude, string $body, array $conditions) use (&$rules, &$order): void {
-                $this->collectNavigationAuthorStyleRule($prelude, $body, $conditions, $rules, $order);
-            }
-        );
-        return $rules;
-    }
-
-    /**
-     * @param list<string> $conditions
-     * @param array<int, array<string, mixed>> $rules
-     */
-    private function collectNavigationAuthorStyleRule(string $prelude, string $body, array $conditions, array &$rules, int &$order): void
-    {
-        if ( str_starts_with(ltrim($prelude), '@') ) {
-            return;
-        }
-        $declarations = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($body));
-        if ( array() === $declarations ) {
-            return;
-        }
-        $ruleId = $order++;
-        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-            $selector = trim($selector);
-            if ( '' === $selector || str_starts_with($selector, '@') ) {
-                continue;
-            }
-            $parsed = $this->context->parsedCssSelector($selector);
-            if ( ! ($parsed['supported'] ?? false) ) {
-                continue;
-            }
-            $pseudo = '';
-            $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
-            if ( is_array($pseudoSpan) ) {
-                $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
-            }
-            $rules[] = array(
-                'id' => $ruleId,
-                'selector' => $selector,
-                'parsed' => $parsed,
-                'declarations' => $declarations,
-                'conditions' => $conditions,
-                'pseudo' => $pseudo,
-                'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
-                'order' => $ruleId,
+        foreach ( $this->context->authorStyles()->styleRules() as $authorRule ) {
+            $declarations = $this->styleResolver->safeVisualDeclarations(
+                is_array($authorRule['declarations'] ?? null) ? $authorRule['declarations'] : array()
             );
+            if ( array() === $declarations ) {
+                continue;
+            }
+            $ruleId = $order++;
+            foreach ( is_array($authorRule['selectors'] ?? null) ? $authorRule['selectors'] : array() as $authorSelector ) {
+                $selector = trim((string) ($authorSelector['selector'] ?? ''));
+                $parsed = is_array($authorSelector['parsed'] ?? null) ? $authorSelector['parsed'] : array();
+                if ( '' === $selector || ! ($parsed['supported'] ?? false) ) {
+                    continue;
+                }
+                $pseudo = '';
+                $pseudoSpan = $parsed['pseudo_state_suffix_span'] ?? null;
+                if ( is_array($pseudoSpan) ) {
+                    $pseudo = strtolower(substr($selector, $pseudoSpan['start'], $pseudoSpan['end'] - $pseudoSpan['start']));
+                }
+                $rules[] = array(
+                    'id' => $ruleId,
+                    'selector' => $selector,
+                    'parsed' => $parsed,
+                    'declarations' => $declarations,
+                    'conditions' => is_array($authorRule['conditions'] ?? null) ? $authorRule['conditions'] : array(),
+                    'pseudo' => $pseudo,
+                    'specificity' => $this->navigationSelectorSpecificity($parsed, $pseudo),
+                    'order' => $ruleId,
+                );
+            }
         }
+        return $rules;
     }
 
     /**

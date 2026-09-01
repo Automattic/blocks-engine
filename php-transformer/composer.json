@@ -41,6 +41,7 @@
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
+    "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",
     "content-round-trip": "php tools/content-round-trip/run.php",
     "test": [
@@ -66,6 +67,7 @@
     ],
     "test:unit": [
       "php tests/unit/runtime-declarations-streaming-hash.php",
+      "php tests/unit/runtime-script-evidence-analyzer.php",
       "php tests/unit/font-family-declaration-memory.php",
       "php tests/unit/asset-reference-canonicalizer-memory.php",
       "php tests/unit/srcset-parser.php",
