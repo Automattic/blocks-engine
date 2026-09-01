@@ -2094,6 +2094,10 @@ final class HtmlTransformer
             // through that same alignment, for centered and start-aligned
             // containers alike, while an explicit justification still wins.
             $afterAuthorCssParts[] = ':root ul.wp-block-social-links:not([class*="is-content-justification-"]){display:inline-flex}';
+            $afterAuthorCssParts[] = ':root ul.wp-block-social-links.is-content-justification-left{justify-content:flex-start}'
+                . ':root ul.wp-block-social-links.is-content-justification-center{justify-content:center}'
+                . ':root ul.wp-block-social-links.is-content-justification-right{justify-content:flex-end}'
+                . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {

@@ -2829,6 +2829,8 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
+$centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'

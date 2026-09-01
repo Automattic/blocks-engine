@@ -1782,6 +1782,7 @@ final class StyleResolver
             array() === $declarations
             || $this->isDecorativeHiddenElement($element)
             || $this->isExplicitlyInactiveState($element)
+            || $this->isHiddenAlternateLayer($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
         ) {
             return $declarations;
@@ -1844,6 +1845,40 @@ final class StyleResolver
                     'dialog' === strtolower(trim(SourceDom::attr($descendant, 'role')))
                     || 'true' === strtolower(trim(SourceDom::attr($descendant, 'aria-modal')))
                 )
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function isHiddenAlternateLayer(DOMElement $element, array $declarations): bool
+    {
+        $resolved = $this->mergeCssDeclarationMaps(
+            $this->cssDeclarations($this->mergedPresentationStyle($element)),
+            $declarations
+        );
+        $position = CssValueInspector::comparable((string) ($resolved['position'] ?? ''));
+        $opacity = CssValueInspector::comparable((string) ($resolved['opacity'] ?? '1'));
+        $hidden = 'none' === CssValueInspector::comparable((string) ($resolved['display'] ?? ''))
+            || 'hidden' === CssValueInspector::comparable((string) ($resolved['visibility'] ?? ''))
+            || (is_numeric($opacity) && 0.0 === (float) $opacity);
+        if ( ! $hidden || ! in_array($position, array( 'absolute', 'fixed' ), true) || ! $element->parentNode instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $element->parentNode->childNodes as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || $sibling === $element || $this->isDecorativeHiddenElement($sibling) ) {
+                continue;
+            }
+            $siblingDeclarations = $this->cssDeclarations($this->mergedPresentationStyle($sibling));
+            $siblingOpacity = CssValueInspector::comparable((string) ($siblingDeclarations['opacity'] ?? '1'));
+            if (
+                'none' !== CssValueInspector::comparable((string) ($siblingDeclarations['display'] ?? ''))
+                && 'hidden' !== CssValueInspector::comparable((string) ($siblingDeclarations['visibility'] ?? ''))
+                && (! is_numeric($siblingOpacity) || 0.0 !== (float) $siblingOpacity)
             ) {
                 return true;
             }
