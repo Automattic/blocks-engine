@@ -801,7 +801,7 @@ final class HtmlTransformer
             shouldPreserveEmptyVisualElement: fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             emptyVisualElementAttributes: fn (DOMElement $element): array => $this->emptyVisualElementAttributes($element),
             createBlock: fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
-            navigationSectionBlock: fn (DOMElement $element): ?array => $this->navigationSectionBlockFromElement($element),
+            patternContext: $this->patternContext,
             shouldDeferNavigationPatternToChildren: fn (DOMElement $element): bool => $this->shouldDeferNavigationPatternToChildren($element),
             rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
             metadataGridBlock: fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
@@ -9333,62 +9333,6 @@ final class HtmlTransformer
     private function looksLikeDateOrTimeText(string $text): bool
     {
         return (bool) preg_match('/\b(?:\d{1,2}(?::\d{2})?\s*(?:am|pm)?|\d{1,2}\s*(?:min|mins|minutes|hr|hrs|hours)|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?|day\s+\d+)\b/i', trim($text));
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function navigationSectionBlockFromElement(DOMElement $element): ?array
-    {
-        $heading = null;
-        $anchors = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && $this->sourceElementClassifier->isNavigationSectionHeading($child) ) {
-                if ( $heading instanceof DOMElement ) {
-                    return null;
-                }
-                $heading = $child;
-                continue;
-            }
-
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
-                $anchors[] = $child;
-                continue;
-            }
-
-            return null;
-        }
-
-        if ( ! $heading instanceof DOMElement || array() === $anchors ) {
-            return null;
-        }
-
-        if ( ! $this->sourceElementClassifier->hasNavigationContainerSignal($element) && ! $this->sourceElementClassifier->hasSoftNavigationSectionHeadingSignal($heading) ) {
-            return null;
-        }
-
-        $sectionFallbacks = array();
-        $blocks = array( $this->convertElement($heading, $sectionFallbacks, true) );
-        $links = array();
-        foreach ( $anchors as $anchor ) {
-            $links[] = $this->createBlock('core/navigation-link', array_filter(array(
-                'label' => $this->innerHtml($anchor),
-                'url'   => $this->safeNavigationUrl($this->attr($anchor, 'href')),
-                'kind'  => 'custom',
-            ), static fn ($value): bool => '' !== $value), array(), $anchor);
-        }
-        $overlayMenu = $this->navigationToggleSuppressor->navigationOverlayMenu($element);
-        $navigationAttrs = array( 'overlayMenu' => $overlayMenu );
-        if ( 'mobile' === $overlayMenu ) {
-            $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
-        }
-        $blocks[] = $this->createBlock('core/navigation', $navigationAttrs, $links, $element);
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array_values(array_filter($blocks)), $element);
     }
 
     private function convertMediaElement(DOMElement $element): ?array
