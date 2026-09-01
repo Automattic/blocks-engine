@@ -600,6 +600,13 @@ $assert(! str_contains($css($second), 'blocks-engine-source-p-') && 1 === substr
 $third = $instance->transform('<style>.cta:hover{color:red}</style><p>Read <span class="cta">this</span>.</p>')->toArray();
 $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains($css($third), '> :where(.wp-block-button__link)'), 'repeated selector text resolves against each transform source DOM');
 
+$applicabilityTransformer = new HtmlTransformer();
+$applicabilityTransformer->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
+$applicabilitySession = (new ReflectionClass($applicabilityTransformer))->getProperty('session')->getValue($applicabilityTransformer);
+$applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?? array();
+$applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
+$assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
+
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
 $assert(! str_contains($customPropertyCardsMarkup, '--tone:') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), '--tone:#f06 !important') && str_contains($css($customPropertyCards), '--tone:#0af !important') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values in generated carrier CSS without unused-property or cross-card leakage');

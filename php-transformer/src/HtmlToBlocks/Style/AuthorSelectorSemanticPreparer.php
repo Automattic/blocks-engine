@@ -49,7 +49,17 @@ final class AuthorSelectorSemanticPreparer
             $projections->ensureTagMarker($tagName);
         }
         $this->discoverAuthorControlPaths($authorSelectors, $authorStyles, $projections);
-        $authorStyles->installStyleRules($authorStyleRules);
+        $applicableAuthorStyleRules = array();
+        foreach ( $authorStyleRules as $rule ) {
+            $rule['selectors'] = array_values(array_filter(
+                $rule['selectors'],
+                static fn (array $selector): bool => $authorStyles->selectorCanMatch($selector['parsed'])
+            ));
+            if ( array() !== $rule['selectors'] ) {
+                $applicableAuthorStyleRules[] = $rule;
+            }
+        }
+        $authorStyles->installStyleRules($applicableAuthorStyleRules);
         $this->discoverAuthorInlineSemanticPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverInlineLayoutCarrierPaths($authorSelectors, $authorStyles, $projections);
         $this->discoverAuthorAttributePaths($authorSelectors, $authorStyles, $projections);
