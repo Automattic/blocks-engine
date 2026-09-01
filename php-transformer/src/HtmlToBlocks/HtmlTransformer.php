@@ -3249,65 +3249,12 @@ final class HtmlTransformer
             'linkTarget' => $this->attr($element, 'target'),
             'rel'        => $this->attr($element, 'rel'),
         ), static fn (string $value): bool => '' !== trim($value)));
-        $attrs = $this->withButtonLabelTextPresentation($attrs, $element, $label);
-
         return $this->createBlock(
             'core/buttons',
             array(),
             array( $this->createBlock('core/button', $attrs, array(), $element) ),
             $element
         );
-    }
-
-    /**
-     * Take a button's text presentation from the element that renders the text.
-     *
-     * Builders commonly wrap a button's label in its own element, styling that
-     * element for the text while the button root carries the box. core/button
-     * renders the label inside the link itself, so reading only the root paints
-     * the text with the box's colour: a light label on a dark control arrives
-     * as dark text, because the root states the dark value the label overrode.
-     *
-     * @param array<string, mixed> $attrs
-     * @return array<string, mixed>
-     */
-    private function withButtonLabelTextPresentation(array $attrs, DOMElement $element, string $label): array
-    {
-        if ( '' === trim($label) ) {
-            return $attrs;
-        }
-
-        $labelElement = null;
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-            if ( trim($this->runtime->stripAllTags($this->innerHtml($candidate))) === trim($label) ) {
-                // Document order descends, so the last match is the innermost
-                // element still holding the whole label.
-                $labelElement = $candidate;
-            }
-        }
-        if ( ! $labelElement instanceof DOMElement ) {
-            return $attrs;
-        }
-
-        $labelStyle = $this->styleResolver->presentationAttributes($labelElement)['style'] ?? array();
-        if ( ! is_array($labelStyle) ) {
-            return $attrs;
-        }
-
-        $labelColor = trim((string) ( $labelStyle['color']['text'] ?? '' ));
-        if ( '' !== $labelColor ) {
-            $attrs['style']['color']['text'] = $labelColor;
-        }
-        foreach ( is_array($labelStyle['typography'] ?? null) ? $labelStyle['typography'] : array() as $property => $value ) {
-            if ( is_scalar($value) && '' !== trim((string) $value) ) {
-                $attrs['style']['typography'][$property] = $value;
-            }
-        }
-
-        return $attrs;
     }
 
     /**
