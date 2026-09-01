@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormControlTopologyBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormPresentationGraphBuilder;
 use DOMElement;
 
 /** Builds the provider-materializable diagnostic for a form-like element. */
@@ -29,6 +30,7 @@ final class FormFallbackFindingBuilder
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
         $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $presentationGraph = (new FormPresentationGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         $boundedHtml = $this->context->boundedFallbackHtml($element);
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
@@ -56,6 +58,7 @@ final class FormFallbackFindingBuilder
             'controls'         => $controls,
             'control_topology' => $controlTopology,
             'layout_graph'     => $layoutGraph,
+            'presentation_graph' => $presentationGraph,
             'control_count'    => count($controls),
             'text_length'      => strlen(trim($element->textContent ?? '')),
             'child_count'      => SourceDom::childElementCount($element),
