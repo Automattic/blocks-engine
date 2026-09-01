@@ -631,6 +631,26 @@ $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockNa
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
 
+// Native navigation replaces the source structure, so a menu that inherited its
+// colour and type from an ancestor would otherwise fall back to the destination
+// theme. The recovered value is delivered as CSS rather than written onto the
+// block: shell identity compares block markup across documents, and a per-page
+// value in that markup would split one shared template part into several.
+$navInherited = ( new HtmlTransformer() )->transform(
+    '<style>.hdr{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}</style>'
+    . '<header class="hdr"><nav class="menu navbar" aria-label="Main"><ul><li><a href="/features">Features</a></li><li><a href="/benefits">Benefits</a></li></ul></nav></header>'
+)->toArray();
+$navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
+$navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'), 'navigation presentation inherited from a source ancestor is recovered onto the navigation itself');
+preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
+$navInheritedBlock = $navInheritedAttrs[1] ?? '';
+$assert('' !== $navInheritedBlock && ! str_contains($navInheritedBlock, 'customTextColor') && ! str_contains($navInheritedBlock, 'helvetica-w01-roman') && ! str_contains($navInheritedBlock, '238'), 'recovered navigation presentation stays out of the navigation block so documents sharing a shell keep identical markup: ' . $navInheritedBlock);
+$navNoInheritance = ( new HtmlTransformer() )->transform(
+    '<header><nav class="plain-nav" aria-label="Main"><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav></header>'
+)->toArray();
+$assert(! str_contains(implode("\n", array_column($navNoInheritance['assets'] ?? array(), 'content')), '.wp-block-navigation.plain-nav{'), 'a menu that inherits nothing gets no fabricated presentation rule');
+
 // A source nav landmark keeps native menu semantics, so its icon-only anchors
 // must not silently lose the artwork core/navigation-link cannot save.
 $navIconResult = ( new HtmlTransformer() )->transform(
