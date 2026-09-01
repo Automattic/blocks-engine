@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -68,12 +69,12 @@ final class AuthoredFormControlBlockConverter
         $generator = new AuthoredSelectBlockGenerator();
         ($this->registerGeneratedBlock)(AuthoredSelectBlockGenerator::class, $generator->definition());
         $attrs = array_filter(array(
-            'id' => $this->attr($select, 'id'),
-            'name' => $this->attr($select, 'name'),
-            'ariaLabel' => $this->attr($select, 'aria-label'),
-            'placeholder' => $this->attr($select, 'placeholder'),
-            'className' => $this->attr($select, 'class'),
-            'style' => $this->attr($select, 'style'),
+            'id' => SourceDom::attr($select, 'id'),
+            'name' => SourceDom::attr($select, 'name'),
+            'ariaLabel' => SourceDom::attr($select, 'aria-label'),
+            'placeholder' => SourceDom::attr($select, 'placeholder'),
+            'className' => SourceDom::attr($select, 'class'),
+            'style' => SourceDom::attr($select, 'style'),
             'options' => $options,
             'selectedSummary' => $this->selectedOptionSummary($options),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
@@ -89,7 +90,7 @@ final class AuthoredFormControlBlockConverter
         // Preserve the established structural address while source identity and
         // authored selectors remain on the native control inside this shell.
         return ($this->createBlock)('core/group', array_filter(array(
-            'anchor' => ($this->safeAnchor)($this->attr($select, 'id')),
+            'anchor' => ($this->safeAnchor)(SourceDom::attr($select, 'id')),
             'className' => 'blocks-engine-authored-select-wrapper',
         )), array( $controlBlock ), null);
     }
@@ -110,16 +111,16 @@ final class AuthoredFormControlBlockConverter
         ($this->registerGeneratedBlock)(AuthoredInputBlockGenerator::class, $generator->definition());
         $attrs = array_filter(array(
             'type' => FormControlClassifier::controlType($input),
-            'id' => $this->attr($input, 'id'),
-            'name' => $this->attr($input, 'name'),
-            'value' => $this->attr($input, 'value'),
-            'placeholder' => $this->attr($input, 'placeholder'),
-            'ariaLabel' => $this->attr($input, 'aria-label'),
-            'className' => $this->attr($input, 'class'),
-            'style' => $this->attr($input, 'style'),
-            'min' => $this->attr($input, 'min'),
-            'max' => $this->attr($input, 'max'),
-            'step' => $this->attr($input, 'step'),
+            'id' => SourceDom::attr($input, 'id'),
+            'name' => SourceDom::attr($input, 'name'),
+            'value' => SourceDom::attr($input, 'value'),
+            'placeholder' => SourceDom::attr($input, 'placeholder'),
+            'ariaLabel' => SourceDom::attr($input, 'aria-label'),
+            'className' => SourceDom::attr($input, 'class'),
+            'style' => SourceDom::attr($input, 'style'),
+            'min' => SourceDom::attr($input, 'min'),
+            'max' => SourceDom::attr($input, 'max'),
+            'step' => SourceDom::attr($input, 'step'),
             'required' => $input->hasAttribute('required'),
             'disabled' => $input->hasAttribute('disabled'),
             'readOnly' => $input->hasAttribute('readonly'),
@@ -149,10 +150,5 @@ final class AuthoredFormControlBlockConverter
         }
 
         return array() === $selected ? '' : implode(', ', $selected) . ' (selected)';
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }

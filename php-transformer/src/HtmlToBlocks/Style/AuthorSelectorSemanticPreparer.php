@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Prepares source identities needed to project author selectors onto canonical blocks. */
@@ -217,7 +218,7 @@ final class AuthorSelectorSemanticPreparer
                     $path = $element->getNodePath() ?? '';
                     if ( '' !== $path ) {
                         $marker = $projections->ensureAttributeMarker($path);
-                        $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
+                        $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                     }
                 }
             }
@@ -241,7 +242,7 @@ final class AuthorSelectorSemanticPreparer
                 $path = $element->getNodePath() ?? '';
                 if ( '' !== $path ) {
                     $marker = $projections->ensureAttributeMarker($path);
-                    $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
+                    $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                 }
             }
         }
@@ -280,7 +281,7 @@ final class AuthorSelectorSemanticPreparer
             if ( '' !== $path ) {
                 $marker = '' === $marker ? $authorStyles->allocateMarker('attribute-state') : $marker;
                 $projections->addAttributeStateMarker($path, $marker);
-                $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
+                $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
             }
         }
         if ( '' !== $marker ) {
@@ -311,7 +312,7 @@ final class AuthorSelectorSemanticPreparer
                     continue;
                 }
                 $marker = $projections->ensureAttributeMarker($path);
-                $element->setAttribute('class', self::mergeClassNames($element->getAttribute('class'), $marker));
+                $element->setAttribute('class', SourceDom::mergeClassNames($element->getAttribute('class'), $marker));
                 $markers[] = $marker;
             }
             if ( array() !== $markers ) {
@@ -383,20 +384,6 @@ final class AuthorSelectorSemanticPreparer
     {
         return 1 === preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', trim($id));
     }
-
-    private static function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-        return implode(' ', $classes);
-    }
-
     private function ancestorElement(DOMElement $element, string $tagName): ?DOMElement
     {
         for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {

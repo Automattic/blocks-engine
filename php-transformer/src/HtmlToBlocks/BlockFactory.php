@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -299,7 +300,7 @@ final class BlockFactory
         }
 
         if ( 'core/accordion-item' === $name ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), ! empty($attrs['openByDefault']) ? 'is-open' : '');
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), ! empty($attrs['openByDefault']) ? 'is-open' : '');
             return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-accordion-item') . '>', 'closing' => '</div>' );
         }
 
@@ -620,12 +621,12 @@ final class BlockFactory
 
         $wrapperAttrs = array(
             'id'    => (string) ($attrs['anchor'] ?? ''),
-            'class' => $this->mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
+            'class' => SourceDom::mergeClassNames('wp-block-button', (string) ($attrs['className'] ?? '')),
             'style' => (string) ($attrs['inlineGeometryStyle'] ?? ''),
         );
 
         $controlAttrs = array(
-            'class' => $this->mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
+            'class' => SourceDom::mergeClassNames('wp-block-button__link', $support['classes'], 'wp-element-button'),
             'style' => $support['style'],
             'title' => (string) ($attrs['title'] ?? ''),
         );
@@ -685,24 +686,24 @@ final class BlockFactory
         $border = is_array($attrs['style']['border'] ?? null) ? $attrs['style']['border'] : array();
         $borderSupport = $this->styleSupport(array( 'border' => $border ));
         if ( array() !== $border ) {
-            $baseClass = $this->mergeClassNames('wp-block-image has-custom-border', $borderSupport['classes']);
+            $baseClass = SourceDom::mergeClassNames('wp-block-image has-custom-border', $borderSupport['classes']);
             unset($figureAttrs['style']['border']);
             if ( empty($figureAttrs['style']) ) {
                 unset($figureAttrs['style']);
             }
         }
         if ( ! empty($attrs['sizeSlug']) ) {
-            $figureAttrs['className'] = $this->mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
+            $figureAttrs['className'] = SourceDom::mergeClassNames((string) ($figureAttrs['className'] ?? ''), 'size-' . (string) $attrs['sizeSlug']);
         }
         if ( '' !== (string) ($attrs['width'] ?? '') || '' !== (string) ($attrs['height'] ?? '') ) {
-            $figureAttrs['className'] = $this->mergeClassNames('is-resized', (string) ($figureAttrs['className'] ?? ''));
+            $figureAttrs['className'] = SourceDom::mergeClassNames('is-resized', (string) ($figureAttrs['className'] ?? ''));
         }
 
         $imageAttrs = array(
             'src'   => $attrs['url'] ?? '',
             'alt'   => $attrs['alt'] ?? '',
             'title' => $attrs['title'] ?? '',
-            'class' => $this->mergeClassNames(! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '', $borderSupport['classes']),
+            'class' => SourceDom::mergeClassNames(! empty($attrs['id']) ? 'wp-image-' . (string) $attrs['id'] : '', $borderSupport['classes']),
             'style' => trim($this->imageDimensionStyle($attrs) . ';' . $borderSupport['style'], ';'),
         );
 
@@ -810,7 +811,7 @@ final class BlockFactory
         }
 
         $figureAttrs = $attrs;
-        $figureAttrs['className'] = $this->mergeClassNames(implode(' ', $classes), (string) ($attrs['className'] ?? ''));
+        $figureAttrs['className'] = SourceDom::mergeClassNames(implode(' ', $classes), (string) ($attrs['className'] ?? ''));
 
         return '<figure' . $this->blockSupportAttrs($figureAttrs) . '><div class="wp-block-embed__wrapper">' . $url . '</div></figure>';
     }
@@ -978,21 +979,6 @@ final class BlockFactory
             'style'   => implode(';', $declarations),
         );
     }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-
-        return implode(' ', $classes);
-    }
-
     /**
      * @param array<string, mixed> $attrs
      */
@@ -1002,7 +988,7 @@ final class BlockFactory
         $presetClasses = $this->presetColorClasses($attrs);
         $layoutClasses = $this->layoutClasses($attrs['layout'] ?? null, $baseClass);
         $alignmentClasses = $this->textAlignmentClasses($attrs);
-        $classes = $this->mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
+        $classes = SourceDom::mergeClassNames($baseClass, $presetClasses, $support['classes'], $layoutClasses, $alignmentClasses, (string) ($attrs['className'] ?? ''));
         $style = trim(
             (string) $support['style'] . ';' . (null === $styleOverride
                 ? (string) ($attrs['inlineGeometryStyle'] ?? '')
@@ -1077,7 +1063,7 @@ final class BlockFactory
             return '';
         }
 
-        return $this->mergeClassNames(
+        return SourceDom::mergeClassNames(
             'is-layout-' . $type,
             '' !== $baseClass ? $baseClass . '-is-layout-' . $type : ''
         );

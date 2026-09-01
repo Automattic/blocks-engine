@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -57,8 +58,8 @@ final class SourceElementClassifier
 
     public function isDependentRuntimeMediaMask(DOMElement $element): bool
     {
-        if ( '' !== trim($this->attr($element, 'aria-label'))
-            || in_array(strtolower(trim($this->attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
+        if ( '' !== trim(SourceDom::attr($element, 'aria-label'))
+            || in_array(strtolower(trim(SourceDom::attr($element, 'role'))), array( 'img', 'graphics-document', 'graphics-symbol' ), true)
             || 0 < $element->getElementsByTagName('title')->length
             || 0 < $element->getElementsByTagName('desc')->length
         ) {
@@ -66,9 +67,9 @@ final class SourceElementClassifier
         }
 
         $identity = strtolower(implode(' ', array(
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($element, 'data-role'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'data-role'),
         )));
         if ( 1 === preg_match('/\b(?:clip|mask|overlay)\b/', $identity) ) {
             return true;
@@ -78,11 +79,11 @@ final class SourceElementClassifier
         $path = 1 === $paths->length ? $paths->item(0) : null;
         return $path instanceof DOMElement
             && 1 === $element->getElementsByTagName('*')->length
-            && '' !== trim($this->attr($path, 'd'))
-            && '' === trim($this->attr($element, 'fill'))
-            && '' === trim($this->attr($element, 'stroke'))
-            && '' === trim($this->attr($path, 'fill'))
-            && '' === trim($this->attr($path, 'stroke'));
+            && '' !== trim(SourceDom::attr($path, 'd'))
+            && '' === trim(SourceDom::attr($element, 'fill'))
+            && '' === trim(SourceDom::attr($element, 'stroke'))
+            && '' === trim(SourceDom::attr($path, 'fill'))
+            && '' === trim(SourceDom::attr($path, 'stroke'));
     }
 
     public function isStructuralTransparentCustomWrapperChild(DOMElement $element): bool
@@ -161,7 +162,7 @@ final class SourceElementClassifier
 
     public function hasMotionStructureToken(DOMElement $element): bool
     {
-        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+        $identity = strtolower(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id'));
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:band|carousel|loop|marquee|mask|rail|scroller|slider|ticker|track|viewport)(?:[^a-z0-9]|$)/', $identity);
     }
 
@@ -230,7 +231,7 @@ final class SourceElementClassifier
     public function hasLogoBrandSignal(DOMElement $element): bool
     {
         foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, $attribute))) ?: array() as $token ) {
+            foreach ( preg_split('/[^a-z0-9]+/', strtolower(SourceDom::attr($element, $attribute))) ?: array() as $token ) {
                 if ( in_array($token, array( 'logo', 'brand', 'branding' ), true) ) {
                     return true;
                 }
@@ -269,11 +270,11 @@ final class SourceElementClassifier
     public function hasInlineTokenSignal(DOMElement $element): bool
     {
         $tokens = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'role'),
-            $this->attr($element, 'data-filter'),
-            $this->attr($element, 'data-tag'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'role'),
+            SourceDom::attr($element, 'data-filter'),
+            SourceDom::attr($element, 'data-tag'),
         ))));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:chips?|pills?|badges?|tags?|filters?|facets?)(?:[^a-z0-9]|$)/', $tokens);
@@ -318,23 +319,23 @@ final class SourceElementClassifier
             return false;
         }
 
-        return '' !== trim($this->attr($element, 'class')) || '' !== trim($this->attr($element, 'style'));
+        return '' !== trim(SourceDom::attr($element, 'class')) || '' !== trim(SourceDom::attr($element, 'style'));
     }
 
     public function isCardLikeElement(DOMElement $element): bool
     {
-        $className = strtolower($this->attr($element, 'class'));
+        $className = strtolower(SourceDom::attr($element, 'class'));
         return 'article' === strtolower($element->tagName) || (bool) preg_match('/(?:^|[\s_-])(?:card|feature|service|provider|resource|post|project|stat|badge|tile|panel|item)(?:$|[\s_-])/', $className);
     }
 
     public function isVisualLayerElement(DOMElement $element): bool
     {
         $context = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'aria-label'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'aria-label'),
         ))));
-        $style = strtolower($this->attr($element, 'style'));
+        $style = strtolower(SourceDom::attr($element, 'style'));
 
         if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $context) ) {
             return true;
@@ -350,7 +351,7 @@ final class SourceElementClassifier
     public function hasCommerceToken(DOMElement $element, array $tokens): bool
     {
         foreach ( array( 'class', 'id', 'itemprop' ) as $attribute ) {
-            $value = strtolower($this->attr($element, $attribute));
+            $value = strtolower(SourceDom::attr($element, $attribute));
             foreach ( preg_split('/[^a-z0-9]+/', $value) ?: array() as $token ) {
                 if ( in_array($token, $tokens, true) ) {
                     return true;
@@ -447,7 +448,7 @@ final class SourceElementClassifier
             return false;
         }
 
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id') . ' ' . $this->attr($element, 'role') . ' ' . $this->attr($element, 'aria-label')));
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'role') . ' ' . SourceDom::attr($element, 'aria-label')));
         return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
     }
 
@@ -458,11 +459,11 @@ final class SourceElementClassifier
 
     public function hasNavigationContainerSignal(DOMElement $element): bool
     {
-        if ( 'navigation' === strtolower($this->attr($element, 'role')) ) {
+        if ( 'navigation' === strtolower(SourceDom::attr($element, 'role')) ) {
             return true;
         }
 
-        $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
         return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
     }
 
@@ -480,7 +481,7 @@ final class SourceElementClassifier
     public function hasPictureSourceSelection(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('source') as $source ) {
-            if ( $source instanceof DOMElement && '' !== $this->attr($source, 'srcset') ) {
+            if ( $source instanceof DOMElement && '' !== SourceDom::attr($source, 'srcset') ) {
                 return true;
             }
         }
@@ -490,7 +491,7 @@ final class SourceElementClassifier
 
     public function isImageCarrierButton(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') || 'submit' === strtolower($this->attr($element, 'type')) ) {
+        if ( '' !== trim($element->textContent ?? '') || 'submit' === strtolower(SourceDom::attr($element, 'type')) ) {
             return false;
         }
 
@@ -500,7 +501,7 @@ final class SourceElementClassifier
     public function hasResponsiveImageSources(DOMElement $element): bool
     {
         if ( 'img' === strtolower($element->tagName) ) {
-            return '' !== $this->attr($element, 'srcset') || '' !== $this->attr($element, 'sizes');
+            return '' !== SourceDom::attr($element, 'srcset') || '' !== SourceDom::attr($element, 'sizes');
         }
 
         if ( $this->hasPictureSourceSelection($element) ) {
@@ -508,7 +509,7 @@ final class SourceElementClassifier
         }
 
         foreach ( $element->getElementsByTagName('img') as $image ) {
-            if ( $image instanceof DOMElement && ( '' !== $this->attr($image, 'srcset') || '' !== $this->attr($image, 'sizes') ) ) {
+            if ( $image instanceof DOMElement && ( '' !== SourceDom::attr($image, 'srcset') || '' !== SourceDom::attr($image, 'sizes') ) ) {
                 return true;
             }
         }
@@ -527,11 +528,11 @@ final class SourceElementClassifier
     {
         $identity = strtolower(implode(' ', array(
             $element->tagName,
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($element, 'role'),
-            $this->attr($element, 'data-hook'),
-            $this->attr($element, 'data-testid'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'role'),
+            SourceDom::attr($element, 'data-hook'),
+            SourceDom::attr($element, 'data-testid'),
         )));
 
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
@@ -539,7 +540,7 @@ final class SourceElementClassifier
 
     public function isCarouselList(DOMElement $element): bool
     {
-        return 'list' === strtolower(trim($this->attr($element, 'role')))
+        return 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
             || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
     }
 
@@ -548,9 +549,9 @@ final class SourceElementClassifier
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $root; $ancestor = $ancestor->parentNode ) {
             $identity = strtolower(implode(' ', array(
                 $ancestor->tagName,
-                $this->attr($ancestor, 'class'),
-                $this->attr($ancestor, 'role'),
-                $this->attr($ancestor, 'data-hook'),
+                SourceDom::attr($ancestor, 'class'),
+                SourceDom::attr($ancestor, 'role'),
+                SourceDom::attr($ancestor, 'data-hook'),
             )));
             if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:dialog|expanded|lightbox|modal)(?:[^a-z0-9]|$)/', $identity) ) {
                 return true;
@@ -615,22 +616,5 @@ final class SourceElementClassifier
     {
         return (bool) preg_match('/^(?:\d+|\d*\.\d+)%$/', $value)
             && (float) $value > 0;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
-    }
-
-    private function childElementCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
     }
 }

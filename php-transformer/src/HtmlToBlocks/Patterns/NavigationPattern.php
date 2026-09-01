@@ -3,9 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class NavigationPattern implements PatternRecognizerInterface
@@ -716,12 +717,6 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return true;
     }
-
-    private function safeNavigationUrl(string $url): string
-    {
-        return LinkUrlSanitizer::sanitize($url);
-    }
-
     private function hasDirectBrandingAnchorBesideListNavigation(DOMElement $element, callable $innerHtml): bool
     {
         if ( 'nav' !== strtolower($element->tagName) && ! $this->hasNavigationSignal($element) ) {
@@ -1010,7 +1005,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
             $submenuAttrs = array(
                 'label' => $this->anchorLabel($anchor, $innerHtml),
-                'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+                'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
             $submenuContainer = $this->submenuContainers($element, $anchor)[0] ?? null;
@@ -1028,7 +1023,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     {
         $linkAttrs = $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
             'label' => $this->anchorLabel($anchor, $innerHtml),
-            'url'   => $this->safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
+            'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes, $navigationContext);
         // An icon-only anchor keeps its accessible name as the saved label, but
