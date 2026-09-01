@@ -1511,12 +1511,7 @@ final class WordPressSitePlan
             $lines[] = "};";
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
-            // Author presentation has to outrank the core editor reset and block
-            // library rules inside the canvas, exactly as the frontend cascade
-            // orders it. wp-edit-blocks is the aggregate core editor style, so
-            // depending on it enqueues generated presentation after every core
-            // sheet it must win against rather than before them.
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array( 'wp-edit-blocks' ), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
         }
         $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
