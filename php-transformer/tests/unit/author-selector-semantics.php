@@ -69,6 +69,15 @@ $specificityCss = $css($specificity);
 $specificityAuthorCss = strstr($specificityCss, "\n\n.blocks-engine-control-", true) ?: $specificityCss;
 $assert(str_contains($specificityAuthorCss, ':not(blocks-engine-specificity-') && strrpos($specificityAuthorCss, 'color:red') < strrpos($specificityAuthorCss, 'color:blue') && strrpos($specificityAuthorCss, 'color:blue') < strrpos($specificityAuthorCss, 'color:green'), 'type-specificity shims preserve the authored a.cta and p cascade ordering against later class and universal rules');
 
+$layoutMargins = $transform('<style>.container {max-width:60rem;margin:0 auto}.hero-inner {margin-top:52px}.section-head p {margin-bottom:16px}</style><main class="container"><div class="hero-inner"><div class="section-head"><p>Copy</p></div></div></main>');
+$layoutMarginCss = $css($layoutMargins);
+$assert(
+    preg_match('/\.container:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:0 auto\}/', $layoutMarginCss) === 1
+        && preg_match('/\.hero-inner:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-top:52px\}/', $layoutMarginCss) === 1
+        && preg_match('/\.container\s*\{max-width:60rem\}/', $layoutMarginCss) === 1,
+    'authored margin carriers outrank later WordPress flow-layout resets without increasing unrelated declaration specificity'
+);
+
 $important = $transform('<style>a.cta:hover{padding:1rem!important}.cta:hover{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $assert(str_contains($css($important), '> :where(.wp-block-button__link):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
 
@@ -381,7 +390,7 @@ $assert(str_contains($coexistingInlineFlowsMarkup, '<p class="blocks-engine-inli
 $groupInlineLeaves = $transform('<style>.stage-output{display:grid}.stage-output span{font-size:13px;display:inline-block;margin:2px}.stage-output strong{font-size:15px;display:block;margin:4px}</style><div class="stage-output"><span>Label</span><strong>Value</strong></div>');
 $groupInlineMarkup = (string) ($groupInlineLeaves['serialized_blocks'] ?? '');
 $groupInlineCss = $css($groupInlineLeaves);
-$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{margin:2px}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{margin:4px}'), 'native Group inline leaves retain projected typography, display, and margin declarations through their valid paragraph carriers');
+$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > span:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:2px\}/', $groupInlineCss) === 1 && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > strong:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:4px\}/', $groupInlineCss) === 1, 'native Group inline leaves retain projected typography, display, and reset-resistant margin declarations through their valid paragraph carriers');
 
 $typographyOnlyStructuralLeaves = $transform('<style>.typography-grid{display:grid}.typography-flex{display:flex}.typography-grid > strong{font-size:13px;font-weight:600;letter-spacing:.08em}.typography-flex > strong{font-size:15px;line-height:1.2}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px}</style><div class="typography-grid"><strong>Grid label</strong></div><div class="typography-flex"><strong>Flex label</strong></div><ol class="maintenance-loop"><li><span>1</span><div>Observe</div></li></ol><p>Ordinary <strong>prose</strong>.</p>');
 $typographyOnlyStructuralMarkup = (string) ($typographyOnlyStructuralLeaves['serialized_blocks'] ?? '');
