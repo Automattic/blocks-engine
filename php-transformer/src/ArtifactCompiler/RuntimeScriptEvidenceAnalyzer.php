@@ -13,9 +13,22 @@ final class RuntimeScriptEvidenceAnalyzer
 {
     private const MAX_SCRIPT_BYTES = 1048576;
 
+    /** @var array<string, array<string, mixed>> */
+    private array $cache = array();
+
+    public function resetCache(): void
+    {
+        $this->cache = array();
+    }
+
     /** @return array<string, mixed> */
     public function analyze(string $script, string $sourcePath = '', string $scriptPath = ''): array
     {
+        $cacheKey = hash('sha256', $sourcePath . "\0" . $scriptPath . "\0" . $script);
+        if (isset($this->cache[$cacheKey])) {
+            return $this->cache[$cacheKey];
+        }
+
         $originalBytes = strlen($script);
         $truncated = $originalBytes > self::MAX_SCRIPT_BYTES;
         if ($truncated) {
@@ -38,7 +51,7 @@ final class RuntimeScriptEvidenceAnalyzer
             );
         }
 
-        return array(
+        return $this->cache[$cacheKey] = array(
             'schema' => 'blocks-engine/php-transformer/runtime-script-evidence/v1',
             'source_path' => $sourcePath,
             'script_path' => $scriptPath,
@@ -134,17 +147,17 @@ final class RuntimeScriptEvidenceAnalyzer
 
     private function presentationOnly(string $script, string $selector): bool
     {
-        if (!$this->presentational($selector)) return false;
+        if (!RuntimeSelectorVocabulary::isPresentationalAnimation($selector)) return false;
         $quoted = preg_quote($selector, '/');
-        if (preg_match('/querySelector(?:All)?\s*\(\s*(["\'])' . $quoted . '\1\s*\)([^;]{0,700})/', $script, $matches) && preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', $matches[2])) return false;
+        if (preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $quoted . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER)) {
+            foreach ($assignments as $assignment) {
+                $variable = preg_quote((string) $assignment[1], '/');
+                if (preg_match('/\b' . $variable . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . $variable . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|classList|hidden|disabled|style|dataset)\b/', $script)) return false;
+            }
+        }
+        if (!preg_match('/querySelector(?:All)?\s*\(\s*(["\'])' . $quoted . '\1\s*\)([^;]{0,700})/', $script, $matches)) return false;
+        if (preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', $matches[2])) return false;
         return true;
-    }
-
-    private function presentational(string $selector): bool
-    {
-        preg_match('/(?:\[data-|[.#])([A-Za-z][A-Za-z0-9_-]*)/', $selector, $match);
-        foreach (preg_split('/[^a-z0-9]+/', strtolower($match[1] ?? '')) ?: array() as $token) if (in_array($token, array('animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition'), true)) return true;
-        return false;
     }
     private function selectorPattern(): string { return RuntimeSelectorVocabulary::scriptSelectorPattern(); }
     private function canonicalSelector(string $selector): string { $selector = trim($selector); return preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ? strtolower($match[1] ?? '') . '[' . strtolower($match[2]) . ']' : $selector; }

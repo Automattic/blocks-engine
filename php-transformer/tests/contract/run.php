@@ -1762,6 +1762,18 @@ $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'arti
 $assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+$artifactNeutralRuntimeSelector = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><div class="hero-banner"><p>Welcome</p></div><script src="js/app.js"></script></main>',
+            'js/app.js'  => 'document.querySelector(".hero-banner");',
+        ),
+    )
+)->toArray();
+$artifactNeutralRuntimeIslands = $artifactNeutralRuntimeSelector['source_reports']['runtime_islands'] ?? array();
+$assert(1 === count($artifactNeutralRuntimeIslands) && '.hero-banner' === ($artifactNeutralRuntimeIslands[0]['selector'] ?? ''), 'artifact compilation preserves a neutral queried selector identified by shared fail-closed runtime evidence');
+$assert('pass' === ($artifactNeutralRuntimeSelector['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime parity consumes the same neutral selector evidence as artifact compilation');
 $artifactRuntimeAnchor = ( new ArtifactCompiler() )->compile(
     array(
         'entrypoint' => 'index.html',
