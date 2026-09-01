@@ -2062,6 +2062,9 @@ final class HtmlTransformer
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
+        foreach ( $this->generatedSupportStyles()->navigationInheritedPresentationRules() as $navigationInheritedRule ) {
+            $afterAuthorCssParts[] = $navigationInheritedRule;
+        }
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
         }
@@ -2564,7 +2567,11 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement),
+                function (DOMElement $sourceElement, array $authorClasses): void {
+                    $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
+                    $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
+                }
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2770,6 +2777,137 @@ final class HtmlTransformer
         $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * Recover navigation presentation from the source elements native markup replaces.
+     *
+     * Builders commonly declare menu type and colour on a wrapper between the
+     * anchor and the nav. core/navigation emits its own item markup, so that
+     * wrapper does not survive and its rule is left in the stylesheet with
+     * nothing to match, which drops the menu to the destination theme's
+     * defaults. Read the presentation from the source element the native item
+     * stands in for, and state it on that native counterpart.
+     *
+     * Delivered as CSS rather than written onto the block: shell identity
+     * compares block markup across documents, so a value that varies per page
+     * would split one shared template part into one part per page.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordInheritedNavigationPresentation(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $anchor = null;
+        foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $anchor = $candidate;
+                break;
+            }
+        }
+        if ( ! $anchor instanceof DOMElement ) {
+            return;
+        }
+
+        $declarations = array();
+        // `font` first: builders commonly state menu type as the shorthand, and
+        // a longhand found further out should not silently outrank it.
+        foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            if ( '' !== $value ) {
+                $declarations[] = $property . ':' . $value;
+            }
+        }
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{' . implode(';', $declarations) . '}'
+        );
+    }
+
+    /**
+     * Keep a painted menu painted once.
+     *
+     * WordPress copies a navigation block's classes onto both the `nav` and its
+     * responsive container, so a source rule that paints the menu through one
+     * of those classes matches twice and the source's single painted region
+     * renders stacked on itself. Where the source paints the menu, state that
+     * paint once by neutralising it on the inner container.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordNavigationContainerPaintReset(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $paints = false;
+        foreach ( array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' ) as $property ) {
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)' ), true) ) {
+                $paints = true;
+                break;
+            }
+        }
+        if ( ! $paints ) {
+            return;
+        }
+
+        // Descendant, not child: core nests the container inside its responsive
+        // wrapper, so a child combinator never reaches it.
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{background:none!important;border-radius:0!important;box-shadow:none!important}'
+        );
+    }
+
+    /**
+     * Resolve an item's presentation from within the navigation only.
+     *
+     * The search is bounded by the navigation element: anything above it is
+     * document chrome that the destination theme legitimately supplies, and
+     * reading it would recover the destination's own default rather than the
+     * source's menu styling.
+     */
+    private function navigationItemPresentationValue(DOMElement $anchor, DOMElement $navigation, string $property): string
+    {
+        $node  = $anchor;
+        $depth = 0;
+        while ( $node instanceof DOMElement && $depth < 12 ) {
+            ++$depth;
+            $resolved     = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $value        = trim((string) ($declarations[$property] ?? ''));
+            if ( '' === $value ) {
+                $value = $this->styleResolver->conditionalDeclaration($node, $property);
+            }
+            if ( '' === $value ) {
+                $value = $this->styleResolver->unsupportedSelectorDeclaration($node, $property);
+            }
+            if ( '' !== $value
+                && ! in_array(strtolower($value), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer' ), true)
+                && ! preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
+            ) {
+                return $value;
+            }
+            if ( $node->isSameNode($navigation) ) {
+                break;
+            }
+            $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+        }
+
+        return '';
     }
 
     /** Resolve the rendered box of a navigation icon from its source geometry. */
@@ -3090,6 +3228,7 @@ final class HtmlTransformer
             'linkTarget' => $this->attr($element, 'target'),
             'rel'        => $this->attr($element, 'rel'),
         ), static fn (string $value): bool => '' !== trim($value)));
+        $attrs = $this->withButtonLabelTextPresentation($attrs, $element, $label);
 
         return $this->createBlock(
             'core/buttons',
@@ -3097,6 +3236,57 @@ final class HtmlTransformer
             array( $this->createBlock('core/button', $attrs, array(), $element) ),
             $element
         );
+    }
+
+    /**
+     * Take a button's text presentation from the element that renders the text.
+     *
+     * Builders commonly wrap a button's label in its own element, styling that
+     * element for the text while the button root carries the box. core/button
+     * renders the label inside the link itself, so reading only the root paints
+     * the text with the box's colour: a light label on a dark control arrives
+     * as dark text, because the root states the dark value the label overrode.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withButtonLabelTextPresentation(array $attrs, DOMElement $element, string $label): array
+    {
+        if ( '' === trim($label) ) {
+            return $attrs;
+        }
+
+        $labelElement = null;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            if ( trim($this->runtime->stripAllTags($this->innerHtml($candidate))) === trim($label) ) {
+                // Document order descends, so the last match is the innermost
+                // element still holding the whole label.
+                $labelElement = $candidate;
+            }
+        }
+        if ( ! $labelElement instanceof DOMElement ) {
+            return $attrs;
+        }
+
+        $labelStyle = $this->styleResolver->presentationAttributes($labelElement)['style'] ?? array();
+        if ( ! is_array($labelStyle) ) {
+            return $attrs;
+        }
+
+        $labelColor = trim((string) ( $labelStyle['color']['text'] ?? '' ));
+        if ( '' !== $labelColor ) {
+            $attrs['style']['color']['text'] = $labelColor;
+        }
+        foreach ( is_array($labelStyle['typography'] ?? null) ? $labelStyle['typography'] : array() as $property => $value ) {
+            if ( is_scalar($value) && '' !== trim((string) $value) ) {
+                $attrs['style']['typography'][$property] = $value;
+            }
+        }
+
+        return $attrs;
     }
 
     /**

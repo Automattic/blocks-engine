@@ -630,6 +630,30 @@ $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockNa
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
 
+// core/navigation emits its own item markup, so a builder wrapper that carried
+// the menu's type and colour does not survive and its rule matches nothing.
+// Recover that presentation onto the native counterpart, and deliver it as CSS:
+// shell identity compares block markup across documents, so a per-page value in
+// that markup would split one shared template part into several.
+$navInherited = ( new HtmlTransformer() )->transform(
+    '<style>body{font-family:Arial;font-size:10px;color:#000}.labelBox{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}</style>'
+    . '<body><header><nav class="menu navbar" aria-label="Main"><ul>'
+    . '<li><div class="labelBox"><a href="/features">Features</a></div></li>'
+    . '<li><div class="labelBox"><a href="/benefits">Benefits</a></div></li>'
+    . '</ul></nav></header></body>'
+)->toArray();
+$navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
+$navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'), 'menu presentation on a replaced source wrapper is recovered onto the native navigation item');
+$assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
+preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
+$navInheritedBlock = $navInheritedAttrs[1] ?? '';
+$assert('' !== $navInheritedBlock && ! str_contains($navInheritedBlock, 'customTextColor') && ! str_contains($navInheritedBlock, 'helvetica-w01-roman'), 'recovered navigation presentation stays out of the navigation block so documents sharing a shell keep identical markup: ' . $navInheritedBlock);
+$navNoInheritance = ( new HtmlTransformer() )->transform(
+    '<header><nav class="plain-nav" aria-label="Main"><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav></header>'
+)->toArray();
+$assert(! str_contains(implode("\n", array_column($navNoInheritance['assets'] ?? array(), 'content')), '.wp-block-navigation.plain-nav '), 'a menu with no distinct presentation gets no fabricated rule');
+
 // A source nav landmark keeps native menu semantics, so its icon-only anchors
 // must not silently lose the artwork core/navigation-link cannot save.
 $navIconResult = ( new HtmlTransformer() )->transform(
