@@ -10192,7 +10192,6 @@ final class HtmlTransformer
                 'transitionDuration' => $this->authoredSlideshowTransitionDuration($element),
                 'pauseOnHover' => true,
                 'pauseOnFocus' => true,
-                'navigation' => false,
             );
         }
         $shell = $generator->shell($attributes);
@@ -10215,9 +10214,18 @@ final class HtmlTransformer
     private function carouselListItems(DOMElement $list): array
     {
         $items = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ('listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName)) ) {
-                $items[] = $child;
+        foreach ( $list->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ('listitem' !== strtolower(trim($this->attr($candidate, 'role'))) && 'li' !== strtolower($candidate->tagName)) ) {
+                continue;
+            }
+            for ( $ancestor = $candidate->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                if ( ! $this->sourceElementClassifier->isCarouselList($ancestor) ) {
+                    continue;
+                }
+                if ( $ancestor === $list ) {
+                    $items[] = $candidate;
+                }
+                break;
             }
         }
 
@@ -10238,24 +10246,7 @@ final class HtmlTransformer
 
     private function authoredSlideshowTransitionDuration(DOMElement $element): float
     {
-        $candidates = array($element);
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( $candidate instanceof DOMElement ) {
-                $candidates[] = $candidate;
-            }
-        }
-        foreach ( $candidates as $candidate ) {
-            $declarations = $this->styleResolver->cssDeclarations($this->attr($candidate, 'style'));
-            foreach ( array( '--transitionduration', '--slideshow-transition-duration', 'transition-duration' ) as $property ) {
-                $value = trim((string) ($declarations[$property] ?? ''));
-                if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', $value, $matches) ) {
-                    $duration = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
-                    return min(10, max(0, $duration));
-                }
-            }
-        }
-
-        return 0.5;
+        return $this->authoredSlideshowTiming($element, array( '--transitionduration', '--slideshow-transition-duration', 'transition-duration' ), 0.5, 0, 10);
     }
 
     private function authoredSlideshowInterval(DOMElement $element): float
@@ -10266,21 +10257,22 @@ final class HtmlTransformer
                 return min(60, max(1, $interval));
             }
         }
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-            $declarations = $this->styleResolver->cssDeclarations($this->attr($candidate, 'style'));
-            foreach ( array('--autoplay-interval', '--slideshow-interval') as $property ) {
-                $value = trim((string) ($declarations[$property] ?? ''));
-                if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', $value, $matches) ) {
-                    $interval = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
-                    return min(60, max(1, $interval));
-                }
+        return $this->authoredSlideshowTiming($element, array('--autoplay-interval', '--slideshow-interval'), 4, 1, 60);
+    }
+
+    /** @param array<int, string> $properties */
+    private function authoredSlideshowTiming(DOMElement $element, array $properties, float $default, float $minimum, float $maximum): float
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        foreach ( $properties as $property ) {
+            $value = trim((string) ($declarations[$property] ?? ''));
+            if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', $value, $matches) ) {
+                $seconds = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
+                return min($maximum, max($minimum, $seconds));
             }
         }
 
-        return 4;
+        return $default;
     }
 
     private function carouselItemCaption(DOMElement $item): string

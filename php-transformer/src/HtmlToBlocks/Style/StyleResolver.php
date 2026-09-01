@@ -2447,6 +2447,10 @@ final class StyleResolver
             'table-layout',
             'width',
             'z-index',
+            '--transitionduration',
+            '--slideshow-transition-duration',
+            '--autoplay-interval',
+            '--slideshow-interval',
         ));
 
         return array_intersect_key($declarations, $safe);

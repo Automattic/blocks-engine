@@ -22,7 +22,6 @@ final class AuthoredCarouselBlockGenerator
             'transitionDuration' => array('type' => 'number', 'default' => 0.5),
             'pauseOnHover' => array('type' => 'boolean', 'default' => false),
             'pauseOnFocus' => array('type' => 'boolean', 'default' => false),
-            'navigation' => array('type' => 'boolean', 'default' => true),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -63,7 +62,7 @@ JS;
         var slides = track ? Array.prototype.slice.call( track.children ) : [];
         var isSlideshow = root.classList.contains( 'blocks-engine-authored-carousel--slideshow' );
         if ( ! viewport || ! track || slides.length < 2 || ( ! isSlideshow && ( ! previous || ! next ) ) ) return;
-        var index = 0, timer = null, userPaused = false;
+        var index = 0, timer = null, userPaused = false, hoverPaused = false, focusPaused = false;
         var wraps = 'false' !== root.dataset.wrap;
         var reducedMotion = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
         var interval = Math.min( 60000, Math.max( 1000, ( Number( root.dataset.interval ) || 4 ) * 1000 ) );
@@ -81,12 +80,12 @@ JS;
             if ( isSlideshow ) update( announce ); else { viewport.scrollTo( { left: slides[ index ].offsetLeft, behavior: reducedMotion ? 'auto' : 'smooth' } ); update( announce ); }
         }
         function stop() { if ( timer ) { window.clearInterval( timer ); timer = null; } }
-        function start() { if ( isSlideshow && ! reducedMotion && ! userPaused && ! document.hidden && 'true' === root.dataset.autoplay && ! timer ) timer = window.setInterval( function() { show( index + 1, false ); }, interval ); }
+        function start() { if ( isSlideshow && ! reducedMotion && ! userPaused && ! hoverPaused && ! focusPaused && ! document.hidden && 'true' === root.dataset.autoplay && ! timer ) timer = window.setInterval( function() { show( index + 1, false ); }, interval ); }
         function pauseForUser() { userPaused = true; stop(); if ( pause ) { pause.setAttribute( 'aria-pressed', 'true' ); pause.textContent = 'Resume slideshow'; } }
         if ( isSlideshow ) {
             slides.forEach( function( slide, position ) { slide.classList.toggle( 'is-active', 0 === position ); } );
-            if ( 'true' === root.dataset.pauseOnHover ) { root.addEventListener( 'mouseenter', stop ); root.addEventListener( 'mouseleave', start ); }
-            if ( 'true' === root.dataset.pauseOnFocus ) { root.addEventListener( 'focusin', stop ); root.addEventListener( 'focusout', function() { window.setTimeout( start ); } ); }
+            if ( 'true' === root.dataset.pauseOnHover ) { hoverPaused = root.matches( ':hover' ); root.addEventListener( 'mouseenter', function() { hoverPaused = true; stop(); } ); root.addEventListener( 'mouseleave', function() { hoverPaused = false; start(); } ); }
+            if ( 'true' === root.dataset.pauseOnFocus ) { focusPaused = root.contains( document.activeElement ); root.addEventListener( 'focusin', function() { focusPaused = true; stop(); } ); root.addEventListener( 'focusout', function() { window.setTimeout( function() { focusPaused = root.contains( document.activeElement ); start(); } ); } ); }
             document.addEventListener( 'visibilitychange', function() { if ( document.hidden ) stop(); else start(); } );
             root.addEventListener( 'pointerdown', function( event ) { if ( event.target !== pause ) pauseForUser(); } );
             if ( pause ) pause.addEventListener( 'click', function( event ) { event.stopPropagation(); if ( userPaused ) { userPaused = false; pause.setAttribute( 'aria-pressed', 'false' ); pause.textContent = 'Pause slideshow'; start(); } else pauseForUser(); } );
