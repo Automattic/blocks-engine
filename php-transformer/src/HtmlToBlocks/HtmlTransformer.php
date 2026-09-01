@@ -2871,6 +2871,9 @@ final class HtmlTransformer
             );
             $declarations = $this->styleResolver->cssDeclarations($resolved);
             $value        = trim((string) ($declarations[$property] ?? ''));
+            if ( '' === $value ) {
+                $value = $this->styleResolver->unsupportedSelectorDeclaration($node, $property);
+            }
             if ( '' !== $value
                 && ! in_array(strtolower($value), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer' ), true)
                 && ! preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
