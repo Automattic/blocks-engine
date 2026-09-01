@@ -21,9 +21,6 @@ use DOMElement;
 final class NavigationToggleSuppressionContext
 {
     /**
-     * @param Closure(DOMElement, string): string  $attr
-     * @param Closure(DOMElement, DOMElement): bool $elementContains
-     * @param Closure(DOMElement): bool            $hasSourceNavigationSignal
      * @param Closure(DOMElement): bool            $sourceElementStartsHidden
      * @param Closure(): RuntimeSelectorState      $runtimeSelectors
      * @param Closure(): NavigationProjectionState $navigationProjection
@@ -31,30 +28,12 @@ final class NavigationToggleSuppressionContext
      * @param Closure(): PatternContext            $probePatternContext
      */
     public function __construct(
-        private readonly Closure $attr,
-        private readonly Closure $elementContains,
-        private readonly Closure $hasSourceNavigationSignal,
         private readonly Closure $sourceElementStartsHidden,
         private readonly Closure $runtimeSelectors,
         private readonly Closure $navigationProjection,
         private readonly Closure $patternRecognizers,
         private readonly Closure $probePatternContext
     ) {
-    }
-
-    public function attr(DOMElement $element, string $name): string
-    {
-        return ($this->attr)($element, $name);
-    }
-
-    public function elementContains(DOMElement $container, DOMElement $element): bool
-    {
-        return ($this->elementContains)($container, $element);
-    }
-
-    public function hasSourceNavigationSignal(DOMElement $element): bool
-    {
-        return ($this->hasSourceNavigationSignal)($element);
     }
 
     public function sourceElementStartsHidden(DOMElement $element): bool

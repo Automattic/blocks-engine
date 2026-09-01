@@ -23,31 +23,23 @@ final class RuntimeIslandContext
      * @param Closure(): FallbackEmitter                                      $fallbackEmitter
      * @param Closure(): RuntimeDomState                                      $runtimeDom
      * @param Closure(): RuntimeSelectorState                                 $runtimeSelectors
-     * @param Closure(DOMElement, string): string                             $attr
      * @param Closure(DOMElement): iterable<DOMElement>                       $descendantElements
-     * @param Closure(DOMElement): string                                     $runtimeIslandSelector
-     * @param Closure(DOMElement): array<string, mixed>                       $eventMetadata
      * @param Closure(DOMElement): array<int, array<string, mixed>>           $requiredScriptsForElement
      * @param Closure(string): ?DOMElement                                    $preservedHtmlRootElement
      * @param Closure(DOMElement): bool                                       $hasWorkspaceSurface
      * @param Closure(string): bool                                           $isInlineContentElement
      * @param Closure(string): bool                                           $isPresentationalAnimationSelector
-     * @param Closure(array<int, array<string, mixed>>): array<int, array<string, mixed>> $dedupeArrayRows
      */
     public function __construct(
         private readonly Closure $fallbackEmitter,
         private readonly Closure $runtimeDom,
         private readonly Closure $runtimeSelectors,
-        private readonly Closure $attr,
         private readonly Closure $descendantElements,
-        private readonly Closure $runtimeIslandSelector,
-        private readonly Closure $eventMetadata,
         private readonly Closure $requiredScriptsForElement,
         private readonly Closure $preservedHtmlRootElement,
         private readonly Closure $hasWorkspaceSurface,
         private readonly Closure $isInlineContentElement,
-        private readonly Closure $isPresentationalAnimationSelector,
-        private readonly Closure $dedupeArrayRows
+        private readonly Closure $isPresentationalAnimationSelector
     ) {
     }
 
@@ -66,30 +58,12 @@ final class RuntimeIslandContext
         return ($this->runtimeSelectors)();
     }
 
-    public function attr(DOMElement $element, string $name): string
-    {
-        return ($this->attr)($element, $name);
-    }
-
     /**
      * @return iterable<DOMElement>
      */
     public function descendantElements(DOMElement $element): iterable
     {
         return ($this->descendantElements)($element);
-    }
-
-    public function runtimeIslandSelector(DOMElement $element): string
-    {
-        return ($this->runtimeIslandSelector)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function eventMetadata(DOMElement $element): array
-    {
-        return ($this->eventMetadata)($element);
     }
 
     /**
@@ -118,14 +92,5 @@ final class RuntimeIslandContext
     public function isPresentationalAnimationSelector(string $selector): bool
     {
         return ($this->isPresentationalAnimationSelector)($selector);
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array<string, mixed>>
-     */
-    public function dedupeArrayRows(array $rows): array
-    {
-        return ($this->dedupeArrayRows)($rows);
     }
 }

@@ -21,11 +21,8 @@ final class ButtonLinkDispatchContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $convertLinkWrapperGroup
      * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed>               $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
-     * @param Closure(DOMElement, string): string                                                            $attr
-     * @param Closure(DOMElement): string                                                                    $outerHtml
      * @param Closure(string): string                                                                        $safeLinkUrl
      * @param Closure(DOMElement): bool                                                                      $hasBlockContentChildren
-     * @param Closure(string, string): string                                                                $mergeClassNames
      * @param Closure(DOMElement): array<string, mixed>                                                      $structuralPresentationDeclarations
      */
     public function __construct(
@@ -38,11 +35,8 @@ final class ButtonLinkDispatchContext
         private readonly Closure $convertLinkWrapperGroup,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
-        private readonly Closure $attr,
-        private readonly Closure $outerHtml,
         private readonly Closure $safeLinkUrl,
         private readonly Closure $hasBlockContentChildren,
-        private readonly Closure $mergeClassNames,
         private readonly Closure $structuralPresentationDeclarations
     ) {
     }
@@ -121,16 +115,6 @@ final class ButtonLinkDispatchContext
         return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
     }
 
-    public function attr(DOMElement $element, string $name): string
-    {
-        return ($this->attr)($element, $name);
-    }
-
-    public function outerHtml(DOMElement $element): string
-    {
-        return ($this->outerHtml)($element);
-    }
-
     public function safeLinkUrl(string $href): string
     {
         return ($this->safeLinkUrl)($href);
@@ -139,11 +123,6 @@ final class ButtonLinkDispatchContext
     public function hasBlockContentChildren(DOMElement $element): bool
     {
         return ($this->hasBlockContentChildren)($element);
-    }
-
-    public function mergeClassNames(string $first, string $second): string
-    {
-        return ($this->mergeClassNames)($first, $second);
     }
 
     /**

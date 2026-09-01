@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\FigureQuotePattern;
 use DOMElement;
@@ -27,7 +28,7 @@ final class FigureElementConverter implements ElementConverter
         }
 
         if ( 'figcaption' === $tagName ) {
-            $content = $this->context->innerHtml($element);
+            $content = SourceDom::innerHtml($element);
             if ( ! $this->context->hasVisibleText($content) ) {
                 return ConversionOutcome::handled(null);
             }
@@ -52,12 +53,12 @@ final class FigureElementConverter implements ElementConverter
 
         $linkedMedia = $this->context->linkedMediaAnchor($element);
         if ( $linkedMedia instanceof DOMElement ) {
-            $linkedPicture = $this->context->firstChildElement($linkedMedia, 'picture');
+            $linkedPicture = SourceDom::firstChildElement($linkedMedia, 'picture');
             if ( $linkedPicture instanceof DOMElement ) {
                 return ConversionOutcome::handled($this->context->convertPicture($linkedPicture, $element, $linkedMedia));
             }
 
-            $linkedImage = $this->context->firstChildElement($linkedMedia, 'img');
+            $linkedImage = SourceDom::firstChildElement($linkedMedia, 'img');
             if ( $linkedImage instanceof DOMElement ) {
                 return ConversionOutcome::handled($this->context->convertImage($linkedImage, $element, null, $linkedMedia));
             }
@@ -73,7 +74,7 @@ final class FigureElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->convertPicture($picture, $element));
         }
 
-        $blockquote = $this->context->firstChildElement($element, 'blockquote');
+        $blockquote = SourceDom::firstChildElement($element, 'blockquote');
         if ( $blockquote instanceof DOMElement ) {
             return ConversionOutcome::handled($this->context->recognizePatterns($element, $fallbacks, array( FigureQuotePattern::class )));
         }

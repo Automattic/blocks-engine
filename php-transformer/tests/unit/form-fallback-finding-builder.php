@@ -47,17 +47,12 @@ $context = new FormFallbackFindingContext(
     static fn (): string => '',
     static fn (DOMElement $element): array => array( 'html' => '<safe-form>', 'bytes' => 11, 'truncated' => true ),
     static fn (DOMElement $element): array => array( '#existing-runtime' ),
-    static fn (DOMElement $element): string => '#replacement-runtime',
-    $selector,
-    static fn (DOMElement $element): array => array( 'id' => $element->getAttribute('id') ),
     static fn (DOMElement $element): array => array( 'source' => 'fixture' ),
     static fn (DOMElement $element): array => array( 'kind' => 'interactive' ),
-    static fn (DOMElement $element): array => array( 'submit' => 'handler' ),
     static function (array $block, string $role, array $selectors) use (&$bindingCalls): array {
         $bindingCalls[] = compact('block', 'role', 'selectors');
         return array( 'role' => $role, 'selectors' => $selectors, 'blockName' => $block['blockName'] ?? '' );
     },
-    static fn (DOMElement $element): int => $element->childElementCount,
     static fn (array $finding): array => array_merge(array( 'provenance' => 'fixture' ), $finding)
 );
 $builder = new FormFallbackFindingBuilder($context, $metadataBuilder, $successBuilder, $pseudoAnalyzer);
@@ -68,7 +63,7 @@ $finding = $builder->build($form, $readable);
 $assert('html_form_fallback' === ($finding['diagnostic_code'] ?? ''), 'diagnostic-code');
 $assert('form_requires_runtime' === ($finding['reason'] ?? ''), 'runtime-reason');
 $assert('form' === ($finding['tag'] ?? ''), 'real-form-tag');
-$assert('#signup' === ($finding['selector'] ?? ''), 'element-selector');
+$assert('form:nth-of-type(1)' === ($finding['selector'] ?? ''), 'element-selector');
 $assert('/join' === ($finding['form']['action'] ?? ''), 'form-metadata');
 $assert(2 === ($finding['control_count'] ?? 0), 'control-count');
 $assert(2 === count($finding['controls'] ?? array()), 'controls-metadata');
@@ -89,7 +84,7 @@ $bindingCalls = array();
 $preserved = array( 'blockName' => 'core/html' );
 $replacement = $builder->build($form, $readable, $preserved);
 $assert('core/html' === ($replacement['binding']['blockName'] ?? ''), 'explicit-binding-is-used');
-$assert(array( '#existing-runtime', '#replacement-runtime' ) === ($replacement['binding']['selectors'] ?? array()), 'replacement-binding-supersedes-form-island');
+$assert(array( '#existing-runtime', '#signup' ) === ($replacement['binding']['selectors'] ?? array()), 'replacement-binding-supersedes-form-island');
 
 $pseudo = $elementFrom('<div id="signup-shell"><input name="email"><button>Join</button></div>');
 $pseudoFinding = $builder->build($pseudo, null);

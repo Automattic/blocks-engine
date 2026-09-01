@@ -32,7 +32,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
-        $innerHtml = $context->innerHtml(...);
+        $innerHtml = SourceDom::innerHtml(...);
         $createBlock = $context->createBlock(...);
         $navigationContext = $context->navigationContext();
 

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
@@ -197,14 +198,14 @@ final class StyleResolver
      */
     private function isNamedFragmentTarget(DOMElement $element): bool
     {
-        if ( '' === trim($this->context->attr($element, 'id')) ) {
+        if ( '' === trim(SourceDom::attr($element, 'id')) ) {
             return false;
         }
-        if ( 0 < $this->context->directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
+        if ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
             return false;
         }
 
-        $position = strtolower(trim((string) ($this->cssDeclarations($this->context->attr($element, 'style'))['position'] ?? '')));
+        $position = strtolower(trim((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['position'] ?? '')));
 
         return in_array($position, array( 'absolute', 'fixed' ), true);
     }
@@ -299,9 +300,9 @@ final class StyleResolver
             : $this->cssDeclarations((string) ($this->styleAttributeMapper()->serialize($mapped['style'] ?? array())['style'] ?? ''));
 
         $attrs = array_filter(array_merge($mapped['attrs'] ?? array(), array(
-            'anchor'    => $this->context->safeAnchor($this->context->attr($element, 'id')),
+            'anchor'    => SourceDom::safeAnchor(SourceDom::attr($element, 'id')),
             'className' => $this->mergePresentationClassNames(
-                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName($this->context->attr($element, 'class')),
+                $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
@@ -364,7 +365,7 @@ final class StyleResolver
             return $declarations;
         }
 
-        $inline = $this->cssDeclarations($this->context->attr($element, 'style'));
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         foreach (array_keys($declarations) as $property) {
             $family = $this->responsivePropertyFamily($property);
             if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
@@ -378,11 +379,11 @@ final class StyleResolver
 
     private function unsupportedSelectorReferencesElement(string $selector, DOMElement $element): bool
     {
-        $id = trim($this->context->attr($element, 'id'));
+        $id = trim(SourceDom::attr($element, 'id'));
         if ( '' !== $id && 1 === preg_match('/#' . preg_quote($id, '/') . '(?![\w-])/', $selector) ) {
             return true;
         }
-        foreach ( preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array() as $className ) {
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
             if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?![\w-])/', $selector) ) {
                 return true;
             }
@@ -401,7 +402,7 @@ final class StyleResolver
      */
     private function classOwnedBackgroundPaintDeclarations(DOMElement $element, array $declarations): array
     {
-        $inline = $this->cssDeclarations($this->context->attr($element, 'style'));
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         foreach ( array(
             'background',
             'background-color',
@@ -483,8 +484,8 @@ final class StyleResolver
     ): string
     {
         $declarations = $carrierOwnsInlineGeometry
-            ? $this->mediaTextInlineCascadeDeclarations($this->context->attr($element, 'style'))
-            : $this->cssDeclarations($this->context->attr($element, 'style'));
+            ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
+            : $this->cssDeclarations(SourceDom::attr($element, 'style'));
         $declarations = $this->stripFrozenHiddenState($element, $declarations);
         $geometry = array();
         $properties = $this->inlineGeometryProperties();
@@ -518,7 +519,7 @@ final class StyleResolver
         }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
-            && ( 0 < $this->context->directElementChildCount($element) || '' !== trim((string) $element->textContent) )
+            && ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) )
         ) {
             $properties = array_merge($properties, $this->inlineBackgroundCarrierProperties());
         }
@@ -930,7 +931,7 @@ final class StyleResolver
      */
     private function inlineInheritedTextAlignDeclaration(DOMElement $element, array $declarations, array $excludedProperties): array
     {
-        if ( in_array('text-align', $excludedProperties, true) || 0 === $this->context->directElementChildCount($element) ) {
+        if ( in_array('text-align', $excludedProperties, true) || 0 === SourceDom::directElementChildCount($element) ) {
             return array();
         }
 
@@ -1014,7 +1015,7 @@ final class StyleResolver
     private function isRightToLeftElement(DOMElement $element): bool
     {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
-            $direction = strtolower(trim($this->context->attr($node, 'dir')));
+            $direction = strtolower(trim(SourceDom::attr($node, 'dir')));
             if ( '' !== $direction ) {
                 return 'rtl' === $direction;
             }
@@ -1130,7 +1131,7 @@ final class StyleResolver
 
     private function inlineGeometryStyle(DOMElement $element, array $excludedProperties = array(), array $forcedProperties = array()): string
     {
-        $declarations = $this->cssDeclarations($this->context->attr($element, 'style'));
+        $declarations = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         $style = array();
         $geometryValues = array();
         $properties = $this->inlineGeometryProperties();
@@ -1260,7 +1261,7 @@ final class StyleResolver
      */
     private function inlineStyleDeclaresAllReset(DOMElement $element): bool
     {
-        return $this->isCssAllResetValue((string) ($this->cssDeclarations($this->context->attr($element, 'style'))['all'] ?? ''));
+        return $this->isCssAllResetValue((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['all'] ?? ''));
     }
 
     public function mergePresentationClassNames(string ...$classNames): string
@@ -1329,7 +1330,7 @@ final class StyleResolver
             }
         }
 
-        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->context->attr($element, 'style')));
+        return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
     }
 
     /**
@@ -1359,7 +1360,7 @@ final class StyleResolver
             }
         }
 
-        foreach ($this->mediaTextInlineDeclarationEntries($this->context->attr($element, 'style')) as $entry) {
+        foreach ($this->mediaTextInlineDeclarationEntries(SourceDom::attr($element, 'style')) as $entry) {
             $this->applyMediaTextCascadeDeclaration(
                 $cascade,
                 $entry['property'],
@@ -1710,7 +1711,7 @@ final class StyleResolver
         if ( array() !== $normalized['stripped'] ) {
             $this->context->transformationEvidence()->recordFrozenHiddenState(array(
                 'tag'          => strtolower($element->tagName),
-                'selector'     => $this->context->elementSelector($element),
+                'selector'     => SourceDom::elementSelector($element),
                 'editor_selector' => $this->editorStaticStateSelector($element),
                 'declarations' => $normalized['stripped'],
             ));
@@ -1737,9 +1738,9 @@ final class StyleResolver
     private function isExplicitlyInactiveState(DOMElement $element): bool
     {
         if (
-            'false' === strtolower(trim($this->context->attr($element, 'data-visible')))
-            || 'dialog' === strtolower(trim($this->context->attr($element, 'role')))
-            || 'true' === strtolower(trim($this->context->attr($element, 'aria-modal')))
+            'false' === strtolower(trim(SourceDom::attr($element, 'data-visible')))
+            || 'dialog' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || 'true' === strtolower(trim(SourceDom::attr($element, 'aria-modal')))
         ) {
             return true;
         }
@@ -1748,8 +1749,8 @@ final class StyleResolver
             if (
                 $descendant instanceof DOMElement
                 && (
-                    'dialog' === strtolower(trim($this->context->attr($descendant, 'role')))
-                    || 'true' === strtolower(trim($this->context->attr($descendant, 'aria-modal')))
+                    'dialog' === strtolower(trim(SourceDom::attr($descendant, 'role')))
+                    || 'true' === strtolower(trim(SourceDom::attr($descendant, 'aria-modal')))
                 )
             ) {
                 return true;
@@ -1779,7 +1780,7 @@ final class StyleResolver
                     $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
                 }
             }
-            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations($this->context->attr($element, 'style')));
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
             $this->stripFrozenHiddenState($element, $declarations);
         }
     }
@@ -1809,13 +1810,13 @@ final class StyleResolver
 
     private function editorStaticStateSelector(DOMElement $element): string
     {
-        $id = trim($this->context->attr($element, 'id'));
+        $id = trim(SourceDom::attr($element, 'id'));
         if ( preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $id) ) {
             return '#' . $id;
         }
 
         $classes = array_values(array_filter(
-            preg_split('/\s+/', trim($this->context->attr($element, 'class'))) ?: array(),
+            preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(),
             static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class)
         ));
 
@@ -1827,7 +1828,7 @@ final class StyleResolver
         if ( ! in_array(strtolower($element->tagName), array('article', 'aside', 'div', 'footer', 'header', 'main', 'section'), true) ) {
             return '';
         }
-        $anchor = $this->context->safeAnchor($this->context->attr($element, 'id'));
+        $anchor = SourceDom::safeAnchor(SourceDom::attr($element, 'id'));
         return '' === $anchor ? '' : 'blocks-engine-editor-anchor-' . $anchor;
     }
 
@@ -1841,7 +1842,7 @@ final class StyleResolver
     {
         return $this->closedStateNormalizer()->isDecorativeHiddenElement(
             $element,
-            fn (DOMElement $source, string $name): string => $this->context->attr($source, $name)
+            fn (DOMElement $source, string $name): string => SourceDom::attr($source, $name)
         );
     }
 
@@ -1858,7 +1859,7 @@ final class StyleResolver
             return $cache->mergedStyles[$cacheKey];
         }
 
-        $inlineStyle = $this->context->attr($element, 'style');
+        $inlineStyle = SourceDom::attr($element, 'style');
         if ( array() === $this->context->sourceStyles()->staticRules() || (! $this->isHighValueStyledElement($element) && ! $this->hasGenericRecognitionDemand($element)) ) {
             $cache->mergedStyles[$cacheKey] = $inlineStyle;
             return $inlineStyle;
@@ -1912,7 +1913,7 @@ final class StyleResolver
             }
         }
 
-        foreach ( $this->cssDeclarations($this->context->attr($element, 'style')) as $property => $value ) {
+        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
             $this->applyMediaTextCascadeDeclaration(
                 $cascade,
                 (string) $property,
@@ -2015,7 +2016,7 @@ final class StyleResolver
             }
         }
 
-        foreach ( $this->mediaTextInlineDeclarationEntries($this->context->attr($element, 'style')) as $entry ) {
+        foreach ( $this->mediaTextInlineDeclarationEntries(SourceDom::attr($element, 'style')) as $entry ) {
             $this->applyGapCascadeDeclaration(
                 $cascade,
                 (string) ($entry['property'] ?? ''),
@@ -2505,9 +2506,9 @@ final class StyleResolver
      */
     private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
     {
-        $declared = trim($this->context->attr($element, 'data-layout'));
+        $declared = trim(SourceDom::attr($element, 'data-layout'));
         if ( '' === $declared ) {
-            $declared = trim($this->context->attr($element, 'data-wp-layout'));
+            $declared = trim(SourceDom::attr($element, 'data-wp-layout'));
         }
 
         if ( '' !== $declared ) {
@@ -2518,7 +2519,7 @@ final class StyleResolver
             }
         }
 
-        $inlineStyle = strtolower($this->context->attr($element, 'style'));
+        $inlineStyle = strtolower(SourceDom::attr($element, 'style'));
         $mergedDeclarations = $this->cssDeclarations($mergedStyle);
         $inlineDeclarations = $this->cssDeclarations($inlineStyle);
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
@@ -2542,7 +2543,7 @@ final class StyleResolver
 
             return $layout;
         }
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : $this->context->attr($element, 'style'));
+        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : SourceDom::attr($element, 'style'));
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
             && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
         ) {
@@ -2583,7 +2584,7 @@ final class StyleResolver
         // multi-column arrangement survives even when the children are plain
         // wrappers rather than recognized card markup. Without this the grid
         // collapses to a vertical stack and loses visual parity.
-        if ( $this->hasExplicitGridClass($element) && 1 < $this->context->directElementChildCount($element) ) {
+        if ( $this->hasExplicitGridClass($element) && 1 < SourceDom::directElementChildCount($element) ) {
             return array( 'type' => 'grid' );
         }
 
@@ -2596,7 +2597,7 @@ final class StyleResolver
 
     private function hasOwnStyleHook(DOMElement $element): bool
     {
-        return '' !== trim($this->context->attr($element, 'class')) || '' !== trim($this->context->attr($element, 'id'));
+        return '' !== trim(SourceDom::attr($element, 'class')) || '' !== trim(SourceDom::attr($element, 'id'));
     }
 
     private function layoutJustifyContent(string $value): string
@@ -2674,7 +2675,7 @@ final class StyleResolver
      */
     private function authorClassTokens(DOMElement $element): string
     {
-        $tokens = preg_split('/\s+/', strtolower(trim($this->context->attr($element, 'class')))) ?: array();
+        $tokens = preg_split('/\s+/', strtolower(trim(SourceDom::attr($element, 'class')))) ?: array();
 
         return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
     }

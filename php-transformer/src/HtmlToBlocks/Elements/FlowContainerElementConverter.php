@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsContainerPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPattern;
@@ -68,7 +69,7 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( $this->context->hasResponsiveImageSources($element) && $this->context->hasGalleryMediaItems($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
-        if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== $this->context->attr($element, 'role') ) {
+        if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->context->hasResponsiveImageSources($element) ) {
@@ -84,8 +85,8 @@ final class FlowContainerElementConverter implements ElementConverter
             }
         }
 
-        if ( 'button' !== strtolower($this->context->attr($element, 'role'))
-            && ! $this->context->hasClass($element, 'wp-block-columns')
+        if ( 'button' !== strtolower(SourceDom::attr($element, 'role'))
+            && ! SourceDom::hasClass($element, 'wp-block-columns')
             && ! $this->context->isGeneratedComponentCandidate($element)
             && $this->context->isAuthorOwnedLayout($element)
         ) {
@@ -97,7 +98,7 @@ final class FlowContainerElementConverter implements ElementConverter
             && $this->context->isDirectChildOfAuthorOwnedLayout($element)
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
-            if ( 0 === $this->context->childElementCount($element) && '' === trim($element->textContent) && $this->context->shouldPreserveEmptyVisualElement($element) ) {
+            if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) && $this->context->shouldPreserveEmptyVisualElement($element) ) {
                 return ConversionOutcome::handled($this->context->createBlock('core/group', $this->context->emptyVisualElementAttributes($element), array(), $element));
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));

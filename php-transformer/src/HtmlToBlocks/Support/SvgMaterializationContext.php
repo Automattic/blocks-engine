@@ -21,48 +21,29 @@ use DOMElement;
 final class SvgMaterializationContext
 {
     /**
-     * @param Closure(DOMElement, string): string                                                  $attr
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement, ?DOMElement): array<string, mixed> $createBlock
-     * @param Closure(DOMElement): string                                                          $elementSelector
-     * @param Closure(DOMElement): array<string, string>                                           $htmlAttributes
-     * @param Closure(DOMElement, array<int, string>): string                                      $innerHtmlWithoutTags
      * @param Closure(string): bool                                                                $isInlineContentElement
-     * @param Closure(string): bool                                                                $isSafeSvgContent
      * @param Closure(DOMElement): bool                                                            $isVisualLayerElement
      * @param Closure(): LayoutGeometryState                                                       $layoutGeometry
      * @param Closure(): AssetMaterializationState                                                 $materializedAssets
-     * @param Closure(DOMElement): string                                                          $outerHtml
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
-     * @param Closure(DOMElement): bool                                                            $svgHasDrawableContent
      * @param Closure(): TransformationEvidenceState                                               $transformationEvidence
      * @param Closure(): TransformationProvenanceState                                             $transformationProvenance
      */
     public function __construct(
-        private readonly Closure $attr,
         private readonly Closure $createBlock,
-        private readonly Closure $elementSelector,
-        private readonly Closure $htmlAttributes,
-        private readonly Closure $innerHtmlWithoutTags,
         private readonly Closure $isInlineContentElement,
-        private readonly Closure $isSafeSvgContent,
         private readonly Closure $isVisualLayerElement,
         private readonly Closure $layoutGeometry,
         private readonly Closure $materializedAssets,
-        private readonly Closure $outerHtml,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
         private readonly Closure $sanitizeInlineSvgMarkup,
-        private readonly Closure $svgHasDrawableContent,
         private readonly Closure $transformationEvidence,
         private readonly Closure $transformationProvenance
     ) {
-    }
-
-    public function attr(DOMElement $element, string $name): string
-    {
-        return ($this->attr)($element, $name);
     }
 
     /**
@@ -80,31 +61,9 @@ final class SvgMaterializationContext
         return ($this->createBlock)($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
-    public function elementSelector(DOMElement $element): string
-    {
-        return ($this->elementSelector)($element);
-    }
-
-    /** @return array<string, string> */
-    public function htmlAttributes(DOMElement $element): array
-    {
-        return ($this->htmlAttributes)($element);
-    }
-
-    /** @param array<int, string> $excludedTags */
-    public function innerHtmlWithoutTags(DOMElement $element, array $excludedTags): string
-    {
-        return ($this->innerHtmlWithoutTags)($element, $excludedTags);
-    }
-
     public function isInlineContentElement(string $tagName): bool
     {
         return ($this->isInlineContentElement)($tagName);
-    }
-
-    public function isSafeSvgContent(string $content): bool
-    {
-        return ($this->isSafeSvgContent)($content);
     }
 
     public function isVisualLayerElement(DOMElement $element): bool
@@ -122,11 +81,6 @@ final class SvgMaterializationContext
         return ($this->materializedAssets)();
     }
 
-    public function outerHtml(DOMElement $element): string
-    {
-        return ($this->outerHtml)($element);
-    }
-
     public function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
         return ($this->reusableComponentFingerprintFor)($element);
@@ -140,11 +94,6 @@ final class SvgMaterializationContext
     public function sanitizeInlineSvgMarkup(DOMElement $element): string
     {
         return ($this->sanitizeInlineSvgMarkup)($element);
-    }
-
-    public function svgHasDrawableContent(DOMElement $element): bool
-    {
-        return ($this->svgHasDrawableContent)($element);
     }
 
     public function transformationEvidence(): TransformationEvidenceState

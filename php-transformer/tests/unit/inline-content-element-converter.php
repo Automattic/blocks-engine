@@ -36,7 +36,6 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): bool => 'positioned' === $state->mode,
     static fn (DOMElement $element, array &$fallbacks): ?array => array( 'blockName' => 'core/group', 'attrs' => array( 'positioned' => true ) ),
     static fn (DOMElement $element): bool => false,
-    static fn (DOMElement $element): string => '',
     static fn (string $content): bool => false,
     static fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => array(),
     static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
@@ -49,7 +48,6 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): ?string => null,
-    static fn (DOMElement $element): string => 'empty' === $state->mode ? '' : $element->ownerDocument?->saveHTML($element) ?? '',
     static fn (DOMElement $element, string $tagName): ?DOMElement => null,
     static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): bool => false,
@@ -77,8 +75,10 @@ $assert('core/group' === ($positioned['blockName'] ?? '') && true === ($position
 $state->mode = 'plain';
 $paragraph = $converter->convert($span, 'span', $fallbacks)->block;
 $assert('core/paragraph' === ($paragraph['blockName'] ?? '') && str_contains((string) ($paragraph['attrs']['content'] ?? ''), '<span>Hello</span>'), 'visible-inline-paragraph');
-$state->mode = 'empty';
-$empty = $converter->convert($span, 'span', $fallbacks);
+// An inline element with no content is handled and yields no block. The
+// fixture is genuinely empty rather than relying on a stubbed inner-HTML
+// reader, so this exercises SourceDom::innerHtml directly.
+$empty = $converter->convert($elementFrom('<span></span>'), 'span', $fallbacks);
 $assert($empty->handled && null === $empty->block, 'empty-inline-handled-without-block');
 
 if ( $failures ) {

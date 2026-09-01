@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class ParameterTablePattern implements PatternRecognizerInterface
@@ -11,7 +12,7 @@ final class ParameterTablePattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        $innerHtml = $context->innerHtml(...);
+        $innerHtml = SourceDom::innerHtml(...);
 
         if ( ! $this->hasClass($element, 'param-table') ) {
             return null;

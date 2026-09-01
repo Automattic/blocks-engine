@@ -93,17 +93,12 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         $c['fallbackEmitter'],
         $c['runtimeDom'],
         $c['runtimeSelectors'],
-        $c['attr'],
         $c['descendants'],
-        $c['islandSelector'],
-        $c['eventMetadata'],
         $c['requiredScripts'],
         $c['preservedRoot'],
         $c['hasWorkspace'],
         $c['isInline'],
-        $c['isPresentational'],
-        $c['dedupe']
-    ), $pseudoFormAnalyzer);
+        $c['isPresentational']), $pseudoFormAnalyzer);
 };
 
 // An id or class named by a runtime selector is a DOM target.

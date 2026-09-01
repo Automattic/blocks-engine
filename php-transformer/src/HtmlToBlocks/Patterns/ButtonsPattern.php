@@ -40,7 +40,7 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, $context->innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameFallback($anchor);
         }
@@ -110,7 +110,7 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $text = $this->buttonText($anchor, $context->innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,

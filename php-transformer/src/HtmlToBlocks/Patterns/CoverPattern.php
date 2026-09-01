@@ -56,7 +56,7 @@ final class CoverPattern implements PatternRecognizerInterface
             array($converter, 'children'),
             $context->presentationAttributes(...),
             $media->coverStyle(...),
-            $media->htmlAttributes(...),
+            SourceDom::htmlAttributes(...),
             $media->resolveImageUrl(...),
             $context->createBlock(...)
         );

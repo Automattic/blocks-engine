@@ -13,12 +13,10 @@ final class FigureElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $mediaGalleryBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, array<int, class-string>): ?array<string, mixed> $recognizePatterns
      * @param Closure(DOMElement): ?DOMElement $linkedMediaAnchor
-     * @param Closure(DOMElement, string): ?DOMElement $firstChildElement
      * @param Closure(DOMElement, ?DOMElement, ?DOMElement): ?array<string, mixed> $convertPicture
      * @param Closure(DOMElement, ?DOMElement, ?DOMElement, ?DOMElement): ?array<string, mixed> $convertImage
      * @param Closure(DOMElement, string): ?DOMElement $mediaElement
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $convertGeneric
-     * @param Closure(DOMElement): string $innerHtml
      * @param Closure(string): bool $hasVisibleText
      * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
@@ -27,12 +25,10 @@ final class FigureElementContext
         private readonly Closure $mediaGalleryBlock,
         private readonly Closure $recognizePatterns,
         private readonly Closure $linkedMediaAnchor,
-        private readonly Closure $firstChildElement,
         private readonly Closure $convertPicture,
         private readonly Closure $convertImage,
         private readonly Closure $mediaElement,
         private readonly Closure $convertGeneric,
-        private readonly Closure $innerHtml,
         private readonly Closure $hasVisibleText,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock
@@ -60,11 +56,6 @@ final class FigureElementContext
         return ($this->linkedMediaAnchor)($figure);
     }
 
-    public function firstChildElement(DOMElement $element, string $tagName): ?DOMElement
-    {
-        return ($this->firstChildElement)($element, $tagName);
-    }
-
     /** @return array<string, mixed>|null */
     public function convertPicture(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
     {
@@ -86,11 +77,6 @@ final class FigureElementContext
     public function convertGeneric(DOMElement $figure, array &$fallbacks): ?array
     {
         return ($this->convertGeneric)($figure, $fallbacks);
-    }
-
-    public function innerHtml(DOMElement $element): string
-    {
-        return ($this->innerHtml)($element);
     }
 
     public function hasVisibleText(string $html): bool

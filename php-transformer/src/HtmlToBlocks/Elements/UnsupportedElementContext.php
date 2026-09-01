@@ -14,24 +14,16 @@ final class UnsupportedElementContext
     /**
      * @param Closure(DOMElement): ?array<string, mixed>  $maybeGenerateCustomBlock
      * @param Closure(array<string, mixed>, DOMElement): array<string, mixed> $generatedComponentBlock
-     * @param Closure(DOMElement): string                 $elementSelector
-     * @param Closure(DOMElement): array<string, mixed>   $htmlAttributes
      * @param Closure(DOMElement): array<string, mixed>   $sourceContext
      * @param Closure(DOMElement): array<string, mixed>   $classifyFallbackSubtree
-     * @param Closure(DOMElement): array<string, mixed>   $eventMetadata
-     * @param Closure(DOMElement): int                    $childElementCount
      * @param Closure(DOMElement): string                 $safeFallbackHtml
      * @param Closure(array<string, mixed>): array<string, mixed> $buildFallbackDiagnostic
      */
     public function __construct(
         private readonly Closure $maybeGenerateCustomBlock,
         private readonly Closure $generatedComponentBlock,
-        private readonly Closure $elementSelector,
-        private readonly Closure $htmlAttributes,
         private readonly Closure $sourceContext,
         private readonly Closure $classifyFallbackSubtree,
-        private readonly Closure $eventMetadata,
-        private readonly Closure $childElementCount,
         private readonly Closure $safeFallbackHtml,
         private readonly Closure $buildFallbackDiagnostic
     ) {
@@ -54,19 +46,6 @@ final class UnsupportedElementContext
         return ($this->generatedComponentBlock)($generated, $element);
     }
 
-    public function elementSelector(DOMElement $element): string
-    {
-        return ($this->elementSelector)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function htmlAttributes(DOMElement $element): array
-    {
-        return ($this->htmlAttributes)($element);
-    }
-
     /**
      * @return array<string, mixed>
      */
@@ -81,19 +60,6 @@ final class UnsupportedElementContext
     public function classifyFallbackSubtree(DOMElement $element): array
     {
         return ($this->classifyFallbackSubtree)($element);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function eventMetadata(DOMElement $element): array
-    {
-        return ($this->eventMetadata)($element);
-    }
-
-    public function childElementCount(DOMElement $element): int
-    {
-        return ($this->childElementCount)($element);
     }
 
     public function safeFallbackHtml(DOMElement $element): string

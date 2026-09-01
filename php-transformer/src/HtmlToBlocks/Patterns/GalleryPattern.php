@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 use const XML_TEXT_NODE;
@@ -24,7 +25,7 @@ final class GalleryPattern implements PatternRecognizerInterface
             fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $gallery->convertPicture($picture, $figure, $link),
             fn (DOMElement $figure): ?DOMElement => $gallery->linkedMediaAnchor($figure),
             $context->presentationAttributes(...),
-            $context->innerHtml(...),
+            SourceDom::innerHtml(...),
             $context->createBlock(...)
         );
 

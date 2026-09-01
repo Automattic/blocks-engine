@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /**
@@ -88,7 +89,7 @@ final class TextLeafElementConverter implements ElementConverter
     {
         $children = $this->context->convertChildren($element, $fallbacks, true);
         if ( array() === $children ) {
-            $content = $this->context->innerHtml($element);
+            $content = SourceDom::innerHtml($element);
             if ( '' === trim($this->context->stripAllTags($content)) ) {
                 return null;
             }
@@ -127,7 +128,7 @@ final class TextLeafElementConverter implements ElementConverter
             return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
         }
 
-        $content = $this->context->innerHtml($element);
+        $content = SourceDom::innerHtml($element);
         if ( '' === trim($this->context->stripAllTags($content)) ) {
             return null;
         }
@@ -145,7 +146,7 @@ final class TextLeafElementConverter implements ElementConverter
      */
     private function convertPre(DOMElement $element): ?array
     {
-        $code = $this->context->firstChildElement($element, 'code');
+        $code = SourceDom::firstChildElement($element, 'code');
         if ( $code instanceof DOMElement ) {
             return $this->context->createBlock(
                 'core/code',
@@ -157,7 +158,7 @@ final class TextLeafElementConverter implements ElementConverter
 
         return $this->context->createBlock(
             'core/preformatted',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $this->context->innerHtmlPreservingWhitespace($element) )),
+            array_merge($this->context->presentationAttributes($element), array( 'content' => SourceDom::innerHtmlPreservingWhitespace($element) )),
             array(),
             $element
         );

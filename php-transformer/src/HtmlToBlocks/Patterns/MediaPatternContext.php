@@ -10,14 +10,12 @@ final class MediaPatternContext
 {
     /**
      * @param Closure(DOMElement): string $coverStyle
-     * @param Closure(DOMElement): array<string, string> $htmlAttributes
      * @param Closure(string): string $resolveImageUrl
      * @param Closure(DOMElement, array<int, string>): array<string, mixed> $mediaTextAttributes
      * @param Closure(DOMElement): string $mediaTextStyle
      */
     public function __construct(
         private readonly Closure $coverStyle,
-        private readonly Closure $htmlAttributes,
         private readonly Closure $resolveImageUrl,
         private readonly Closure $mediaTextAttributes,
         private readonly Closure $mediaTextStyle
@@ -25,8 +23,6 @@ final class MediaPatternContext
     }
 
     public function coverStyle(DOMElement $element): string { return ($this->coverStyle)($element); }
-    /** @return array<string, string> */
-    public function htmlAttributes(DOMElement $element): array { return ($this->htmlAttributes)($element); }
     public function resolveImageUrl(string $url): string { return ($this->resolveImageUrl)($url); }
     /** @param array<int, string> $excludedGeometryProperties
      * @return array<string, mixed>

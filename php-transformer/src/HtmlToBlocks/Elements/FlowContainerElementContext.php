@@ -20,15 +20,12 @@ final class FlowContainerElementContext
         private readonly Closure $hasGalleryMediaItems,
         private readonly Closure $responsiveMediaBlock,
         private readonly Closure $isDirectChildOfAuthorOwnedLayout,
-        private readonly Closure $attr,
         private readonly Closure $authorLayoutBlock,
         private readonly Closure $hasMultipleRuntimeInlineTextTargets,
         private readonly Closure $paragraphBlockFromInlineContentWrapper,
-        private readonly Closure $hasClass,
         private readonly Closure $isGeneratedComponentCandidate,
         private readonly Closure $isAuthorOwnedLayout,
         private readonly Closure $proofBackedWrapperCoalescing,
-        private readonly Closure $childElementCount,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualElementAttributes,
         private readonly Closure $createBlock,
@@ -72,18 +69,15 @@ final class FlowContainerElementContext
     /** @return array<string, mixed> */
     public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
     public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool { return ($this->isDirectChildOfAuthorOwnedLayout)($element); }
-    public function attr(DOMElement $element, string $name): string { return ($this->attr)($element, $name); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed> */
     public function authorLayoutBlock(DOMElement $element, array &$fallbacks): array { return ($this->authorLayoutBlock)($element, $fallbacks); }
     public function hasMultipleRuntimeInlineTextTargets(DOMElement $element): bool { return ($this->hasMultipleRuntimeInlineTextTargets)($element); }
     /** @return array<string, mixed>|null */
     public function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array { return ($this->paragraphBlockFromInlineContentWrapper)($element); }
-    public function hasClass(DOMElement $element, string $className): bool { return ($this->hasClass)($element, $className); }
     public function isGeneratedComponentCandidate(DOMElement $element): bool { return ($this->isGeneratedComponentCandidate)($element); }
     public function isAuthorOwnedLayout(DOMElement $element): bool { return ($this->isAuthorOwnedLayout)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array { return ($this->proofBackedWrapperCoalescing)($element, $fallbacks); }
-    public function childElementCount(DOMElement $element): int { return ($this->childElementCount)($element); }
     public function shouldPreserveEmptyVisualElement(DOMElement $element): bool { return ($this->shouldPreserveEmptyVisualElement)($element); }
     /** @return array<string, mixed> */
     public function emptyVisualElementAttributes(DOMElement $element): array { return ($this->emptyVisualElementAttributes)($element); }

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use DOMElement;
 
@@ -125,7 +126,7 @@ final class NavigationStyleProjector
     {
         $ids = array_fill_keys(array_filter(
             $this->context->authorStyles()->sourceElementIds(),
-            fn (string $id): bool => '' !== $this->context->safeAnchor($id)
+            fn (string $id): bool => '' !== SourceDom::safeAnchor($id)
         ), true);
         if ( array() === $ids ) {
             return '';
@@ -663,7 +664,7 @@ final class NavigationStyleProjector
         foreach ( $this->context->authorStyles()->sourceElementsByClass($class) as $element ) {
             if ( $element instanceof DOMElement
                 && 'a' === strtolower($element->tagName)
-                && isset($selectors[$this->context->elementSelector($element)])
+                && isset($selectors[SourceDom::elementSelector($element)])
             ) {
                 $anchors[] = $element;
             }
@@ -697,7 +698,7 @@ final class NavigationStyleProjector
             foreach ( $item->childNodes as $child ) {
                 if ( $child instanceof DOMElement
                     && 'a' === strtolower($child->tagName)
-                    && isset($selectors[$this->context->elementSelector($child)])
+                    && isset($selectors[SourceDom::elementSelector($child)])
                 ) {
                     $anchors[] = $child;
                 }
@@ -738,7 +739,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() === ($candidate['conditions'] ?? array()) && '' === ($candidate['pseudo'] ?? '') ) {
-                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations($this->context->attr($anchor, 'style')));
+                $inline = $this->styleResolver->safeVisualDeclarations($this->styleResolver->cssDeclarations(SourceDom::attr($anchor, 'style')));
                 if ( array_key_exists($property, $inline) ) {
                     $entry = array(
                         'id' => -1,
@@ -880,7 +881,7 @@ final class NavigationStyleProjector
                 return null;
             }
 
-            $itemClasses = preg_split('/\s+/', trim($this->context->attr($item, 'class'))) ?: array();
+            $itemClasses = preg_split('/\s+/', trim(SourceDom::attr($item, 'class'))) ?: array();
             if ( in_array($class, $itemClasses, true) ) {
                 // The class also belonged to the source item. Its item paint is
                 // authored, not an artifact of core moving the anchor class.

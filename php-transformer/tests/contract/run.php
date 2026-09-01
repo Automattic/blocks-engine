@@ -451,7 +451,6 @@ $registry = new PatternRecognizerRegistry(array(
 ));
 $registryContext = new PatternContext(
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): string => '',
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
