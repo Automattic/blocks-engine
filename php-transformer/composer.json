@@ -189,7 +189,8 @@
             "php tests/unit/button-link-dispatcher.php",
             "php tests/unit/button-element-converter.php",
             "php tests/unit/runtime-resource-element-converter.php",
-            "php tests/unit/link-bearing-element-lowering.php"
+            "php tests/unit/link-bearing-element-lowering.php",
+            "php tests/unit/link-wrapper-text-color-parity.php"
     ],
     "test:parity": "php tests/parity/run.php",
     "test:migration:examples": "php tests/migration/examples.php",
