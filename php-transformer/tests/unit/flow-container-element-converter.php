@@ -5,6 +5,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 
 $assertions = 0;
@@ -56,7 +57,7 @@ $operations = array(
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
     ),
-    'navigationSectionBlock' => $null,
+    'patternContext' => new PatternContext($null, $null),
     'shouldDeferNavigationPatternToChildren' => $false,
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,

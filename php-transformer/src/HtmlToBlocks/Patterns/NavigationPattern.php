@@ -162,6 +162,78 @@ final class NavigationPattern implements PatternRecognizerInterface
         );
     }
 
+    public function recognizeLabeledSection(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $converter = $context->recursiveConverter();
+        if ( 'nav' === strtolower($element->tagName) || null === $converter ) {
+            return null;
+        }
+
+        $heading = null;
+        $anchors = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( $child instanceof DOMElement && $this->isNavigationSectionHeading($child) ) {
+                if ( $heading instanceof DOMElement ) {
+                    return null;
+                }
+                $heading = $child;
+                continue;
+            }
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') ) {
+                $anchors[] = $child;
+                continue;
+            }
+            return null;
+        }
+
+        if ( ! $heading instanceof DOMElement || array() === $anchors ) {
+            return null;
+        }
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
+        $hasContainerSignal = 'navigation' === strtolower(SourceDom::attr($element, 'role'))
+            || (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
+        if ( ! $hasContainerSignal && preg_match('/^h[1-6]$/i', $heading->tagName) ) {
+            return null;
+        }
+
+        $discardedFallbacks = array();
+        $blocks = array($converter->element($heading, $discardedFallbacks, true));
+        $links = array();
+        foreach ( $anchors as $anchor ) {
+            $links[] = $context->createBlock('core/navigation-link', array_filter(array(
+                'label' => SourceDom::innerHtml($anchor),
+                'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
+                'kind' => 'custom',
+            ), static fn ($value): bool => '' !== $value), array(), $anchor);
+        }
+        $overlayMenu = $context->navigationContext()?->overlayMenu($element) ?? 'never';
+        $navigationAttrs = array('overlayMenu' => $overlayMenu);
+        if ( 'mobile' === $overlayMenu ) {
+            $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
+        }
+        $blocks[] = $context->createBlock('core/navigation', $navigationAttrs, $links, $element);
+
+        return new PatternRecognitionResult(
+            $context->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element)
+        );
+    }
+
+    private function isNavigationSectionHeading(DOMElement $element): bool
+    {
+        if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {
+            return true;
+        }
+        if ( ! in_array(strtolower($element->tagName), array('div', 'p', 'span'), true) || '' === trim($element->textContent ?? '') ) {
+            return false;
+        }
+
+        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'role') . ' ' . SourceDom::attr($element, 'aria-label')));
+        return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
+    }
+
     /**
      * A nav container that holds a brand beside its link cluster authors THREE
      * elements — the landmark, the brand, and the menu — each with its own CSS

@@ -164,4 +164,14 @@ $probeContext = new PatternContext(static fn (DOMElement $source): array => arra
 (new NavigationPattern())->recognize($navigationElement, $probeContext);
 $assert(1 === $recursiveCalls, 'Navigation probe context performs no recursive conversion side effects.');
 
+$labeledNavigation = (new HtmlTransformer())->transform('<div class="footer-links"><h3>Resources</h3><a href="/docs">Docs</a><a href="/help">Help</a></div>')->toArray();
+$labeledNavigationGroup = $labeledNavigation['blocks'][0] ?? array();
+$labeledNavigationBlock = $labeledNavigationGroup['innerBlocks'][1] ?? array();
+$assert('core/group' === ($labeledNavigationGroup['blockName'] ?? null) && 'core/navigation' === ($labeledNavigationBlock['blockName'] ?? null), 'NavigationPattern owns labeled non-nav link sections.');
+$assert(! isset($labeledNavigationBlock['attrs']['layout']), 'Labeled non-nav sections retain their established source-flow navigation layout.');
+$labeledSocialNavigation = (new HtmlTransformer())->transform('<div class="footer-links"><h3>Follow</h3><a href="https://github.com/example">GitHub</a><a href="https://instagram.com/example">Instagram</a></div>')->toArray();
+$assert('core/navigation' === ($labeledSocialNavigation['blocks'][0]['innerBlocks'][1]['blockName'] ?? null), 'Labeled social-profile sections retain navigation precedence and their heading.');
+$punctuatedNavigation = (new HtmlTransformer())->transform('<div class="nav.foo"><h3>Resources</h3><a href="/docs">Docs</a></div>')->toArray();
+$assert('vertical' === ($punctuatedNavigation['blocks'][0]['innerBlocks'][1]['attrs']['layout']['orientation'] ?? null), 'Punctuation outside established navigation signal boundaries retains normal pattern lowering.');
+
 echo "pattern registry staged dispatch passed ({$assertions} assertions)\n";

@@ -423,35 +423,6 @@ final class SourceElementClassifier
         return $this->hasCommerceToken($element, array( 'time', 'hours', 'value', 'closed' )) || (bool) preg_match('/\b(?:closed|open|\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:[\x{2013}\x{2014}-]|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b/iu', $element->textContent ?? '');
     }
 
-    public function isNavigationSectionHeading(DOMElement $element): bool
-    {
-        if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {
-            return true;
-        }
-
-        if ( ! in_array(strtolower($element->tagName), array( 'div', 'p', 'span' ), true) || '' === trim($element->textContent ?? '') ) {
-            return false;
-        }
-
-        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'role') . ' ' . SourceDom::attr($element, 'aria-label')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:heading|label|title)(?:$|[\s_-])/', $name);
-    }
-
-    public function hasSoftNavigationSectionHeadingSignal(DOMElement $element): bool
-    {
-        return ! preg_match('/^h[1-6]$/i', $element->tagName) && $this->isNavigationSectionHeading($element);
-    }
-
-    public function hasNavigationContainerSignal(DOMElement $element): bool
-    {
-        if ( 'navigation' === strtolower(SourceDom::attr($element, 'role')) ) {
-            return true;
-        }
-
-        $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
-        return (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
-    }
-
     public function hasDirectChildElement(DOMElement $element, string $tagName): bool
     {
         foreach ( $element->childNodes as $child ) {

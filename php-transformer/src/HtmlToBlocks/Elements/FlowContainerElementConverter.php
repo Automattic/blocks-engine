@@ -21,7 +21,10 @@ use DOMElement;
 /** Converts flow containers through their ordered runtime, pattern, layout, and child strategies. */
 final class FlowContainerElementConverter implements ElementConverter
 {
-    public function __construct(private readonly FlowContainerElementContext $context)
+    public function __construct(
+        private readonly FlowContainerElementContext $context,
+        private readonly NavigationPattern $navigationPattern = new NavigationPattern()
+    )
     {
     }
 
@@ -108,9 +111,9 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->navigationSectionBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
+        $navigationSection = $this->navigationPattern->recognizeLabeledSection($element, $this->context->patternContext());
+        if ( null !== $navigationSection ) {
+            return ConversionOutcome::handled($navigationSection->block());
         }
         if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
             $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));

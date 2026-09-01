@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Closure;
 use DOMElement;
 
@@ -29,7 +30,7 @@ final class FlowContainerElementContext
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualElementAttributes,
         private readonly Closure $createBlock,
-        private readonly Closure $navigationSectionBlock,
+        private readonly PatternContext $patternContext,
         private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $metadataGridBlock,
@@ -83,8 +84,7 @@ final class FlowContainerElementContext
     public function emptyVisualElementAttributes(DOMElement $element): array { return ($this->emptyVisualElementAttributes)($element); }
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
     public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array { return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement); }
-    /** @return array<string, mixed>|null */
-    public function navigationSectionBlock(DOMElement $element): ?array { return ($this->navigationSectionBlock)($element); }
+    public function patternContext(): PatternContext { return $this->patternContext; }
     public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
     public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array { return ($this->rememberAccordionDisclosureRoot)($block, $element); }
