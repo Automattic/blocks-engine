@@ -534,7 +534,7 @@ $nestedLayoutTableMarkup = (string) ($nestedLayoutTableResult['serialized_blocks
 $nestedLayoutTableLinkedMedia = $nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
 $assert(TableClassificationPolicy::COMPLEX_NESTED === ($tablePolicy->classify($tableElement($nestedLayoutTableSource))['classification'] ?? null) && $tablePolicy->isNestedLayoutTable($tableElement($nestedLayoutTableSource)), 'nested single-row headerless tables are recognized as layout columns');
 $assert('core/columns' === ($nestedLayoutTableResult['blocks'][0]['blockName'] ?? null) && 2 === count($nestedLayoutTableResult['blocks'][0]['innerBlocks'] ?? array()) && 'core/columns' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? null), 'nested layout tables lower to responsive native column blocks');
-$assert('30%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null) && '70%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['attrs']['width'] ?? null), 'layout table cell percentages become core/column width attributes');
+$assert('30%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null) && '70%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['attrs']['width'] ?? null) && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:30%') && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:70%'), 'layout table cell percentages become rendered core/column widths');
 
 $percentLayoutTable = ( new HtmlTransformer() )->transform('<table class="wsite-multicol-table"><tr><td style="width:18.5%">Left</td><td style="width:63%">Center</td><td style="width:18.5%">Right</td></tr></table>')->toArray();
 $percentLayoutTableBlock = $percentLayoutTable['blocks'][0] ?? array();
@@ -2828,6 +2828,7 @@ $centeredSocialLinks = ( new HtmlTransformer() )->transform(
     '<div style="text-align:center"><span class="social-links"><a href="https://facebook.com/example" aria-label="Facebook"><span></span></a><a href="https://instagram.com/example" aria-label="Instagram"><span></span></a></span></div>'
 )->toArray();
 $assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
+$assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'

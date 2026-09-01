@@ -285,7 +285,9 @@ final class BlockFactory
         }
 
         if ( 'core/column' === $name ) {
-            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-column') . '>', 'closing' => '</div>' );
+            $width = trim((string) ($attrs['width'] ?? ''));
+            $columnStyle = trim((string) ($attrs['inlineGeometryStyle'] ?? '') . (preg_match('/^\d+(?:\.\d+)?%$/', $width) ? ';flex-basis:' . $width : ''), ';');
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-column', $columnStyle) . '>', 'closing' => '</div>' );
         }
 
         if ( 'core/details' === $name ) {
@@ -385,7 +387,9 @@ final class BlockFactory
                 ? $size . ' has-' . $size . '-icon-size'
                 : '';
             $labelsClass = ! empty($attrs['showLabels']) ? 'has-visible-labels' : '';
-            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass)) . '>', 'closing' => '</ul>' );
+            $justification = $this->safeSlug((string) ($attrs['justifyContent'] ?? ''));
+            $justificationClass = in_array($justification, array( 'left', 'center', 'right', 'space-between' ), true) ? 'is-content-justification-' . $justification : '';
+            return array( 'opening' => '<ul' . $this->blockSupportAttrs($attrs, trim('wp-block-social-links ' . $labelsClass . ' ' . $sizeClass . ' ' . $justificationClass)) . '>', 'closing' => '</ul>' );
         }
 
         if ( 'core/social-link' === $name ) {
