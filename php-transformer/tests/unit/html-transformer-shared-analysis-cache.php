@@ -81,6 +81,18 @@ foreach ( $semanticCases as $case ) {
     $assert($withoutDurations($isolated) === $withoutDurations($cached), 'Payload composition must preserve cascade, variables, conditions, duplicate rules, provenance, and malformed-stream recovery.');
 }
 
+$manyPayloads = array();
+for ( $payloadIndex = 0; $payloadIndex < 17; ++$payloadIndex ) {
+    $manyPayloads[] = array('content' => '.many-' . $payloadIndex . '{padding:' . $payloadIndex . 'px}');
+}
+$manyPayloadHtml = '<main class="many-16">Consolidated</main>';
+$manyPayloadOptions = array('static_css' => implode("\n", array_column($manyPayloads, 'content')), 'stylesheet_payloads' => $manyPayloads, 'skip_author_stylesheet_materialization' => true);
+$manyPayloadCache = new HtmlTransformerAnalysisCache();
+$manyPayloadShared = (new HtmlTransformer(analysisCache: $manyPayloadCache))->transform($manyPayloadHtml, $manyPayloadOptions)->toArray();
+$manyPayloadIsolated = (new HtmlTransformer())->transform($manyPayloadHtml, array('static_css' => $manyPayloadOptions['static_css'], 'skip_author_stylesheet_materialization' => true))->toArray();
+$assert($withoutDurations($manyPayloadIsolated) === $withoutDurations($manyPayloadShared), 'A safe stylesheet stream above the bounded payload window preserves byte-identical blocks and diagnostics.');
+$assert(1 === $manyPayloadCache->styleBuilds && 0 === $manyPayloadCache->styleEvictions && 1 === count($manyPayloadCache->styles), 'A large safe stylesheet set is analyzed once as one bounded presentation stream.');
+
 $artifactFiles = array('shared.css' => ':root{--brand:#123456}.card{display:grid;color:var(--brand)}@media (min-width:1px){.card{padding:1px}}');
 for ( $index = 0; $index < 54; ++$index ) {
     $path = 0 === $index ? 'index.html' : 'pages/' . $index . '.html';

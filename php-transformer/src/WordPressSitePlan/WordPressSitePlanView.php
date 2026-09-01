@@ -33,8 +33,6 @@ final class WordPressSitePlanView
         ) : $result;
         TransformerResult::assertCanonicalEnvelope($data);
         $sourceReports = $data['source_reports'];
-        $materializationPlan = is_array($sourceReports['materialization_plan'] ?? null) ? $sourceReports['materialization_plan'] : array();
-        $theme = is_array($materializationPlan['theme'] ?? null) ? $materializationPlan['theme'] : array();
         $wordpressSitePlan = $this->arrayValue($sourceReports, 'wordpress_site_plan');
         $diagnostics = $this->arrayValue($sourceReports, 'wordpress_site_plan_diagnostics');
         if ('failed' === $data['status'] && array() === $wordpressSitePlan && array() === $diagnostics) {
@@ -48,7 +46,7 @@ final class WordPressSitePlanView
             'wordpress_site_plan' => $wordpressSitePlan,
             'gutenberg_gaps' => $this->arrayValue($sourceReports, 'gutenberg_gaps'),
             'companion_plugin_payload' => $this->arrayValue($sourceReports, 'companion_plugin_payload'),
-            'font_materialization' => $this->arrayValue($theme, 'font_materialization'),
+            'font_materialization' => $this->arrayValue($sourceReports, 'font_materialization'),
             'editability_report' => $this->arrayValue($sourceReports, 'editability_report'),
             'diagnostics' => $diagnostics,
         );

@@ -830,7 +830,7 @@ $missingConversionReport = $result;
 unset($missingConversionReport['source_reports']['conversion_report']);
 $assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conversion_report', 'canonical validation rejects results without conversion reports');
 
-$assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
+$assertInvalidCanonicalEnvelope($result, 'Materialization-plan validation was removed', 'canonical validation rejects removed materialization-plan requirements', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
     '<main><h1>Context</h1><canvas id="runtime-context">Fallback</canvas></main>',
@@ -3247,8 +3247,8 @@ $assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics exp
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
-$assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact retains the legacy materialization plan report for compatibility');
-$assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
+$assert(!isset($simple['source_reports']['materialization_plan']), 'artifact omits the superseded materialization plan projection');
+$assert('index.html' === ($simple['source_reports']['wordpress_site_plan']['source']['entry_path'] ?? ''), 'canonical plan exposes entry path');
 
 $artifactNavAnchorCss = $compiler->compile(
     array(
@@ -3438,8 +3438,8 @@ $artifactGeometryCss = implode("\n", array_map(static fn (array $asset): string 
 $artifactGeometryMarkup = (string) ($artifactGeometry['serialized_blocks'] ?? '');
 $assert(str_contains($artifactGeometryMarkup, 'be-inline-geometry-'), 'artifact compiler serializes geometry carrier classes into primary block output', $artifactGeometryMarkup);
 $assert(str_contains($artifactGeometryCss, 'width:75%') && str_contains($artifactGeometryCss, 'max-width:72rem') && str_contains($artifactGeometryCss, 'aspect-ratio:16 / 9'), 'artifact compiler exposes carrier CSS in primary assets', $artifactGeometryCss);
-$artifactPlanCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometry['source_reports']['materialization_plan']['assets'] ?? array()));
-$assert(str_contains($artifactPlanCss, 'width:75%') && str_contains($artifactPlanCss, 'max-width:72rem'), 'artifact materialization plan carries the primary geometry asset');
+$artifactPlanCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometry['source_reports']['wordpress_site_plan']['assets'] ?? array()));
+$assert(str_contains($artifactPlanCss, 'width:75%') && str_contains($artifactPlanCss, 'max-width:72rem'), 'canonical plan carries the primary geometry asset');
 
 $artifactGeometryCascade = $compiler->compile(
     array(
@@ -3468,7 +3468,7 @@ $artifactInlineSvg = $compiler->compile(
         'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
     )
 )->toArray();
-$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactInlineSvgImageAssets = array_values(array_filter($artifactInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
 $assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
 $assert(1 === count($artifactInlineSvgImageAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
@@ -3485,10 +3485,10 @@ $artifactNonEntryInlineSvg = $compiler->compile(
         ),
     )
 )->toArray();
-$artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$artifactNonEntryInlineSvgAssets = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['wordpress_site_plan']['pages'][1] ?? array();
+$artifactNonEntryInlineSvgAssets = $artifactNonEntryInlineSvg['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactNonEntryInlineSvgImageAssets = array_values(array_filter($artifactNonEntryInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['canonical_block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
 $assert(str_contains((string) ($artifactNonEntryInlineSvgImageAssets[0]['content'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgImageAssets[0]['content'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox in the generated asset');
 $assert(1 === count(array_filter($artifactNonEntryInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'non-entry artifact simple icon SVG materializes one generated image asset');
 
@@ -3498,38 +3498,23 @@ $artifactInlineScript = $compiler->compile(
         'generated_html' => '<!doctype html><html><head><script type="application/ld+json">{"name":"metadata"}</script></head><body><main><h1>Cafe</h1></main><script defer>document.documentElement.classList.add("hydrated");</script></body></html>',
     )
 )->toArray();
-$artifactInlineScriptAssets = $artifactInlineScript['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineScriptAssets = $artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactInlineScriptAsset = array_values(array_filter($artifactInlineScriptAssets, static fn (array $asset): bool => 'inline-script' === ($asset['source'] ?? '')))[0] ?? array();
 $assert('js' === ($artifactInlineScriptAsset['kind'] ?? ''), 'artifact inline executable script becomes a JS materialization asset');
 $assert('script' === ($artifactInlineScriptAsset['role'] ?? ''), 'artifact inline executable script asset has script role');
 $assert('behavior' === ($artifactInlineScriptAsset['intent'] ?? ''), 'artifact inline executable script asset has behavior intent');
 $assert('body' === ($artifactInlineScriptAsset['placement'] ?? ''), 'artifact inline executable script placement is preserved');
 $assert(true === ($artifactInlineScriptAsset['defer'] ?? false), 'artifact inline executable script defer metadata is preserved');
-$assert('index.inline-2.js' === ($artifactInlineScriptAsset['path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
+$assert('index.inline-2.js' === ($artifactInlineScriptAsset['source_path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
 $assert('script:nth-of-type(2)' === ($artifactInlineScriptAsset['selector'] ?? ''), 'artifact inline executable script selector is preserved');
 $assert(str_contains((string) ($artifactInlineScriptAsset['content'] ?? ''), 'classList.add'), 'artifact inline executable script content is preserved');
-$assert(in_array('index.inline-2.js', $artifactInlineScript['source_reports']['materialization_plan']['theme']['scripts'] ?? array(), true), 'artifact inline executable script is exposed as a theme script');
+$assert(in_array('index.inline-2.js', array_column($artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path'), true), 'artifact inline executable script is exposed as a canonical plan asset');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), '<!-- wp:html'), 'artifact materialized inline script does not become a core/html fallback block');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), 'classList.add'), 'artifact materialized inline script body is removed from serialized block content');
 
-$assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
-$assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
-$assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
-
-$missingMaterializationPlan = $simple;
-unset($missingMaterializationPlan['source_reports']['materialization_plan']);
-$assertInvalidCanonicalEnvelope($missingMaterializationPlan, 'source_reports.materialization_plan', 'canonical validation rejects artifact results without materialization plans');
-
-$invalidMaterializationPlan = $simple;
-$invalidMaterializationPlan['source_reports']['materialization_plan']['schema'] = 'legacy/materialization-plan/v1';
-$assertInvalidCanonicalEnvelope($invalidMaterializationPlan, 'materialization plan schema', 'canonical validation rejects materialization plans with unsupported schemas');
-
-$incompleteMaterializationPlan = $simple;
-unset($incompleteMaterializationPlan['source_reports']['materialization_plan']['routes']);
-$assertInvalidCanonicalEnvelope($incompleteMaterializationPlan, 'materialization plan routes', 'canonical validation rejects incomplete materialization plans');
-
-$rebuiltPlan = ( new MaterializationPlanBuilder() )->fromResult($simple);
-$assert($simple['source_reports']['materialization_plan'] === $rebuiltPlan, 'materialization plan builder preserves canonical plans from result envelopes');
+$assert(1 === count($simple['source_reports']['wordpress_site_plan']['pages'] ?? array()), 'canonical plan counts pages');
+$assert('index' === ($simple['source_reports']['wordpress_site_plan']['pages'][0]['slug'] ?? ''), 'canonical plan exposes page slug');
+$assert(str_contains((string) ($simple['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:'), 'canonical plan exposes converted block markup');
 
 $formatResult = ( new FormatBridge() )->convertResult('# Format report', 'markdown', 'blocks')->toArray();
 TransformerResult::assertCanonicalEnvelope($formatResult);
@@ -3550,7 +3535,7 @@ $staticSite = $compiler->compile(
         ),
     )
 )->toArray();
-$staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$staticPlan = $staticSite['source_reports']['wordpress_site_plan'] ?? array();
 $aboutCompiledPage = null;
 foreach ( $staticSite['source_reports']['compiled_site']['pages'] ?? array() as $compiledPage ) {
     if ( 'about.html' === ($compiledPage['source_path'] ?? '') ) {
@@ -3565,25 +3550,24 @@ foreach ( $staticPlan['pages'] ?? array() as $planPage ) {
 }
 $assert(str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:heading'), 'compiled site transforms non-entry HTML pages into semantic block markup');
 $assert(! str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:html -->'), 'compiled site avoids full-document core/html wrappers for transformer-safe non-entry HTML pages');
-$assert(str_contains((string) ($aboutPlanPage['block_markup'] ?? ''), '<!-- wp:heading'), 'materialization plan preserves transformed non-entry HTML page markup');
-$assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
-$assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
-$assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
-$assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
-$assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'materialization plan exposes entry route path');
-$assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'materialization plan exposes document route path');
-$assert(empty(array_filter($staticPlan['assets'] ?? array(), static fn (array $asset): bool => 'html' === ($asset['kind'] ?? '') || str_ends_with((string) ($asset['path'] ?? ''), '.html'))), 'materialization plan omits HTML documents from asset rows');
-$assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'materialization plan exposes generic navigation link rows');
-$assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materialization plan exposes navigation link labels');
-$assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
-$assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'materialization plan exposes generic menu rows');
-$assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'materialization plan counts menu items');
+$assert(str_contains((string) ($aboutPlanPage['canonical_block_markup'] ?? ''), '<!-- wp:heading'), 'canonical plan preserves transformed non-entry HTML page markup');
+$assert('parts/header.html' === ($staticPlan['template_parts'][0]['source_path'] ?? ''), 'canonical plan exposes template parts');
+$assert('theme_template_part' === ($staticPlan['writes'][2]['kind'] ?? '') || !empty($staticPlan['template_parts']), 'canonical plan exposes template part writes');
+$assert(str_contains((string) ($staticPlan['visual_repair']['css'] ?? ''), 'min-height:100vh'), 'canonical plan exposes visual repair CSS');
+$assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'canonical plan exposes entry route path');
+$assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'canonical plan exposes document route path');
+$assert(empty(array_filter($staticPlan['assets'] ?? array(), static fn (array $asset): bool => 'html' === ($asset['kind'] ?? '') || str_ends_with((string) ($asset['source_path'] ?? ''), '.html'))), 'canonical plan omits HTML documents from asset rows');
+$assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'canonical plan exposes generic navigation link rows');
+$assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'canonical plan exposes navigation link labels');
+$assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'canonical plan exposes navigation target paths');
+$assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'canonical plan exposes generic menu rows');
+$assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'canonical plan counts menu items');
 $staticSummary = $staticSite['source_reports']['conversion_report']['source_summary'] ?? array();
-$assert(($staticPlan['totals']['pages'] ?? null) === ($staticSummary['page_count'] ?? null), 'conversion report page count matches materialization plan totals');
-$assert(($staticPlan['totals']['assets'] ?? null) === ($staticSummary['asset_count'] ?? null), 'conversion report asset count matches materialization plan totals');
-$assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches materialization plan totals');
-$assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
-$assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
+$assert(count($staticPlan['pages'] ?? array()) === ($staticSummary['page_count'] ?? null), 'conversion report page count matches canonical plan');
+$assert(count($staticPlan['assets'] ?? array()) === ($staticSummary['asset_count'] ?? null), 'conversion report asset count matches canonical plan');
+$assert(count($staticPlan['routes'] ?? array()) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches canonical plan');
+$assert(count($staticPlan['navigation_links'] ?? array()) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches canonical plan');
+$assert(count($staticPlan['menus'] ?? array()) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches canonical plan');
 
 $footerShellSite = $compiler->compile(
     array(
@@ -4003,12 +3987,12 @@ $legacyFrontPageSite = $compiler->compile(
     )
 )->toArray();
 $legacyPlanPage = null;
-foreach ( $legacyFrontPageSite['source_reports']['materialization_plan']['pages'] ?? array() as $planPage ) {
+foreach ( $legacyFrontPageSite['source_reports']['wordpress_site_plan']['pages'] ?? array() as $planPage ) {
     if ( 'about-us.html' === ($planPage['source_path'] ?? '') ) {
         $legacyPlanPage = $planPage;
     }
 }
-$legacyBlockMarkup = (string) ($legacyPlanPage['block_markup'] ?? '');
+$legacyBlockMarkup = (string) ($legacyPlanPage['canonical_block_markup'] ?? '');
 $assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
 $assert(str_contains($legacyBlockMarkup, 'About Hank&#039;s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
 $assert(str_contains($legacyBlockMarkup, '<!-- wp:table'), 'legacy HTML 4 layout tables convert to table block markup instead of empty fallback metadata');
@@ -4020,20 +4004,18 @@ $assert(str_contains((string) ($legacyInline['serialized_blocks'] ?? ''), '<!-- 
 $logoAssetPlanRow = null;
 $cssAssetPlanRow = null;
 foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {
-    if ( 'assets/logo.png' === ($assetPlanRow['path'] ?? '') ) {
+    if ( 'assets/logo.png' === ($assetPlanRow['source_path'] ?? '') ) {
         $logoAssetPlanRow = $assetPlanRow;
     }
-    if ( 'visual-repair.css' === ($assetPlanRow['path'] ?? '') ) {
+    if ( 'visual-repair.css' === ($assetPlanRow['source_path'] ?? '') ) {
         $cssAssetPlanRow = $assetPlanRow;
     }
 }
-$assert('assets/logo.png' === ($logoAssetPlanRow['target_path'] ?? ''), 'materialization plan asset rows expose generic target paths');
-$assert('base64' === ($logoAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose binary content encoding');
-$assert(base64_encode("\x89PNG\r\n\x1a\n") === ($logoAssetPlanRow['content_base64'] ?? ''), 'materialization plan asset rows expose base64 payloads for binary assets');
-$assert('image/png' === ($logoAssetPlanRow['media_type'] ?? ''), 'materialization plan asset rows expose generic media types');
-$assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset rows expose stable payload hashes');
-$assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
-$assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
+$assert('assets/assets/logo.png' === ($logoAssetPlanRow['target_path'] ?? ''), 'canonical plan asset rows expose materialized target paths');
+$assert(base64_encode("\x89PNG\r\n\x1a\n") === ($logoAssetPlanRow['content_base64'] ?? ''), 'canonical plan asset rows expose base64 payloads for binary assets');
+$assert('image/png' === ($logoAssetPlanRow['mime_type'] ?? ''), 'canonical plan asset rows expose media types');
+$assert(! empty($logoAssetPlanRow['content_hash'] ?? ''), 'canonical plan asset rows expose stable payload hashes');
+$assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'canonical plan asset rows expose text payloads for writable assets');
 
 $cssReferences = $compiler->compile(
     array(
@@ -4069,8 +4051,8 @@ foreach ( $cssReferences['source_reports']['compiled_site']['assets'] ?? array()
         $fontCompiledAsset = $asset;
     }
 }
-foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
-    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+foreach ( $cssReferences['source_reports']['wordpress_site_plan']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['source_path'] ?? '') ) {
         $fontPlanAsset = $asset;
     }
 }
@@ -4092,8 +4074,8 @@ $imageReferenceSite = $compiler->compile(
     )
 )->toArray();
 $imageReferencePlanAssets = array();
-foreach ( $imageReferenceSite['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
-    $imageReferencePlanAssets[$asset['path'] ?? ''] = $asset;
+foreach ( $imageReferenceSite['source_reports']['wordpress_site_plan']['assets'] ?? array() as $asset ) {
+    $imageReferencePlanAssets[$asset['source_path'] ?? ''] = $asset;
 }
 $assert('source' === ($imageReferencePlanAssets['assets/hero-small.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve picture source references');
 $assert('inline-style' === ($imageReferencePlanAssets['assets/panel.png']['references'][0]['context'] ?? ''), 'materialization plan image rows preserve inline background references');
@@ -4778,7 +4760,7 @@ $normalized = $compiler->compile(
 )->toArray();
 $assert('public/index.html' === ($normalized['source_reports']['artifact']['entry_path'] ?? ''), 'entry alias selects public index HTML');
 $assetPaths = array_column($normalized['assets'], 'path');
-$pagePaths = array_column($normalized['source_reports']['materialization_plan']['pages'] ?? array(), 'source_path');
+$pagePaths = array_column($normalized['source_reports']['compiled_site']['pages'] ?? array(), 'source_path');
 $assert(in_array('public/index-2.html', $pagePaths, true), 'duplicate document paths are deduped deterministically');
 $assert(in_array('style.css', $assetPaths, true), 'styles shorthand becomes a CSS file');
 $assert(in_array('site.js', $assetPaths, true), 'script shorthand becomes a JS file');
