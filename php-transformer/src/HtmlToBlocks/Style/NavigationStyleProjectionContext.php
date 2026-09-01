@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Closure;
@@ -11,11 +12,8 @@ use DOMElement;
 /**
  * Explicit collaborator surface for {@see NavigationStyleProjector}.
  *
- * Per-transform state (author styles, source styles, generated support styles,
- * materialized assets, runtime behavior, transformation evidence) is resolved
- * through closures because the projector is constructed once with the
- * transformer but must see the state belonging to the transform currently
- * running.
+ * Per-transform state is read from the compilation's typed session. Closures
+ * remain only for transformer-owned operations.
  *
  * `materializeStylesheetAsset` is a transformer-owned operation rather than a
  * navigation concern — the transformer uses it for engine-support and author
@@ -25,22 +23,11 @@ use DOMElement;
 final class NavigationStyleProjectionContext
 {
     /**
-     * @param Closure(): AuthorStyleAnalysis                              $authorStyles
-     * @param Closure(): SourceStyleResolutionState                       $sourceStyles
-     * @param Closure(): AuthorSelectorProjectionState                   $selectorProjections
-     * @param Closure(): GeneratedSupportStylesheetState                  $generatedSupportStyles
-     * @param Closure(): RuntimeBehaviorState                             $runtimeBehavior
-     * @param Closure(): TransformationEvidenceState                      $transformationEvidence
      * @param Closure(string): array<string, mixed>                       $parsedCssSelector
      * @param Closure(array<int, string>, string, string, string, string): void $materializeStylesheetAsset
      */
     public function __construct(
-        private readonly Closure $authorStyles,
-        private readonly Closure $sourceStyles,
-        private readonly Closure $selectorProjections,
-        private readonly Closure $generatedSupportStyles,
-        private readonly Closure $runtimeBehavior,
-        private readonly Closure $transformationEvidence,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $parsedCssSelector,
         private readonly Closure $materializeStylesheetAsset
     ) {
@@ -48,32 +35,32 @@ final class NavigationStyleProjectionContext
 
     public function authorStyles(): AuthorStyleAnalysis
     {
-        return ($this->authorStyles)();
+        return $this->session->authorStyleAnalysis();
     }
 
     public function sourceStyles(): SourceStyleResolutionState
     {
-        return ($this->sourceStyles)();
+        return $this->session->sourceStyleResolutionState();
     }
 
     public function selectorProjections(): AuthorSelectorProjectionState
     {
-        return ($this->selectorProjections)();
+        return $this->session->authorSelectorProjectionState();
     }
 
     public function generatedSupportStyles(): GeneratedSupportStylesheetState
     {
-        return ($this->generatedSupportStyles)();
+        return $this->session->generatedSupportStylesheetState();
     }
 
     public function runtimeBehavior(): RuntimeBehaviorState
     {
-        return ($this->runtimeBehavior)();
+        return $this->session->runtimeBehaviorState();
     }
 
     public function transformationEvidence(): TransformationEvidenceState
     {
-        return ($this->transformationEvidence)();
+        return $this->session->transformationEvidenceState();
     }
 
     /**

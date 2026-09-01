@@ -65,9 +65,10 @@ final class HtmlTransformerSession
         $this->authorSelectorProjectionState->installAuthorStyles($analysis);
     }
 
-    public function authorStyleAnalysis(): ?AuthorStyleAnalysis
+    public function authorStyleAnalysis(): AuthorStyleAnalysis
     {
-        return $this->authorStyleAnalysis;
+        return $this->authorStyleAnalysis
+            ?? throw new \LogicException('Author styles have not been prepared for this transform.');
     }
 
     public function installLayoutGeometryState(LayoutGeometryState $state): void
@@ -75,9 +76,10 @@ final class HtmlTransformerSession
         $this->layoutGeometryState = $state;
     }
 
-    public function layoutGeometryState(): ?LayoutGeometryState
+    public function layoutGeometryState(): LayoutGeometryState
     {
-        return $this->layoutGeometryState;
+        return $this->layoutGeometryState
+            ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
     }
 
     public function installGeneratedBlockRegistry(GeneratedBlockRegistry $registry): void
@@ -95,9 +97,10 @@ final class HtmlTransformerSession
         $this->assetMaterializationState = $state;
     }
 
-    public function assetMaterializationState(): ?AssetMaterializationState
+    public function assetMaterializationState(): AssetMaterializationState
     {
-        return $this->assetMaterializationState;
+        return $this->assetMaterializationState
+            ?? throw new \LogicException('Asset materialization state has not been prepared for this transform.');
     }
 
     public function runtimeDomState(): RuntimeDomState

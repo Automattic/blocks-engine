@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
@@ -17,16 +18,15 @@ final class SearchBlockConversionContext
      * @param Closure(DOMElement): array<string, string>                                             $presentationDeclarations
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): string                                                                $restoreSvgCasing
-     * @param Closure(): GeneratedSupportStylesheetState                                             $generatedSupportStyles
      * @param Closure(DOMElement): bool                                                              $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                              $htmlPreservationBlock
      */
     public function __construct(
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $presentationAttributes,
         private readonly Closure $presentationDeclarations,
         private readonly Closure $createBlock,
         private readonly Closure $restoreSvgCasing,
-        private readonly Closure $generatedSupportStyles,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $htmlPreservationBlock
     ) {
@@ -82,7 +82,7 @@ final class SearchBlockConversionContext
 
     public function generatedSupportStyles(): GeneratedSupportStylesheetState
     {
-        return ($this->generatedSupportStyles)();
+        return $this->session->generatedSupportStylesheetState();
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool

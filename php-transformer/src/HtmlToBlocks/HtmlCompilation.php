@@ -845,18 +845,11 @@ final class HtmlCompilation
         $this->sourceStyles()->invalidateSelectorMatches();
     }
 
-    /**
-     * Collaborator surface for {@see StyleResolver}. Per-transform state is
-     * resolved lazily so the resolver always sees the running transform.
-     */
+    /** Collaborator surface for {@see StyleResolver}. */
     private function createStyleResolutionContext(): StyleResolutionContext
     {
         return new StyleResolutionContext(
-            fn (): AuthorStyleAnalysis => $this->authorStyles(),
-            fn (): SourceStyleResolutionState => $this->sourceStyles(),
-            fn (): LayoutGeometryState => $this->layoutGeometry(),
-            fn (): PresentationResolutionCache => $this->presentationResolutionCache(),
-            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            $this->session,
             fn (DOMElement $element): int => $this->cardLikeChildCount($element),
             fn (string $value): string => $this->cssComparableValue($value),
             fn (string $selector): array => $this->parsedCssSelector($selector),
@@ -906,40 +899,29 @@ final class HtmlCompilation
         ));
     }
 
-    /**
-     * Collaborator surface for {@see NavigationToggleSuppressor}. Per-transform
-     * state is resolved lazily so the suppressor always sees the running
-     * transform.
-     */
+    /** Collaborator surface for {@see NavigationToggleSuppressor}. */
     private function createNavigationToggleSuppressionContext(): NavigationToggleSuppressionContext
     {
         return new NavigationToggleSuppressionContext(
+            $this->session,
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
-            fn (): RuntimeSelectorState => $this->runtimeSelectors(),
-            fn (): NavigationProjectionState => $this->navigationProjection(),
             fn (): PatternRecognizerRegistry => $this->patternRecognizers,
             fn (): PatternContext => $this->probePatternContext()
         );
     }
 
-    /**
-     * Collaborator surface for {@see SvgMaterializer}. Per-transform state is
-     * resolved lazily so the materializer always sees the running transform.
-     */
+    /** Collaborator surface for {@see SvgMaterializer}. */
     private function createSvgMaterializationContext(): SvgMaterializationContext
     {
         return new SvgMaterializationContext(
+            $this->session,
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
                 => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
             fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
-            fn (): LayoutGeometryState => $this->layoutGeometry(),
-            fn (): AssetMaterializationState => $this->materializedAssets(),
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-            fn (): TransformationEvidenceState => $this->transformationEvidence(),
-            fn (): TransformationProvenanceState => $this->transformationProvenance()
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element)
         );
     }
 
@@ -947,30 +929,21 @@ final class HtmlCompilation
     private function createSearchBlockConversionContext(): SearchBlockConversionContext
     {
         return new SearchBlockConversionContext(
+            $this->session,
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
-            fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
 
-    /**
-     * Collaborator surface for {@see NavigationStyleProjector}. Per-transform
-     * state is resolved lazily so the projector always sees the running
-     * transform.
-     */
+    /** Collaborator surface for {@see NavigationStyleProjector}. */
     private function createNavigationStyleProjectionContext(): NavigationStyleProjectionContext
     {
         return new NavigationStyleProjectionContext(
-            fn (): AuthorStyleAnalysis => $this->authorStyles(),
-            fn (): SourceStyleResolutionState => $this->sourceStyles(),
-            fn (): AuthorSelectorProjectionState => $this->session->authorSelectorProjectionState(),
-            fn (): GeneratedSupportStylesheetState => $this->generatedSupportStyles(),
-            fn (): RuntimeBehaviorState => $this->runtimeBehavior(),
-            fn (): TransformationEvidenceState => $this->transformationEvidence(),
+            $this->session,
             fn (string $selector): array => $this->parsedCssSelector($selector),
             function (array $cssParts, string $source, string $placement, string $pathPrefix, string $target = 'both'): void {
                 $this->materializeStylesheetAsset($cssParts, $source, $placement, $pathPrefix, $target);
@@ -1007,16 +980,11 @@ final class HtmlCompilation
         );
     }
 
-    /**
-     * Collaborator surface for {@see RuntimeIslandAnalyzer}. Session-scoped
-     * state is resolved lazily so the analyzer always sees the running transform.
-     */
+    /** Collaborator surface for {@see RuntimeIslandAnalyzer}. */
     private function createRuntimeIslandContext(): RuntimeIslandContext
     {
         return new RuntimeIslandContext(
-            fn (): FallbackEmitter => $this->fallbackEmitter(),
-            fn (): RuntimeDomState => $this->runtimeDom(),
-            fn (): RuntimeSelectorState => $this->runtimeSelectors(),
+            $this->session,
             fn (DOMElement $element): iterable => $this->descendantElements($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
@@ -1111,14 +1079,12 @@ final class HtmlCompilation
 
     private function authorStyles(): AuthorStyleAnalysis
     {
-        return $this->session->authorStyleAnalysis()
-            ?? throw new \LogicException('Author styles have not been prepared for this transform.');
+        return $this->session->authorStyleAnalysis();
     }
 
     private function layoutGeometry(): LayoutGeometryState
     {
-        return $this->session->layoutGeometryState()
-            ?? throw new \LogicException('Layout geometry state has not been prepared for this transform.');
+        return $this->session->layoutGeometryState();
     }
 
     private function transformationProvenance(): TransformationProvenanceState
@@ -1154,8 +1120,7 @@ final class HtmlCompilation
 
     private function materializedAssets(): AssetMaterializationState
     {
-        return $this->session->assetMaterializationState()
-            ?? throw new \LogicException('Asset materialization state has not been prepared for this transform.');
+        return $this->session->assetMaterializationState();
     }
 
     private function runtimeDom(): RuntimeDomState
