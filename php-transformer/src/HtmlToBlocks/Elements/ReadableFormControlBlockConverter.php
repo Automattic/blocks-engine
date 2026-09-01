@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -51,7 +52,7 @@ final class ReadableFormControlBlockConverter
         if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
             $label = $this->metadataBuilder->label($element);
             if ( '' === $label ) {
-                $label = $this->attr($element, 'aria-label');
+                $label = SourceDom::attr($element, 'aria-label');
             }
             if ( '' === $label ) {
                 $label = 'Search';
@@ -157,14 +158,14 @@ final class ReadableFormControlBlockConverter
                 $details[] = 'selected: ' . implode(', ', $selected);
             }
         } elseif ( 'range' === $type ) {
-            $value = trim($this->attr($control, 'value'));
+            $value = trim(SourceDom::attr($control, 'value'));
             if ( '' !== $value ) {
                 $details[] = $value;
             }
 
             $bounds = array();
             foreach ( array( 'min', 'max', 'step' ) as $attribute ) {
-                $value = trim($this->attr($control, $attribute));
+                $value = trim(SourceDom::attr($control, $attribute));
                 if ( '' !== $value ) {
                     $bounds[] = $attribute . ' ' . $value;
                 }
@@ -174,7 +175,7 @@ final class ReadableFormControlBlockConverter
             }
         } else {
             foreach ( array( 'value', 'placeholder' ) as $attribute ) {
-                $value = trim($this->attr($control, $attribute));
+                $value = trim(SourceDom::attr($control, $attribute));
                 if ( '' !== $value ) {
                     $details[] = $value;
                     break;
@@ -192,10 +193,5 @@ final class ReadableFormControlBlockConverter
 
         ($this->registerEcho)($text);
         return $this->runtime->escapeHtml($text);
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }

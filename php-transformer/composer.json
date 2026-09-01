@@ -86,6 +86,7 @@
       "php tests/unit/artifact-normalizer-source-budget.php",
       "php tests/unit/subtree-classifier.php",
       "php tests/unit/source-element-classifier.php",
+      "php tests/unit/source-dom.php",
       "php tests/unit/custom-block-generator.php",
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",

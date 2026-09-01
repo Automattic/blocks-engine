@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
@@ -25,7 +26,7 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
         // The aspect ratio rides on the preserved placeholder/ratio classNames and
         // companion-plugin CSS; a raw inline `style` string would invalidate the
         // core/group block, so it is intentionally not emitted here (#261).
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
@@ -75,19 +76,5 @@ final class PlaceholderMediaPattern implements PatternRecognizerInterface
 
         $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
         return strlen($directText) <= 80 ? $directText : '';
-    }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-
-        return implode(' ', $classes);
     }
 }

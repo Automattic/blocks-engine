@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** @internal Pattern recognizers are implementation details of HtmlTransformer. */
@@ -12,7 +13,7 @@ final class SpacerPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
-        if ( '' !== trim($element->textContent ?? '') || 0 !== $this->childElementCount($element) ) {
+        if ( '' !== trim($element->textContent ?? '') || 0 !== SourceDom::childElementCount($element) ) {
             return null;
         }
 
@@ -33,19 +34,6 @@ final class SpacerPattern implements PatternRecognizerInterface
 
         return new PatternRecognitionResult($context->createBlock('core/spacer', $attrs, array(), $element));
     }
-
-    private function childElementCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
-    }
-
     public static function heightFromStyle(string $style): string
     {
         if ( ! preg_match('/(?:^|;)\s*height\s*:\s*([^;]+)/i', $style, $matches) ) {

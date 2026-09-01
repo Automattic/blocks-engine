@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Projects source identities and structural carriers onto canonical block attributes. */
@@ -39,12 +40,12 @@ final class SourceBlockAttributeProjector
     ): array {
         $sourceTagName = strtolower($sourceElement->tagName);
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
             if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
-                $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
             }
             if ( 'a' === $sourceTagName ) {
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
@@ -55,20 +56,20 @@ final class SourceBlockAttributeProjector
             $attrs['className'] = $projectionClassName;
         }
         if ( 'core/group' === $name && $facts->isAuthorLayoutItem ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_ITEM_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_ITEM_CLASS);
         }
         if ( 'core/group' === $name && $this->isAtomicInlineChildFlow($sourceElement, $innerBlocks) ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_INLINE_FLOW_CLASS);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_INLINE_FLOW_CLASS);
         }
         if ( 'core/group' === $name && 'grid' === (string) ($attrs['layout']['type'] ?? '') ) {
             $gapCarrier = $this->styleResolver->inlineGeometryClassName($sourceElement, array(), array( 'gap' ));
             if ( '' !== $gapCarrier ) {
-                $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $gapCarrier);
             }
         }
         $tableMarker = $context->selectorProjections->tableMarker($sourceElement->getNodePath() ?? '');
         if ( 'core/table' === $name && '' !== $tableMarker ) {
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $tableMarker);
         }
 
         $attrs = $this->projectButtonAttributes($name, $attrs, $sourceElement, $logicalSourceElement, $facts, $context);
@@ -93,17 +94,17 @@ final class SourceBlockAttributeProjector
     {
         $sourceTagMarker = $context->selectorProjections->tagMarker(strtolower($element->tagName));
         if ( '' !== $sourceTagMarker ) {
-            $className = self::mergeClassNames($className, $sourceTagMarker);
+            $className = SourceDom::mergeClassNames($className, $sourceTagMarker);
         }
         if ( $element->parentNode instanceof DOMElement
             && 'body' === strtolower($element->parentNode->tagName)
             && array() !== $context->authorStyles->sourceBodyProjectionClasses()
         ) {
-            $className = self::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
+            $className = SourceDom::mergeClassNames($className, ...$context->authorStyles->sourceBodyProjectionClasses());
         }
         $semanticMarkers = $context->selectorProjections->semanticMarkersForPath($element->getNodePath() ?? '');
         if ( array() !== $semanticMarkers ) {
-            $className = self::mergeClassNames($className, ...$semanticMarkers);
+            $className = SourceDom::mergeClassNames($className, ...$semanticMarkers);
         }
         return $className;
     }
@@ -135,7 +136,7 @@ final class SourceBlockAttributeProjector
         if ( $facts->hasAuthorControlProjection ) {
             $controlMarker = '' !== $logicalControlPath ? $context->selectorProjections->ensureControlMarker($logicalControlPath) : '';
             if ( '' !== $controlMarker ) {
-                $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
                     if ( $facts->isDirectChildOfAuthorFlexLayout ) {
@@ -153,7 +154,7 @@ final class SourceBlockAttributeProjector
             $nativeButtonMarker = $hasNativeButtonColor
                 ? $context->authorStyles->allocateMarker('native-button')
                 : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
-            $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
             self::registerButtonWidth($attrs, $nativeButtonMarker, $context, $this->generatedStyleProjector);
         }
@@ -240,7 +241,7 @@ final class SourceBlockAttributeProjector
         }
         $css = $this->styleResolver->cssDeclarationString($declarations);
         $className = self::SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX . substr(hash('sha256', $css), 0, 16);
-        $attrs['className'] = self::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $className);
         $generatedStyles->registerSyntheticHeaderAnchor($className, 'p.' . $className . '>a{' . $css . '}');
         return $attrs;
     }
@@ -263,18 +264,5 @@ final class SourceBlockAttributeProjector
             }
         }
         return false;
-    }
-
-    private static function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-        return implode(' ', $classes);
     }
 }

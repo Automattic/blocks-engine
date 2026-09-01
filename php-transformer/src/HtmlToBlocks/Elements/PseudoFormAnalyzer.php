@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
 use DOMElement;
 
@@ -68,19 +69,19 @@ final class PseudoFormAnalyzer
 
     public function hasStandaloneSearchSignal(DOMElement $element, DOMElement $input): bool
     {
-        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim($this->attr($element, 'role'))) ) {
+        if ( 'search' === FormControlClassifier::controlType($input) || 'search' === strtolower(trim(SourceDom::attr($element, 'role'))) ) {
             return true;
         }
 
         $haystack = strtolower(implode(' ', array(
-            $this->attr($element, 'aria-label'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'class'),
-            $this->attr($input, 'aria-label'),
-            $this->attr($input, 'id'),
-            $this->attr($input, 'class'),
-            $this->attr($input, 'name'),
-            $this->attr($input, 'placeholder'),
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($input, 'aria-label'),
+            SourceDom::attr($input, 'id'),
+            SourceDom::attr($input, 'class'),
+            SourceDom::attr($input, 'name'),
+            SourceDom::attr($input, 'placeholder'),
         )));
 
         return str_contains($haystack, 'search');
@@ -92,12 +93,12 @@ final class PseudoFormAnalyzer
         $hasFieldLabel = false;
         $hasSubmit = false;
         $hasActionControl = false;
-        $hasContainerAction = '' !== trim($this->attr($element, 'action')) || '' !== trim($this->attr($element, 'method')) || '' !== trim($this->attr($element, 'data-action'));
+        $hasContainerAction = '' !== trim(SourceDom::attr($element, 'action')) || '' !== trim(SourceDom::attr($element, 'method')) || '' !== trim(SourceDom::attr($element, 'data-action'));
 
         foreach ( FormControlClassifier::controlElements($element) as $control ) {
             if ( FormControlClassifier::isPseudoFormDataEntryControl($control) && ! $this->hasStandaloneSearchSignal($element, $control) ) {
                 $hasDataEntry = true;
-                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlMetadataBuilder->label($control)) || '' !== trim($this->attr($control, 'aria-label')) || '' !== trim($this->attr($control, 'name'));
+                $hasFieldLabel = $hasFieldLabel || '' !== trim($this->formControlMetadataBuilder->label($control)) || '' !== trim(SourceDom::attr($control, 'aria-label')) || '' !== trim(SourceDom::attr($control, 'name'));
             } elseif ( 'button' === strtolower($control->tagName) || ( 'input' === strtolower($control->tagName) && ! in_array(FormControlClassifier::controlType($control), array( 'reset', 'button' ), true) ) ) {
                 $hasActionControl = true;
                 $hasSubmit = $hasSubmit || FormControlClassifier::isPseudoFormSubmitControl($control);
@@ -119,7 +120,7 @@ final class PseudoFormAnalyzer
             }
 
             $tagName = strtolower($descendant->tagName);
-            $role = strtolower($this->attr($descendant, 'role'));
+            $role = strtolower(SourceDom::attr($descendant, 'role'));
             if ( in_array($tagName, array( 'article', 'nav', 'header', 'footer', 'main' ), true)
                 || in_array($role, array( 'article', 'navigation', 'banner', 'contentinfo', 'main' ), true) ) {
                 return true;
@@ -127,10 +128,5 @@ final class PseudoFormAnalyzer
         }
 
         return false;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }

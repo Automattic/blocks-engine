@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class ButtonsPattern
@@ -323,7 +324,7 @@ final class ButtonsPattern
         unset($attrs['layout']);
         $isOutline     = $this->hasOutlineSignal($element, $resolvedStyle, $native);
         if ( $isOutline ) {
-            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'is-style-outline');
         }
 
         // Translate the resolved source CSS (inline style merged with the matched
@@ -348,21 +349,6 @@ final class ButtonsPattern
 
         return $attrs;
     }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-
-        return implode(' ', $classes);
-    }
-
 	private function buttonWidth(string $style): ?int
 	{
 		if ( ! preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $style, $matches) ) {
