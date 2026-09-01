@@ -394,6 +394,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
+
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
 
     /**
@@ -2064,6 +2066,9 @@ final class HtmlTransformer
             // paragraph blocks. Neutralize only those generated inner defaults.
             $beforeAuthorCssParts[] = ':root :where(.wp-block-group.' . self::CSS_OWNED_LAYOUT_ITEM_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
         }
+        if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
+            $afterAuthorCssParts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{gap:0}';
+        }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
             // because a content-wrapping link was pushed into the block. It
@@ -2339,7 +2344,7 @@ final class HtmlTransformer
             $columns[] = $column;
         }
 
-        return $this->createBlock('core/columns', $this->styleResolver->presentationAttributes($table), $columns, $table);
+        return $this->createBlock('core/columns', $this->layoutTableColumnsAttributes($table), $columns, $table);
     }
 
     /**
@@ -2353,6 +2358,14 @@ final class HtmlTransformer
             $attrs['width'] = $matches[1] . '%';
         }
 
+        return $attrs;
+    }
+
+    /** @return array<string, mixed> */
+    private function layoutTableColumnsAttributes(DOMElement $element): array
+    {
+        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LAYOUT_TABLE_COLUMNS_CLASS);
         return $attrs;
     }
 
@@ -2381,7 +2394,7 @@ final class HtmlTransformer
                 );
             }
             if (array() !== $columns) {
-                $rows[] = $this->createBlock('core/columns', array(), $columns, $row);
+                $rows[] = $this->createBlock('core/columns', $this->layoutTableColumnsAttributes($row), $columns, $row);
             }
         }
 
