@@ -38,7 +38,7 @@ $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@
 $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Care & <support>', 'itemsPerView' => 99, 'wrap' => false));
 $shellMarkup = $shell['opening'] . $shell['closing'];
 $assert(str_contains($shellMarkup, 'aria-label="Care &amp; &lt;support&gt;"') && str_contains($shellMarkup, '--items-6') && str_contains($shellMarkup, 'data-wrap="false"'), 'shell attributes are escaped and bounded');
-$assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, 'data-wp-context="{&quot;index&quot;:0,&quot;wrap&quot;:false}"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
+$assert(str_contains($shellMarkup, 'data-wp-interactive="blocks-engine/carousel"') && str_contains($shellMarkup, 'data-wp-context="{&quot;index&quot;:0,&quot;wrap&quot;:false,&quot;count&quot;:0,&quot;visible&quot;:6}"') && str_contains($shellMarkup, 'data-wp-init="callbacks.init"') && str_contains($shellMarkup, 'data-wp-on--click="actions.next"') && str_contains($shellMarkup, 'data-wp-bind--disabled="state.atEnd"'), 'the shell declares its behavior through Interactivity API directives');
 
 $payload = (new CompanionPluginPayload())->fromBlockTypes(array(), array(), array(), array($definition));
 $payloadBlock = $payload['blocks'][0] ?? array();

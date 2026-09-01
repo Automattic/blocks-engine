@@ -51,6 +51,8 @@ import { store, getContext, getElement } from '@wordpress/interactivity';
 
 const slidesOf = ( ref ) => Array.from( ref.querySelectorAll( '.blocks-engine-authored-carousel__track > *' ) );
 
+const rootOf = ( ref ) => ref.closest( '.blocks-engine-authored-carousel' );
+
 const visibleCount = ( ref ) => {
     const viewport = ref.querySelector( '.blocks-engine-authored-carousel__viewport' );
     const slides = slidesOf( ref );
@@ -61,17 +63,21 @@ const visibleCount = ( ref ) => {
     return width > 0 ? Math.max( 1, Math.min( slides.length, Math.round( viewport.clientWidth / width ) ) ) : 1;
 };
 
-const maximumIndex = ( ref ) => Math.max( 0, slidesOf( ref ).length - visibleCount( ref ) );
+const maximumIndex = ( context ) => Math.max( 0, context.count - context.visible );
 
 const show = ( requested ) => {
     const context = getContext();
     const { ref } = getElement();
-    const maximum = maximumIndex( ref );
+    const root = rootOf( ref );
+    if ( ! root ) {
+        return;
+    }
+    const maximum = maximumIndex( context );
     context.index = context.wrap
         ? ( requested < 0 ? maximum : requested > maximum ? 0 : requested )
         : Math.max( 0, Math.min( maximum, requested ) );
-    const viewport = ref.querySelector( '.blocks-engine-authored-carousel__viewport' );
-    const slide = slidesOf( ref )[ context.index ];
+    const viewport = root.querySelector( '.blocks-engine-authored-carousel__viewport' );
+    const slide = slidesOf( root )[ context.index ];
     if ( viewport && slide ) {
         viewport.scrollTo( {
             left: slide.offsetLeft,
@@ -84,19 +90,24 @@ store( 'blocks-engine/carousel', {
     state: {
         get atStart() {
             const context = getContext();
-            const { ref } = getElement();
-            return 0 === maximumIndex( ref ) || ( ! context.wrap && 0 === context.index );
+            return 0 === maximumIndex( context ) || ( ! context.wrap && 0 === context.index );
         },
         get atEnd() {
             const context = getContext();
-            const { ref } = getElement();
-            const maximum = maximumIndex( ref );
+            const maximum = maximumIndex( context );
             return 0 === maximum || ( ! context.wrap && context.index === maximum );
         },
         get statusText() {
             const context = getContext();
+            return 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
+        },
+    },
+    callbacks: {
+        init() {
+            const context = getContext();
             const { ref } = getElement();
-            return 'Slide ' + ( context.index + 1 ) + ' of ' + slidesOf( ref ).length;
+            context.count = slidesOf( ref ).length;
+            context.visible = visibleCount( ref );
         },
     },
     actions: {
@@ -152,13 +163,13 @@ JS;
         $wrap = false === ($attributes['wrap'] ?? true) ? 'false' : 'true';
 
         $context = htmlspecialchars(
-            (string) json_encode(array('index' => 0, 'wrap' => 'true' === $wrap), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array('index' => 0, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
 
         return array(
-            'opening' => '<div class="blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . '" role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
+            'opening' => '<div class="blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . '" role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
             'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button><span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
