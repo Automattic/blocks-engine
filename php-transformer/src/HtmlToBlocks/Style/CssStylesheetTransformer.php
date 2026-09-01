@@ -15,7 +15,7 @@ final class CssStylesheetTransformer
      * and comments, and must return its replacement. It may optionally return a
      * list of prelude/body pairs when a caller needs to split one source rule.
      *
-     * @param callable(string, string): string|list<array{prelude: string, body: string}> $transformSelectorPrelude
+     * @param callable(string, string, list<string>): string|list<array{prelude: string, body: string}> $transformSelectorPrelude
      */
     public function transform(string $stylesheet, callable $transformSelectorPrelude): string
     {
@@ -119,7 +119,7 @@ final class CssStylesheetTransformer
     /**
      * @param callable(string): string $transformSelectorPrelude
      */
-    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true): string
+    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true, array $ancestors = array()): string
     {
         $output = '';
         $offset = 0;
@@ -147,14 +147,16 @@ final class CssStylesheetTransformer
             if ( $this->isAtRule($prelude) ) {
                 $output .= $prelude . '{';
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule) : $body;
+                $nestedAncestors = $ancestors;
+                $nestedAncestors[] = trim($prelude);
+                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule, true, $nestedAncestors) : $body;
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
                 if ( null !== $transformStyleRule ) {
                     $output .= $transformStyleRule($prelude, $body);
                 } else {
-                    $transformed = $transformSelectorPrelude($prelude, $body);
+                    $transformed = $transformSelectorPrelude($prelude, $body, $ancestors);
                     if ( is_array($transformed) ) {
                         foreach ( $transformed as $rule ) {
                             $output .= $rule['prelude'] . '{' . $rule['body'] . '}';

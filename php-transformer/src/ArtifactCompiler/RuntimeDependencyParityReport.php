@@ -752,112 +752,15 @@ final class RuntimeDependencyParityReport
      */
     private function scriptDependencies(string $script, array $bundleCanvasSelectors = array()): array
     {
+        $evidence = (new RuntimeScriptEvidenceAnalyzer())->analyze($script);
         $dependencies = array();
-        $eventsBySelector = $this->eventsBySelector($script);
-        $canvasSelectors = $this->scriptCanvasSelectors($script) + $bundleCanvasSelectors;
-        $controlRuntimeSelectors = $this->scriptControlRuntimeSelectors($script);
-
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selector = '#' . (string) $id;
-                $dependencies[] = array(
-                    'kind'       => 'id',
-                    'selector'   => $selector,
-                    'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => isset($canvasSelectors[$selector]),
-                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-                );
-            }
-        }
-
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
-                    continue;
-                }
-                $dependencies[] = array(
-                    'kind'       => $this->selectorKind($selector),
-                    'selector'   => $selector,
-                    'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => isset($canvasSelectors[$selector]),
-                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-                );
-            }
-        }
-
-        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
-                    continue;
-                }
-                $dependencies[] = array(
-                    'kind'       => $this->selectorKind($selector),
-                    'selector'   => $selector,
-                    'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => isset($canvasSelectors[$selector]),
-                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-                );
-            }
-        }
-
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
-            $dependencies[] = array(
-                'kind'       => 'element',
-                'selector'   => $selector,
-                'events'     => $eventsBySelector[$selector] ?? array(),
-                'canvas_api' => isset($canvasSelectors[$selector]),
-                'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-            );
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'svg') as $selector ) {
-            $dependencies[] = array(
-                'kind'       => 'element',
-                'selector'   => $selector,
-                'events'     => $eventsBySelector[$selector] ?? array(),
-                'canvas_api' => false,
-                'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-            );
-        }
-        foreach ( $this->scriptAppendedRootSelectors($script) as $selector ) {
-            $selector = $this->canonicalRuntimeSelector($selector);
-            $dependencies[] = array(
-                'kind'       => $this->selectorKind($selector),
-                'selector'   => $selector,
-                'events'     => $eventsBySelector[$selector] ?? array(),
-                'canvas_api' => false,
-                'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-            );
-        }
-
-        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
-                    continue;
-                }
-                $dependencies[] = array(
-                    'kind'       => $this->selectorKind($selector),
-                    'selector'   => $selector,
-                    'events'     => $eventsBySelector[$selector] ?? array(),
-                    'canvas_api' => isset($canvasSelectors[$selector]),
-                    'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-                );
-            }
-        }
-
-        foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
-            if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+        foreach ($evidence['dependencies'] as $dependency) {
+            if (true === $dependency['presentation_only']) {
                 continue;
             }
-            $dependencies[] = array(
-                'kind'       => 'attribute',
-                'selector'   => $selector,
-                'events'     => $eventsBySelector[$selector] ?? array(),
-                'canvas_api' => isset($canvasSelectors[$selector]),
-                'control_runtime' => isset($controlRuntimeSelectors[$selector]),
-            );
+            unset($dependency['presentation_only']);
+            $dependency['canvas_api'] = $dependency['canvas_api'] || isset($bundleCanvasSelectors[$dependency['selector']]);
+            $dependencies[] = $dependency;
         }
 
         return $this->dedupeDependencies($dependencies);
