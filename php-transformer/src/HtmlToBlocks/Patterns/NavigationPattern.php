@@ -109,6 +109,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 			$navigationAttrs,
             $commonTextAttrs
         );
+        // Presentation the source inherits is recorded for CSS delivery rather
+        // than written onto the block, so documents that share this shell keep
+        // identical markup and continue to collapse into one template part.
+        $navigationContext?->recordInheritedPresentation(
+            $element,
+            $this->authorClassNames((string) ($navigationAttrs['className'] ?? ''))
+        );
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $defaultTextColorClass = $this->defaultNavigationTextColorClass($links);
             if ( '' !== $defaultTextColorClass ) {
@@ -1171,6 +1178,26 @@ final class NavigationPattern implements PatternRecognizerInterface
         // Core does not register either attribute, so serializing them would make
         // an editor parse/save discard CSS projection input.
         return array_filter(array_replace_recursive($itemAttrs, $baseAttrs), static fn ($value): bool => '' !== $value);
+    }
+
+    /**
+     * Classes already carried by the block that a stylesheet can target.
+     *
+     * Engine markers are excluded: a generated selector should hang off the
+     * source's own identity, not off vocabulary this engine invented.
+     *
+     * @return array<int, string>
+     */
+    private function authorClassNames(string $className): array
+    {
+        $classes = preg_split('/\s+/', trim($className)) ?: array();
+
+        return array_values(array_filter(
+            $classes,
+            static fn (string $candidate): bool => '' !== $candidate
+                && ! str_starts_with($candidate, 'blocks-engine-')
+                && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $candidate)
+        ));
     }
 
     private function navigationTextColorFromStyle(string $style): string

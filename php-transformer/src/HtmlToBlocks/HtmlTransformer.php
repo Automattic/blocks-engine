@@ -2088,6 +2088,9 @@ final class HtmlTransformer
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
+        foreach ( $this->generatedSupportStyles()->navigationInheritedPresentationRules() as $navigationInheritedRule ) {
+            $afterAuthorCssParts[] = $navigationInheritedRule;
+        }
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
         }
@@ -2580,7 +2583,10 @@ final class HtmlTransformer
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement),
+                function (DOMElement $sourceElement, array $authorClasses): void {
+                    $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
+                }
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2791,6 +2797,74 @@ final class HtmlTransformer
         $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * Deliver navigation presentation the source inherits, as CSS.
+     *
+     * Native navigation replaces the source structure, so a menu that took its
+     * colour and type from an ancestor loses them: the anchor declares only
+     * `inherit`, and the destination theme supplies the value instead. Resolve
+     * what the source would have inherited and state it on the navigation.
+     *
+     * The rule hangs off classes the block already carries, so nothing about
+     * the emitted markup changes. That matters: shell identity compares block
+     * markup across documents, and a value that varies per page would split one
+     * shared template part into one part per page.
+     *
+     * @param array<int, string> $authorClasses
+     */
+    private function recordInheritedNavigationPresentation(DOMElement $navigation, array $authorClasses): void
+    {
+        if ( array() === $authorClasses ) {
+            return;
+        }
+
+        $declarations = array();
+        foreach ( array( 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
+            $value = $this->inheritedNavigationValue($navigation, $property);
+            if ( '' !== $value ) {
+                $declarations[] = $property . ':' . $value;
+            }
+        }
+        if ( array() === $declarations ) {
+            return;
+        }
+
+        $selector = '.wp-block-navigation.' . implode('.', $authorClasses);
+        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
+            $selector,
+            $selector . '{' . implode(';', $declarations) . '}'
+        );
+    }
+
+    /**
+     * Resolve a value the source inherits, by walking its ancestor chain.
+     *
+     * Stops at the nearest ancestor stating a usable value, which is what CSS
+     * inheritance would have produced in the source document.
+     */
+    private function inheritedNavigationValue(DOMElement $element, string $property): string
+    {
+        $node  = $element;
+        $depth = 0;
+        while ( $node instanceof DOMElement && $depth < 24 ) {
+            ++$depth;
+            $resolved     = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $value        = trim((string) ($declarations[$property] ?? ''));
+            if ( '' !== $value
+                && ! in_array(strtolower($value), array( 'inherit', 'unset', 'initial', 'revert', 'revert-layer' ), true)
+                && ! preg_match('~[{}<>;]|/\*|(?:expression|url)\s*\(|javascript\s*:~i', $value)
+            ) {
+                return $value;
+            }
+            $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
+        }
+
+        return '';
     }
 
     /** Resolve the rendered box of a navigation icon from its source geometry. */
