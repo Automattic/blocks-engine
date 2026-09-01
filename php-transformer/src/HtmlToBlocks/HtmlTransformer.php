@@ -3805,12 +3805,6 @@ final class HtmlTransformer
         return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
     }
 
-    private function isDirectChildOfLoweredAuthorControl(DOMElement $element): bool
-    {
-        return $element->parentNode instanceof DOMElement
-            && $this->authorSelectorProjections()->isControlPath($element->parentNode->getNodePath() ?? '');
-    }
-
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
@@ -4093,42 +4087,6 @@ final class HtmlTransformer
             $tags[] = AuthorLayoutBlockGenerator::NAME === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
-    }
-
-    /** @return array<string, string> */
-    private function authorLayoutSourceAttributes(DOMElement $element): array
-    {
-        $attributes = array();
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( ('role' === strtolower($name) || preg_match('/^(?:aria|data)-[a-z0-9_-]+$/i', $name)) && strlen($value) <= 300 ) {
-                $attributes[$name] = $value;
-            }
-        }
-        return $attributes;
-    }
-
-    /** @param array<string, mixed> $attrs */
-    private function authorLayoutHtmlAttributes(array $attrs): string
-    {
-        $attributes = array();
-        if ( '' !== (string) ($attrs['anchor'] ?? '') ) {
-            $attributes['id'] = (string) $attrs['anchor'];
-        }
-        if ( 'a' === ($attrs['tagName'] ?? '') && '' !== (string) ($attrs['url'] ?? '') ) {
-            $attributes['href'] = (string) $attrs['url'];
-        }
-        $classes = array_filter(array( 'wp-block-blocks-engine-author-layout', (string) ($attrs['className'] ?? '') ));
-        $attributes['class'] = implode(' ', $classes);
-        foreach ( $attrs['sourceAttributes'] ?? array() as $name => $value ) {
-            if ( is_string($name) && is_string($value) ) {
-                $attributes[$name] = $value;
-            }
-        }
-        $html = '';
-        foreach ( $attributes as $name => $value ) {
-            $html .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $html;
     }
 
     /** @return array<string, string> */
