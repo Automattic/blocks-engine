@@ -111,6 +111,12 @@ final class AuthorStyleAnalysis
         $this->styleRuleCandidateIndex = null;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function styleRules(): array
+    {
+        return $this->styleRules;
+    }
+
     public function allocateMarker(string $kind): string
     {
         do {

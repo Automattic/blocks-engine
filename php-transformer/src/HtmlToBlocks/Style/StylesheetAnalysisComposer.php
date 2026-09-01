@@ -273,7 +273,7 @@ final class StylesheetAnalysisComposer
     {
         $sourceTags = array();
         $rules = array();
-        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body) use (&$sourceTags, &$rules): string {
+        (new CssStylesheetTransformer())->transform($css, function (string $prelude, string $body, array $conditions) use (&$sourceTags, &$rules): string {
             $ruleSelectors = array();
             foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                 $parsed = CssSelectorMatcher::parse($selector);
@@ -287,7 +287,11 @@ final class StylesheetAnalysisComposer
                 }
             }
             if ( array() !== $ruleSelectors ) {
-                $rules[] = array('order' => count($rules), 'declarations' => $this->styleResolver->cssDeclarations($body), 'selectors' => $ruleSelectors);
+                $rule = array('order' => count($rules), 'declarations' => $this->styleResolver->cssDeclarations($body), 'selectors' => $ruleSelectors);
+                if ( array() !== $conditions ) {
+                    $rule['conditions'] = $conditions;
+                }
+                $rules[] = $rule;
             }
 
             return $prelude;

@@ -7,6 +7,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 
 $transformer = new HtmlTransformer();
 $reflection = new ReflectionClass($transformer);
@@ -19,7 +20,18 @@ if ( ! $body instanceof DOMElement ) {
     throw new RuntimeException('Author style fixture did not produce a body element.');
 }
 $session = $reflection->getProperty('session')->getValue($transformer);
-$session->installAuthorStyleAnalysis(new AuthorStyleAnalysis($css, $css, array(), $body));
+$authorStyles = new AuthorStyleAnalysis($css, $css, array(), $body);
+$authorStyles->installStyleRules(array(array(
+    'order' => 0,
+    'declarations' => array('color' => '#123456'),
+    'conditions' => array('@media (min-width:1px)'),
+    'selectors' => array(array(
+        'selector' => '.menu li a:hover',
+        'parsed' => CssSelectorMatcher::parse('.menu li a:hover'),
+        'direct_child_parsed' => CssSelectorMatcher::parse('.menu li a:hover'),
+    )),
+)));
+$session->installAuthorStyleAnalysis($authorStyles);
 
 // Author-rule collection moved to NavigationStyleProjector. Reach it through
 // the transformer's collaborator so this still exercises the real wiring —
