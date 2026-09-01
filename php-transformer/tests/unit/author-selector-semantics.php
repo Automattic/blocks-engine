@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
@@ -616,16 +617,16 @@ $assert(! str_contains($css($second), 'blocks-engine-source-p-') && 1 === substr
 $third = $instance->transform('<style>.cta:hover{color:red}</style><p>Read <span class="cta">this</span>.</p>')->toArray();
 $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains($css($third), '> :where(.wp-block-button__link)'), 'repeated selector text resolves against each transform source DOM');
 
-$applicabilityTransformer = new HtmlTransformer();
-$applicabilityTransformer->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
-$applicabilitySession = (new ReflectionClass($applicabilityTransformer))->getProperty('session')->getValue($applicabilityTransformer);
+$applicabilityCompilation = new HtmlCompilation();
+$applicabilityCompilation->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
+$applicabilitySession = (new ReflectionClass($applicabilityCompilation))->getProperty('session')->getValue($applicabilityCompilation);
 $applicableRules = $applicabilitySession->authorStyleAnalysis()?->styleRules() ?? array();
 $applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
 $assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
 
-$unmatchableTransformer = new HtmlTransformer();
-$unmatchableTransformer->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
-$unmatchableSession = (new ReflectionClass($unmatchableTransformer))->getProperty('session')->getValue($unmatchableTransformer);
+$unmatchableCompilation = new HtmlCompilation();
+$unmatchableCompilation->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
+$unmatchableSession = (new ReflectionClass($unmatchableCompilation))->getProperty('session')->getValue($unmatchableCompilation);
 $unmatchableIndex = $unmatchableSession->authorStyleAnalysis()?->styleRuleCandidateIndex() ?? array();
 $indexedAuthorSelectors = array();
 foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
