@@ -1500,39 +1500,19 @@ final class WordPressSitePlan
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
-            $lines[] = "\$blocks_engine_presentation_css = static function ( ?WP_Post \$post, bool \$site_editor, bool \$include_editor_only, string \$existing = '' ) use ( \$blocks_engine_presentation_styles ): string {";
-            $lines[] = "    \$presentation = '';";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) {";
-            $lines[] = "        if ( ! \$include_editor_only && ! empty( \$style['editor_only'] ) ) continue;";
-            $lines[] = "        \$matches = \$site_editor; if ( ! \$matches ) foreach ( \$style['scopes'] as \$scope ) {";
-            $lines[] = "            if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
-            $lines[] = "            if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
-            $lines[] = "            if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
-            $lines[] = "            if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
-            $lines[] = "        }";
-            $lines[] = "        if ( ! \$matches || str_contains( \$existing, '--blocks-engine-presentation:' . \$style['content_hash'] ) ) continue; \$css = file_get_contents( get_theme_file_path( \$style['target_path'] ) );";
-            $lines[] = "        if ( false !== \$css ) { if ( is_string( \$style['media'] ?? null ) && '' !== trim( \$style['media'] ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$presentation .= ':root{--blocks-engine-presentation:' . \$style['content_hash'] . ';}' . \"\\n\" . \$css . \"\\n\"; }";
+            $lines[] = "\$blocks_engine_presentation_matches = static function ( array \$style, ?WP_Post \$post, bool \$site_editor ): bool {";
+            $lines[] = "    \$matches = \$site_editor; if ( ! \$matches && \$post instanceof WP_Post ) foreach ( \$style['scopes'] as \$scope ) {";
+            $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
             $lines[] = "    }";
-            $lines[] = "    return \$presentation;";
+            $lines[] = "    return \$matches;";
             $lines[] = "};";
-            $lines[] = "add_filter( 'wp_theme_json_data_theme', static function ( \$theme_json ) use ( \$blocks_engine_presentation_css ) {";
-            $lines[] = "    if ( ! is_admin() ) return \$theme_json;";
-            $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base;";
-            $lines[] = "    \$post = \$GLOBALS['post'] ?? null; if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$theme_json;";
-            $lines[] = "    \$block_editor = \$screen instanceof WP_Screen && in_array( \$screen->base, array( 'post', 'site-editor' ), true );";
-            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor, \$block_editor );";
-            $lines[] = "    return '' === \$presentation ? \$theme_json : \$theme_json->update_with( array( 'version' => 3, 'styles' => array( 'css' => \$presentation ) ) );";
+            $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
+            $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
-            $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, \$context ) use ( \$blocks_engine_presentation_css ): array {";
-            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' ); if ( ! \$site_editor && ! \$post instanceof WP_Post ) return \$settings;";
-            $lines[] = "    \$existing = implode( \"\n\", array_map( static fn ( array \$style ): string => (string) ( \$style['css'] ?? '' ), \$settings['styles'] ) );";
-            $lines[] = "    \$presentation = \$blocks_engine_presentation_css( \$post instanceof WP_Post ? \$post : null, \$site_editor, true, \$existing );";
-            $lines[] = "    if ( '' !== \$presentation ) {";
-            $lines[] = "        \$merged = false; foreach ( \$settings['styles'] as &\$editor_style ) if ( true === ( \$editor_style['isGlobalStyles'] ?? false ) && 'user' === ( \$editor_style['__unstableType'] ?? '' ) ) { \$editor_style['css'] = (string) ( \$editor_style['css'] ?? '' ) . \"\\n\" . \$presentation; \$merged = true; break; } unset( \$editor_style );";
-            $lines[] = "        if ( ! \$merged ) \$settings['styles'][] = array( 'css' => \$presentation, '__unstableType' => 'user', 'isGlobalStyles' => true );";
-            $lines[] = "    }";
-            $lines[] = "    return \$settings;";
-            $lines[] = "}, 10, 2 );";
         }
         $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
         if (array() !== $inlineShellSlugs) {
