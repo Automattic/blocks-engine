@@ -161,7 +161,7 @@ for ( $index = 0; $index < 100; ++$index ) {
 $candidateHtml = '<style>' . implode('', array_merge($noiseRules, array( '.target{color:red}', 'article{padding:1px}', '.target{color:blue}' ) )) . '</style><section class="target">Indexed target</section>';
 $candidateResult = (new HtmlTransformer(analysisCache: $candidateCache))->transform($candidateHtml)->toArray();
 $assert('blue' === ($candidateResult['blocks'][0]['attrs']['style']['color']['text'] ?? ''), 'Rightmost class candidates preserve duplicate matching-key cascade order.');
-$assert(2 === $candidateCache->sourceStyleCandidateRuleChecks && 204 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection checks two relevant rule candidates while deterministically skipping 204 irrelevant candidates.');
+$assert(2 === $candidateCache->sourceStyleCandidateRuleChecks && 2 === $candidateCache->sourceStyleCandidateRulesSkipped, 'Indexed collection checks two relevant rule candidates, and the 100 rules whose classes are absent from the source never enter the index.');
 
 $hiddenStateCache = new HtmlTransformerAnalysisCache();
 $hiddenStateNoise = array();
@@ -174,7 +174,7 @@ $hiddenStateResult = (new HtmlTransformer(analysisCache: $hiddenStateCache))->tr
 )->toArray();
 $hiddenStateFindings = $hiddenStateResult['source_reports']['html']['frozen_hidden_state'] ?? array();
 $assert(array() !== $hiddenStateFindings && in_array('opacity:0', $hiddenStateFindings[0]['declarations'] ?? array(), true), 'Indexed hidden-state collection preserves canonical frozen-state findings.');
-$assert(1001 === $hiddenStateCache->sourceStyleCandidateRulesSkipped && 1 === $hiddenStateCache->sourceSelectorMatchExecutions, 'Hidden-state collection skips irrelevant rightmost-selector candidates instead of matching every rule against every element.');
+$assert(401 === $hiddenStateCache->sourceStyleCandidateRulesSkipped && 1 === $hiddenStateCache->sourceSelectorMatchExecutions, 'Hidden-state collection skips irrelevant rightmost-selector candidates, and rules whose classes are absent from the source never enter the index.');
 
 // One repeated hot rule across 4,097 elements forces both bounded result caches
 // past capacity while later style-resolution passes refresh the same entries.

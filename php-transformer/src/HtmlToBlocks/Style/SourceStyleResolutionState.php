@@ -69,6 +69,20 @@ final class SourceStyleResolutionState
         $this->customProperties = $analysis['custom_properties'];
     }
 
+    /**
+     * Retain only the rules whose selectors can match this source document.
+     *
+     * @param callable(array<string, mixed>): bool $isMatchable
+     */
+    public function retainMatchableRules(callable $isMatchable): void
+    {
+        // Rule keys carry source order, so filtering preserves them.
+        $this->staticRules = array_filter($this->staticRules, $isMatchable);
+        $this->conditionalRules = array_filter($this->conditionalRules, $isMatchable);
+        $this->pseudoElementRules = array_filter($this->pseudoElementRules, $isMatchable);
+        $this->ruleCandidateIndexes = array();
+    }
+
     /** @return array<int, string> */
     public function classPromotions(string $className): array
     {
