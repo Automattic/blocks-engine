@@ -20,6 +20,7 @@ $result = (new HtmlTransformer())->transform($source)->toArray();
 $block = $result['blocks'][0] ?? array();
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $assert('custom/authored-carousel' === ($block['blockName'] ?? null), 'bounded previous/list/next topology uses the generic carousel companion');
+$assert('manual' === ($block['attrs']['mode'] ?? 'manual') && false === ($block['attrs']['autoplay'] ?? false), 'controlled carousel remains manual by default');
 $assert(2 === count($block['innerBlocks'] ?? array()) && 'core/image' === ($block['innerBlocks'][0]['blockName'] ?? null), 'carousel slides remain ordinary editable inner image blocks');
 $assert(str_contains($markup, 'First description.') && !str_contains($markup, 'expanded-one.jpg'), 'the primary rail keeps captions and excludes expanded-state duplicates');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'carousel serialization is editor-valid');
@@ -46,5 +47,22 @@ $assert(!isset($payloadBlock['render'], $payloadBlock['renderer'], $payloadBlock
 
 $customHost = (new HtmlTransformer())->transform('<vendor-carousel><button>Previous</button><div role="list"><div role="listitem"><img src="one.jpg"></div><div role="listitem"><img src="two.jpg"></div></div><button>Next</button></vendor-carousel>')->toArray();
 $assert('custom/authored-carousel' === ($customHost['blocks'][0]['blockName'] ?? null), 'custom-element carousel hosts use the same generic block before generated HTML fallback');
+
+$slideshowSource = '<div data-testid="slideshow" role="group" style="--transitionDuration:1"><div class="repeater" role="group"><div role="list" aria-live="off"><div role="listitem"><img src="one.jpg" width="538" height="402"></div><div role="listitem"><img src="two.jpg" width="538" height="402"></div><div role="listitem"><img src="three.jpg" width="538" height="402"></div><div role="listitem"><img src="four.jpg" width="538" height="402"></div></div></div></div>';
+$slideshowResult = (new HtmlTransformer())->transform($slideshowSource)->toArray();
+$slideshow = $slideshowResult['blocks'][0] ?? array();
+$slideshowMarkup = (string) ($slideshowResult['serialized_blocks'] ?? '');
+$slideshowDefinition = $slideshowResult['source_reports']['generated_blocks'][0] ?? array();
+$slideshowView = (string) ($slideshowDefinition['view_js'] ?? '');
+$slideshowStyle = (string) ($slideshowDefinition['assets']['style.css'] ?? '');
+$assert('custom/authored-carousel' === ($slideshow['blockName'] ?? null) && 4 === count($slideshow['innerBlocks'] ?? array()), 'an explicit slideshow host with a bounded image list is recognized');
+$assert('slideshow' === ($slideshow['attrs']['mode'] ?? null) && 1 === ($slideshow['attrs']['itemsPerView'] ?? null) && true === ($slideshow['attrs']['autoplay'] ?? null) && 4.0 === ($slideshow['attrs']['interval'] ?? null) && 1.0 === ($slideshow['attrs']['transitionDuration'] ?? null) && false === ($slideshow['attrs']['navigation'] ?? null), 'slideshow attributes preserve one-up bounded autoplay without visible navigation');
+$assert(!str_contains($slideshowMarkup, 'data-carousel-next') && str_contains($slideshowMarkup, 'data-carousel-pause') && 'pass' === ($slideshowResult['source_reports']['wp_block_validity']['status'] ?? null), 'slideshow markup has focus-revealed motion control and remains block-valid');
+$assert('custom/authored-carousel' === ((new Runtime())->parseBlocks($slideshowMarkup)[0]['blockName'] ?? null), 'slideshow markup round-trips through the block parser');
+$assert(str_contains($slideshowView, 'window.setInterval') && str_contains($slideshowView, 'mouseenter') && str_contains($slideshowView, 'focusin') && str_contains($slideshowView, 'visibilitychange') && str_contains($slideshowView, 'prefers-reduced-motion: reduce') && str_contains($slideshowView, 'requested > maximum ? 0') && str_contains($slideshowView, "show( index + 1, false )"), 'slideshow runtime bounds timers, pauses for interaction, respects reduced motion, wraps, and does not announce automatic updates');
+$assert(str_contains($slideshowStyle, 'position:absolute;inset:0') && str_contains($slideshowStyle, '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{aspect-ratio:auto}') && str_contains($slideshowStyle, 'transition:none'), 'slideshow CSS overlays one active slide without portrait forcing and suppresses reduced-motion fades');
+
+$genericRepeater = (new HtmlTransformer())->transform('<div class="repeater"><div role="list"><div role="listitem"><img src="one.jpg"></div><div role="listitem"><img src="two.jpg"></div></div></div>')->toArray();
+$assert('custom/authored-carousel' !== ($genericRepeater['blocks'][0]['blockName'] ?? null), 'generic repeaters and static image lists are not promoted without explicit slideshow identity');
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

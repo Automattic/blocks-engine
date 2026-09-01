@@ -10137,7 +10137,8 @@ final class HtmlTransformer
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        if ( ! $hasPrevious || ! $hasNext ) {
+        $navigationlessSlideshow = ! $hasPrevious && ! $hasNext && $this->sourceElementClassifier->hasExplicitSlideshowIdentity($element);
+        if ( ( ! $hasPrevious || ! $hasNext ) && ! $navigationlessSlideshow ) {
             return null;
         }
 
@@ -10148,7 +10149,7 @@ final class HtmlTransformer
                 continue;
             }
             $candidateItems = $this->carouselListItems($candidate);
-            if ( count($candidateItems) >= 2 && $this->carouselItemsHaveImages($candidateItems) ) {
+            if ( count($candidateItems) >= 2 && count($candidateItems) <= 12 && $this->carouselItemsHaveImages($candidateItems) ) {
                 $list = $candidate;
                 $items = $candidateItems;
                 break;
@@ -10180,9 +10181,20 @@ final class HtmlTransformer
         $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
-            'itemsPerView' => min(4, count($slides)),
+            'itemsPerView' => $navigationlessSlideshow ? 1 : min(4, count($slides)),
             'wrap' => true,
         );
+        if ( $navigationlessSlideshow ) {
+            $attributes += array(
+                'mode' => 'slideshow',
+                'autoplay' => true,
+                'interval' => $this->authoredSlideshowInterval($element),
+                'transitionDuration' => $this->authoredSlideshowTransitionDuration($element),
+                'pauseOnHover' => true,
+                'pauseOnFocus' => true,
+                'navigation' => false,
+            );
+        }
         $shell = $generator->shell($attributes);
         $innerContent = array($shell['opening']);
         foreach ( $slides as $_ ) {
@@ -10222,6 +10234,53 @@ final class HtmlTransformer
         }
 
         return true;
+    }
+
+    private function authoredSlideshowTransitionDuration(DOMElement $element): float
+    {
+        $candidates = array($element);
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $candidates[] = $candidate;
+            }
+        }
+        foreach ( $candidates as $candidate ) {
+            $declarations = $this->styleResolver->cssDeclarations($this->attr($candidate, 'style'));
+            foreach ( array( '--transitionduration', '--slideshow-transition-duration', 'transition-duration' ) as $property ) {
+                $value = trim((string) ($declarations[$property] ?? ''));
+                if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', $value, $matches) ) {
+                    $duration = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
+                    return min(10, max(0, $duration));
+                }
+            }
+        }
+
+        return 0.5;
+    }
+
+    private function authoredSlideshowInterval(DOMElement $element): float
+    {
+        foreach ( array($this->attr($element, 'data-autoplay-interval'), $this->attr($element, 'data-interval')) as $value ) {
+            if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', trim($value), $matches) ) {
+                $interval = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
+                return min(60, max(1, $interval));
+            }
+        }
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $declarations = $this->styleResolver->cssDeclarations($this->attr($candidate, 'style'));
+            foreach ( array('--autoplay-interval', '--slideshow-interval') as $property ) {
+                $value = trim((string) ($declarations[$property] ?? ''));
+                if ( preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)?$/', $value, $matches) ) {
+                    $interval = (float) $matches[1] * ( 'ms' === ($matches[2] ?? '') ? 0.001 : 1 );
+                    return min(60, max(1, $interval));
+                }
+            }
+        }
+
+        return 4;
     }
 
     private function carouselItemCaption(DOMElement $item): string
