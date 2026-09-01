@@ -253,14 +253,23 @@ final class AuthorSelectorSemanticPreparer
             return;
         }
 
-        $attributeSelector = CssSelectorMatcher::parse($matches[1][0]);
+        $attributeSelectorText = $matches[1][0];
+        $attributeSelector = CssSelectorMatcher::parse($attributeSelectorText);
         if ( ! $attributeSelector['supported'] ) {
             return;
         }
 
+        $settledSelectorText = preg_replace(
+            '/:not\(\s*' . preg_quote($attributeSelectorText, '/') . '\s*\)/i',
+            $attributeSelectorText,
+            $selector,
+            1
+        ) ?? $selector;
+        $settledSelector = CssSelectorMatcher::parse($settledSelectorText);
+        $candidateSelector = $settledSelector['supported'] ? $settledSelector : $attributeSelector;
         $marker = '';
-        foreach ( $authorStyles->selectorCandidates($attributeSelector) as $element ) {
-            if ( ! CssSelectorMatcher::matches($element, $attributeSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
+        foreach ( $authorStyles->selectorCandidates($candidateSelector) as $element ) {
+            if ( ! CssSelectorMatcher::matches($element, $candidateSelector, true, $authorStyles->selectorMatchCache())['matches'] ) {
                 continue;
             }
             $path = $element->getNodePath() ?? '';

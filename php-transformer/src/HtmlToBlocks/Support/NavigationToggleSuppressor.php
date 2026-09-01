@@ -332,6 +332,26 @@ final class NavigationToggleSuppressor
             return $this->isCheckboxWithEmptyBoundLabel($element);
         }
 
+        if ( 'details' === $tagName ) {
+            $summary = $element->getElementsByTagName('summary')->item(0);
+            return $summary instanceof DOMElement
+                && $summary->parentNode instanceof DOMElement
+                && $summary->parentNode->isSameNode($element)
+                && $this->isHamburgerMenuToggleControl($summary);
+        }
+
+        if ( 'summary' === $tagName ) {
+            $parent = $element->parentNode;
+            $accessibleName = strtolower(trim(implode(' ', array(
+                $this->context->attr($element, 'aria-label'),
+                $this->context->attr($element, 'title'),
+            ))));
+            return $parent instanceof DOMElement
+                && 'details' === strtolower($parent->tagName)
+                && '' === $this->visibleMenuToggleLabel($element)
+                && 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger)(?:[^a-z0-9]|$)/', $accessibleName);
+        }
+
         $isButton = 'button' === $tagName;
         $isButtonRoleAnchor = 'a' === $tagName && 'button' === strtolower($this->context->attr($element, 'role'));
         if ( ! $isButton && ! $isButtonRoleAnchor ) {
@@ -588,9 +608,15 @@ final class NavigationToggleSuppressor
             return 'mobile';
         }
 
+        return $this->navigationToggleControl($navigation) instanceof DOMElement ? 'mobile' : 'never';
+    }
+
+    public function navigationToggleControl(DOMElement $navigation): ?DOMElement
+    {
+
         $document = $navigation->ownerDocument;
         if ( ! $document instanceof DOMDocument ) {
-            return 'never';
+            return null;
         }
 
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
@@ -604,13 +630,13 @@ final class NavigationToggleSuppressor
             $projectedTarget = $this->projectedNavigationTargetForControl($toggle);
             if ( $projectedTarget instanceof DOMElement ) {
                 if ( $projectedTarget->isSameNode($navigation) ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
                 continue;
             }
 
             if ( $this->context->elementContains($navigation, $toggle) ) {
-                return 'mobile';
+                return $this->concreteToggleControl($toggle);
             }
 
             foreach ( preg_split('/\s+/', trim($this->context->attr($toggle, 'aria-controls'))) ?: array() as $controlledId ) {
@@ -618,23 +644,34 @@ final class NavigationToggleSuppressor
                 if ( $target instanceof DOMElement
                     && ($this->context->elementContains($target, $navigation) || $this->context->elementContains($navigation, $target))
                 ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
             }
 
             for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
                 if ( $this->context->elementContains($container, $navigation) ) {
-                    return 'mobile';
+                    return $this->concreteToggleControl($toggle);
                 }
             }
 
             $scope = $this->menuToggleScope($toggle);
             if ( 'body' !== strtolower($scope->tagName) && $this->context->elementContains($scope, $navigation) ) {
-                return 'mobile';
+                return $this->concreteToggleControl($toggle);
             }
         }
 
-        return 'never';
+        return null;
+    }
+
+    private function concreteToggleControl(DOMElement $toggle): DOMElement
+    {
+        if ( 'details' === strtolower($toggle->tagName) ) {
+            $summary = $toggle->getElementsByTagName('summary')->item(0);
+            if ( $summary instanceof DOMElement ) {
+                return $summary;
+            }
+        }
+        return $toggle;
     }
 
     private function hasEquivalentSourceNavigationVariant(DOMElement $navigation): bool

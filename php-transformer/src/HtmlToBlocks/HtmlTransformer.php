@@ -387,6 +387,8 @@ final class HtmlTransformer
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
+
     /**
      * Marks an emptied block that exists only as a runtime target. Emitted
      * here and read back by {@see NavigationStyleProjector}, which projects the
@@ -541,7 +543,10 @@ final class HtmlTransformer
             fn (DOMElement $element): bool => $this->shouldPreserveEmptyVisualElement($element),
             fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
         ), $this->styleResolver, $this->runtime);
-        $this->formControlMetadataBuilder = new FormControlMetadataBuilder(fn (DOMElement $element): string => $this->elementSelector($element));
+        $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
+            fn (DOMElement $element): string => $this->elementSelector($element),
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element)
+        );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
@@ -2043,6 +2048,9 @@ final class HtmlTransformer
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
+            $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none}';
+        }
         if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';
         }
@@ -2092,6 +2100,9 @@ final class HtmlTransformer
         }
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
+        }
+        foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
+            $afterAuthorCssParts[] = $navigationLinkIconRule;
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
@@ -2621,7 +2632,9 @@ final class HtmlTransformer
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->navigationLinkIconMarker($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2738,6 +2751,124 @@ final class HtmlTransformer
             $this->sourceStyles()->pseudoElementRules(),
             fn (DOMElement $element, string $selector): bool => $this->styleResolver->matchesCssSelector($element, $selector)
         );
+    }
+
+    private function responsiveNavigationToggleMarker(DOMElement $navigation): string
+    {
+        $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
+        if ( ! $toggle instanceof DOMElement ) {
+            return '';
+        }
+
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($toggle)
+        );
+        $sourceDeclarations = $this->styleResolver->cssDeclarations($resolved);
+        $declarations = array();
+        foreach ( array(
+            'box-sizing',
+            'width',
+            'height',
+            'min-width',
+            'min-height',
+            'padding',
+            'padding-top',
+            'padding-right',
+            'padding-bottom',
+            'padding-left',
+            'border-top-left-radius',
+            'border-top-right-radius',
+            'border-bottom-right-radius',
+            'border-bottom-left-radius',
+            'background-color',
+            'color',
+        ) as $property ) {
+            $value = trim((string) ($sourceDeclarations[$property] ?? ''));
+            if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                $declarations[] = $property . ':' . $value . '!important';
+            }
+        }
+        if ( array() === $declarations ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
+        $rule = '@media(max-width:599px){' . $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important}'
+            . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
+        $this->generatedSupportStyles()->registerNativeNavigationToggle($marker, $rule);
+        return $marker;
+    }
+
+    /**
+     * Recover the artwork of an icon-only navigation anchor.
+     *
+     * The anchor's accessible name becomes the saved navigation-link label, but
+     * the inline SVG that name described has nowhere to live on the block. Keep
+     * the native menu and re-present the source icon from generated CSS, with
+     * the label collapsed rather than hidden so it stays an accessible name.
+     */
+    private function navigationLinkIconMarker(DOMElement $anchor): string
+    {
+        // Only an anchor with no visible text is described by its icon. An
+        // anchor that also shows a word keeps that word as its presentation.
+        if ( '' !== trim($anchor->textContent ?? '') ) {
+            return '';
+        }
+
+        $svg = null;
+        foreach ( $anchor->getElementsByTagName('svg') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $svg = $candidate;
+                break;
+            }
+        }
+        if ( ! $svg instanceof DOMElement || ! $this->svgHasDrawableContent($svg) ) {
+            return '';
+        }
+
+        $markup = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $markup || ! $this->isSafeSvgContent($markup) ) {
+            return '';
+        }
+
+        $box = $this->navigationLinkIconBox($svg);
+        if ( '' === $box ) {
+            return '';
+        }
+
+        $declarations = 'display:inline-block;' . $box
+            . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
+            . ';background-repeat:no-repeat;background-position:center;background-size:contain'
+            . ';font-size:0;line-height:0;color:transparent';
+        $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations), 0, 12);
+        $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
+
+        return $marker;
+    }
+
+    /** Resolve the rendered box of a navigation icon from its source geometry. */
+    private function navigationLinkIconBox(DOMElement $svg): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($svg)
+            )
+        );
+        $dimensions = array();
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $value = trim((string) ($declarations[$property] ?? ''));
+            if ( '' === $value || preg_match('/[{}<>;]/', $value) ) {
+                $value = trim($this->attr($svg, $property));
+                $value = '' === $value || ! is_numeric($value) ? '' : $value . 'px';
+            }
+            if ( '' === $value || 1 === preg_match('/^(?:0|auto|none)$/i', $value) ) {
+                return '';
+            }
+            $dimensions[] = $property . ':' . $value;
+        }
+
+        return implode(';', $dimensions);
     }
 
     /**
@@ -5706,6 +5837,8 @@ final class HtmlTransformer
     {
         $attrs = $this->emptyVisualElementAttributes($element);
         if ( ! $this->isEmptyVisualInlineCandidate($element) ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::EMPTY_VISUAL_GROUP_CLASS);
+            $this->runtimeBehavior()->markEmptyVisualGroupGenerated();
             $block = $this->createBlock('core/group', $attrs, array(), $element);
             $block['_editability_visual_owned'] = true;
             return $block;

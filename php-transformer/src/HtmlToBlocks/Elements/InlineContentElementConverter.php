@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
@@ -86,9 +87,13 @@ final class InlineContentElementConverter implements ElementConverter
                     $declarations['color'] = 'transparent';
                 }
                 $declarations['--blocks-engine-richtext-marker'] = $richTextMarker;
-                return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array(
+                $attrs = array(
                     'content' => '<mark style="' . htmlspecialchars($this->styleResolver->cssDeclarationString($declarations), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '">' . $content . '</mark>',
-                ), array(), $element));
+                );
+                if ( 'none' === strtolower(trim((string) ($declarations['display'] ?? ''))) ) {
+                    $attrs['className'] = SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS;
+                }
+                return ConversionOutcome::handled($this->context->createBlock('core/paragraph', $attrs, array(), $element));
             }
         }
 

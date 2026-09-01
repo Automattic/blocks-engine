@@ -29,7 +29,12 @@ $elementFrom = static function (string $html): DOMElement {
 };
 
 $selector = static fn (DOMElement $element): string => '#' . ($element->getAttribute('id') ?: strtolower($element->tagName));
-$metadataBuilder = new FormControlMetadataBuilder($selector);
+$metadataBuilder = new FormControlMetadataBuilder(
+    $selector,
+    static fn (DOMElement $element): array => 'button' === strtolower($element->tagName)
+        ? array( 'style' => array( 'spacing' => array( 'padding' => array( 'top' => '11px', 'bottom' => '11px' ) ) ) )
+        : array()
+);
 $successBuilder = new FormSuccessPanelMetadataBuilder(
     $selector,
     static fn (DOMElement $element): array => array( 'html' => '<aside>Thanks</aside>', 'bytes' => 21, 'truncated' => false ),
@@ -67,6 +72,10 @@ $assert('#signup' === ($finding['selector'] ?? ''), 'element-selector');
 $assert('/join' === ($finding['form']['action'] ?? ''), 'form-metadata');
 $assert(2 === ($finding['control_count'] ?? 0), 'control-count');
 $assert(2 === count($finding['controls'] ?? array()), 'controls-metadata');
+$assert('11px' === ($finding['controls'][1]['presentation']['style']['spacing']['padding']['top'] ?? ''), 'submit-presentation-metadata');
+$classRichForm = $elementFrom('<form><input name="email"><button class="button base size hover wrap provider upgrade responsive typography width extra retained eleven twelve thirteen fourteen fifteen discarded overflow" type="submit">Join</button></form>');
+$classRichFinding = $builder->build($classRichForm, $readable);
+$assert('button base size hover wrap provider upgrade responsive typography width extra retained eleven twelve thirteen fourteen' === ($classRichFinding['controls'][1]['class'] ?? ''), 'submit-presentation-retains-bounded-functional-classes');
 $assert(array( $readable ) === ($finding['readable_blocks'] ?? array()), 'readable-blocks');
 $assert('form' === ($finding['binding']['role'] ?? ''), 'readable-block-defaults-to-binding');
 $assert(array( '#existing-runtime' ) === ($finding['binding']['selectors'] ?? array()), 'default-binding-retains-runtime-selectors');

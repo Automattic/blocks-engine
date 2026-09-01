@@ -19,6 +19,8 @@ final class RuntimeBehaviorState
 
     private bool $emptyRuntimeTargetGenerated = false;
 
+    private bool $emptyVisualGroupGenerated = false;
+
     /** @param array<int, array<string, mixed>> $metadata */
     public function installRuntimeScriptMetadata(array $metadata): void
     {
@@ -83,5 +85,15 @@ final class RuntimeBehaviorState
     public function emptyRuntimeTargetGenerated(): bool
     {
         return $this->emptyRuntimeTargetGenerated;
+    }
+
+    public function markEmptyVisualGroupGenerated(): void
+    {
+        $this->emptyVisualGroupGenerated = true;
+    }
+
+    public function emptyVisualGroupGenerated(): bool
+    {
+        return $this->emptyVisualGroupGenerated;
     }
 }

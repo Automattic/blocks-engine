@@ -89,6 +89,15 @@ final class NavigationStyleProjector
                 . $selector . '>*{display:none!important}'
                 . $selector . '::before{content:"Dynamic content";display:block;opacity:.45;white-space:nowrap}';
         }
+        if ( $this->context->runtimeBehavior()->emptyVisualGroupGenerated() ) {
+            $selector = ':root .' . HtmlTransformer::EMPTY_VISUAL_GROUP_CLASS . '.wp-block-group__placeholder';
+            // A painted source layer holds geometry, not authored children, so
+            // core's empty-group variation picker stacks unrelated layout
+            // controls at the top of the document. Bound the placeholder and
+            // withhold that picker so the editor shows the source composition.
+            $rules[] = $selector . '{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem!important;overflow:hidden!important}'
+                . $selector . '>*{display:none!important}';
+        }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
         }
@@ -984,6 +993,46 @@ final class NavigationStyleProjector
      *
      * @return array<int, string>
      */
+    /**
+     * Restore icon-only navigation artwork core/navigation-link cannot save.
+     *
+     * The block keeps the accessible name as its label, so the recovered source
+     * icon replaces that label visually while the name stays in the document.
+     *
+     * @return array<int, string>
+     */
+    public function navigationLinkIconRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-icon-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $declarations = $this->context->generatedSupportStyles()->navigationLinkIcon($class);
+                if ( '' === $declarations ) {
+                    continue;
+                }
+                $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                $rules[$class] = $content . '{' . $declarations . '}';
+            }
+        }
+
+        return array_values($rules);
+    }
+
     public function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';

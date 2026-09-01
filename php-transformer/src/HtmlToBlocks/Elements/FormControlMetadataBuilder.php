@@ -13,8 +13,10 @@ use DOMNode;
 final class FormControlMetadataBuilder
 {
     /** @param Closure(DOMElement): string $elementSelector */
-    public function __construct(private readonly Closure $elementSelector)
-    {
+    public function __construct(
+        private readonly Closure $elementSelector,
+        private readonly ?Closure $presentationAttributes = null
+    ) {
     }
 
     /** @return array<int, array<string, mixed>> */
@@ -92,6 +94,12 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
+            }
+            if ( null !== $this->presentationAttributes ) {
+                $presentation = ($this->presentationAttributes)($control);
+                if ( is_array($presentation['style'] ?? null) && array() !== $presentation['style'] ) {
+                    $metadata['presentation'] = array( 'style' => $presentation['style'] );
+                }
             }
         }
 
@@ -189,7 +197,7 @@ final class FormControlMetadataBuilder
     {
         $classes = array();
         foreach ( preg_split('/\s+/', trim($this->attr($element, 'class'))) ?: array() as $className ) {
-            if ( count($classes) >= 8 ) {
+            if ( count($classes) >= 16 ) {
                 break;
             }
             if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $className) ) {

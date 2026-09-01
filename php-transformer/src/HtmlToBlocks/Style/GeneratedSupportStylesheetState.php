@@ -13,6 +13,9 @@ final class GeneratedSupportStylesheetState
     private array $nativeButtonRules = array();
 
     /** @var array<string, string> */
+    private array $nativeNavigationToggleRules = array();
+
+    /** @var array<string, string> */
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
@@ -23,6 +26,9 @@ final class GeneratedSupportStylesheetState
 
     /** @var array<string, string> */
     private array $navigationLinkColors = array();
+
+    /** @var array<string, string> */
+    private array $navigationLinkIcons = array();
 
     /** @var array<string, string> */
     private array $navigationSubmenuBackgrounds = array();
@@ -52,6 +58,11 @@ final class GeneratedSupportStylesheetState
     public function registerNativeButton(string $marker, string $rule): void
     {
         $this->nativeButtonRules[$marker] = $rule;
+    }
+
+    public function registerNativeNavigationToggle(string $marker, string $rule): void
+    {
+        $this->nativeNavigationToggleRules[$marker] = $rule;
     }
 
     public function registerSyntheticHeaderAnchor(string $className, string $rule): void
@@ -84,6 +95,16 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkColor(string $className): string
     {
         return $this->navigationLinkColors[$className] ?? '';
+    }
+
+    public function registerNavigationLinkIcon(string $className, string $declarations): void
+    {
+        $this->navigationLinkIcons[$className] = $declarations;
+    }
+
+    public function navigationLinkIcon(string $className): string
+    {
+        return $this->navigationLinkIcons[$className] ?? '';
     }
 
     public function registerNavigationSubmenuBackground(string $className, string $color): void
@@ -141,6 +162,11 @@ final class GeneratedSupportStylesheetState
             }
         }
         foreach ($this->headerRichTextRules as $marker => $rule) {
+            if (str_contains($serializedBlocks, $marker)) {
+                $parts[] = $rule;
+            }
+        }
+        foreach ($this->nativeNavigationToggleRules as $marker => $rule) {
             if (str_contains($serializedBlocks, $marker)) {
                 $parts[] = $rule;
             }
