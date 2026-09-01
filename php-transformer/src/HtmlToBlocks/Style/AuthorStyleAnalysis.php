@@ -219,6 +219,12 @@ final class AuthorStyleAnalysis
         foreach ( $this->styleRules as $rule ) {
             foreach ( $rule['selectors'] as $selectorIndex => $selector ) {
                 $parsed = $selector['parsed'];
+                // Candidates exist to be matched. A selector this matcher cannot
+                // evaluate, in either its authored or direct-child form, never
+                // matches an element, so it is not a candidate for one.
+                if ( ! ($parsed['supported'] ?? false) && ! ($selector['direct_child_parsed']['supported'] ?? false) ) {
+                    continue;
+                }
                 $compounds = $parsed['compounds'] ?? array();
                 $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
                 $target = 'universal';
