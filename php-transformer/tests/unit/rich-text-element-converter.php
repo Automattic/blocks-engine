@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElement
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -57,11 +58,13 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
     return new RichTextElementConverter(new RichTextElementContext(
         new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
-        $c['richTextContent'],
-        $c['headingRichTextContent'],
-        $c['richTextWithMaterializedSvgImages'],
-        $c['requiresHtmlFallback'],
-        $c['containsNativeSvgImageObject'],
+        new RichTextMaterializationFixture(array(
+            'content' => $c['richTextContent'],
+            'headingContent' => $c['headingRichTextContent'],
+            'contentWithMaterializedSvgImages' => $c['richTextWithMaterializedSvgImages'],
+            'requiresHtmlFallback' => $c['requiresHtmlFallback'],
+            'containsNativeSvgImageObject' => $c['containsNativeSvgImageObject'],
+        )),
         $c['htmlPreservationBlock'],
         $c['authoredMarqueeBlock'],
         $c['hasEmptyVisualInlineChild'],

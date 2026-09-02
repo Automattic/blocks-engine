@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -21,7 +22,6 @@ use DOMElement;
 final class TextLeafElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>): string                                  $richTextContent
      * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
      * @param Closure(DOMElement): string                                                      $codeContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
@@ -30,7 +30,7 @@ final class TextLeafElementContext
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $richTextContent,
+        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Runtime $runtime,
         private readonly Closure $codePresentationAttributes,
         private readonly Closure $codeContent,
@@ -63,7 +63,7 @@ final class TextLeafElementContext
      */
     public function richTextContent(DOMElement $element, array $excludedTags = array()): string
     {
-        return ($this->richTextContent)($element, $excludedTags);
+        return $this->richTextMaterializer->content($element, $excludedTags);
     }
 
     public function stripAllTags(string $html): string
