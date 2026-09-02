@@ -68,7 +68,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         if ( $this->hasPageCssAnimatedDescendant($element) ) {
-            return $this->context->responsiveMediaBlock($element, $html, 'animated-svg');
+            return $this->context->svgArtworkBlock($element, $html);
         }
 
         // Honest floor: keep SVGs that need inline document context as sanitized

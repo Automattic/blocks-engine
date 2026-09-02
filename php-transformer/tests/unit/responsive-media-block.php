@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\CompanionPluginPaylo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -53,6 +54,14 @@ $assert(array('content') === array_keys($layoutDefinition['block_json']['attribu
 $assert(ResponsiveLayoutBlockGenerator::RENDERER === ($layoutDefinition['renderer'] ?? null), 'responsive layout delegates rendering through its producer-owned capability');
 $layoutEditorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($layoutEditor))), true);
 $assert(($layoutDefinition['block_json']['attributes'] ?? null) === $layoutEditorAttributes, 'responsive layout editor registration matches generated block metadata');
+
+$svgDefinition = ( new SvgArtworkBlockGenerator() )->definition('ssi-example');
+$svgEditor = (string) ($svgDefinition['assets']['index.js'] ?? '');
+$svgEditorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($svgEditor))), true);
+$assert('ssi-example/svg-artwork' === ($svgDefinition['block_json']['name'] ?? null) && SvgArtworkBlockGenerator::RENDERER === ($svgDefinition['renderer'] ?? null), 'SVG artwork declares one namespaced block and audited renderer');
+$assert(array('svg') === array_keys($svgDefinition['block_json']['attributes'] ?? array()) && ($svgDefinition['block_json']['attributes'] ?? null) === $svgEditorAttributes, 'SVG artwork metadata and editor share a content-role SVG schema');
+$svgPayload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($svgDefinition));
+$assert(SvgArtworkBlockGenerator::RENDERER === ($svgPayload['blocks'][0]['renderer'] ?? null) && !isset($svgPayload['blocks'][0]['render']), 'SVG artwork payload carries only the audited renderer identifier');
 
 $source = '<a class="social" href="/profile" target="_blank" rel="noopener" aria-label="Profile"><picture class="hero"><source media="(min-width: 800px)" type="image/webp" srcset="hero,wide.webp 1200w, hero.webp 600w" sizes="100vw"><img class="avatar" src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" width="44" height="44" alt="Profile"></picture></a>';
 $result = ( new HtmlTransformer() )->transform($source)->toArray();

@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -921,7 +922,7 @@ final class HtmlCompilation
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
-            fn (DOMElement $element, string $content, string $kind): array => $this->responsiveMediaBlock($element, $content, $kind)
+            fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
         );
     }
 
@@ -9788,7 +9789,7 @@ final class HtmlCompilation
     }
 
     /** @return array<string, mixed> */
-    private function responsiveMediaBlock(DOMElement $element, ?string $content = null, string $kind = 'media'): array
+    private function responsiveMediaBlock(DOMElement $element): array
     {
         if ( $this->hasUnsafeResponsiveImageSources($element) ) {
             return $this->responsiveImageFallbackBlock($element);
@@ -9798,7 +9799,21 @@ final class HtmlCompilation
 
         return $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => $content ?? $this->safeFallbackHtml($element), 'kind' => $kind ),
+            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
+            array(),
+            $element
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function svgArtworkBlock(DOMElement $element, string $svg): array
+    {
+        $generator = new SvgArtworkBlockGenerator();
+        $this->generatedBlocks()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+
+        return $this->createBlock(
+            $this->generatedBlocks()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
+            array( 'svg' => $svg ),
             array(),
             $element
         );
