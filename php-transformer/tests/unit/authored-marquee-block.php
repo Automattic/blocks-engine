@@ -25,8 +25,8 @@ $assert(!str_contains((string) ($result['serialized_blocks'] ?? ''), '<!-- wp:ht
 $definition = $result['source_reports']['generated_blocks'][0] ?? array();
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $style = (string) ($definition['assets']['style.css'] ?? '');
-$assert(str_contains($editor, 'RichText') && 1 === substr_count($editor, 'createElement( RichText,') && str_contains($editor, 'allowedFormats: []'), 'the companion edits one plain-text value without duplicating editor content');
-$assert(!str_contains($editor, 'RawHTML') && str_contains($editor, 'RichText.Content') && str_contains($editor, "'aria-hidden': true") && str_contains($editor, "inert: ''"), 'the static save shape escapes RichText content and makes the continuous-motion duplicate inert and hidden');
+$assert(str_contains($editor, 'RichText') && str_contains($editor, 'authoredItems.map') && str_contains($editor, 'allowedFormats: []'), 'the companion edits each authored item without duplicating editor content');
+$assert(!str_contains($editor, 'RawHTML') && str_contains($editor, 'RichText.Content') && str_contains($editor, "'aria-hidden': hidden ? true") && str_contains($editor, "inert: hidden ? ''"), 'the static save shape escapes RichText content and makes the continuous-motion duplicate inert and hidden');
 $assert(str_contains($style, 'overflow-x:clip') && str_contains($style, 'max-width:100%'), 'the static stylesheet clips the duplicate track in narrow viewports');
 $assert(str_contains($style, 'prefers-reduced-motion:reduce') && str_contains($style, 'animation:none') && str_contains($style, 'display:none'), 'reduced motion leaves one readable static track');
 $assert(str_contains((string) ($result['serialized_blocks'] ?? ''), '--blocks-engine-marquee-duration:17.5s') && str_contains((string) ($result['serialized_blocks'] ?? ''), 'data-direction="left"'), 'static block markup preserves bounded duration and authored direction');
@@ -36,6 +36,26 @@ $assert('custom/authored-marquee' === (new Runtime())->parseBlocks($serialized)[
 $escaped = ( new HtmlTransformer() )->transform('<div style="--marquee-duration: 0s"><p><span data-marquee-animation="left"><span>Tom &amp; Jerry &lt; 3</span></span></p></div>')->toArray();
 $escapedMarkup = (string) (($escaped['blocks'][0]['innerHTML'] ?? ''));
 $assert(str_contains($escapedMarkup, 'Tom &amp; Jerry &lt; 3') && !str_contains($escapedMarkup, 'Tom & Jerry < 3') && str_contains($escapedMarkup, 'data-direction="left"') && str_contains($escapedMarkup, '--blocks-engine-marquee-duration:1s'), 'source text is escaped while duration is deterministically bounded');
+
+$tickerItems = '<span class="ticker-item">Small Batch</span><span class="ticker-item ticker-dot">✦</span><span class="ticker-item">Direct Trade</span><span class="ticker-item ticker-dot">✦</span>';
+$tickerHtml = '<div class="ticker-band"><div class="ticker-track">' . $tickerItems . $tickerItems . '</div></div>';
+$tickerCss = '.ticker-band{overflow:hidden;background:#bf4219;padding:1rem 0}.ticker-track{display:inline-block;animation:marquee 26s linear infinite}.ticker-item{display:inline-block;padding:0 1.8rem}@keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}';
+$ticker = ( new HtmlTransformer() )->transform($tickerHtml, array( 'static_css' => $tickerCss ))->toArray();
+$tickerGroup = $ticker['blocks'][0] ?? array();
+$tickerBlock = $tickerGroup['innerBlocks'][0] ?? array();
+$assert('core/group' === ($tickerGroup['blockName'] ?? null) && 'ticker-band' === ($tickerGroup['attrs']['className'] ?? null), 'the authored outer ticker band remains an editable native group');
+$assert('custom/authored-marquee' === ($tickerBlock['blockName'] ?? null), 'a CSS-authored duplicated ticker track uses the authored marquee companion');
+$assert(4 === count($tickerBlock['attrs']['items'] ?? array()) && 'Small Batch' === ($tickerBlock['attrs']['items'][0]['content'] ?? null) && 'ticker-item ticker-dot' === ($tickerBlock['attrs']['items'][1]['className'] ?? null), 'the repeated sequence deduplicates into editable styled items');
+$assert('left' === ($tickerBlock['attrs']['direction'] ?? null) && 26.0 === ($tickerBlock['attrs']['duration'] ?? null), 'CSS-authored marquee direction and duration are preserved');
+$assert(str_contains((string) ($tickerBlock['innerHTML'] ?? ''), 'data-blocks-engine-richtext-marker=') && 2 === substr_count((string) ($tickerBlock['innerHTML'] ?? ''), 'Small Batch'), 'projected item selectors retain carriers across the visible and inert sequences');
+$assert('pass' === ($ticker['source_reports']['wp_block_validity']['status'] ?? null), 'CSS-authored ticker serialization remains editor-valid');
+
+$reverseHtml = '<div class="ticker-track" style="animation-direction:reverse;animation-duration:32s">' . $tickerItems . $tickerItems . '</div>';
+$reverse = ( new HtmlTransformer() )->transform($reverseHtml, array( 'static_css' => $tickerCss ))->toArray();
+$assert('custom/authored-marquee' === ($reverse['blocks'][0]['blockName'] ?? null) && 'right' === ($reverse['blocks'][0]['attrs']['direction'] ?? null) && 32.0 === ($reverse['blocks'][0]['attrs']['duration'] ?? null), 'inline direction and duration override the authored animation shorthand');
+
+$nonRepeating = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $tickerItems . '</div>', array( 'static_css' => $tickerCss ))->toArray();
+$assert('custom/authored-marquee' !== ($nonRepeating['blocks'][0]['blockName'] ?? null), 'motion identity without a repeated sequence stays on generic native lowering');
 $maximumMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'right', 'duration' => 900 ));
 $invalidDirectionMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'up', 'duration' => 40 ));
 $assert(str_contains($maximumMarkup, 'data-direction="right"') && str_contains($maximumMarkup, '--blocks-engine-marquee-duration:600s') && str_contains($maximumMarkup, 'aria-hidden="true" inert=""') && str_contains($invalidDirectionMarkup, 'data-direction="left"'), 'the frontend markup bounds direction and duration and keeps duplicate content inaccessible');

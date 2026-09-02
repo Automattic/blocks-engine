@@ -810,6 +810,7 @@ final class HtmlCompilation
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
+            cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselBlock($element),
             generatedComponentBlock: function (DOMElement $element): ?array {
                 $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
@@ -9948,6 +9949,139 @@ final class HtmlCompilation
             }
         }
         return $depth;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function cssAuthoredMarqueeBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
+            return null;
+        }
+
+        $children = array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+        $half = intdiv(count($children), 2);
+        if ( 2 > $half || 0 !== count($children) % 2 ) {
+            return null;
+        }
+
+        $signature = static function (DOMElement $item): string {
+            return strtolower($item->tagName) . "\0" . trim($item->getAttribute('class')) . "\0" . trim($item->textContent ?? '');
+        };
+        for ( $index = 0; $index < $half; ++$index ) {
+            if ( 0 !== $children[$index]->childElementCount
+                || 0 !== $children[$index + $half]->childElementCount
+                || $signature($children[$index]) !== $signature($children[$index + $half])
+            ) {
+                return null;
+            }
+        }
+
+        $motion = $this->authoredMarqueeMotion($element);
+        if ( null === $motion ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( array_slice($children, 0, $half) as $item ) {
+            $text = trim($item->textContent ?? '');
+            if ( '' === $text ) {
+                return null;
+            }
+            $items[] = array(
+                'content' => $this->runtime->escapeHtml($text),
+                'className' => trim($this->attr($item, 'class')),
+                'marker' => trim($this->attr($item, 'data-blocks-engine-richtext-marker')),
+            );
+        }
+
+        $generator = new AuthoredMarqueeBlockGenerator();
+        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $attributes = array(
+            'items' => $items,
+            'direction' => $motion['direction'],
+            'duration' => $motion['duration'],
+        );
+        $markup = $generator->markup($attributes);
+
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /** @return array{direction: string, duration: float}|null */
+    private function authoredMarqueeMotion(DOMElement $element): ?array
+    {
+        $declarations = array();
+        foreach ( $this->authorStyles()->styleRules() as $rule ) {
+            foreach ( $rule['selectors'] ?? array() as $selector ) {
+                $value = (string) ($selector['selector'] ?? '');
+                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
+                    $declarations = array_merge($declarations, array_intersect_key(
+                        $rule['declarations'] ?? array(),
+                        array_flip(array( 'animation', 'animation-name', 'animation-duration', 'animation-direction', 'animation-iteration-count', 'animation-timing-function' ))
+                    ));
+                    break;
+                }
+            }
+        }
+        $declarations = array_merge($declarations, array_intersect_key(
+            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
+            array_flip(array( 'animation', 'animation-name', 'animation-duration', 'animation-direction', 'animation-iteration-count', 'animation-timing-function' ))
+        ));
+
+        $animation = trim((string) ($declarations['animation'] ?? ''));
+        if ( str_contains($animation, ',') ) {
+            return null;
+        }
+        $tokens = preg_split('/\s+/', preg_replace('/\s*!important\s*$/i', '', $animation) ?? '') ?: array();
+        $name = trim((string) ($declarations['animation-name'] ?? ''));
+        $duration = trim((string) ($declarations['animation-duration'] ?? ''));
+        $direction = strtolower(trim((string) ($declarations['animation-direction'] ?? '')));
+        $iteration = strtolower(trim((string) ($declarations['animation-iteration-count'] ?? '')));
+        $timing = strtolower(trim((string) ($declarations['animation-timing-function'] ?? '')));
+        foreach ( $tokens as $token ) {
+            $lower = strtolower($token);
+            if ( '' === $duration && preg_match('/^[0-9]+(?:\.[0-9]+)?m?s$/', $lower) ) {
+                $duration = $lower;
+            } elseif ( 'infinite' === $lower || is_numeric($lower) ) {
+                $iteration = '' === $iteration ? $lower : $iteration;
+            } elseif ( in_array($lower, array( 'normal', 'reverse', 'alternate', 'alternate-reverse' ), true) ) {
+                $direction = '' === $direction ? $lower : $direction;
+            } elseif ( 'linear' === $lower || str_starts_with($lower, 'cubic-bezier(') || str_starts_with($lower, 'steps(') || str_starts_with($lower, 'ease') ) {
+                $timing = '' === $timing ? $lower : $timing;
+            } elseif ( ! in_array($lower, array( 'none', 'forwards', 'backwards', 'both', 'running', 'paused' ), true) ) {
+                $name = '' === $name ? $token : $name;
+            }
+        }
+
+        if ( '' === $name || 'infinite' !== $iteration || 'linear' !== $timing || ! in_array($direction ?: 'normal', array( 'normal', 'reverse' ), true) ) {
+            return null;
+        }
+        $horizontal = false;
+        ( new CssStylesheetTransformer() )->visitKeyframeRules(
+            $this->authorStyles()->combinedCss(),
+            static function (string $keyframeName, string $body) use ($name, &$horizontal): void {
+                if ( 0 === strcasecmp(trim($keyframeName), trim($name)) && preg_match('/translateX\s*\(\s*-?[0-9.]+(?:%|px|vw|rem|em)\s*\)/i', $body) ) {
+                    $horizontal = true;
+                }
+            }
+        );
+        if ( ! $horizontal || ! preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower($duration), $durationMatch) ) {
+            return null;
+        }
+        $seconds = (float) $durationMatch[1] * ('ms' === $durationMatch[2] ? 0.001 : 1);
+
+        return array(
+            'direction' => 'reverse' === ($direction ?: 'normal') ? 'right' : 'left',
+            'duration' => min(600, max(1, $seconds)),
+        );
     }
 
     /** @return array<string, mixed>|null */

@@ -68,6 +68,7 @@ $operations = array(
     'visualTextWrapperBlock' => $null,
     'standaloneSearchBlock' => $null,
     'readableFormControlBlock' => $null,
+    'cssAuthoredMarqueeBlock' => static fn (): ?array => 'marquee' === $state->mode ? array( 'blockName' => 'custom/authored-marquee' ) : null,
     'authoredCarouselBlock' => $null,
     'generatedComponentBlock' => $null,
     'textFlowBlock' => $null,
@@ -98,6 +99,8 @@ $assert('core/html' === ($converter->convert($div, 'div', $fallbacks)->block['bl
 $state->mode = 'interactive-empty';
 $emptyInteractive = $converter->convert($div, 'div', $fallbacks);
 $assert($emptyInteractive->handled && null === $emptyInteractive->block && 0 === $state->captures, 'empty-interactive-before-form-capture');
+$state->mode = 'marquee';
+$assert('custom/authored-marquee' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? '') && 0 === $state->captures, 'authored-marquee-before-generic-flow-conversion');
 
 $state->mode = 'spacer';
 $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? '') && 1 === $state->captures, 'spacer-after-form-capture');
