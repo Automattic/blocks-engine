@@ -187,9 +187,16 @@ final class ReferenceAnalyzer
     public function normalizeReferenceCandidate(array $candidate, array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null, ?array $filesByPath = null, string $siteRoot = ''): array
     {
         $root = trim($siteRoot, '/');
-        $resolvedPath = str_starts_with($candidate['url'], '/')
-            ? ArtifactPath::resolveRelativePath(('' === $root ? '' : $root . '/') . ltrim($candidate['url'], '/'))
-            : ArtifactPath::resolveRelativePath($candidate['url'], $candidate['source_path']);
+        $resolvedPath = ArtifactPath::resolveRelativePath($candidate['url'], $candidate['source_path']);
+        if (str_starts_with($candidate['url'], '/') && '' !== $root) {
+            $siteRootPath = ArtifactPath::resolveRelativePath($root . '/' . ltrim($candidate['url'], '/'));
+            $siteRootTarget = '' === $siteRootPath ? null : (null === $filesByPath ? $this->findFileByPath($siteRootPath, $files) : ($filesByPath[$siteRootPath] ?? null));
+            // Browser-root assets live beneath the packaged site root; document
+            // links retain their existing artifact-root resolution semantics.
+            if (is_array($siteRootTarget) && ! $this->isLinkableDocument($siteRootTarget, $isLinkableDocument)) {
+                $resolvedPath = $siteRootPath;
+            }
+        }
         $target = '' === $resolvedPath ? null : (null === $filesByPath ? $this->findFileByPath($resolvedPath, $files) : ($filesByPath[$resolvedPath] ?? null));
         $reference = array_filter(
             array(
