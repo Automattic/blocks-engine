@@ -74,6 +74,16 @@ $deepProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
 $deep = (new ArtifactCompiler())->compile(array('entrypoint' => 'deep.html', 'files' => array('deep.html' => $deepHtml), 'layout_geometry_proof' => $deepProof))->toArray();
 $assert(1 === count($deep['source_reports']['layout_geometry_proof'] ?? array()) && !str_contains((string) ($deep['serialized_blocks'] ?? ''), '"kind":"layout"'), 'Explicit measured reductions take precedence over a coarse captured-media layout boundary.');
 
+$boundaryHtml = '<main>' . str_repeat('<div>', 21) . '<p>Editable copy</p>' . str_repeat('</div>', 21) . '</main>';
+$boundaryHash = hash('sha256', $boundaryHtml);
+$boundaryWrapper = 'main:nth-of-type(1)' . str_repeat(' > div:nth-of-type(1)', 21);
+$boundaryProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
+    array('id' => 'boundary-wrapper', 'source_path' => 'boundary.html', 'source_hash' => $boundaryHash, 'selector' => $boundaryWrapper, 'boxes' => $boxes()),
+    array('id' => 'boundary-target', 'source_path' => 'boundary.html', 'source_hash' => $boundaryHash, 'selector' => $boundaryWrapper . ' > p:nth-of-type(1)', 'boxes' => $boxes()),
+), 'reductions' => array(array('wrapper' => 'boundary-wrapper', 'target' => 'boundary-target', 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array()))));
+$boundary = (new ArtifactCompiler())->compile(array('entrypoint' => 'boundary.html', 'files' => array('boundary.html' => $boundaryHtml), 'layout_geometry_proof' => $boundaryProof))->toArray();
+$assert(!str_contains((string) ($boundary['serialized_blocks'] ?? ''), 'responsive-layout') && str_contains((string) ($boundary['serialized_blocks'] ?? ''), '<!-- wp:paragraph'), 'Proof attached to a deep boundary itself takes precedence over opaque responsive-layout preservation.');
+
 $providerChain = '<main>' . str_repeat('<provider-frame>', 24) . '<img src="hero.jpg" alt="Copy">' . str_repeat('</provider-frame>', 24) . '</main>';
 $providerHash = hash('sha256', $providerChain);
 $providerSelectors = array();

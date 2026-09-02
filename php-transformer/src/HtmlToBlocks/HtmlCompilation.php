@@ -9908,9 +9908,11 @@ final class HtmlCompilation implements SourceBlockCreator
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
     {
-        $prefix = $this->elementSelector($element) . ' > ';
+        $selector = $this->elementSelector($element);
+        $prefix = $selector . ' > ';
         foreach ( $this->layoutGeometry()->proofReductions() as $proof ) {
-            if ( is_array($proof) && str_starts_with((string) ($proof['wrapper_selector'] ?? ''), $prefix) ) {
+            $wrapperSelector = is_array($proof) ? (string) ($proof['wrapper_selector'] ?? '') : '';
+            if ( $selector === $wrapperSelector || str_starts_with($wrapperSelector, $prefix) ) {
                 return true;
             }
         }
