@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
@@ -31,11 +32,11 @@ if ( ! $element instanceof DOMElement ) {
 
 $context = new PatternContext(
     static fn (DOMElement $source): array => array(),
-    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name )
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name ))
 );
 $semanticContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array( 'excluded' => $excluded ),
-    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null, ?DOMElement $logicalSource = null): array => array( 'blockName' => $name, 'logicalTag' => $logicalSource?->tagName )
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null, ?DOMElement $logicalSource = null): array => array( 'blockName' => $name, 'logicalTag' => $logicalSource?->tagName ))
 );
 $assertSame(array( 'excluded' => array( 'width' ) ), $semanticContext->presentationAttributes($element, array( 'width' )), 'Pattern context forwards presentation exclusions through its semantic API.');
 $assertSame(array( 'blockName' => 'core/group', 'logicalTag' => 'div' ), $semanticContext->createBlock('core/group', logicalSourceElement: $element), 'Pattern context forwards logical block provenance through its semantic API.');
@@ -96,7 +97,7 @@ $innerHtml = static function (DOMElement $source): string {
 
     return trim($html);
 };
-$createBlock = static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children );
+$createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ));
 $directContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $createBlock,
@@ -138,10 +139,10 @@ $missingPlaceholderMarkup = new PatternContext(
         $placeholderState[] = 'presentation';
         return array();
     },
-    static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
+    new SourceBlockCreatorFixture(static function (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null) use ($placeholderState): array {
         $placeholderState[] = 'create-block';
         return array();
-    }
+    })
 );
 $assertSame(null, ( new PlaceholderMediaPattern() )->recognize($elementFromHtml('<div class="placeholder media" style="aspect-ratio: 16 / 9">Label</div>'), $missingPlaceholderMarkup), 'Placeholder media declines without its atomic markup capability.');
 $assertSame(array(), $placeholderState->getArrayCopy(), 'Placeholder media validates missing dependencies before invoking stateful context callbacks.');

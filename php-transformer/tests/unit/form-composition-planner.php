@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -43,12 +44,12 @@ $planner = new FormCompositionPlanner(
             : $children;
     },
     static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) ),
-    static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attrs,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    ),
+    )),
     static function (DOMElement $container, DOMElement $element): bool {
         for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
             if ( $node === $container ) {

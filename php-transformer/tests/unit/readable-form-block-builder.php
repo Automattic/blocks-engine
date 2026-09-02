@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -30,11 +31,11 @@ $formFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No form parsed');
 };
 
-$createBlock = static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
+$createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array(
     'blockName' => $name,
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
-);
+));
 $presentationAttributes = static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) );
 $eventMetadata = static fn (DOMElement $element): array => $element->hasAttribute('data-event') ? array( 'submit' => true ) : array();
 $isRuntimeDomTarget = static fn (DOMElement $element): bool => $element->hasAttribute('data-runtime');

@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FigureElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -70,12 +71,12 @@ $context = new FigureElementContext(
     },
     static fn (string $html): bool => '' !== trim(strip_tags($html)),
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'caption' )),
-    static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    )
+    ))
 );
 $converter = new FigureElementConverter($context);
 

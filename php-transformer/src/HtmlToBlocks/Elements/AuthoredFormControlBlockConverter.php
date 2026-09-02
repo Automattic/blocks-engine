@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -17,7 +18,6 @@ final class AuthoredFormControlBlockConverter
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(class-string, array<string, mixed>): void                                             $registerGeneratedBlock
      * @param Closure(string): void                                                                         $registerEcho
      * @param Closure(string): string                                                                       $safeAnchor
@@ -26,7 +26,7 @@ final class AuthoredFormControlBlockConverter
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly Closure $structuralPresentationDeclarations,
         private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $registerGeneratedBlock,
         private readonly Closure $registerEcho,
         private readonly Runtime $runtime,
@@ -57,12 +57,12 @@ final class AuthoredFormControlBlockConverter
                     $optionLabel .= ' (selected)';
                 }
                 ($this->registerEcho)($optionLabel);
-                $optionBlocks[] = ($this->createBlock)('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ), array(), null);
+                $optionBlocks[] = $this->createBlock->createBlock('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ));
             }
 
-            return ($this->createBlock)('core/group', ($this->presentationAttributes)($select), array(
-                ($this->createBlock)('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
-                ($this->createBlock)('core/list', array(), $optionBlocks, $select),
+            return $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($select), array(
+                $this->createBlock->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
+                $this->createBlock->createBlock('core/list', array(), $optionBlocks, $select),
             ), $select);
         }
 
@@ -89,7 +89,7 @@ final class AuthoredFormControlBlockConverter
 
         // Preserve the established structural address while source identity and
         // authored selectors remain on the native control inside this shell.
-        return ($this->createBlock)('core/group', array_filter(array(
+        return $this->createBlock->createBlock('core/group', array_filter(array(
             'anchor' => ($this->safeAnchor)(SourceDom::attr($select, 'id')),
             'className' => 'blocks-engine-authored-select-wrapper',
         )), array( $controlBlock ), null);
