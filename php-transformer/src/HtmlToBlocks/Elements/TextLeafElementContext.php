@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
@@ -21,8 +22,6 @@ final class TextLeafElementContext
      * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed> $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, string>): string                                  $richTextContent
-     * @param Closure(string): string                                                          $stripAllTags
-     * @param Closure(string): string                                                          $escapeHtml
      * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
      * @param Closure(DOMElement): string                                                      $codeContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
@@ -32,8 +31,7 @@ final class TextLeafElementContext
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
-        private readonly Closure $stripAllTags,
-        private readonly Closure $escapeHtml,
+        private readonly Runtime $runtime,
         private readonly Closure $codePresentationAttributes,
         private readonly Closure $codeContent,
         private readonly Closure $convertChildren
@@ -70,12 +68,12 @@ final class TextLeafElementContext
 
     public function stripAllTags(string $html): string
     {
-        return ($this->stripAllTags)($html);
+        return $this->runtime->stripAllTags($html);
     }
 
     public function escapeHtml(string $text): string
     {
-        return ($this->escapeHtml)($text);
+        return $this->runtime->escapeHtml($text);
     }
 
     /**

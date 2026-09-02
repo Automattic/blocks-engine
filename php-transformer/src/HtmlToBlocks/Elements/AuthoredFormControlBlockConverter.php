@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
@@ -19,7 +20,6 @@ final class AuthoredFormControlBlockConverter
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(class-string, array<string, mixed>): void                                             $registerGeneratedBlock
      * @param Closure(string): void                                                                         $registerEcho
-     * @param Closure(string): string                                                                       $escapeHtml
      * @param Closure(string): string                                                                       $safeAnchor
      */
     public function __construct(
@@ -29,7 +29,7 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $createBlock,
         private readonly Closure $registerGeneratedBlock,
         private readonly Closure $registerEcho,
-        private readonly Closure $escapeHtml,
+        private readonly Runtime $runtime,
         private readonly Closure $safeAnchor
     ) {
     }
@@ -57,11 +57,11 @@ final class AuthoredFormControlBlockConverter
                     $optionLabel .= ' (selected)';
                 }
                 ($this->registerEcho)($optionLabel);
-                $optionBlocks[] = ($this->createBlock)('core/list-item', array( 'content' => ($this->escapeHtml)($optionLabel) ), array(), null);
+                $optionBlocks[] = ($this->createBlock)('core/list-item', array( 'content' => $this->runtime->escapeHtml($optionLabel) ), array(), null);
             }
 
             return ($this->createBlock)('core/group', ($this->presentationAttributes)($select), array(
-                ($this->createBlock)('core/paragraph', array( 'content' => ($this->escapeHtml)($label) ), array(), $select),
+                ($this->createBlock)('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $select),
                 ($this->createBlock)('core/list', array(), $optionBlocks, $select),
             ), $select);
         }
