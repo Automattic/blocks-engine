@@ -96,30 +96,40 @@ final class RevealAnimationSettler
         if ( 1 !== preg_match('/(?:^|[;{\s])animation(?:-[a-z-]+)?\s*:/i', $css) ) {
             return array();
         }
-        $keyframes = $this->keyframeBoundaryStates($css);
+        $keyframes = array();
+        $candidates = array();
+        $settled = array();
+        $transformer = new CssStylesheetTransformer();
+        $transformer->visitStyleAndKeyframeRules(
+            $css,
+            function (string $prelude, string $body) use (&$candidates): void {
+                if ( false !== stripos($body, 'animation') ) {
+                    $candidates[] = array($prelude, $this->declarations($body));
+                }
+            },
+            function (string $name, string $body) use ($transformer, &$keyframes): void {
+                $keyframes[$name] = $this->keyframeBoundaryState($transformer, $body, $keyframes[$name] ?? array('start' => array(), 'end' => array()));
+            }
+        );
         if ( array() === $keyframes ) {
             return array();
         }
 
-        $settled = array();
-        ( new CssStylesheetTransformer() )->visitStyleRules(
-            $css,
-            function (string $prelude, string $body) use ($keyframes, &$settled): void {
-                $endState = $this->suspendedRevealEndState($this->declarations($body), $keyframes);
-                if ( null === $endState ) {
-                    return;
+        foreach ( $candidates as [ $prelude, $declarations ] ) {
+            $endState = $this->suspendedRevealEndState($declarations, $keyframes);
+            if ( null === $endState ) {
+                continue;
+            }
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $selector = $this->settleableSelector($selector);
+                if ( '' === $selector ) {
+                    continue;
                 }
-                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    $selector = $this->settleableSelector($selector);
-                    if ( '' === $selector ) {
-                        continue;
-                    }
-                    foreach ( $endState as $property => $value ) {
-                        $settled[$selector][$property] = $value;
-                    }
+                foreach ( $endState as $property => $value ) {
+                    $settled[$selector][$property] = $value;
                 }
             }
-        );
+        }
 
         ksort($settled, SORT_STRING);
         $rules = array();
@@ -283,38 +293,29 @@ final class RevealAnimationSettler
      * Index every `@keyframes` rule by name, keeping the declarations of its
      * first and last offsets.
      *
-     * @return array<string, array{start: array<string, string>, end: array<string, string>}>
+     * @param array{start: array<string, string>, end: array<string, string>} $frames
+     * @return array{start: array<string, string>, end: array<string, string>}
      */
-    private function keyframeBoundaryStates(string $css): array
+    private function keyframeBoundaryState(CssStylesheetTransformer $transformer, string $body, array $frames): array
     {
-        $transformer = new CssStylesheetTransformer();
-        $keyframes = array();
-        $transformer->visitKeyframeRules(
-            $css,
-            function (string $name, string $body) use ($transformer, &$keyframes): void {
-                $frames = $keyframes[ $name ] ?? array( 'start' => array(), 'end' => array() );
-                $transformer->visitStyleRules(
-                    $body,
-                    function (string $prelude, string $declarationBlock) use (&$frames): void {
-                        $declarations = $this->declarations($declarationBlock);
-                        if ( array() === $declarations ) {
-                            return;
-                        }
-                        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $offset ) {
-                            $offset = strtolower(trim($offset));
-                            if ( 'from' === $offset || '0%' === $offset ) {
-                                $frames['start'] = array_merge($frames['start'], $declarations);
-                            } elseif ( 'to' === $offset || '100%' === $offset ) {
-                                $frames['end'] = array_merge($frames['end'], $declarations);
-                            }
-                        }
+        $transformer->visitStyleRules(
+            $body,
+            function (string $prelude, string $declarationBlock) use (&$frames): void {
+                $declarations = $this->declarations($declarationBlock);
+                if ( array() === $declarations ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $offset ) {
+                    $offset = strtolower(trim($offset));
+                    if ( 'from' === $offset || '0%' === $offset ) {
+                        $frames['start'] = array_merge($frames['start'], $declarations);
+                    } elseif ( 'to' === $offset || '100%' === $offset ) {
+                        $frames['end'] = array_merge($frames['end'], $declarations);
                     }
-                );
-                $keyframes[ $name ] = $frames;
+                }
             }
         );
-
-        return $keyframes;
+        return $frames;
     }
 
     /** @return array<string, string> */
