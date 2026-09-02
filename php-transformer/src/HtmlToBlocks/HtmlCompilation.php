@@ -3329,7 +3329,8 @@ final class HtmlCompilation implements SourceBlockCreator
     private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement): array
     {
         $wrappers = array_map(function (DOMElement $element): array {
-            $tagName = strtolower($element->tagName);
+            $sourceTagName = strtolower($element->tagName);
+            $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
             $attributes = $this->htmlAttributes($element);
             $opening = '<' . $tagName;
             foreach ( $attributes as $name => $value ) {
@@ -4080,9 +4081,13 @@ final class HtmlCompilation implements SourceBlockCreator
     }
 
     /** @return array<string, mixed> */
-    private function cssOwnedGroupAttributes(DOMElement $element): array
+    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false): array
     {
-        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes(
+            $element,
+            array(),
+            $carryOwnTextAlignment ? array( 'text-align' ) : array()
+        );
         $layout = $attrs['layout'] ?? null;
         if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
             // The source track list is exactly expressible as native grid
@@ -8738,7 +8743,10 @@ final class HtmlCompilation implements SourceBlockCreator
 
         return $this->createBlock(
             'core/group',
-            array_merge($this->cssOwnedGroupAttributes($list), array( 'tagName' => strtolower($list->tagName) )),
+            // This list is already materializing as a Group, so carrying its own
+            // alignment cannot introduce the extra topology avoided by the
+            // generic presentation resolver's text-align gate.
+            array_merge($this->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
             $items,
             $list
         );
