@@ -2940,8 +2940,8 @@ final class StyleResolver
 
     /**
      * Custom properties visible to `$element` through the unfiltered cascade,
-     * scoped by ancestry rather than limited to `:root`/`html`.
-     * — an id- or class-scoped `--token` an ancestor declares is a legitimate
+     * scoped by ancestry rather than limited to `:root`/`html`. An id- or
+     * class-scoped `--token` an ancestor declares is a legitimate source.
      * This supports any property that needs an element-scoped `var()` value,
      * including SVG paint and structural layout declarations.
      *
