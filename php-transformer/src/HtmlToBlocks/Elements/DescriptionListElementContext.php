@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -20,9 +21,9 @@ final class DescriptionListElementContext
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement): string $richTextContent
      * @param Closure(string): bool $hasVisibleText
-     * @param Closure(DOMElement): bool $hasBlockContentChildren
      */
     public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $descriptionListBlock,
         private readonly Closure $metadataGridBlock,
         private readonly Closure $definitionListItems,
@@ -32,8 +33,7 @@ final class DescriptionListElementContext
         private readonly Closure $convertChildren,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
-        private readonly Closure $hasVisibleText,
-        private readonly Closure $hasBlockContentChildren
+        private readonly Closure $hasVisibleText
     ) {
     }
 
@@ -96,6 +96,6 @@ final class DescriptionListElementContext
 
     public function hasBlockContentChildren(DOMElement $element): bool
     {
-        return ($this->hasBlockContentChildren)($element);
+        return $this->sourceElementClassifier->hasBlockContentChildren($element);
     }
 }

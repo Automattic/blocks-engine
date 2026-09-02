@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -29,6 +30,7 @@ $elementFrom = static function (string $html): DOMElement {
 
 $state = (object) array( 'mode' => 'plain' );
 $context = new InlineContentElementContext(
+    new SourceElementClassifier(),
     static fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => 'social' === $state->mode ? array( 'blockName' => 'core/social-links' ) : null,
     static fn (DOMElement $element): bool => 'runtime' === $state->mode,
     static fn (DOMElement $element): array => array( 'blockName' => 'core/html' ),
@@ -45,7 +47,6 @@ $context = new InlineContentElementContext(
         'sourceTag' => $sourceElement?->tagName,
     ),
     static fn (DOMElement $element): string => '',
-    static fn (DOMElement $element): bool => false,
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): ?string => null,
     static fn (DOMElement $element, string $tagName): ?DOMElement => null,

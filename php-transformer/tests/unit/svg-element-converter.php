@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
@@ -29,11 +30,11 @@ $elementFrom = static function (string $html): DOMElement {
 $state = (object) array( 'mode' => 'block' );
 $fallbackCaptures = 0;
 $context = new SvgElementContext(
+    new SourceElementClassifier(),
     static fn (DOMElement $element): bool => 'inert' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'runtime-'),
     static fn (DOMElement $element): string => '<svg viewbox="0 0 1 1"></svg>',
     static fn (string $html): bool => 'runtime-safe' === $state->mode,
-    static fn (DOMElement $element): bool => 'visual' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'drawable-'),
     static fn (DOMElement $element): array => array( 'className' => 'visual-svg' ),
     static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
@@ -110,7 +111,7 @@ $drawable = $converter->convert($svg, 'svg', $fallbacks)->block;
 $assert('core/image' === ($drawable['blockName'] ?? ''), 'decorative-drawable-block');
 
 $state->mode = 'visual';
-$visual = $converter->convert($svg, 'svg', $fallbacks)->block;
+$visual = $converter->convert($elementFrom('<svg class="decorative"><path d="M0 0"></path></svg>'), 'svg', $fallbacks)->block;
 $assert('core/group' === ($visual['blockName'] ?? '') && 'visual-svg' === ($visual['attrs']['className'] ?? ''), 'visual-layer-carrier');
 
 $state->mode = 'decorative-empty';

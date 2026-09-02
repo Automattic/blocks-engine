@@ -496,8 +496,8 @@ final class HtmlCompilation
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
         $this->authorSelectorSemanticPreparer = new AuthorSelectorSemanticPreparer(
             new AuthorSelectorSemanticContext(
+                $this->sourceElementClassifier,
                 fn (DOMElement $element): bool => $this->isDirectChildOfAuthorOwnedLayout($element),
-                fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
                 fn (DOMElement $element): bool => $this->isStructuralListItem($element),
                 fn (DOMElement $element): bool => $this->requiresIndependentSemanticWrapper($element),
                 fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
@@ -527,11 +527,11 @@ final class HtmlCompilation
             $this->runtime
         );
         $svgConverter = new SvgElementConverter(new SvgElementContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element): bool => $this->isInertHiddenSvgStorage($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => $this->isSafeSvgContent($html),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
             fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
@@ -540,6 +540,7 @@ final class HtmlCompilation
             }
         ), $this->svgMaterializer);
         $inlineContentConverter = new InlineContentElementConverter(new InlineContentElementContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element, array &$fallbacks, array $patterns): ?array => $this->recognizePatterns($element, $fallbacks, $patterns),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
@@ -551,7 +552,6 @@ final class HtmlCompilation
             fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => $this->convertChildren($element, $fallbacks, $captureUnsupported),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element): string => $this->richTextMarkerForElement($element),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             fn (DOMElement $element): array => $this->richTextInlineVisualDeclarations($element),
             fn (DOMElement $element): ?string => $this->dynamicTextContent($element),
             fn (DOMElement $element, string $tagName): ?DOMElement => $this->ancestorElement($element, $tagName),
@@ -665,8 +665,8 @@ final class HtmlCompilation
         ));
         $this->buttonLinkDispatcher = new ButtonLinkDispatcher($this->createButtonLinkDispatchContext());
         $buttonConverter = new ButtonElementConverter(new ButtonElementContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element): bool => $this->searchBlockConverter->isReplacedSearchClusterControl($element),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->isImageCarrierButton($element),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
@@ -746,6 +746,7 @@ final class HtmlCompilation
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         ));
         $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
             fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
             fn (DOMElement $element): array => $this->definitionListItems($element),
@@ -757,8 +758,7 @@ final class HtmlCompilation
             },
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element): string => $this->richTextContentWithMaterializedInlineStyles($element),
-            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element)
+            fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html))
         ));
         $this->structuralContentConverters = new OrderedElementConverterRegistry(array(
             $inlineContentConverter,
@@ -913,10 +913,9 @@ final class HtmlCompilation
     {
         return new SvgMaterializationContext(
             $this->session,
+            $this->sourceElementClassifier,
             fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
                 => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
-            fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->isVisualLayerElement($element),
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element)
@@ -955,6 +954,7 @@ final class HtmlCompilation
     private function createButtonLinkDispatchContext(): ButtonLinkDispatchContext
     {
         return new ButtonLinkDispatchContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             function (DOMElement $element): void {
                 $this->formRuntimeIslandRecorder->recordControl($element);
@@ -973,7 +973,6 @@ final class HtmlCompilation
             fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (string $href): string => $this->safeLinkUrl($href),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element)
         );
     }
@@ -983,12 +982,11 @@ final class HtmlCompilation
     {
         return new RuntimeIslandContext(
             $this->session,
+            $this->sourceElementClassifier,
             fn (DOMElement $element): iterable => $this->descendantElements($element),
             fn (DOMElement $element): array => $this->requiredScriptsForElement($element),
             fn (string $html): ?DOMElement => $this->preservedHtmlRootElement($html),
-            fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element),
-            fn (string $tagName): bool => $this->sourceElementClassifier->isInlineContentElement($tagName),
-            fn (string $selector): bool => $this->sourceElementClassifier->isPresentationalAnimationSelector($selector)
+            fn (DOMElement $element): bool => $this->hasWorkspaceSurface($element)
         );
     }
 
@@ -1061,6 +1059,7 @@ final class HtmlCompilation
     private function createTextLeafElementContext(): TextLeafElementContext
     {
         return new TextLeafElementContext(
+            $this->sourceElementClassifier,
             fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
@@ -1068,7 +1067,6 @@ final class HtmlCompilation
             fn (string $text): string => $this->runtime->escapeHtml($text),
             fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
             fn (DOMElement $code): string => $this->codeContent($code),
-            fn (DOMElement $element): bool => $this->sourceElementClassifier->hasBlockContentChildren($element),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             }
@@ -2599,9 +2597,9 @@ final class HtmlCompilation
                 )
             ),
             new QuotePatternContext(
+                $this->sourceElementClassifier,
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
-                fn (string $html): string => $this->runtime->stripAllTags($html),
-                fn (string $inlineTagName): bool => $this->sourceElementClassifier->isInlineContentElement($inlineTagName)
+                fn (string $html): string => $this->runtime->stripAllTags($html)
             ),
             new CodeWindowPatternContext(
                 fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),

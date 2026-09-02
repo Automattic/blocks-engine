@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -24,10 +25,10 @@ final class TextLeafElementContext
      * @param Closure(string): string                                                          $escapeHtml
      * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
      * @param Closure(DOMElement): string                                                      $codeContent
-     * @param Closure(DOMElement): bool                                                        $hasBlockContentChildren
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
      */
     public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
@@ -35,7 +36,6 @@ final class TextLeafElementContext
         private readonly Closure $escapeHtml,
         private readonly Closure $codePresentationAttributes,
         private readonly Closure $codeContent,
-        private readonly Closure $hasBlockContentChildren,
         private readonly Closure $convertChildren
     ) {
     }
@@ -93,7 +93,7 @@ final class TextLeafElementContext
 
     public function hasBlockContentChildren(DOMElement $element): bool
     {
-        return ($this->hasBlockContentChildren)($element);
+        return $this->sourceElementClassifier->hasBlockContentChildren($element);
     }
 
     /**

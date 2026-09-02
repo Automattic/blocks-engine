@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
@@ -73,6 +74,7 @@ $assert('grid-list' === ($grid['attrs']['className'] ?? ''), 'css-grid-list-attr
 
 $state->mode = 'native';
 $descriptionContext = new DescriptionListElementContext(
+    new SourceElementClassifier(),
     static fn (DOMElement $element): ?array => 'description' === $state->mode ? array( 'blockName' => 'blocks-engine/description-list' ) : null,
     static fn (DOMElement $element): ?array => 'metadata' === $state->mode ? array( 'blockName' => 'core/group', 'attrs' => array( 'metadata' => true ) ) : null,
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
@@ -82,8 +84,7 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
     $createBlock,
     static fn (DOMElement $element): string => $element->textContent ?? '',
-    static fn (string $text): bool => '' !== trim(strip_tags($text)),
-    static fn (DOMElement $element): bool => 'block-detail' === $state->mode
+    static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
 $descriptionConverter = new DescriptionListElementConverter($descriptionContext);
 $assert($descriptionConverter->handles('dl') && $descriptionConverter->handles('dt') && $descriptionConverter->handles('dd') && ! $descriptionConverter->handles('ul'), 'description-handles-tags');

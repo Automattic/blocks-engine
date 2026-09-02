@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
@@ -21,17 +22,14 @@ final class SvgMaterializationContext
 {
     /**
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement, ?DOMElement): array<string, mixed> $createBlock
-     * @param Closure(string): bool                                                                $isInlineContentElement
-     * @param Closure(DOMElement): bool                                                            $isVisualLayerElement
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $createBlock,
-        private readonly Closure $isInlineContentElement,
-        private readonly Closure $isVisualLayerElement,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
         private readonly Closure $sanitizeInlineSvgMarkup
@@ -55,12 +53,12 @@ final class SvgMaterializationContext
 
     public function isInlineContentElement(string $tagName): bool
     {
-        return ($this->isInlineContentElement)($tagName);
+        return $this->sourceElementClassifier->isInlineContentElement($tagName);
     }
 
     public function isVisualLayerElement(DOMElement $element): bool
     {
-        return ($this->isVisualLayerElement)($element);
+        return $this->sourceElementClassifier->isVisualLayerElement($element);
     }
 
     public function layoutGeometry(): LayoutGeometryState

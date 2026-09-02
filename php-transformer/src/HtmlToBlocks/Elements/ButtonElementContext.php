@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -10,8 +11,8 @@ use DOMElement;
 final class ButtonElementContext
 {
     public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $isReplacedSearchClusterControl,
-        private readonly Closure $isImageCarrierButton,
         private readonly Closure $convertChildren,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
@@ -26,7 +27,7 @@ final class ButtonElementContext
 
     public function isImageCarrierButton(DOMElement $element): bool
     {
-        return ($this->isImageCarrierButton)($element);
+        return $this->sourceElementClassifier->isImageCarrierButton($element);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
