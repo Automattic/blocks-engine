@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -19,7 +20,6 @@ use DOMElement;
 final class RichTextElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed>              $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, string>): string                                                $richTextContent
      * @param Closure(string): string                                                                        $headingRichTextContent
@@ -35,7 +35,7 @@ final class RichTextElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      */
     public function __construct(
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
         private readonly Closure $headingRichTextContent,
@@ -60,7 +60,7 @@ final class RichTextElementContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedProperties, $excludedGeometryProperties);
+        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
     }
 
     /**

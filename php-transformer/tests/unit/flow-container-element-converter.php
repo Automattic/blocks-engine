@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 
 $assertions = 0;
 $failures = array();
@@ -84,7 +85,7 @@ $operations = array(
     'backgroundImageBlock' => $null,
     'coalescedSingleGroupWrapper' => $null,
     'shouldPreserveWrapper' => $false,
-    'presentationAttributes' => static fn (): array => array( 'className' => 'flow' ),
+    'presentationResolver' => new ElementPresentationResolverFixture(static fn (): array => array( 'className' => 'flow' )),
     'emptyVisualSpacerBlock' => static fn (): array => array( 'blockName' => 'core/spacer' ),
 );
 $converter = new FlowContainerElementConverter(new FlowContainerElementContext(...$operations));

@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionList
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 
 $assertions = 0;
 $failures = array();
@@ -45,7 +46,7 @@ $listContext = new ListElementContext(
     static fn (DOMElement $element, array &$fallbacks): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/list-item' ) ),
     static fn (DOMElement $element): bool => 'grid' === $state->mode,
     static fn (DOMElement $element): array => array( 'className' => 'grid-list' ),
-    static fn (DOMElement $element): array => array( 'className' => 'presented-list' ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-list' )),
     $createBlock
 );
 $listConverter = new ListElementConverter($listContext);
@@ -80,7 +81,7 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
     static fn (DOMElement $element): bool => 'grid-items' === $state->mode,
     static fn (DOMElement $element): array => array( 'className' => 'grid-description' ),
-    static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
     $createBlock,
     static fn (DOMElement $element): string => $element->textContent ?? '',

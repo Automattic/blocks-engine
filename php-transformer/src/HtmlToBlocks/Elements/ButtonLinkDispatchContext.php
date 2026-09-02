@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -20,10 +21,8 @@ final class ButtonLinkDispatchContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $linkedSvgLogoBlockFromAnchor
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromAnchor
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $convertLinkWrapperGroup
-     * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed>               $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): string                                                                        $safeLinkUrl
-     * @param Closure(DOMElement): array<string, mixed>                                                      $structuralPresentationDeclarations
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
@@ -34,10 +33,9 @@ final class ButtonLinkDispatchContext
         private readonly Closure $linkedSvgLogoBlockFromAnchor,
         private readonly Closure $imageBlockFromAnchor,
         private readonly Closure $convertLinkWrapperGroup,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $createBlock,
-        private readonly Closure $safeLinkUrl,
-        private readonly Closure $structuralPresentationDeclarations
+        private readonly Closure $safeLinkUrl
     ) {
     }
 
@@ -102,7 +100,7 @@ final class ButtonLinkDispatchContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedProperties, $excludedGeometryProperties);
+        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
     }
 
     /**
@@ -130,6 +128,6 @@ final class ButtonLinkDispatchContext
      */
     public function structuralPresentationDeclarations(DOMElement $element): array
     {
-        return ($this->structuralPresentationDeclarations)($element);
+        return $this->presentationResolver->structuralPresentationDeclarations($element);
     }
 }

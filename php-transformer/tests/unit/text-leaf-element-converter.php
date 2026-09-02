@@ -15,6 +15,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -57,7 +58,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
 
     return new TextLeafElementConverter(new TextLeafElementContext(
         new SourceElementClassifier(),
-        $c['presentationAttributes'],
+        new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
         $c['richTextContent'],
         new Runtime(),

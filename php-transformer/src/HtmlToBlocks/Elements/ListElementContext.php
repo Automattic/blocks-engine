@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -19,7 +20,6 @@ final class ListElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $listItems
      * @param Closure(DOMElement): bool $isCssOwnedGridElement
      * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
-     * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
@@ -32,7 +32,7 @@ final class ListElementContext
         private readonly Closure $listItems,
         private readonly Closure $isCssOwnedGridElement,
         private readonly Closure $cssOwnedGridAttributes,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $createBlock
     ) {
     }
@@ -91,7 +91,7 @@ final class ListElementContext
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array
     {
-        return ($this->presentationAttributes)($element);
+        return $this->presentationResolver->presentationAttributes($element);
     }
 
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -14,7 +15,7 @@ final class ButtonElementContext
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $isReplacedSearchClusterControl,
         private readonly Closure $convertChildren,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $createBlock,
         private readonly Closure $convertButton
     ) {
@@ -39,7 +40,7 @@ final class ButtonElementContext
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array
     {
-        return ($this->presentationAttributes)($element);
+        return $this->presentationResolver->presentationAttributes($element);
     }
 
     /**

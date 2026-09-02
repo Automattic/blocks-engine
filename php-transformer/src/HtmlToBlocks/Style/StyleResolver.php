@@ -21,7 +21,7 @@ use DOMElement;
  * it needs 15 transformer operations and 3 collaborators, which is fewer
  * external dependencies than traits a third its size.
  */
-final class StyleResolver
+final class StyleResolver implements ElementPresentationResolver
 {
     public function __construct(
         private readonly StyleResolutionContext $context,
