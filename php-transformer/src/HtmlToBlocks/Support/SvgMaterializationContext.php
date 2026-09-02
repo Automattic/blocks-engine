@@ -25,6 +25,7 @@ final class SvgMaterializationContext
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
+     * @param Closure(DOMElement, string, string): array<string, mixed>                             $responsiveMediaBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -32,7 +33,8 @@ final class SvgMaterializationContext
         private readonly Closure $createBlock,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
-        private readonly Closure $sanitizeInlineSvgMarkup
+        private readonly Closure $sanitizeInlineSvgMarkup,
+        private readonly Closure $responsiveMediaBlock
     ) {
     }
 
@@ -84,6 +86,12 @@ final class SvgMaterializationContext
     public function sanitizeInlineSvgMarkup(DOMElement $element): string
     {
         return ($this->sanitizeInlineSvgMarkup)($element);
+    }
+
+    /** @return array<string, mixed> */
+    public function responsiveMediaBlock(DOMElement $element, string $content, string $kind): array
+    {
+        return ($this->responsiveMediaBlock)($element, $content, $kind);
     }
 
     public function transformationEvidence(): TransformationEvidenceState

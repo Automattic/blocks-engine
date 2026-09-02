@@ -920,7 +920,8 @@ final class HtmlCompilation
                 => $this->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement),
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element)
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element, string $content, string $kind): array => $this->responsiveMediaBlock($element, $content, $kind)
         );
     }
 
@@ -9787,7 +9788,7 @@ final class HtmlCompilation
     }
 
     /** @return array<string, mixed> */
-    private function responsiveMediaBlock(DOMElement $element): array
+    private function responsiveMediaBlock(DOMElement $element, ?string $content = null, string $kind = 'media'): array
     {
         if ( $this->hasUnsafeResponsiveImageSources($element) ) {
             return $this->responsiveImageFallbackBlock($element);
@@ -9797,7 +9798,7 @@ final class HtmlCompilation
 
         return $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
+            array( 'content' => $content ?? $this->safeFallbackHtml($element), 'kind' => $kind ),
             array(),
             $element
         );

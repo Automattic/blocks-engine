@@ -1143,7 +1143,7 @@ $externallyAnimatedSvg = ( new HtmlTransformer() )->transform(
 )->toArray();
 $externallyAnimatedSvgMarkup = (string) ($externallyAnimatedSvg['serialized_blocks'] ?? '');
 $externallyAnimatedSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $externallyAnimatedSvg['assets'] ?? array()));
-$assert('core/html' === ($externallyAnimatedSvg['blocks'][0]['blockName'] ?? '') && str_contains($externallyAnimatedSvgMarkup, '<path class="steam"') && str_contains($externallyAnimatedSvgCss, '.steam{animation:steamRise 3s infinite}'), 'page-CSS animated SVG descendants remain sanitized inline DOM in the parent document');
+$assert('custom/responsive-media' === ($externallyAnimatedSvg['blocks'][0]['blockName'] ?? '') && 'animated-svg' === ($externallyAnimatedSvg['blocks'][0]['attrs']['kind'] ?? '') && str_contains((string) ($externallyAnimatedSvg['blocks'][0]['attrs']['content'] ?? ''), '<path class="steam"') && ! str_contains($externallyAnimatedSvgMarkup, '<!-- wp:html') && str_contains($externallyAnimatedSvgCss, '.steam{animation:steamRise 3s infinite}'), 'page-CSS animated SVG descendants use a typed inline media block in the parent document');
 
 $exportedSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg version="1.1" class="quote-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 25.666 20.188" enable-background="new 0 0 25.666 20.188" xml:space="preserve"><g><path d="M9.33,9.33H4.814V0h9.33V9.33z"></path></g></svg></main>'

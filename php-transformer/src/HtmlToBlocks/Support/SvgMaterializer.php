@@ -67,6 +67,10 @@ final class SvgMaterializer implements SvgElementMaterializer
             return $imageBlock;
         }
 
+        if ( $this->hasPageCssAnimatedDescendant($element) ) {
+            return $this->context->responsiveMediaBlock($element, $html, 'animated-svg');
+        }
+
         // Honest floor: keep SVGs that need inline document context as sanitized
         // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
         $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG uses behavior or external document features that cannot be represented as a static editable core/image asset.');
@@ -714,20 +718,8 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
-        // A materialized image is a separate document, so page CSS cannot reach
-        // animated descendants such as steam paths or illustrated particles.
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-            $declarations = $this->styleResolver->matchedCascadedDeclarations($descendant);
-            foreach ( array( 'animation', 'animation-name' ) as $property ) {
-                $value = strtolower(trim((string) ($declarations[$property] ?? '')));
-                $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
-                if ( '' !== $value && 1 !== preg_match('/^(?:none|initial|inherit|unset|revert)(?:\s|$)/', $value) ) {
-                    return false;
-                }
-            }
+        if ( $this->hasPageCssAnimatedDescendant($element) ) {
+            return false;
         }
 
         // The materialized SVG renders in a separate image document. Paint and
@@ -751,6 +743,26 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return true;
+    }
+
+    private function hasPageCssAnimatedDescendant(DOMElement $element): bool
+    {
+        // A materialized image is a separate document, so page CSS cannot reach
+        // animated descendants such as steam paths or illustrated particles.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $declarations = $this->styleResolver->matchedCascadedDeclarations($descendant);
+            foreach ( array( 'animation', 'animation-name' ) as $property ) {
+                $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+                $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
+                if ( '' !== $value && 1 !== preg_match('/^(?:none|initial|inherit|unset|revert)(?:\s|$)/', $value) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
