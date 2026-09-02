@@ -210,11 +210,13 @@ final class NavigationBlockNormalizer
         $attributes = is_array($source['source_attributes'] ?? null) ? $source['source_attributes'] : array();
         $context = is_array($source['context'] ?? null) ? $source['context'] : array();
         $classNames = is_array($context['class_names'] ?? null) ? implode(' ', $context['class_names']) : '';
+        $ancestorClassNames = is_array($context['ancestor_class_names'] ?? null) ? implode(' ', $context['ancestor_class_names']) : '';
 
         $haystack = strtolower(trim(implode(' ', array(
             (string) ($attributes['class'] ?? ''),
             (string) ($attributes['id'] ?? ''),
             $classNames,
+            $ancestorClassNames,
         ))));
 
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:mobile|drawer|offcanvas|overlay|collapsed|hamburger|menu-panel|nav-panel)(?:[^a-z0-9]|$)/', $haystack);

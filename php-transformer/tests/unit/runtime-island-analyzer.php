@@ -17,8 +17,10 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMeta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures   = array();
@@ -71,9 +73,6 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
     );
 
     $defaults = array(
-        'fallbackEmitter'  => static fn () => throw new RuntimeException('fallbackEmitter not expected in this test'),
-        'runtimeDom'       => static fn (): RuntimeDomState => new RuntimeDomState(),
-        'runtimeSelectors' => static fn (): RuntimeSelectorState => $selectors,
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
         'descendants'      => $descendants,
         'islandSelector'   => static fn (DOMElement $e): string => strtolower($e->tagName),
@@ -86,13 +85,13 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
+    $session = $c['session'] ?? new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+    $session->installRuntimeSelectorState($selectors);
 
     $metadataBuilder = new FormControlMetadataBuilder($c['islandSelector']);
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
     return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
-        $c['fallbackEmitter'],
-        $c['runtimeDom'],
-        $c['runtimeSelectors'],
+        $session,
         $c['descendants'],
         $c['requiredScripts'],
         $c['preservedRoot'],
@@ -168,9 +167,10 @@ $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><b
 $assert(! $retain->canRetainRuntimeDomContractNatively($elementFrom('<section><p>t</p></section>'), 'core/image'), 'unsupported-block-name-does-not-retain');
 
 // Block materialization delegates the complete runtime DOM recording decision.
-$runtimeDom = new RuntimeDomState();
+$blockRuntimeSession = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$runtimeDom = $blockRuntimeSession->runtimeDomState();
 $blockRuntime = $makeAnalyzer(array('#mount'), array(), array(
-    'runtimeDom' => static fn (): RuntimeDomState => $runtimeDom,
+    'session' => $blockRuntimeSession,
 ));
 $assert($blockRuntime->recordBlockRuntimeDomContract($elementFrom('<section id="mount"><p>text</p></section>'), 'core/group'), 'runtime-block-contract-recorded');
 $assert(array(array('block_name' => 'core/group', 'tag' => 'section', 'selector' => '#mount')) === $runtimeDom->preservations(), 'runtime-block-native-preservation-recorded');

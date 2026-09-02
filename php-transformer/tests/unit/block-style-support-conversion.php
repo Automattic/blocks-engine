@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityComparator;
@@ -363,8 +364,8 @@ $assert(! isset($paintAttrs['style']['box-shadow']), '40: class-owned box-shadow
 $assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '41: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
 // Style resolution moved to StyleResolver under #242.
-$styleResolverProperty = new ReflectionProperty(HtmlTransformer::class, 'styleResolver');
-$paintRules = $styleResolverProperty->getValue(new HtmlTransformer())->stylesheetAnalysis($paintCss)['static'];
+$styleResolverProperty = new ReflectionProperty(HtmlCompilation::class, 'styleResolver');
+$paintRules = $styleResolverProperty->getValue(new HtmlCompilation())->stylesheetAnalysis($paintCss)['static'];
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
 $assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));

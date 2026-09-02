@@ -1782,6 +1782,7 @@ final class StyleResolver
             array() === $declarations
             || $this->isDecorativeHiddenElement($element)
             || $this->isExplicitlyInactiveState($element)
+            || $this->isHiddenPositionedLayer($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
         ) {
             return $declarations;
@@ -1850,6 +1851,29 @@ final class StyleResolver
         }
 
         return false;
+    }
+
+    /** @param array<string, string> $declarations */
+    private function isHiddenPositionedLayer(DOMElement $element, array $declarations): bool
+    {
+        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? '1'));
+        $hidden = 'none' === CssValueInspector::comparable((string) ($declarations['display'] ?? ''))
+            || 'hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))
+            || (is_numeric($opacity) && 0.0 === (float) $opacity);
+        if ( ! $hidden ) {
+            return false;
+        }
+
+        $resolved = array();
+        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
+            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
+                $resolved = $this->mergeCssDeclarationMaps($resolved, $rule['declarations']);
+            }
+        }
+        $resolved = $this->mergeCssDeclarationMaps($resolved, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+        $resolved = $this->mergeCssDeclarationMaps($resolved, $declarations);
+        $position = CssValueInspector::comparable((string) ($resolved['position'] ?? ''));
+        return in_array($position, array( 'absolute', 'fixed' ), true);
     }
 
     /** @return list<string> */

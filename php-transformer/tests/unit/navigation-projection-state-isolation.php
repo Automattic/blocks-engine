@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
 
@@ -40,7 +41,7 @@ $cssFor = static function (string $htmlPath): string {
     return $css;
 };
 
-$markup = static function (HtmlTransformer $transformer, string $htmlPath) use ($cssFor): string {
+$markup = static function (HtmlTransformer|HtmlCompilation $transformer, string $htmlPath) use ($cssFor): string {
     $result = $transformer->transform(
         (string) file_get_contents($htmlPath),
         array( 'static_css' => $cssFor($htmlPath) )
@@ -66,7 +67,7 @@ if ($expected !== $actual) {
 
 // The priming document must genuinely exercise the projection path, otherwise
 // the comparison above passes for the wrong reason.
-$probe = new HtmlTransformer();
+$probe = new HtmlCompilation();
 $markup($probe, $priming);
 $session = ( new ReflectionClass($probe) )->getProperty('session')->getValue($probe);
 $state = $session->navigationProjectionState();
@@ -88,9 +89,10 @@ if (! $state->hasTargetForControl($control) || ! $state->isSuppressed($control))
     exit(1);
 }
 
-// A fresh transform must not see the writes above.
-$markup($probe, $subject);
-$freshState = ( new ReflectionClass($probe) )->getProperty('session')->getValue($probe)->navigationProjectionState();
+// A fresh compilation must not see the writes above.
+$freshProbe = new HtmlCompilation();
+$markup($freshProbe, $subject);
+$freshState = ( new ReflectionClass($freshProbe) )->getProperty('session')->getValue($freshProbe)->navigationProjectionState();
 if ($freshState->hasTargetForControl($control) || $freshState->isSuppressed($control)) {
     fwrite(STDERR, "Navigation projection isolation contract failed: state survived a transform.\n");
     exit(1);

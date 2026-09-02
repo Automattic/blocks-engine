@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Closure;
 use DOMElement;
 
@@ -16,8 +18,7 @@ final class FlowContainerElementContext
         private readonly Closure $recognizePatterns,
         private readonly Closure $flankedSeparatorBlock,
         private readonly Closure $capturedMediaLayoutBlock,
-        private readonly Closure $hasResponsiveImageSources,
-        private readonly Closure $hasGalleryMediaItems,
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $responsiveMediaBlock,
         private readonly Closure $isDirectChildOfAuthorOwnedLayout,
         private readonly Closure $authorLayoutBlock,
@@ -29,7 +30,7 @@ final class FlowContainerElementContext
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualElementAttributes,
         private readonly Closure $createBlock,
-        private readonly Closure $navigationSectionBlock,
+        private readonly PatternContext $patternContext,
         private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $metadataGridBlock,
@@ -44,7 +45,6 @@ final class FlowContainerElementContext
         private readonly Closure $generatedComponentBlock,
         private readonly Closure $textFlowBlock,
         private readonly Closure $convertChildren,
-        private readonly Closure $hasDirectMediaChild,
         private readonly Closure $backgroundImageBlock,
         private readonly Closure $coalescedSingleGroupWrapper,
         private readonly Closure $shouldPreserveWrapper,
@@ -64,8 +64,8 @@ final class FlowContainerElementContext
     public function flankedSeparatorBlock(DOMElement $element): ?array { return ($this->flankedSeparatorBlock)($element); }
     /** @return array<string, mixed>|null */
     public function capturedMediaLayoutBlock(DOMElement $element): ?array { return ($this->capturedMediaLayoutBlock)($element); }
-    public function hasResponsiveImageSources(DOMElement $element): bool { return ($this->hasResponsiveImageSources)($element); }
-    public function hasGalleryMediaItems(DOMElement $element): bool { return ($this->hasGalleryMediaItems)($element); }
+    public function hasResponsiveImageSources(DOMElement $element): bool { return $this->sourceElementClassifier->hasResponsiveImageSources($element); }
+    public function hasGalleryMediaItems(DOMElement $element): bool { return $this->sourceElementClassifier->hasGalleryMediaItems($element); }
     /** @return array<string, mixed> */
     public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
     public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool { return ($this->isDirectChildOfAuthorOwnedLayout)($element); }
@@ -83,8 +83,7 @@ final class FlowContainerElementContext
     public function emptyVisualElementAttributes(DOMElement $element): array { return ($this->emptyVisualElementAttributes)($element); }
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
     public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array { return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement); }
-    /** @return array<string, mixed>|null */
-    public function navigationSectionBlock(DOMElement $element): ?array { return ($this->navigationSectionBlock)($element); }
+    public function patternContext(): PatternContext { return $this->patternContext; }
     public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
     public function rememberAccordionDisclosureRoot(array $block, DOMElement $element): array { return ($this->rememberAccordionDisclosureRoot)($block, $element); }
@@ -111,7 +110,7 @@ final class FlowContainerElementContext
     public function textFlowBlock(DOMElement $element): ?array { return ($this->textFlowBlock)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks); }
-    public function hasDirectMediaChild(DOMElement $element): bool { return ($this->hasDirectMediaChild)($element); }
+    public function hasDirectMediaChild(DOMElement $element): bool { return $this->sourceElementClassifier->hasDirectMediaChild($element); }
     /** @return array<string, mixed>|null */
     public function backgroundImageBlock(DOMElement $element): ?array { return ($this->backgroundImageBlock)($element); }
     /** @param array<string, mixed> $child @return array<string, mixed>|null */
