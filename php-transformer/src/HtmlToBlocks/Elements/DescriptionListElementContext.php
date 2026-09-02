@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -16,7 +17,6 @@ final class DescriptionListElementContext
      * @param Closure(DOMElement): array<int, array<string, mixed>> $definitionListItems
      * @param Closure(DOMElement): bool $isCssOwnedGridElement
      * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
-     * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement): string $richTextContent
@@ -29,7 +29,7 @@ final class DescriptionListElementContext
         private readonly Closure $definitionListItems,
         private readonly Closure $isCssOwnedGridElement,
         private readonly Closure $cssOwnedGridAttributes,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $convertChildren,
         private readonly Closure $createBlock,
         private readonly Closure $richTextContent,
@@ -69,7 +69,7 @@ final class DescriptionListElementContext
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array
     {
-        return ($this->presentationAttributes)($element);
+        return $this->presentationResolver->presentationAttributes($element);
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */

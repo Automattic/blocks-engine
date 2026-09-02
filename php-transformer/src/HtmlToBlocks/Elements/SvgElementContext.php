@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -16,7 +17,6 @@ final class SvgElementContext
      * @param Closure(DOMElement): string $sanitizeMarkup
      * @param Closure(string): bool $isSafeContent
      * @param Closure(DOMElement): bool $hasDrawableContent
-     * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): void $captureFallback
      */
@@ -27,7 +27,7 @@ final class SvgElementContext
         private readonly Closure $sanitizeMarkup,
         private readonly Closure $isSafeContent,
         private readonly Closure $hasDrawableContent,
-        private readonly Closure $presentationAttributes,
+        private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $createBlock,
         private readonly Closure $captureFallback
     ) {
@@ -66,7 +66,7 @@ final class SvgElementContext
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array
     {
-        return ($this->presentationAttributes)($element);
+        return $this->presentationResolver->presentationAttributes($element);
     }
 
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */

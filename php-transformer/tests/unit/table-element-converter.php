@@ -14,6 +14,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -55,7 +56,7 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         $c['nested'],
         $c['media'],
         $c['preserve'],
-        $c['presentation'],
+        new ElementPresentationResolverFixture($c['presentation']),
         $c['tableAttrs'],
         $c['createBlock']
     ));

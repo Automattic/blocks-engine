@@ -486,12 +486,12 @@ final class HtmlCompilation
         );
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
+        $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->patternContext = $this->createPatternContext(true);
         $this->patternContextWithoutRuntimeDomTarget = $this->createPatternContext(false);
         $this->patternProbeContext = $this->createProbePatternContext();
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
-        $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
         $this->sourceBlockAttributeProjector = new SourceBlockAttributeProjector($this->styleResolver, $this->generatedBlockStyleProjector);
         $this->stylesheetAnalysisComposer = new StylesheetAnalysisComposer($this->styleResolver, $this->analysisCache);
@@ -534,7 +534,7 @@ final class HtmlCompilation
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (string $html): bool => $this->isSafeSvgContent($html),
             fn (DOMElement $element): bool => $this->svgHasDrawableContent($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             function (DOMElement $element, array &$fallbacks): void {
                 $this->captureInlineSvgFallback($element, $fallbacks);
@@ -671,7 +671,7 @@ final class HtmlCompilation
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element),
             fn (DOMElement $element): ?array => $this->buttonLinkDispatcher->convertButton($element)
         ));
@@ -717,7 +717,7 @@ final class HtmlCompilation
                 return $this->convertFigureGeneric($figure, $fallbacks);
             },
             fn (string $html): bool => '' !== trim($this->runtime->stripAllTags($html)),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         ));
         $quoteConverter = new QuoteElementConverter(new QuoteElementContext(
@@ -743,7 +743,7 @@ final class HtmlCompilation
             },
             fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
             fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         ));
         $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
@@ -753,7 +753,7 @@ final class HtmlCompilation
             fn (DOMElement $element): array => $this->definitionListItems($element),
             fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
             fn (DOMElement $element): array => $this->cssOwnedGridAttributes($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this->styleResolver,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
@@ -822,7 +822,7 @@ final class HtmlCompilation
             backgroundImageBlock: fn (DOMElement $element): ?array => $this->backgroundImageBlockFromElement($element),
             coalescedSingleGroupWrapper: fn (DOMElement $element, array $child): ?array => $this->coalescedSingleGroupWrapper($element, $child),
             shouldPreserveWrapper: fn (DOMElement $element): bool => $this->shouldPreserveWrapper($element),
-            presentationAttributes: fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            presentationResolver: $this->styleResolver,
             emptyVisualSpacerBlock: fn (DOMElement $element): array => $this->emptyVisualSpacerBlock($element)
         ));
         $this->mediaDispatchConverter = new MediaDispatchElementConverter(new MediaDispatchElementContext(
@@ -929,8 +929,7 @@ final class HtmlCompilation
     {
         return new SearchBlockConversionContext(
             $this->session,
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationDeclarations($element),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
@@ -972,10 +971,9 @@ final class HtmlCompilation
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->convertLinkWrapperGroup($element, $fallbacks);
             },
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
-            fn (string $href): string => $this->safeLinkUrl($href),
-            fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element)
+            fn (string $href): string => $this->safeLinkUrl($href)
         );
     }
 
@@ -1006,7 +1004,7 @@ final class HtmlCompilation
                 return $this->mediaLayoutTableColumnsBlock($element, $fallbacks);
             },
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            $this->styleResolver,
             fn (DOMElement $element): array => $this->tableAttributes($element),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         );
@@ -1033,7 +1031,7 @@ final class HtmlCompilation
     private function createRichTextElementContext(): RichTextElementContext
     {
         return new RichTextElementContext(
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
             fn (string $content): string => $this->headingRichTextContent($content),
@@ -1062,7 +1060,7 @@ final class HtmlCompilation
     {
         return new TextLeafElementContext(
             $this->sourceElementClassifier,
-            fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
+            $this->styleResolver,
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
             $this->runtime,

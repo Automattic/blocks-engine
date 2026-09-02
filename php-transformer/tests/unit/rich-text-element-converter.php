@@ -15,6 +15,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -53,7 +54,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
     $c = array_merge($defaults, $overrides);
 
     return new RichTextElementConverter(new RichTextElementContext(
-        $c['presentationAttributes'],
+        new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
         $c['richTextContent'],
         $c['headingRichTextContent'],

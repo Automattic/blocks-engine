@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 
 $assertions = 0;
 $failures = array();
@@ -39,7 +40,7 @@ $converter = new ButtonElementConverter(new ButtonElementContext(
         $fallbacks[] = array( 'image' => true );
         return 'image' === $mode ? array( array( 'blockName' => 'core/image' ) ) : array();
     },
-    static fn (DOMElement $element): array => array( 'className' => 'carrier' ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'carrier' )),
     static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
