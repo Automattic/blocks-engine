@@ -1319,6 +1319,9 @@ $assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outlin
 $assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
+$squareDefaultAnchor = ( new HtmlTransformer() )->transform('<style>.btn{display:inline-flex;padding:1rem 2rem}.btn-fire{background:#d24a24;color:white}</style><a class="btn btn-fire" href="/menu">Menu</a>')->toArray();
+$squareDefaultAnchorCss = implode("\n", array_column($squareDefaultAnchor['assets'] ?? array(), 'content'));
+$assert(str_contains($squareDefaultAnchorCss, 'border-radius:0!important'), 'direct button-like anchors suppress native theme rounding when the source declares no radius');
 
 $descendantSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;box-sizing:border-box;min-width:170px;padding:22px 26px;background:#fff;color:#000;font:700 16px/16px Montserrat}</style><div style="text-align:center"><a class="cta" href="/learn"><span class="cta-inner">Learn more</span></a></div>'

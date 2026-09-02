@@ -243,6 +243,20 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = $property . ':' . $value . '!important';
                 }
             }
+            if ( 'a' === strtolower($sourceControl->tagName) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
+                $hasCornerRadius = false;
+                foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
+                    if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
+                        $hasCornerRadius = true;
+                        break;
+                    }
+                }
+                if ( ! $hasCornerRadius ) {
+                    // Anchors have square corners by default; core/button applies
+                    // the active theme's radius unless it is neutralized.
+                    $declarations[] = 'border-radius:0!important';
+                }
+            }
         }
         if ( '' !== $inheritedTextAlignment ) {
             $declarations[] = 'text-align:' . $inheritedTextAlignment . '!important';
