@@ -83,6 +83,18 @@ $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($stage
 $assert(!isset($whole['source_reports']['materialization_plan'], $staged['source_reports']['materialization_plan']), 'Whole and staged results remove the superseded projection while preserving their byte-identical canonical plan.');
 $compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
+$rootAssetPath = "website/external/Happy Women's Day.jpg";
+$rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
+$rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
+    array('path' => 'website/index.html', 'content' => '<main><h1>Home</h1><img srcset="' . $rootAssetUrl . ' 1x, ' . $rootAssetUrl . ' 2x"></main>'),
+    array('path' => $rootAssetPath, 'content_base64' => base64_encode('root-image'), 'mime_type' => 'image/jpeg', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$rootAssetShared = $compiler->prepareShared($rootAssetArtifact);
+$rootAssetReceipt = $compiler->compilePage($rootAssetArtifact, $rootAssetShared, 'website/index.html');
+$rootAssetStaged = $compiler->compose($rootAssetShared, array($rootAssetReceipt))->toArray();
+$rootAssetPlan = $rootAssetStaged['source_reports']['wordpress_site_plan'] ?? array();
+$rootAssetSources = array_column($rootAssetPlan['assets'] ?? array(), 'source_path');
+$assert(array() !== $rootAssetPlan && !isset($rootAssetStaged['source_reports']['wordpress_site_plan_diagnostics']) && in_array($rootAssetPath, $rootAssetSources, true), 'Staged compilation resolves percent-encoded site-root srcset references to shared assets beneath the entrypoint root.');
 $manyPages = array();
 for ($index = 0; $index < 50; ++$index) {
     $path = sprintf('pages/page-%02d.html', $index);

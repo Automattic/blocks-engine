@@ -643,7 +643,7 @@ final class ArtifactCompiler
             $runtimeScriptProjections
         );
         $wordpressCompatAsset = $this->wordpressCompat->asset($normalized['files'], $this->themeStaticCss($normalized['files'], false), $this->allScriptContents($normalized['files']));
-        $referenceReports = $this->referenceReports($normalized['files']);
+        $referenceReports = $this->referenceReports($normalized['files'], $entryPath);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
@@ -3393,12 +3393,13 @@ final class ArtifactCompiler
      * @param array<int, array<string, mixed>> $files
      * @return array{internal_links: array<int, array<string, mixed>>, asset_references: array<int, array<string, mixed>>, image_references: array<int, array<string, mixed>>}
      */
-    private function referenceReports(array $files): array
+    private function referenceReports(array $files, string $entryPath): array
     {
         return ( new ReferenceAnalyzer() )->referenceReports(
             $files,
             fn (array $file): bool => $this->isLinkableDocument($file),
-            fn (array $asset): bool => $this->isSafeImageAsset($asset)
+            fn (array $asset): bool => $this->isSafeImageAsset($asset),
+            '.' === dirname($entryPath) ? '' : dirname($entryPath)
         );
     }
 

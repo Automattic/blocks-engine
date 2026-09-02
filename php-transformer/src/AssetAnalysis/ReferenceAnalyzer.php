@@ -13,7 +13,7 @@ final class ReferenceAnalyzer
      * @param callable(array<string, mixed>): bool|null $isSafeImageAsset
      * @return array{internal_links: array<int, array<string, mixed>>, asset_references: array<int, array<string, mixed>>, image_references: array<int, array<string, mixed>>}
      */
-    public function referenceReports(array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null): array
+    public function referenceReports(array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null, string $siteRoot = ''): array
     {
         $internalLinks = array();
         $assetReferences = array();
@@ -36,7 +36,7 @@ final class ReferenceAnalyzer
                         continue;
                     }
 
-                    $reference = $this->normalizeReferenceCandidate($candidate, $files, $isLinkableDocument, $isSafeImageAsset, $filesByPath);
+                    $reference = $this->normalizeReferenceCandidate($candidate, $files, $isLinkableDocument, $isSafeImageAsset, $filesByPath, $siteRoot);
                     $target = $reference['target'] ?? null;
                     if ( is_array($target) && $this->isLinkableDocument($target, $isLinkableDocument) && 'a' === $candidate['element'] ) {
                         unset($reference['target']);
@@ -60,7 +60,7 @@ final class ReferenceAnalyzer
                         continue;
                     }
 
-                    $reference = $this->normalizeReferenceCandidate($candidate, $files, $isLinkableDocument, $isSafeImageAsset, $filesByPath);
+                    $reference = $this->normalizeReferenceCandidate($candidate, $files, $isLinkableDocument, $isSafeImageAsset, $filesByPath, $siteRoot);
                     $target = $reference['target'] ?? null;
                     if ( is_array($target) && ! $this->isLinkableDocument($target, $isLinkableDocument) ) {
                         unset($reference['target']);
@@ -184,9 +184,19 @@ final class ReferenceAnalyzer
      * @param callable(array<string, mixed>): bool|null $isSafeImageAsset
      * @return array<string, mixed>
      */
-    public function normalizeReferenceCandidate(array $candidate, array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null, ?array $filesByPath = null): array
+    public function normalizeReferenceCandidate(array $candidate, array $files, ?callable $isLinkableDocument = null, ?callable $isSafeImageAsset = null, ?array $filesByPath = null, string $siteRoot = ''): array
     {
+        $root = trim($siteRoot, '/');
         $resolvedPath = ArtifactPath::resolveRelativePath($candidate['url'], $candidate['source_path']);
+        if (str_starts_with($candidate['url'], '/') && '' !== $root) {
+            $siteRootPath = ArtifactPath::resolveRelativePath($root . '/' . ltrim($candidate['url'], '/'));
+            $siteRootTarget = '' === $siteRootPath ? null : (null === $filesByPath ? $this->findFileByPath($siteRootPath, $files) : ($filesByPath[$siteRootPath] ?? null));
+            // Browser-root assets live beneath the packaged site root; document
+            // links retain their existing artifact-root resolution semantics.
+            if (is_array($siteRootTarget) && ! $this->isLinkableDocument($siteRootTarget, $isLinkableDocument)) {
+                $resolvedPath = $siteRootPath;
+            }
+        }
         $target = '' === $resolvedPath ? null : (null === $filesByPath ? $this->findFileByPath($resolvedPath, $files) : ($filesByPath[$resolvedPath] ?? null));
         $reference = array_filter(
             array(
