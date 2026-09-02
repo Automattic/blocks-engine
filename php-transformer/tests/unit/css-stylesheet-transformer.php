@@ -33,6 +33,26 @@ $transformer->transform($css, static function (string $prelude, string $body, ar
 });
 $assert(array( '@media screen', '@supports (display: grid)' ) === ($conditions['.before'] ?? null), 'transform callbacks receive the enclosing at-rule stack');
 
+$visitedStyles = array();
+$visitedKeyframes = array();
+$transformer->visitStyleAndKeyframeRules(
+    '@media screen { .before { animation: fade 1s } @-webkit-keyframes fade { from { opacity:0 } } } .after { color:red }',
+    static function (string $prelude, string $body, array $ancestors) use (&$visitedStyles): void {
+        $visitedStyles[] = array(trim($prelude), trim($body), $ancestors);
+    },
+    static function (string $name, string $body) use (&$visitedKeyframes): void {
+        $visitedKeyframes[] = array($name, trim($body));
+    }
+);
+$assert(
+    array(
+        array('.before', 'animation: fade 1s', array('@media screen')),
+        array('.after', 'color:red', array()),
+    ) === $visitedStyles
+    && array(array('fade', 'from { opacity:0 }')) === $visitedKeyframes,
+    'combined visitor reports nested style rules and vendor-prefixed keyframes'
+);
+
 // 5: commas inside nested syntax are not selector-list separators.
 $parts = CssStylesheetTransformer::splitSelectorList(':is(.a,.b), :not([data-x="a,b"]), [title="x,y"]');
 $assert(array( ':is(.a,.b)', ' :not([data-x="a,b"])', ' [title="x,y"]' ) === $parts, 'selector lists split only on top-level commas');

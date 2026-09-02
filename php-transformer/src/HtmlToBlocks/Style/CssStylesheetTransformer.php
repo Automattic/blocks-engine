@@ -54,7 +54,18 @@ final class CssStylesheetTransformer
      */
     public function visitStyleRules(string $stylesheet, callable $visitStyleRule): void
     {
-        $this->visitRules($stylesheet, $visitStyleRule, array());
+        $this->visitRules($stylesheet, $visitStyleRule, null, array());
+    }
+
+    /**
+     * Visit style rules and keyframes during one stylesheet traversal.
+     *
+     * @param callable(string, string, list<string>): void $visitStyleRule
+     * @param callable(string, string): void $visitKeyframes
+     */
+    public function visitStyleAndKeyframeRules(string $stylesheet, callable $visitStyleRule, callable $visitKeyframes): void
+    {
+        $this->visitRules($stylesheet, $visitStyleRule, $visitKeyframes, array());
     }
 
     /**
@@ -70,7 +81,7 @@ final class CssStylesheetTransformer
      */
     public function visitKeyframeRules(string $stylesheet, callable $visitKeyframes): void
     {
-        $this->visitKeyframeRulesIn($stylesheet, $visitKeyframes);
+        $this->visitRules($stylesheet, static function (): void {}, $visitKeyframes, array());
     }
 
     /**
@@ -191,8 +202,8 @@ final class CssStylesheetTransformer
         return $output;
     }
 
-    /** @param callable(string, string, list<string>): void $visitStyleRule @param list<string> $ancestors */
-    private function visitRules(string $css, callable $visitStyleRule, array $ancestors): void
+    /** @param callable(string, string, list<string>): void $visitStyleRule @param callable(string, string): void|null $visitKeyframes @param list<string> $ancestors */
+    private function visitRules(string $css, callable $visitStyleRule, ?callable $visitKeyframes, array $ancestors): void
     {
         $offset = 0;
         $length = strlen($css);
@@ -208,44 +219,20 @@ final class CssStylesheetTransformer
             }
             $prelude = substr($css, $offset, $boundary - $offset);
             $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-            if ($this->isAtRule($prelude) && $this->walksNestedRules($prelude)) {
-                $nested = $ancestors;
-                $nested[] = trim($prelude);
-                $this->visitRules($body, $visitStyleRule, $nested);
-            } elseif ($this->isStylePrelude($prelude)) {
-                $visitStyleRule($prelude, $body, $ancestors);
-            }
-            $offset = $blockEnd + 1;
-        }
-    }
-
-    /** @param callable(string, string): void $visitKeyframes */
-    private function visitKeyframeRulesIn(string $css, callable $visitKeyframes): void
-    {
-        $offset = 0;
-        $length = strlen($css);
-        while ( $offset < $length ) {
-            $boundary = $this->nextRuleBoundary($css, $offset);
-            if ( null === $boundary || ';' === $css[ $boundary ] ) {
-                $offset = null === $boundary ? $length : $boundary + 1;
-                continue;
-            }
-            $blockEnd = $this->matchingBrace($css, $boundary);
-            if ( null === $blockEnd ) {
-                return;
-            }
-            $prelude = substr($css, $offset, $boundary - $offset);
-            $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-            if ( $this->isAtRule($prelude) ) {
+            if ($this->isAtRule($prelude)) {
                 $name = self::atRuleName($prelude);
-                if ( 'keyframes' === $name || str_ends_with($name, '-keyframes') ) {
+                if (null !== $visitKeyframes && ('keyframes' === $name || str_ends_with($name, '-keyframes'))) {
                     $animationName = self::keyframesAnimationName($prelude);
-                    if ( '' !== $animationName ) {
+                    if ('' !== $animationName) {
                         $visitKeyframes($animationName, $body);
                     }
-                } elseif ( $this->walksNestedRules($prelude) ) {
-                    $this->visitKeyframeRulesIn($body, $visitKeyframes);
+                } elseif ($this->walksNestedRules($prelude)) {
+                    $nested = $ancestors;
+                    $nested[] = trim($prelude);
+                    $this->visitRules($body, $visitStyleRule, $visitKeyframes, $nested);
                 }
+            } elseif ($this->isStylePrelude($prelude)) {
+                $visitStyleRule($prelude, $body, $ancestors);
             }
             $offset = $blockEnd + 1;
         }
