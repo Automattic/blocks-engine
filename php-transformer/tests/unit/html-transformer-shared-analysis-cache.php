@@ -110,6 +110,15 @@ $artifactMetrics = $cachedCompiler->htmlAnalysisCacheMetrics();
 $assert(($artifactMetrics['style_builds'] ?? 0) === 55 && ($artifactMetrics['style_hits'] ?? 0) >= 53 && ($artifactMetrics['style_bytes'] ?? 0) > 0, 'Artifact compiler exposes bounded source-payload cache build, hit, and byte counters.');
 $assert(55 === ($artifactMetrics['stylesheet_asset_discoveries'] ?? null), 'A 54-page repeated-CSS artifact discovers each document stylesheet set once, plus one canonical site-ordering pass.');
 
+$sequentialCompiler = new ArtifactCompiler();
+$sequentialShared = $sequentialCompiler->prepareShared($artifact);
+$sequentialPages = $sequentialCompiler->preparePages($artifact, $sequentialShared);
+foreach ( $sequentialPages as $page ) {
+    $sequentialCompiler->compilePreparedPages($sequentialShared, array($page));
+}
+$sequentialMetrics = $sequentialCompiler->htmlAnalysisCacheMetrics();
+$assert(($sequentialMetrics['style_hits'] ?? 0) >= 53 && ($sequentialMetrics['author_hits'] ?? 0) >= 53, 'Sequential singleton page batches must retain immutable stylesheet analyses on the owning compiler.');
+
 $byteBudgetCache = new HtmlTransformerAnalysisCache();
 $byteBudgetPayloads = array();
 for ( $payloadIndex = 0; $payloadIndex < 8; ++$payloadIndex ) {
