@@ -1071,7 +1071,7 @@ final class WordPressSitePlan
                 if ('links' !== $kind) continue;
                 $route = $this->routeReference($row['url'], self::value($document, 'source_path'), $routes);
                 if (null !== $route) $row['url'] = $route;
-                elseif ($this->isOptionalFeedLink($row)) $row = null;
+                elseif ($this->isOptionalFeedLink($row) || $this->isOptionalResourceHint($row)) $row = null;
             }
             unset($row);
             $metadata[$kind] = array_values(array_filter($metadata[$kind], static fn(mixed $row): bool => is_array($row)));
@@ -1086,6 +1086,13 @@ final class WordPressSitePlan
     {
         $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
         return !self::explicitUrl($link['url'] ?? null) && in_array('alternate', $relations, true) && in_array(strtolower(trim((string) ($link['type'] ?? ''))), array('application/atom+xml', 'application/feed+json', 'application/rss+xml'), true);
+    }
+    /** @param array<string,mixed> $link */
+    private function isOptionalResourceHint(array $link): bool
+    {
+        $relations = preg_split('/\s+/', strtolower(trim((string) ($link['rel'] ?? '')))) ?: array();
+        $resourceHints = array('dns-prefetch', 'modulepreload', 'preconnect', 'prefetch', 'preload', 'prerender');
+        return !self::explicitUrl($link['url'] ?? null) && array() !== $relations && array() === array_diff($relations, $resourceHints);
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function documentAssetReference(string $url, string $sourcePath, AssetReferenceCanonicalizer $references, array $routes): ?string
