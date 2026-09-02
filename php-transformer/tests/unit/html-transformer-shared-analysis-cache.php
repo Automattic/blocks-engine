@@ -119,6 +119,14 @@ foreach ( $sequentialPages as $page ) {
 $sequentialMetrics = $sequentialCompiler->htmlAnalysisCacheMetrics();
 $assert(($sequentialMetrics['style_hits'] ?? 0) >= 53 && ($sequentialMetrics['author_hits'] ?? 0) >= 53, 'Sequential singleton page batches must retain immutable stylesheet analyses on the owning compiler.');
 
+$uncachedCompiler = new ArtifactCompiler(cacheHtmlAnalysis: false);
+$uncachedShared = $uncachedCompiler->prepareShared($artifact);
+$uncachedPages = $uncachedCompiler->preparePages($artifact, $uncachedShared);
+foreach ( $uncachedPages as $page ) {
+    $uncachedCompiler->compilePreparedPages($uncachedShared, array($page));
+}
+$assert(array() === $uncachedCompiler->htmlAnalysisCacheMetrics(), 'Staged page batches respect an owning compiler that disables HTML analysis caching.');
+
 $byteBudgetCache = new HtmlTransformerAnalysisCache();
 $byteBudgetPayloads = array();
 for ( $payloadIndex = 0; $payloadIndex < 8; ++$payloadIndex ) {

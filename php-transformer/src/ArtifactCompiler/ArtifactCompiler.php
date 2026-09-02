@@ -308,8 +308,10 @@ final class ArtifactCompiler
 
     private function preparedPageCompiler(): self
     {
-        $compiler = new self();
-        $compiler->htmlTransformerAnalysisCache = $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache();
+        $compiler = new self($this->cacheHtmlAnalysis);
+        $compiler->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis
+            ? $this->htmlTransformerAnalysisCache ?? new HtmlTransformerAnalysisCache()
+            : null;
         return $compiler;
     }
 
