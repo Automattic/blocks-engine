@@ -13,6 +13,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
@@ -80,8 +81,6 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
         'requiredScripts'  => static fn (DOMElement $e): array => array(),
         'preservedRoot'    => static fn (string $h): ?DOMElement => null,
         'hasWorkspace'     => static fn (DOMElement $e): bool => false,
-        'isInline'         => static fn (string $t): bool => in_array($t, array('span', 'em', 'strong', 'a'), true),
-        'isPresentational' => static fn (string $s): bool => in_array($s, $presentationalSelectors, true),
         'dedupe'           => static fn (array $rows): array => array_values($rows),
     );
     $c = array_merge($defaults, $overrides);
@@ -92,12 +91,11 @@ $makeAnalyzer = static function (array $domSelectors = array(), array $presentat
     $pseudoFormAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $c['islandSelector']);
     return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
         $session,
+        new SourceElementClassifier(),
         $c['descendants'],
         $c['requiredScripts'],
         $c['preservedRoot'],
-        $c['hasWorkspace'],
-        $c['isInline'],
-        $c['isPresentational']), $pseudoFormAnalyzer);
+        $c['hasWorkspace']), $pseudoFormAnalyzer);
 };
 
 // An id or class named by a runtime selector is a DOM target.
@@ -111,8 +109,8 @@ $assert($byClass->isRuntimeDomTarget($elementFrom('<div class="a widget b"></div
 // A selector that is only presentational animation evidence does not make the
 // element a runtime target. This is the distinction that keeps CSS-animated
 // decoration out of runtime-island preservation.
-$presentational = $makeAnalyzer(array('#mount'), array('#mount'));
-$assert(! $presentational->isRuntimeDomTarget($elementFrom('<div id="mount"></div>')), 'presentational-only-selector-is-not-runtime-target');
+$presentational = $makeAnalyzer(array('.fade'), array('.fade'));
+$assert(! $presentational->isRuntimeDomTarget($elementFrom('<div class="fade"></div>')), 'presentational-only-selector-is-not-runtime-target');
 
 // Bounded selector grammar: shapes the analyzer will accept as runtime evidence.
 $grammar = $makeAnalyzer();

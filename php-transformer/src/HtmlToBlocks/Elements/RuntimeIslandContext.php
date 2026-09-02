@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackEmitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
@@ -23,17 +24,14 @@ final class RuntimeIslandContext
      * @param Closure(DOMElement): array<int, array<string, mixed>>           $requiredScriptsForElement
      * @param Closure(string): ?DOMElement                                    $preservedHtmlRootElement
      * @param Closure(DOMElement): bool                                       $hasWorkspaceSurface
-     * @param Closure(string): bool                                           $isInlineContentElement
-     * @param Closure(string): bool                                           $isPresentationalAnimationSelector
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $descendantElements,
         private readonly Closure $requiredScriptsForElement,
         private readonly Closure $preservedHtmlRootElement,
-        private readonly Closure $hasWorkspaceSurface,
-        private readonly Closure $isInlineContentElement,
-        private readonly Closure $isPresentationalAnimationSelector
+        private readonly Closure $hasWorkspaceSurface
     ) {
     }
 
@@ -80,11 +78,11 @@ final class RuntimeIslandContext
 
     public function isInlineContentElement(string $tagName): bool
     {
-        return ($this->isInlineContentElement)($tagName);
+        return $this->sourceElementClassifier->isInlineContentElement($tagName);
     }
 
     public function isPresentationalAnimationSelector(string $selector): bool
     {
-        return ($this->isPresentationalAnimationSelector)($selector);
+        return $this->sourceElementClassifier->isPresentationalAnimationSelector($selector);
     }
 }

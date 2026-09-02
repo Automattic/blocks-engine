@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -14,18 +15,17 @@ final class SvgElementContext
      * @param Closure(DOMElement): bool $isRuntimeDomTarget
      * @param Closure(DOMElement): string $sanitizeMarkup
      * @param Closure(string): bool $isSafeContent
-     * @param Closure(DOMElement): bool $isVisualLayerElement
      * @param Closure(DOMElement): bool $hasDrawableContent
      * @param Closure(DOMElement): array<string, mixed> $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): void $captureFallback
      */
     public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $isInertHiddenStorage,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $sanitizeMarkup,
         private readonly Closure $isSafeContent,
-        private readonly Closure $isVisualLayerElement,
         private readonly Closure $hasDrawableContent,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
@@ -55,7 +55,7 @@ final class SvgElementContext
 
     public function isVisualLayerElement(DOMElement $element): bool
     {
-        return ($this->isVisualLayerElement)($element);
+        return $this->sourceElementClassifier->isVisualLayerElement($element);
     }
 
     public function hasDrawableContent(DOMElement $element): bool

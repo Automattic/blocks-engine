@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 
@@ -55,13 +56,13 @@ $makeDispatcher = static function (array $overrides = array()): ButtonLinkDispat
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
         'outerHtml'        => static fn (DOMElement $e): string => $e->ownerDocument->saveHTML($e),
         'safeLinkUrl'      => static fn (string $h): string => str_starts_with($h, 'javascript:') ? '' : $h,
-        'hasBlockChildren' => static fn (DOMElement $e): bool => false,
         'mergeClassNames'  => static fn (string $a, string $b): string => trim($a . ' ' . $b),
         'structural'       => static fn (DOMElement $e): array => array(),
     );
     $c = array_merge($defaults, $overrides);
 
     return new ButtonLinkDispatcher(new ButtonLinkDispatchContext(
+        new SourceElementClassifier(),
         $c['isRuntimeTarget'],
         $c['recordIsland'],
         $c['preserve'],
@@ -72,7 +73,6 @@ $makeDispatcher = static function (array $overrides = array()): ButtonLinkDispat
         $c['presentation'],
         $c['createBlock'],
         $c['safeLinkUrl'],
-        $c['hasBlockChildren'],
         $c['structural']
     ));
 };

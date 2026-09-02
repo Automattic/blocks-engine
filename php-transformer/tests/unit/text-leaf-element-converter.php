@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 
@@ -48,7 +49,6 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
         },
         'codePresentationAttributes'    => static fn (DOMElement $pre, DOMElement $code): array => array('code' => true),
         'codeContent'                   => static fn (DOMElement $c): string => (string) $c->textContent,
-        'hasBlockContentChildren'       => static fn (DOMElement $e): bool => false,
         'convertChildren'               => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
         },
@@ -57,6 +57,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
     $c = array_merge($defaults, $overrides);
 
     return new TextLeafElementConverter(new TextLeafElementContext(
+        new SourceElementClassifier(),
         $c['presentationAttributes'],
         $c['createBlock'],
         $c['richTextContent'],
@@ -64,7 +65,6 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
         $c['escapeHtml'],
         $c['codePresentationAttributes'],
         $c['codeContent'],
-        $c['hasBlockContentChildren'],
         $c['convertChildren']
     ));
 };
@@ -134,7 +134,6 @@ $assert(array('margin-left', 'margin-right') === $seenGeometry, 'hr-excludes-hor
 // A marquee with block children groups them; a single child with no
 // presentation attributes is hoisted rather than wrapped.
 $marqueeConverter = $makeConverter(array(
-    'hasBlockContentChildren' => static fn (DOMElement $e): bool => true,
     'convertChildren'         => static function (DOMElement $e, array &$f, bool $c): array {
         return array(array('blockName' => 'core/paragraph'), array('blockName' => 'core/image'));
     },
@@ -144,7 +143,6 @@ $assert('core/group' === ($grouped['blockName'] ?? ''), 'marquee-with-children-g
 $assert(2 === count($grouped['innerBlocks'] ?? array()), 'marquee-group-keeps-children');
 
 $singleChild = $makeConverter(array(
-    'hasBlockContentChildren' => static fn (DOMElement $e): bool => true,
     'convertChildren'         => static function (DOMElement $e, array &$f, bool $c): array {
         return array(array('blockName' => 'core/image'));
     },

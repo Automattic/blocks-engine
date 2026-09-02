@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
 
@@ -16,25 +17,22 @@ $assert = static function (bool $condition, string $label) use (&$assertions, &$
 };
 
 $document = new DOMDocument();
-$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><button><img src="x"></button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
 $button = $document->getElementsByTagName('button')->item(0);
+$imageButton = $document->getElementsByTagName('button')->item(1);
 $div = $document->getElementsByTagName('div')->item(0);
-if ( ! $button instanceof DOMElement || ! $div instanceof DOMElement ) {
+if ( ! $button instanceof DOMElement || ! $imageButton instanceof DOMElement || ! $div instanceof DOMElement ) {
     throw new RuntimeException('Fixture elements not parsed');
 }
 
 $mode = 'generic';
-$imageCalls = 0;
 $genericCalls = 0;
 $captureUnsupported = null;
 $genericBlock = array( 'blockName' => 'core/buttons' );
 $converter = new ButtonElementConverter(new ButtonElementContext(
+    new SourceElementClassifier(),
     static function (DOMElement $element) use (&$mode): bool {
         return 'search' === $mode;
-    },
-    static function (DOMElement $element) use (&$mode, &$imageCalls): bool {
-        ++$imageCalls;
-        return in_array($mode, array( 'image', 'empty-image' ), true);
     },
     static function (DOMElement $element, array &$fallbacks, bool $capture) use (&$mode, &$captureUnsupported): array {
         $captureUnsupported = $capture;
@@ -55,22 +53,22 @@ $converter = new ButtonElementConverter(new ButtonElementContext(
 $fallbacks = array();
 
 $unhandled = $converter->convert($div, 'div', $fallbacks);
-$assert(! $unhandled->handled && 0 === $imageCalls && 0 === $genericCalls, 'non-button-unhandled');
+$assert(! $unhandled->handled && 0 === $genericCalls, 'non-button-unhandled');
 
 $mode = 'search';
 $search = $converter->convert($button, 'button', $fallbacks);
 $assert($search->handled && null === $search->block, 'replaced-search-control-suppressed');
-$assert(0 === $imageCalls && 0 === $genericCalls, 'search-short-circuits-later-routes');
+$assert(0 === $genericCalls, 'search-short-circuits-later-routes');
 
 $mode = 'image';
-$image = $converter->convert($button, 'button', $fallbacks);
+$image = $converter->convert($imageButton, 'button', $fallbacks);
 $assert('core/group' === ($image->block['blockName'] ?? ''), 'image-carrier-becomes-group');
 $assert('carrier' === ($image->block['attrs']['className'] ?? '') && 'core/image' === ($image->block['innerBlocks'][0]['blockName'] ?? ''), 'image-carrier-content-preserved');
 $assert(true === $captureUnsupported && 1 === count($fallbacks), 'image-children-forward-fallback-state');
 $assert(0 === $genericCalls, 'image-carrier-short-circuits-generic-button');
 
 $mode = 'empty-image';
-$emptyImage = $converter->convert($button, 'button', $fallbacks);
+$emptyImage = $converter->convert($imageButton, 'button', $fallbacks);
 $assert('core/buttons' === ($emptyImage->block['blockName'] ?? '') && 1 === $genericCalls, 'empty-image-carrier-falls-through');
 
 $mode = 'generic';

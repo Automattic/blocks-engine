@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Closure;
 use DOMElement;
 
@@ -22,10 +23,10 @@ final class ButtonLinkDispatchContext
      * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed>               $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): string                                                                        $safeLinkUrl
-     * @param Closure(DOMElement): bool                                                                      $hasBlockContentChildren
      * @param Closure(DOMElement): array<string, mixed>                                                      $structuralPresentationDeclarations
      */
     public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $recordRuntimeControlIsland,
         private readonly Closure $htmlPreservationBlock,
@@ -36,7 +37,6 @@ final class ButtonLinkDispatchContext
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
         private readonly Closure $safeLinkUrl,
-        private readonly Closure $hasBlockContentChildren,
         private readonly Closure $structuralPresentationDeclarations
     ) {
     }
@@ -122,7 +122,7 @@ final class ButtonLinkDispatchContext
 
     public function hasBlockContentChildren(DOMElement $element): bool
     {
-        return ($this->hasBlockContentChildren)($element);
+        return $this->sourceElementClassifier->hasBlockContentChildren($element);
     }
 
     /**
