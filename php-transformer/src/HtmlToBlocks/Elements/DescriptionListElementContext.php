@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
@@ -19,7 +20,6 @@ final class DescriptionListElementContext
      * @param Closure(DOMElement): bool $isCssOwnedGridElement
      * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(DOMElement): string $richTextContent
      * @param Closure(string): bool $hasVisibleText
      */
     public function __construct(
@@ -32,7 +32,7 @@ final class DescriptionListElementContext
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $convertChildren,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $richTextContent,
+        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Closure $hasVisibleText
     ) {
     }
@@ -86,7 +86,7 @@ final class DescriptionListElementContext
 
     public function richTextContent(DOMElement $element): string
     {
-        return ($this->richTextContent)($element);
+        return $this->richTextMaterializer->content($element);
     }
 
     public function hasVisibleText(string $html): bool

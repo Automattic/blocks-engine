@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementCont
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 
 $assertions = 0;
 $failures = array();
@@ -85,7 +86,7 @@ $descriptionContext = new DescriptionListElementContext(
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
     $createBlock,
-    static fn (DOMElement $element): string => $element->textContent ?? '',
+    new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )),
     static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
 $descriptionConverter = new DescriptionListElementConverter($descriptionContext);

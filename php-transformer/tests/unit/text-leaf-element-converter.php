@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElement
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -61,7 +62,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
         new SourceElementClassifier(),
         new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
-        $c['richTextContent'],
+        new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )),
         new Runtime(),
         $c['codePresentationAttributes'],
         $c['codeContent'],

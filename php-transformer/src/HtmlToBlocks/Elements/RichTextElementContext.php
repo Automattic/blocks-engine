@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -21,11 +22,6 @@ use DOMElement;
 final class RichTextElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>): string                                                $richTextContent
-     * @param Closure(string): string                                                                        $headingRichTextContent
-     * @param Closure(DOMElement, string): ?string                                                            $richTextWithMaterializedSvgImages
-     * @param Closure(string): bool                                                                          $requiresHtmlFallback
-     * @param Closure(string): bool                                                                          $containsNativeSvgImageObject
      * @param Closure(DOMElement): array<string, mixed>                                                      $htmlPreservationBlock
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $authoredMarqueeBlock
      * @param Closure(DOMElement): bool                                                                      $hasEmptyVisualInlineChild
@@ -37,11 +33,7 @@ final class RichTextElementContext
     public function __construct(
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $richTextContent,
-        private readonly Closure $headingRichTextContent,
-        private readonly Closure $richTextWithMaterializedSvgImages,
-        private readonly Closure $requiresHtmlFallback,
-        private readonly Closure $containsNativeSvgImageObject,
+        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $authoredMarqueeBlock,
         private readonly Closure $hasEmptyVisualInlineChild,
@@ -78,27 +70,27 @@ final class RichTextElementContext
      */
     public function richTextContent(DOMElement $element, array $excludedTags = array()): string
     {
-        return ($this->richTextContent)($element, $excludedTags);
+        return $this->richTextMaterializer->content($element, $excludedTags);
     }
 
     public function headingRichTextContent(string $content): string
     {
-        return ($this->headingRichTextContent)($content);
+        return $this->richTextMaterializer->headingContent($content);
     }
 
     public function richTextWithMaterializedSvgImages(DOMElement $element, string $content): ?string
     {
-        return ($this->richTextWithMaterializedSvgImages)($element, $content);
+        return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
     }
 
     public function requiresHtmlFallback(string $content): bool
     {
-        return ($this->requiresHtmlFallback)($content);
+        return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
     }
 
     public function containsNativeSvgImageObject(string $content): bool
     {
-        return ($this->containsNativeSvgImageObject)($content);
+        return $this->richTextMaterializer->containsNativeSvgImageObject($content);
     }
 
     /**
