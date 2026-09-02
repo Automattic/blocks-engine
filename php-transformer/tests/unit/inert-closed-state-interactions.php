@@ -182,6 +182,28 @@ $assert(
     $hiddenAnswerAfterAuthor
 );
 
+$alternateLayer = <<<'HTML'
+<style>
+.card { position: relative; }
+.card-state { position: absolute; inset: 0; }
+.card-alternate { display: none; visibility: hidden; opacity: 0; }
+</style>
+<div class="card">
+  <div class="card-state card-default"><p>Default card</p></div>
+  <div class="card-state card-alternate"><p>Alternate card</p></div>
+</div>
+HTML;
+
+$alternateLayerResult = ( new HtmlTransformer() )->transform($alternateLayer)->toArray();
+$alternateLayerAfterAuthor = $cssContent($alternateLayerResult, 'after-author', 'both');
+$assert(
+    ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{display:revert')
+        && ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{visibility:visible')
+        && ! str_contains($alternateLayerAfterAuthor, '.card-state.card-alternate{opacity:1'),
+    'a hidden positioned layer remains inactive instead of becoming a page-covering static overlay',
+    $alternateLayerAfterAuthor
+);
+
 $responsiveDocument = <<<'HTML'
 <style>
 .mobile-document { display: none !important; }

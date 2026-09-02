@@ -203,7 +203,13 @@ final class CompanionPluginPayload
         if ( is_array($block['assets'] ?? null) && array() !== $block['assets'] ) {
             $normalized['assets'] = $block['assets'];
         }
-        $scriptDependencies = $this->normalizeScriptDependencies($block['script_dependencies'] ?? null, $normalized['assets'] ?? array());
+        // The view module is carried in its own slot and lands as `view.js`
+        // beside the declared assets, so it can be depended on by that name.
+        $dependencyAssets = $normalized['assets'] ?? array();
+        if ( isset($normalized['view_js']) ) {
+            $dependencyAssets['view.js'] = $normalized['view_js'];
+        }
+        $scriptDependencies = $this->normalizeScriptDependencies($block['script_dependencies'] ?? null, $dependencyAssets);
         if ( array() !== $scriptDependencies ) {
             $normalized['script_dependencies'] = $scriptDependencies;
         }
@@ -232,7 +238,10 @@ final class CompanionPluginPayload
 
             $validHandles = array();
             foreach ( $handles as $handle ) {
-                if ( ! is_string($handle) || 1 !== preg_match('/^[A-Za-z0-9_-]+$/', $handle) || isset($validHandles[$handle]) ) {
+                // A classic script states a handle; a script module states its
+                // import specifier, which is how `@wordpress/interactivity`
+                // reaches the generated asset manifest.
+                if ( ! is_string($handle) || 1 !== preg_match('#^(?:@[a-z0-9][a-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*$#', $handle) || isset($validHandles[$handle]) ) {
                     continue;
                 }
                 $validHandles[$handle] = true;

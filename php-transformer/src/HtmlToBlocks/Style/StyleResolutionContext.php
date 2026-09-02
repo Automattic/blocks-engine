@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Closure;
 use DOMElement;
@@ -10,19 +11,12 @@ use DOMElement;
 /**
  * Explicit collaborator surface for {@see StyleResolver}.
  *
- * Per-transform state (author styles, source styles, layout geometry, the
- * presentation cache, transformation evidence) is resolved through closures
- * because the resolver is constructed once with the transformer but must see
- * the state belonging to the transform currently running.
+ * Per-transform state is read from the compilation's typed session. Closures
+ * remain only for transformer-owned operations.
  */
 final class StyleResolutionContext
 {
     /**
-     * @param Closure(): AuthorStyleAnalysis           $authorStyles
-     * @param Closure(): SourceStyleResolutionState    $sourceStyles
-     * @param Closure(): LayoutGeometryState           $layoutGeometry
-     * @param Closure(): PresentationResolutionCache   $presentationResolutionCache
-     * @param Closure(): TransformationEvidenceState   $transformationEvidence
      * @param Closure(DOMElement): int                 $cardLikeChildCount
      * @param Closure(string): string                  $cssComparableValue
      * @param Closure(string): array<string, mixed>    $parsedCssSelector
@@ -31,11 +25,7 @@ final class StyleResolutionContext
      * @param Closure(DOMElement): bool                $hasRetainedPresentationRuntime
      */
     public function __construct(
-        private readonly Closure $authorStyles,
-        private readonly Closure $sourceStyles,
-        private readonly Closure $layoutGeometry,
-        private readonly Closure $presentationResolutionCache,
-        private readonly Closure $transformationEvidence,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $cardLikeChildCount,
         private readonly Closure $cssComparableValue,
         private readonly Closure $parsedCssSelector,
@@ -47,27 +37,27 @@ final class StyleResolutionContext
 
     public function authorStyles(): AuthorStyleAnalysis
     {
-        return ($this->authorStyles)();
+        return $this->session->authorStyleAnalysis();
     }
 
     public function sourceStyles(): SourceStyleResolutionState
     {
-        return ($this->sourceStyles)();
+        return $this->session->sourceStyleResolutionState();
     }
 
     public function layoutGeometry(): LayoutGeometryState
     {
-        return ($this->layoutGeometry)();
+        return $this->session->layoutGeometryState();
     }
 
     public function presentationResolutionCache(): PresentationResolutionCache
     {
-        return ($this->presentationResolutionCache)();
+        return $this->session->presentationResolutionCache();
     }
 
     public function transformationEvidence(): TransformationEvidenceState
     {
-        return ($this->transformationEvidence)();
+        return $this->session->transformationEvidenceState();
     }
 
     public function cardLikeChildCount(DOMElement $element): int

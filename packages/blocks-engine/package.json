@@ -1,6 +1,7 @@
 {
   "name": "@automattic/blocks-engine",
   "version": "0.2.2",
+  "packageManager": "pnpm@11.14.0",
   "description": "Convert HTML and static sites into WordPress block markup and block themes.",
   "keywords": ["wordpress", "blocks", "gutenberg", "block-theme", "html", "static-site"],
   "license": "GPL-3.0-or-later",
@@ -54,8 +55,9 @@
   "scripts": {
     "build": "tsup && node scripts/build-wp-runtime.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:bundle": "pnpm build && BLOCKS_ENGINE_WP_RUNTIME=bundle BLOCKS_ENGINE_WP_RUNTIME_PATH=\"$PWD/dist/wp-runtime.cjs\" vitest run",
+    "test": "vitest run --exclude src/__tests__/theme-svg-asset.test.ts",
+    "test:svg-decode": "vitest run src/__tests__/theme-svg-asset.test.ts",
+    "test:bundle": "pnpm build && BLOCKS_ENGINE_WP_RUNTIME=bundle BLOCKS_ENGINE_WP_RUNTIME_PATH=\"$PWD/dist/wp-runtime.cjs\" vitest run --exclude src/__tests__/theme-svg-asset.test.ts",
     "bench": "node --import tsx scripts/tuner/bench.ts",
     "bench:record": "node --import tsx scripts/tuner/bench.ts --record",
     "bench:derive": "node --import tsx scripts/tuner/derive.ts",
@@ -73,6 +75,7 @@
     "@wordpress/block-serialization-default-parser": "5.49.0",
     "@wordpress/blocks": "15.22.0",
     "esbuild": "^0.24.0",
+    "playwright": "1.61.1",
     "tsup": "8.0.0",
     "vitest": "2.0.0",
     "typescript": "5.7.3",

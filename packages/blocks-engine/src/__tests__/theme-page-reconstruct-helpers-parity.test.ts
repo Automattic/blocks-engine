@@ -135,20 +135,73 @@ describe('sanitizeSvgAsset DLA parity', () => {
       sanitizeSvgAsset(
         '<svg><script>alert(1)</script><foreignObject><p>x</p></foreignObject><path d="M3 9h4"/></svg>'
       )
-    ).toBe('<svg><path d="M3 9h4"/></svg>');
+    ).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path d="M3 9h4"/></svg>');
 
     expect(
       sanitizeSvgAsset(
         '<svg><set attributeName="onload" to="alert(1)"/><animate attributeName="onbegin" to="x"></animate><path onload="evil()" onclick=\'evil2()\' d="M3 9h4"/></svg>'
       )
-    ).toBe('<svg><path d="M3 9h4"/></svg>');
+    ).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path d="M3 9h4"/></svg>');
 
     expect(
       sanitizeSvgAsset(
         '<svg><image href="https://evil.example/x"/><a xlink:href="javascript:alert(1)">x</a><use href="#local-glyph"/><image href="data:image/png;base64,abc"/></svg>'
       )
     ).toBe(
-      '<svg><image/><a xlink:href="alert(1)">x</a><use href="#local-glyph"/><image href="data:image/png;base64,abc"/></svg>'
+      '<svg xmlns="http://www.w3.org/2000/svg"><image/><a xlink:href="alert(1)">x</a><use href="#local-glyph"/><image href="data:image/png;base64,abc"/></svg>'
+    );
+
+    expect(
+      sanitizeSvgAsset('<svg xmlns="http://www.w3.org/2000/svg"><path d="M3 9h4"/></svg>')
+    ).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path d="M3 9h4"/></svg>');
+    expect(
+      sanitizeSvgAsset('<svg data-label="a > b" xmlns="http://www.w3.org/2000/svg"><path/></svg>')
+    ).toBe('<svg data-label="a > b" xmlns="http://www.w3.org/2000/svg"><path/></svg>');
+    expect(sanitizeSvgAsset('<svg xmlns=""><path/></svg>')).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>'
+    );
+    expect(sanitizeSvgAsset('<svg xmlns="https://example.test/svg"><path/></svg>')).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>'
+    );
+    expect(sanitizeSvgAsset('<svg XMLNS="http://www.w3.org/2000/svg"><path/></svg>')).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" XMLNS="http://www.w3.org/2000/svg"><path/></svg>'
+    );
+    expect(
+      sanitizeSvgAsset('<svg xmlns="http://www.w3.org/2000/svg" xmlns="https://example.test/svg"><path/></svg>')
+    ).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>');
+    expect(
+      sanitizeSvgAsset('<svg xmlns="" xmlns="https://example.test/svg"><path/></svg>')
+    ).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path/></svg>');
+    expect(
+      sanitizeSvgAsset('<?xml version="1.0" encoding="UTF-8"?>\n<!-- icon -->\n<svg viewBox="0 0 1 1"><path/></svg>')
+    ).toBe(
+      '<?xml version="1.0" encoding="UTF-8"?>\n<!-- icon -->\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path/></svg>'
+    );
+    expect(
+      sanitizeSvgAsset('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><path/></svg>')
+    ).toBe('<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><path/></svg>');
+    expect(
+      sanitizeSvgAsset('<?source-generator value="a > b"?>\n<svg viewBox="0 0 1 1"><path/></svg>')
+    ).toBe(
+      '<?source-generator value="a > b"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path/></svg>'
+    );
+    expect(
+      sanitizeSvgAsset('<!DOCTYPE svg [<!ENTITY label "a > b">]>\n<svg viewBox="0 0 1 1"><path/></svg>')
+    ).toBe(
+      '<!DOCTYPE svg [<!ENTITY label "a > b">]>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path/></svg>'
+    );
+    expect(
+      sanitizeSvgAsset('<!DOCTYPE svg [<!-- ]> --><?probe value="]>"?><!ENTITY label "a > b">]>\n<svg viewBox="0 0 1 1"><path/></svg>')
+    ).toBe(
+      '<!DOCTYPE svg [<!-- ]> --><?probe value="]>"?><!ENTITY label "a > b">]>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path/></svg>'
+    );
+    expect(
+      sanitizeSvgAsset('<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#glyph"/></svg>')
+    ).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#glyph"/></svg>'
+    );
+    expect(sanitizeSvgAsset('<div data-asset="unchanged">bytes</div>')).toBe(
+      '<div data-asset="unchanged">bytes</div>'
     );
   });
 });

@@ -230,8 +230,9 @@ $assert(
 $assert(
     1 === count($carouselDefinitions)
         && 'authored-carousel' === ($carouselDefinitions[0]['name'] ?? null)
-        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScript'] ?? null)
-        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), 'data-carousel-next')
+        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScriptModule'] ?? null)
+        && true === ($carouselDefinitions[0]['block_json']['supports']['interactivity'] ?? null)
+        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), "store( 'blocks-engine/carousel'")
         && isset($carouselDefinitions[0]['assets']['style.css']),
     'bounded carousel projection carries one generic editor block with scoped frontend behavior'
 );
@@ -533,12 +534,14 @@ $nestedLayoutTableMarkup = (string) ($nestedLayoutTableResult['serialized_blocks
 $nestedLayoutTableLinkedMedia = $nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
 $assert(TableClassificationPolicy::COMPLEX_NESTED === ($tablePolicy->classify($tableElement($nestedLayoutTableSource))['classification'] ?? null) && $tablePolicy->isNestedLayoutTable($tableElement($nestedLayoutTableSource)), 'nested single-row headerless tables are recognized as layout columns');
 $assert('core/columns' === ($nestedLayoutTableResult['blocks'][0]['blockName'] ?? null) && 2 === count($nestedLayoutTableResult['blocks'][0]['innerBlocks'] ?? array()) && 'core/columns' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? null), 'nested layout tables lower to responsive native column blocks');
-$assert('30%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null) && '70%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['attrs']['width'] ?? null), 'layout table cell percentages become core/column width attributes');
+$assert('30%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null) && '70%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['attrs']['width'] ?? null) && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:30%') && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:70%'), 'layout table cell percentages become rendered core/column widths');
 
 $percentLayoutTable = ( new HtmlTransformer() )->transform('<table class="wsite-multicol-table"><tr><td style="width:18.5%">Left</td><td style="width:63%">Center</td><td style="width:18.5%">Right</td></tr></table>')->toArray();
 $percentLayoutTableBlock = $percentLayoutTable['blocks'][0] ?? array();
 $assert('core/columns' === ($percentLayoutTableBlock['blockName'] ?? null) && 3 === count($percentLayoutTableBlock['innerBlocks'] ?? array()), 'percent-width layout tables become core/columns');
 $assert('18.5%' === ($percentLayoutTableBlock['innerBlocks'][0]['attrs']['width'] ?? null) && '63%' === ($percentLayoutTableBlock['innerBlocks'][1]['attrs']['width'] ?? null) && '18.5%' === ($percentLayoutTableBlock['innerBlocks'][2]['attrs']['width'] ?? null), 'percent-width layout tables preserve cell percentages as column widths');
+$percentLayoutTableCss = implode("\n", array_column($percentLayoutTable['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-columns') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns{gap:0}'), 'layout-table columns suppress the core default gap because source cells own their gutters');
 $assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'headerless tables without cell percentages remain data tables');
 $assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/responsive-media' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'href="/quote"') && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'src="quote.jpg"') && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves links, media, and content order without HTML fallback');
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
@@ -2817,6 +2820,19 @@ $assertPlaceholderCountsMatchChildren($deduplicatedMobileNavigation['blocks'] ??
 $assert(2 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ?? array()), 'deduplicated desktop/mobile navigation preserves drawer target wrapper');
 $assert(str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'mobile-nav'), 'deduplicated desktop/mobile navigation preserves mobile navigation target class');
 $assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
+
+$decoratedImageLink = ( new HtmlTransformer() )->transform(
+    '<a href="/photo.jpg" class="lightbox"><img src="/photo.jpg" alt="Photo"><div class="overlay"></div><div class="overlay-inner"></div></a>'
+)->toArray();
+$assert(str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only link tolerates empty decorative overlay siblings without losing its media');
+
+$centeredSocialLinks = ( new HtmlTransformer() )->transform(
+    '<div style="text-align:center"><span class="social-links"><a href="https://facebook.com/example" aria-label="Facebook"><span></span></a><a href="https://instagram.com/example" aria-label="Instagram"><span></span></a></span></div>'
+)->toArray();
+$assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
+$assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
+$centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
 
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'

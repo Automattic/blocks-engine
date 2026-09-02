@@ -100,7 +100,7 @@ export function stripChrome(sections: SectionSpec[]): SectionSpec[] {
  * <script>, <foreignObject>, event-handler attributes, or javascript: URLs.
  */
 export function sanitizeSvgAsset(svg: string): string {
-  return (
+  const sanitized = (
     svg
       .replace(/<script[\s\S]*?<\/script\s*>/gi, '')
       .replace(/<foreignObject[\s\S]*?<\/foreignObject\s*>/gi, '')
@@ -120,4 +120,144 @@ export function sanitizeSvgAsset(svg: string): string {
       .replace(/javascript:/gi, '')
       .trim()
   );
+  const root = svgRootStartTag(sanitized);
+  if (!root) return sanitized;
+  const namespaces = root.attributes.filter((attribute) => attribute.name === 'xmlns');
+  if (namespaces.length === 1 && namespaces[0].value === 'http://www.w3.org/2000/svg') return sanitized;
+
+  // Theme icon assets are loaded through <img>, which requires the root SVG
+  // namespace even when the source browser accepted the inline markup without it.
+  if (namespaces.length) {
+    const [namespace, ...duplicates] = namespaces;
+    let normalized = sanitized;
+    for (const duplicate of duplicates.reverse()) {
+      normalized = `${normalized.slice(0, duplicate.leadingStart)}${normalized.slice(duplicate.end)}`;
+    }
+    return `${normalized.slice(0, namespace.start)}xmlns="http://www.w3.org/2000/svg"${normalized.slice(namespace.end)}`;
+  }
+  return `${sanitized.slice(0, root.nameEnd)} xmlns="http://www.w3.org/2000/svg"${sanitized.slice(root.nameEnd)}`;
+}
+
+interface SvgRootAttribute {
+  name: string;
+  leadingStart: number;
+  start: number;
+  end: number;
+  value: string | null;
+}
+
+function svgRootStartTag(svg: string): { nameEnd: number; attributes: SvgRootAttribute[] } | null {
+  let cursor = 0;
+  while (cursor < svg.length) {
+    while (/\s/.test(svg[cursor] ?? '')) cursor++;
+    if (svg.startsWith('<?', cursor)) {
+      cursor = endOfPreamble(svg, cursor, '?>');
+      if (cursor < 0) return null;
+      continue;
+    }
+    if (svg.startsWith('<!--', cursor)) {
+      const end = svg.indexOf('-->', cursor + 4);
+      if (end < 0) return null;
+      cursor = end + 3;
+      continue;
+    }
+    if (svg.startsWith('<!DOCTYPE', cursor)) {
+      cursor = endOfDoctype(svg, cursor);
+      if (cursor < 0) return null;
+      continue;
+    }
+    break;
+  }
+  if (!svg.startsWith('<svg', cursor) || !/[\s/>]/.test(svg[cursor + 4] ?? '')) return null;
+
+  const attributes: SvgRootAttribute[] = [];
+  const nameEnd = cursor + 4;
+  cursor = nameEnd;
+  while (cursor < svg.length) {
+    const leadingStart = cursor;
+    while (/\s/.test(svg[cursor] ?? '')) cursor++;
+    if (svg[cursor] === '>') return { nameEnd, attributes };
+    if (svg[cursor] === '/' && svg[cursor + 1] === '>') return { nameEnd, attributes };
+    if (!svg[cursor]) return null;
+
+    const start = cursor;
+    while (cursor < svg.length && !/[\s=/>]/.test(svg[cursor])) cursor++;
+    const name = svg.slice(start, cursor);
+    if (!name) return null;
+    while (/\s/.test(svg[cursor] ?? '')) cursor++;
+
+    let value: string | null = null;
+    if (svg[cursor] === '=') {
+      cursor++;
+      while (/\s/.test(svg[cursor] ?? '')) cursor++;
+      const quote = svg[cursor];
+      if (quote === '"' || quote === "'") {
+        const valueStart = ++cursor;
+        while (cursor < svg.length && svg[cursor] !== quote) cursor++;
+        if (cursor === svg.length) return null;
+        value = svg.slice(valueStart, cursor++);
+      } else {
+        const valueStart = cursor;
+        while (cursor < svg.length && !/[\s>]/.test(svg[cursor])) cursor++;
+        value = svg.slice(valueStart, cursor);
+      }
+    }
+    attributes.push({ name, leadingStart, start, end: cursor, value });
+  }
+  return null;
+}
+
+function endOfPreamble(svg: string, start: number, terminator: string): number {
+  let quote = '';
+  for (let cursor = start + 2; cursor < svg.length; cursor++) {
+    const char = svg[cursor];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (svg.startsWith(terminator, cursor)) return cursor + terminator.length;
+  }
+  return -1;
+}
+
+function endOfDoctype(svg: string, start: number): number {
+  let quote = '';
+  let subsetDepth = 0;
+  for (let cursor = start + '<!DOCTYPE'.length; cursor < svg.length; cursor++) {
+    const char = svg[cursor];
+    if (quote) {
+      if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (svg.startsWith('<!--', cursor)) {
+      const end = svg.indexOf('-->', cursor + 4);
+      if (end < 0) return -1;
+      cursor = end + 2;
+      continue;
+    }
+    if (svg.startsWith('<?', cursor)) {
+      const end = endOfPreamble(svg, cursor, '?>');
+      if (end < 0) return -1;
+      cursor = end - 1;
+      continue;
+    }
+    if (char === '[') {
+      subsetDepth++;
+      continue;
+    }
+    if (char === ']') {
+      subsetDepth = Math.max(0, subsetDepth - 1);
+      continue;
+    }
+    if (char === '>' && subsetDepth === 0) return cursor + 1;
+  }
+  return -1;
 }
