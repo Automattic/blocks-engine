@@ -2247,7 +2247,7 @@ final class StyleResolver
             'navigation_state' => array(),
             'image_shape' => array(),
             'pseudo' => array(),
-            'svg_paint' => array(),
+            'cascaded_values' => array(),
         );
         $imageOrder = 0;
         (new CssStylesheetTransformer())->visitStyleRules(
@@ -2262,7 +2262,7 @@ final class StyleResolver
                 // `safeVisualDeclarations()` allow-list used for classification —
                 // lets paint materialization resolve the same cascade a browser
                 // would, including id/class-scoped custom-property indirection.
-                $svgPaintDeclarations = $this->svgPaintRelevantDeclarations($rawDeclarations);
+                $cascadedValueDeclarations = $this->cascadeRelevantDeclarations($rawDeclarations);
                 $mediaTextDeclarations = array() === $conditions
                     ? array_values(array_filter(
                         $this->mediaTextInlineDeclarationEntries($body),
@@ -2310,8 +2310,8 @@ final class StyleResolver
                             );
                         }
                     }
-                    if ($supportedRestingSelector && array() === $conditions && array() !== $svgPaintDeclarations) {
-                        $analysis['svg_paint'][] = array('selector' => $selector, 'declarations' => $svgPaintDeclarations);
+                    if ($supportedRestingSelector && array() === $conditions && array() !== $cascadedValueDeclarations) {
+                        $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
                     if (array() !== $conditions || array() === $declarations) {
                         continue;
@@ -2461,17 +2461,16 @@ final class StyleResolver
     }
 
     /**
-     * The subset of a declaration map relevant to resolving an SVG's effective
-     * paint outside classification: the inheritable paint properties plus any
-     * custom property that might feed them through `var()`. Kept separate from
-     * {@see safeVisualDeclarations()} — whose finite allow-list intentionally
-     * excludes SVG-only and custom properties for general classification — so
-     * widening paint resolution cannot change classification elsewhere.
+     * The subset of a declaration map needed to resolve values outside the
+     * classification allow-list: inheritable SVG paint and custom properties.
+     * Keeping this stream separate lets SVG materialization and structural
+     * `var()` resolution share the real matched cascade without changing
+     * general classification.
      *
      * @param array<string, string> $declarations
      * @return array<string, string>
      */
-    private function svgPaintRelevantDeclarations(array $declarations): array
+    private function cascadeRelevantDeclarations(array $declarations): array
     {
         static $paintProperties = array(
             'color' => true,
@@ -2580,7 +2579,7 @@ final class StyleResolver
             'hidden-state' => $this->hiddenStateStyleRules(),
             'static-conditional' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()),
             'static-conditional-pseudo' => array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules(), $this->context->sourceStyles()->pseudoElementRules()),
-            'svg-paint' => $this->context->sourceStyles()->svgPaintRules(),
+            'cascaded-values' => $this->context->sourceStyles()->cascadedValueRules(),
         };
         $index = array('universal' => array(), 'ids' => array(), 'classes' => array(), 'tags' => array(), 'attributes' => array(), 'total' => count($rules));
         foreach ( $rules as $order => $rule ) {
@@ -2914,19 +2913,17 @@ final class StyleResolver
     }
 
     /**
-     * Matched-CSS-and-inline-style paint declarations for one element, drawn
-     * from the unfiltered `svg-paint` stream (see {@see stylesheetAnalysis()}).
-     * Unlike {@see presentationDeclarations()} this is not gated by whether the
-     * element is a "high value" style boundary and is not restricted to the
-     * finite classification allow-list, because a materialized SVG asset needs
-     * the real paint cascade regardless of which element happens to carry it.
+     * Matched CSS and inline declarations from the generic cascaded-value
+     * stream. Unlike {@see presentationDeclarations()}, this is not limited to
+     * classification properties, so callers can resolve custom properties at
+     * an element's actual cascade scope.
      *
      * @return array<string, string>
      */
-    public function unfilteredCascadeDeclarations(DOMElement $element): array
+    public function matchedCascadedDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->styleRuleCandidates($element, 'svg-paint') as $rule ) {
+        foreach ( $this->styleRuleCandidates($element, 'cascaded-values') as $rule ) {
             if ( $this->matchesCssSelector($element, $rule['selector']) ) {
                 $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
@@ -2934,7 +2931,7 @@ final class StyleResolver
 
         return $this->mergeCssDeclarationMaps(
             $declarations,
-            $this->svgPaintRelevantDeclarations($this->cssDeclarations(SourceDom::attr($element, 'style')))
+            $this->cascadeRelevantDeclarations($this->cssDeclarations(SourceDom::attr($element, 'style')))
         );
     }
 
@@ -2955,7 +2952,7 @@ final class StyleResolver
             $ancestors[] = $current;
         }
         foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $this->unfilteredCascadeDeclarations($ancestor) as $name => $propertyValue ) {
+            foreach ( $this->matchedCascadedDeclarations($ancestor) as $name => $propertyValue ) {
                 if ( str_starts_with($name, '--') ) {
                     $customProperties[$name] = $propertyValue;
                 }
@@ -2975,7 +2972,7 @@ final class StyleResolver
      */
     public function resolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
-        $declared = trim((string) ($this->unfilteredCascadeDeclarations($element)[$property] ?? ''));
+        $declared = trim((string) ($this->matchedCascadedDeclarations($element)[$property] ?? ''));
         if ( '' === $declared ) {
             return null;
         }
