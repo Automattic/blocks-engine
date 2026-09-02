@@ -3305,11 +3305,63 @@ final class HtmlCompilation implements SourceBlockCreator
             return $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
         }
 
+        if ( $this->hasAuthorSemanticMarker($element)
+            || $this->hasAuthorSemanticMarker($children[0])
+            || array() !== $this->styleResolver->presentationAttributes($children[0])
+        ) {
+            return $this->layoutShellBlockForElements(array( $element, $children[0] ), $converted, $element);
+        }
+
         if ( 1 === count($converted) && array() === $this->styleResolver->presentationAttributes($element) ) {
             return $converted[0];
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $converted, $element);
+    }
+
+    /**
+     * Preserve a static source wrapper chain around editable inner blocks.
+     *
+     * @param list<DOMElement> $elements
+     * @param list<array<string, mixed>> $innerBlocks
+     * @return array<string, mixed>
+     */
+    private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement): array
+    {
+        $wrappers = array_map(function (DOMElement $element): array {
+            $tagName = strtolower($element->tagName);
+            $attributes = $this->htmlAttributes($element);
+            $opening = '<' . $tagName;
+            foreach ( $attributes as $name => $value ) {
+                if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
+                    continue;
+                }
+                $opening .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            $opening .= '>';
+
+            return array(
+                'tagName' => $tagName,
+                'attributes' => $attributes,
+                'opening' => $opening,
+                'closing' => '</' . $tagName . '>',
+            );
+        }, $elements);
+        $blockName = $this->generatedBlocks()->blockName('layout-shell');
+        $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
+        $block = $this->createBlock(
+            $blockName,
+            array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
+            $innerBlocks,
+            $sourceElement
+        );
+        $opening = implode('', array_column($wrappers, 'opening'));
+        $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+        $block['innerHTML'] = $opening . $closing;
+        $block['innerContent'] = array_merge(array($opening), array_fill(0, count($innerBlocks), null), array($closing));
+        $block['_layout_shell_wrappers'] = $wrappers;
+
+        return $block;
     }
 
     private function isSafeTransparentCustomElement(DOMElement $element): bool
