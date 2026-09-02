@@ -10,7 +10,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\ReusableComponentState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeBehaviorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\NavigationProjectionState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
@@ -123,7 +122,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetPr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\PresentationResolutionCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\RevealAnimationSettler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
@@ -583,7 +581,7 @@ final class HtmlCompilation
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
-            fn (): HtmlTransformerSession => $this->session,
+            $this->session,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
             fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => $this->createBlock($name, $attributes, $innerBlocks, $element)
         );
@@ -620,7 +618,7 @@ final class HtmlCompilation
             fn (string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement)
         );
         $this->formCompositionPlanner = new FormCompositionPlanner(
-            fn (): TransformationProvenanceState => $this->transformationProvenance(),
+            $this->session,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             },
@@ -639,14 +637,12 @@ final class HtmlCompilation
         );
         $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder(
             new FormFallbackFindingContext(
-                fn (): array => $this->authorStyles()->stylesheetAssets(),
-                fn (): string => $this->sourceStyles()->formLayoutCss(),
+                $this->session,
                 fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
                 fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
-                fn (array $finding): array => FallbackDiagnostic::build($finding, $this->transformationProvenance()->fallback())
+                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors)
             ),
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,
@@ -1109,11 +1105,6 @@ final class HtmlCompilation
         return $this->session->fallbackEmitter();
     }
 
-    private function presentationResolutionCache(): PresentationResolutionCache
-    {
-        return $this->session->presentationResolutionCache();
-    }
-
     private function generatedBlocks(): GeneratedBlockRegistry
     {
         return $this->session->generatedBlockRegistry()
@@ -1133,11 +1124,6 @@ final class HtmlCompilation
     private function runtimeSelectors(): RuntimeSelectorState
     {
         return $this->session->runtimeSelectorState();
-    }
-
-    private function navigationProjection(): NavigationProjectionState
-    {
-        return $this->session->navigationProjectionState();
     }
 
     private function sourceStyles(): SourceStyleResolutionState

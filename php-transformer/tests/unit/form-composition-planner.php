@@ -4,7 +4,8 @@ declare(strict_types=1);
 require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures = array();
@@ -25,11 +26,12 @@ $formFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No form parsed');
 };
 
-$provenance = new TransformationProvenanceState();
+$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$provenance = $session->transformationProvenanceState();
 $children = array();
 $capturedUnsupported = null;
 $planner = new FormCompositionPlanner(
-    static fn (): TransformationProvenanceState => $provenance,
+    $session,
     static function (DOMElement $form, array &$fallbacks, bool $captureUnsupported) use (&$children, &$capturedUnsupported, $provenance): array {
         $capturedUnsupported = $captureUnsupported;
         $fallbacks[] = array( 'converted' => true );

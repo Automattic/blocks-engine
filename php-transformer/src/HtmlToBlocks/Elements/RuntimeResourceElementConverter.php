@@ -11,12 +11,11 @@ use DOMElement;
 final class RuntimeResourceElementConverter implements ElementConverter
 {
     /**
-     * @param Closure(): HtmlTransformerSession $session
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
-        private readonly Closure $session,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $createBlock
     ) {
@@ -36,7 +35,7 @@ final class RuntimeResourceElementConverter implements ElementConverter
     /** @return array<string, mixed>|null */
     private function convertCanvas(DOMElement $element): ?array
     {
-        $session = $this->session();
+        $session = $this->session;
         $emitter = $session->fallbackEmitter();
         if ( ! $emitter->isRuntimeCanvasTarget($element) ) {
             return null;
@@ -60,7 +59,7 @@ final class RuntimeResourceElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     private function convertScript(DOMElement $element, array &$fallbacks): ?array
     {
-        $session = $this->session();
+        $session = $this->session;
         $emitter = $session->fallbackEmitter();
         $metadata = $emitter->staticScriptMetadata($element);
         if ( null === $metadata ) {
@@ -91,7 +90,7 @@ final class RuntimeResourceElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function convertTemplate(DOMElement $element, array &$fallbacks): null
     {
-        $session = $this->session();
+        $session = $this->session;
         $session->fallbackEmitter()->captureTemplateFallback($element, $fallbacks, $session->runtimeDomState());
 
         return null;
@@ -133,10 +132,5 @@ final class RuntimeResourceElementConverter implements ElementConverter
             array(),
             $element
         );
-    }
-
-    private function session(): HtmlTransformerSession
-    {
-        return ($this->session)();
     }
 }

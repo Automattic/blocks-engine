@@ -8,6 +8,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFin
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormFallbackFindingContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures = array();
@@ -42,9 +45,17 @@ $successBuilder = new FormSuccessPanelMetadataBuilder(
 );
 $pseudoAnalyzer = new PseudoFormAnalyzer($metadataBuilder, $selector);
 $bindingCalls = array();
+$sourceDocument = new DOMDocument();
+$sourceDocument->loadHTML('<?xml encoding="utf-8" ?><body></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$sourceBody = $sourceDocument->getElementsByTagName('body')->item(0);
+if ( ! $sourceBody instanceof DOMElement ) {
+    throw new RuntimeException('No source body parsed');
+}
+$session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+$session->installAuthorStyleAnalysis(new AuthorStyleAnalysis('', '', array(), $sourceBody));
+$session->transformationProvenanceState()->installFallback(array( 'provenance' => 'fixture' ));
 $context = new FormFallbackFindingContext(
-    static fn (): array => array(),
-    static fn (): string => '',
+    $session,
     static fn (DOMElement $element): array => array( 'html' => '<safe-form>', 'bytes' => 11, 'truncated' => true ),
     static fn (DOMElement $element): array => array( '#existing-runtime' ),
     static fn (DOMElement $element): array => array( 'source' => 'fixture' ),
@@ -52,8 +63,7 @@ $context = new FormFallbackFindingContext(
     static function (array $block, string $role, array $selectors) use (&$bindingCalls): array {
         $bindingCalls[] = compact('block', 'role', 'selectors');
         return array( 'role' => $role, 'selectors' => $selectors, 'blockName' => $block['blockName'] ?? '' );
-    },
-    static fn (array $finding): array => array_merge(array( 'provenance' => 'fixture' ), $finding)
+    }
 );
 $builder = new FormFallbackFindingBuilder($context, $metadataBuilder, $successBuilder, $pseudoAnalyzer);
 

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Closure;
 use DOMElement;
 
@@ -10,36 +12,31 @@ use DOMElement;
 final class FormFallbackFindingContext
 {
     /**
-     * @param Closure(): array<int, array<string, mixed>>                                         $stylesheetAssets
-     * @param Closure(): string                                                                    $formLayoutCss
      * @param Closure(DOMElement): array{html: string, bytes: int, truncated: bool}                $boundedFallbackHtml
      * @param Closure(DOMElement): array<int, string>                                               $runtimeDomSelectors
      * @param Closure(DOMElement): array<string, mixed>                                             $sourceContext
      * @param Closure(DOMElement): array<string, mixed>                                             $classifyFallbackSubtree
      * @param Closure(array<string, mixed>, string, array<int, string>): array<string, mixed>       $blockBinding
-     * @param Closure(array<string, mixed>): array<string, mixed>                                   $buildFallbackDiagnostic
      */
     public function __construct(
-        private readonly Closure $stylesheetAssets,
-        private readonly Closure $formLayoutCss,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $boundedFallbackHtml,
         private readonly Closure $runtimeDomSelectors,
         private readonly Closure $sourceContext,
         private readonly Closure $classifyFallbackSubtree,
-        private readonly Closure $blockBinding,
-        private readonly Closure $buildFallbackDiagnostic
+        private readonly Closure $blockBinding
     ) {
     }
 
     /** @return array<int, array<string, mixed>> */
     public function stylesheetAssets(): array
     {
-        return ($this->stylesheetAssets)();
+        return $this->session->authorStyleAnalysis()->stylesheetAssets();
     }
 
     public function formLayoutCss(): string
     {
-        return ($this->formLayoutCss)();
+        return $this->session->sourceStyleResolutionState()->formLayoutCss();
     }
 
     /** @return array{html: string, bytes: int, truncated: bool} */
@@ -79,6 +76,6 @@ final class FormFallbackFindingContext
     /** @param array<string, mixed> $finding @return array<string, mixed> */
     public function buildFallbackDiagnostic(array $finding): array
     {
-        return ($this->buildFallbackDiagnostic)($finding);
+        return FallbackDiagnostic::build($finding, $this->session->transformationProvenanceState()->fallback());
     }
 }
