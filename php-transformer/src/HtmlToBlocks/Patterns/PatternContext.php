@@ -11,7 +11,7 @@ final class PatternContext
 {
     /**
      * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
-     * @param PatternRecursiveConverter|null $recursiveConverter
+     * @param PatternTreeConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
      * @param MediaPatternContext|null $mediaContext
      * @param ColumnsPatternContext|null $columnsContext
@@ -25,7 +25,7 @@ final class PatternContext
     public function __construct(
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
-        private readonly ?PatternRecursiveConverter $recursiveConverter = null,
+        private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
         private readonly ?ColumnsPatternContext $columnsContext = null,
@@ -57,7 +57,7 @@ final class PatternContext
         return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
-    public function recursiveConverter(): ?PatternRecursiveConverter { return $this->recursiveConverter; }
+    public function recursiveConverter(): ?PatternTreeConverter { return $this->recursiveConverter; }
     public function navigationContext(): ?NavigationPatternContext { return $this->navigationContext; }
     public function mediaContext(): ?MediaPatternContext { return $this->mediaContext; }
     public function columnsContext(): ?ColumnsPatternContext { return $this->columnsContext; }

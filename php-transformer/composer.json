@@ -161,7 +161,7 @@
       "php tests/unit/inert-closed-state-interactions.php",
       "php tests/unit/reveal-animation-settling.php",
       "php tests/unit/geometry-chain-coalescing.php",
-      "php tests/unit/pattern-recursive-converter.php",
+      "php tests/unit/pattern-tree-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
             "php tests/unit/text-leaf-element-converter.php",

@@ -4,13 +4,12 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
@@ -99,9 +98,11 @@ $assert(2 === count($gallery['blocks'][0]['innerBlocks'] ?? array()), 'The direc
 $declinedGallery = (new HtmlTransformer())->transform('<div class="media-grid" data-layout="grid"><figure><img src="c.jpg" alt="C"></figure></div>')->toArray();
 $assert('core/group' === ($declinedGallery['blocks'][0]['blockName'] ?? null), 'A single-image gallery candidate declines to generic grid lowering.');
 
-$accordion = (new HtmlTransformer())->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">A?</button><div id="a"><p>A.</p><object data="/a.pdf"></object></div></div><div class="faq-item"><button aria-controls="b">B?</button><div id="b"><p>B.</p></div></div></section>')->toArray();
+$accordion = (new HtmlTransformer())->transform('<section class="faq"><div class="faq-item"><button aria-controls="a">A?</button><div id="a"><p>A.</p><object data="/first.pdf"></object></div></div><div class="faq-item"><button aria-controls="b">B?</button><div id="b"><p>B.</p><object data="/second.pdf"></object></div></div></section>')->toArray();
 $assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? null), 'Accordion recognition survives an unsupported panel child.');
 $assert('html_unsupported_element' === ($accordion['fallbacks'][0]['diagnostic_code'] ?? null), 'Accordion commits recursive panel diagnostics through its winning result.');
+$assert(2 === count($accordion['fallbacks'] ?? array()), 'A winning accordion commits every recursive panel fallback.');
+$assert(str_contains((string) ($accordion['fallbacks'][0]['html'] ?? ''), '/first.pdf') && str_contains((string) ($accordion['fallbacks'][1]['html'] ?? ''), '/second.pdf'), 'A winning recognizer commits recursive fallbacks in source order.');
 
 $disclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p><object data="/answer.pdf"></object></div></div>')->toArray();
 $assert('core/details' === ($disclosure['blocks'][0]['blockName'] ?? null), 'Disclosure recognition survives an unsupported panel child.');
@@ -127,26 +128,27 @@ $navigationElement = $navigationDocument->documentElement;
 if ( ! $navigationElement instanceof DOMElement ) {
     throw new RuntimeException('Navigation fixture did not produce a DOM element.');
 }
-$innerHtml = static function (DOMElement $element): string {
-    $html = '';
-    foreach ( $element->childNodes as $child ) {
-        $html .= $element->ownerDocument?->saveHTML($child) ?: '';
-    }
-    return $html;
-};
 $createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ));
-$recursiveCalls = 0;
-$navigationConverter = new PatternRecursiveConverter(
-    static fn (DOMElement $source, bool $captureUnsupported): PatternConversionResult => new PatternConversionResult(array()),
-    static function (DOMElement $source, bool $captureUnsupported) use (&$recursiveCalls): PatternConversionResult {
-        ++$recursiveCalls;
-        return new PatternConversionResult(
-            array( array( 'blockName' => 'core/paragraph', 'attrs' => array( 'content' => 'Brand' ), 'innerBlocks' => array() ) ),
-            array( array( 'diagnostic_code' => 'brand_fallback' ) )
-        );
-    },
-    static fn (DOMElement $source, array $excludedTags): PatternConversionResult => new PatternConversionResult(array())
-);
+$navigationConverter = new class implements PatternTreeConverter {
+    public int $calls = 0;
+
+    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
+    {
+        return array();
+    }
+
+    public function element(DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array
+    {
+        ++$this->calls;
+        $fallbacks[] = array( 'diagnostic_code' => 'brand_fallback' );
+        return array( 'blockName' => 'core/paragraph', 'attrs' => array( 'content' => 'Brand' ), 'innerBlocks' => array() );
+    }
+
+    public function childrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array
+    {
+        return array();
+    }
+};
 $navigationContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $createBlock,
@@ -163,7 +165,7 @@ $assert('brand_fallback' === ($navigationResult?->fallbacks()[0]['diagnostic_cod
 
 $probeContext = new PatternContext(static fn (DOMElement $source): array => array(), $createBlock);
 (new NavigationPattern())->recognize($navigationElement, $probeContext);
-$assert(1 === $recursiveCalls, 'Navigation probe context performs no recursive conversion side effects.');
+$assert(1 === $navigationConverter->calls, 'Navigation probe context performs no recursive conversion side effects.');
 
 $labeledNavigation = (new HtmlTransformer())->transform('<div class="footer-links"><h3>Resources</h3><a href="/docs">Docs</a><a href="/help">Help</a></div>')->toArray();
 $labeledNavigationGroup = $labeledNavigation['blocks'][0] ?? array();

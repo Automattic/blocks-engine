@@ -105,10 +105,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationUnderlineColorResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ProbeBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\QuotePattern;
@@ -154,7 +153,7 @@ use DOMElement;
 use DOMNode;
 
 /** Run-scoped compiler for one HTML document. */
-final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy
+final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy, PatternTreeConverter
 {
     private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
 
@@ -2534,21 +2533,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy
         return new PatternContext(
             fn (DOMElement $sourceElement, array $excludedGeometryProperties = array()): array => $this->styleResolver->presentationAttributes($sourceElement, $excludedGeometryProperties),
             $this,
-            new PatternRecursiveConverter(
-                function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
-                    $fallbacks = array();
-                    return new PatternConversionResult($this->convertChildren($sourceElement, $fallbacks, $captureUnsupported), $fallbacks);
-                },
-                function (DOMElement $sourceElement, bool $captureUnsupported): PatternConversionResult {
-                    $fallbacks = array();
-                    $block = $this->convertElement($sourceElement, $fallbacks, $captureUnsupported);
-                    return new PatternConversionResult(null === $block ? array() : array($block), $fallbacks);
-                },
-                function (DOMElement $sourceElement, array $excludedTags): PatternConversionResult {
-                    $fallbacks = array();
-                    return new PatternConversionResult($this->convertChildrenWithoutTags($sourceElement, $fallbacks, $excludedTags), $fallbacks);
-                }
-            ),
+            $this,
             new NavigationPatternContext(
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
@@ -2604,6 +2589,46 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy
                 fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure)
             )
         );
+    }
+
+    /**
+     * @param list<array<string, mixed>> $fallbacks
+     * @return list<array<string, mixed>>
+     */
+    public function children(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
+    {
+        $localFallbacks = array();
+        $blocks = $this->convertChildren($element, $localFallbacks, $captureUnsupported);
+        $fallbacks = array_merge($fallbacks, $localFallbacks);
+
+        return $blocks;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function element(DOMElement $element, array &$fallbacks, bool $captureUnsupported): ?array
+    {
+        $localFallbacks = array();
+        $block = $this->convertElement($element, $localFallbacks, $captureUnsupported);
+        $fallbacks = array_merge($fallbacks, $localFallbacks);
+
+        return $block;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $fallbacks
+     * @param list<string> $excludedTags
+     * @return list<array<string, mixed>>
+     */
+    public function childrenWithoutTags(DOMElement $element, array &$fallbacks, array $excludedTags): array
+    {
+        $localFallbacks = array();
+        $blocks = $this->convertChildrenWithoutTags($element, $localFallbacks, $excludedTags);
+        $fallbacks = array_merge($fallbacks, $localFallbacks);
+
+        return $blocks;
     }
 
     /** @param list<class-string<\Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerInterface>> $allowed */
