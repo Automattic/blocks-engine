@@ -79,24 +79,25 @@ final class FormatBridge
             return $this->normalize($content, $from, $options);
         }
 
-        $blocks = $this->toBlocks($content, $from, $options);
-        if ( 'blocks' === $to ) {
-            $adapter = $this->registry->get($to);
-
-            if ( null === $adapter ) {
-                throw new InvalidArgumentException(sprintf('No format adapter is registered for format "%s".', $to));
-            }
-
-            return $adapter->fromBlocks($blocks, $options);
+        $sourceAdapter = $this->registry->get($from);
+        $targetAdapter = $this->registry->get($to);
+        if ( null === $sourceAdapter ) {
+            throw new InvalidArgumentException(sprintf('No format adapter is registered for format "%s".', $from));
         }
-
-        $adapter = $this->registry->get($to);
-
-        if ( null === $adapter ) {
+        if ( null === $targetAdapter ) {
             throw new InvalidArgumentException(sprintf('No format adapter is registered for format "%s".', $to));
         }
 
-        return $adapter->fromBlocks($blocks, $options);
+        $normalizedContent = $this->normalize($content, $from, $options);
+        if ( 'html' === $to && $sourceAdapter instanceof HtmlInterchangeAdapterInterface ) {
+            return $sourceAdapter->toHtml($normalizedContent, $options);
+        }
+        if ( 'html' === $from && $targetAdapter instanceof HtmlInterchangeAdapterInterface ) {
+            return $targetAdapter->fromHtml($normalizedContent, $options);
+        }
+
+        $blocks = array_values($sourceAdapter->toBlocks($normalizedContent, $options));
+        return $targetAdapter->fromBlocks($blocks, $options);
     }
 
     /**
@@ -135,7 +136,15 @@ final class FormatBridge
             $blocks = array_values(array() !== $adapterResult
                 ? (is_array($adapterResult['blocks'] ?? null) ? $adapterResult['blocks'] : array())
                 : $sourceAdapter->toBlocks($normalizedContent, $options));
-            $output = $from === $to ? $normalizedContent : $targetAdapter->fromBlocks($blocks, $options);
+            if ( $from === $to ) {
+                $output = $normalizedContent;
+            } elseif ( 'html' === $to && $sourceAdapter instanceof HtmlInterchangeAdapterInterface ) {
+                $output = $sourceAdapter->toHtml($normalizedContent, $options);
+            } elseif ( 'html' === $from && $targetAdapter instanceof HtmlInterchangeAdapterInterface ) {
+                $output = $targetAdapter->fromHtml($normalizedContent, $options);
+            } else {
+                $output = $targetAdapter->fromBlocks($blocks, $options);
+            }
             $assets = is_array($adapterResult['assets'] ?? null) ? $adapterResult['assets'] : array();
             $fallbacks = is_array($adapterResult['fallbacks'] ?? null) ? $adapterResult['fallbacks'] : array();
             $diagnostics = array_merge(is_array($adapterResult['diagnostics'] ?? null) ? $adapterResult['diagnostics'] : array(), array(

@@ -5252,7 +5252,10 @@ assertSame('core/heading', $markdownToBlocksResult['blocks'][0]['blockName'], 'M
 $blocksToHtmlResult = $bridge->convertResult('<!-- wp:paragraph --><p>Hello</p><!-- /wp:paragraph -->', 'blocks', 'html')->toArray();
 assertSame('<p>Hello</p>', $blocksToHtmlResult['documents'][0]['content'], 'Serialized blocks should render to HTML through the default blocks/html adapters.');
 $markdownToHtmlResult = $bridge->convertResult("# Title\n\nBody", 'markdown', 'html')->toArray();
-assertStringContains('<h1 class="wp-block-heading">Title</h1>', $markdownToHtmlResult['documents'][0]['content'], 'Markdown should convert to HTML through the block pivot with the canonical heading class core save() emits.');
+assertStringContains('<h1>Title</h1>', $markdownToHtmlResult['documents'][0]['content'], 'Markdown should convert directly to canonical HTML without block save-shape classes.');
+assertSame(false, str_contains($markdownToHtmlResult['documents'][0]['content'], 'wp-block-heading'), 'Direct Markdown-to-HTML conversion should not round-trip through blocks.');
+$htmlToMarkdownResult = $bridge->convertResult('<article><h2>Direct HTML</h2><p>Body with <strong>weight</strong>.</p></article>', 'html', 'markdown')->toArray();
+assertStringContains("## Direct HTML\n\nBody with **weight**.", $htmlToMarkdownResult['documents'][0]['content'], 'HTML should convert directly to Markdown across the canonical HTML boundary.');
 $blocksToMarkdownResult = $bridge->convertResult('<!-- wp:heading {"content":"Hello","level":1} --><h1>Hello</h1><!-- /wp:heading -->', 'blocks', 'markdown')->toArray();
 assertStringContains('# Hello', $blocksToMarkdownResult['documents'][0]['content'], 'Serialized blocks should convert to markdown through rendered HTML.');
 $htmlToBlocksResult = $bridge->convertResult('<h2>Hello</h2>', 'html', 'blocks')->toArray();

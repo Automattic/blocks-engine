@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "markdown-conversion",
-  "description": "Converts Markdown through the FormatBridge block pivot into HTML and parsed block output.",
+  "description": "Converts Markdown directly to canonical HTML while retaining parsed block output in the result envelope.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "src/FormatBridge/MarkdownAdapter.php",
@@ -14,7 +14,7 @@
     "content": "# Title\n\nBody with **strong** text.\n\n- One\n- Two\n"
   },
   "expect": [
-    { "path": "converted", "assert": "contains", "value": "<h1 class=\"wp-block-heading\">Title</h1>" },
+    { "path": "converted", "assert": "contains", "value": "<h1>Title</h1>" },
     { "path": "converted", "assert": "contains", "value": "<strong>strong</strong>" },
     { "path": "blocks", "assert": "count", "count": 3 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
@@ -22,7 +22,7 @@
     { "path": "result.schema", "assert": "equals", "value": "blocks-engine/php-transformer/result/v1" },
     { "path": "result.status", "assert": "equals", "value": "success" },
     { "path": "result.documents.0.format", "assert": "equals", "value": "html" },
-    { "path": "result.documents.0.content", "assert": "contains", "value": "<h1 class=\"wp-block-heading\">Title</h1>" },
+    { "path": "result.documents.0.content", "assert": "contains", "value": "<h1>Title</h1>" },
     { "path": "result.blocks.0.blockName", "assert": "equals", "value": "core/heading" },
     { "path": "result.diagnostics.0.code", "assert": "equals", "value": "format_bridge_conversion_completed" },
     { "path": "result.provenance.0.source_format", "assert": "equals", "value": "markdown" },

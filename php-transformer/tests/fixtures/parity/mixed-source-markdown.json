@@ -18,7 +18,7 @@
     "content": "# Markdown Story\n\nThis page came from a nested Markdown source document.\n\n[Read the notes](notes.markdown)\n"
   },
   "expect": [
-    { "path": "converted", "assert": "contains", "value": "<h1 class=\"wp-block-heading\">Markdown Story</h1>" },
+    { "path": "converted", "assert": "contains", "value": "<h1>Markdown Story</h1>" },
     { "path": "converted", "assert": "contains", "value": "href=\"notes.markdown\"" },
     { "path": "blocks", "assert": "count", "count": 3 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/heading" },
