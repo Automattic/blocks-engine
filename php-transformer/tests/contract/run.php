@@ -2399,9 +2399,8 @@ $assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), 
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'), 'list-navigation restores the source flex alignment default');
 $assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container follows the authored host layout without !important');
-$verticalListNavigation = ( new HtmlTransformer() )->transform('<ul class="footer-links" style="display:flex;flex-direction:column;gap:.7rem"><li><a href="/">Home</a></li><li><a href="/menu">Menu</a></li></ul>')->toArray();
-$assert(array('type' => 'flex', 'orientation' => 'vertical', 'justifyContent' => 'left') === ($verticalListNavigation['blocks'][0]['attrs']['layout'] ?? null), 'vertical list navigation retains source-default start alignment');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'

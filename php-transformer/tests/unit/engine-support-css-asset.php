@@ -163,6 +163,7 @@ $beforeFamilies = array(
     'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
+    'list-navigation alignment' => '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}',
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
     'list-navigation container layout' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
