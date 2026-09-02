@@ -2399,7 +2399,7 @@ $assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), 
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container stays a row without !important');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container follows the authored host direction without !important');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -4225,7 +4225,7 @@ $assert(array('Inter', 'Oswald') === $webFontFamilies, 'web-font detection captu
 $assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses :wght@ axis weights');
 $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
-$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection preserves the linked provider request');
 $importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins&family=Quicksand&family=Muli">', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
 $assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
 $assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
@@ -4319,7 +4319,8 @@ $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     'body { font-family: "Crimson Pro", Georgia, serif; } .mono { font-family: "JetBrains Mono", monospace; }'
 );
 $assert(array(300, 400, 500, 600, 700, 800, 900) === ($rangeFontPlan['fonts'][0]['weights'] ?? null), 'web-font detection expands css2 font-weight ranges');
-$assert('@import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400&display=swap");' === ($rangeFontPlan['css'] ?? null), 'web-font detection preserves ranged google font weights deterministically');
+$assert(str_contains((string) ($rangeFontPlan['css'] ?? ''), 'family=Crimson+Pro:ital,wght@0,300..900;1,300..900'), 'web-font detection preserves linked italic and ranged axes');
+$assert(1 === count(array_filter($rangeFontPlan['face_records'] ?? array(), static fn (array $face): bool => 'italic' === ($face['style'] ?? null))), 'linked web-font contracts retain declared italic faces');
 
 // Legacy css (v1) link syntax with `|`-separated families and comma weight lists.
 $legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
