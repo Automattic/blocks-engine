@@ -112,6 +112,26 @@ $resetButton = ( new HtmlTransformer() )->transform(
 $resetButtonCss = implode("\n", array_column($resetButton['assets'] ?? array(), 'content'));
 $assert(str_contains($resetButtonCss, 'border-radius:56.25px!important') && str_contains($resetButtonCss, 'padding-right:27px!important') && str_contains($resetButtonCss, 'padding-left:27px!important'), 'resolved button styling overrides an authored border and padding reset', $resetButtonCss);
 
+$longhandBorderButton = ( new HtmlTransformer() )->transform(
+    '<style>a{border:0;background:0 0}.btn{border-top:1px solid rgb(254,126,3);border-right:1px solid rgb(254,126,3);border-bottom:1px solid rgb(254,126,3);border-left:1px solid rgb(254,126,3);border-radius:4px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
+)->toArray();
+$longhandBorderCss = implode("\n", array_column($longhandBorderButton['assets'] ?? array(), 'content'));
+$assert(! str_contains($longhandBorderCss, 'border-style:none!important') && ! str_contains($longhandBorderCss, 'border-width:0!important'), 'a border declared through longhands after a `border:0` shorthand reset is not neutralized', $longhandBorderCss);
+$assert(str_contains($longhandBorderCss, 'border-radius:4px!important'), 'radius handling keeps working alongside a longhand-declared border', $longhandBorderCss);
+
+$customPropertyBorderButton = ( new HtmlTransformer() )->transform(
+    '<style>a{border:0;background:0 0}.btn{--border-top:1px solid rgb(254,126,3);--border-right:1px solid rgb(254,126,3);--border-bottom:1px solid rgb(254,126,3);--border-left:1px solid rgb(254,126,3);border-top:var(--border-top);border-right:var(--border-right);border-bottom:var(--border-bottom);border-left:var(--border-left);border-radius:4px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
+)->toArray();
+$customPropertyBorderCss = implode("\n", array_column($customPropertyBorderButton['assets'] ?? array(), 'content'));
+$assert(! str_contains($customPropertyBorderCss, 'border-style:none!important') && ! str_contains($customPropertyBorderCss, 'border-width:0!important'), 'a var()-driven longhand border after a `border:0` shorthand reset is not statically provable as zero and is not neutralized', $customPropertyBorderCss);
+$assert(1 === preg_match('/\.blocks-engine-control-[^\s.]+\.blocks-engine-control-[^\s>]+>\.wp-block-button__link\{[^}]*border-top:var\(--border-top\)!important[^}]*border-right:var\(--border-right\)!important[^}]*border-bottom:var\(--border-bottom\)!important[^}]*border-left:var\(--border-left\)!important/', $customPropertyBorderCss), 'the generated native link rule consumes each var()-driven border side rather than relying on the source selector', $customPropertyBorderCss);
+
+$genuinelyBorderlessButton = ( new HtmlTransformer() )->transform(
+    '<style>a{border:0;background:0 0}.btn{background:#173b64;border-radius:6px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
+)->toArray();
+$genuinelyBorderlessCss = implode("\n", array_column($genuinelyBorderlessButton['assets'] ?? array(), 'content'));
+$assert(str_contains($genuinelyBorderlessCss, 'border-style:none!important') && str_contains($genuinelyBorderlessCss, 'border-width:0!important'), 'a control with no border on the shorthand or any longhand still gets neutralized against theme default button chrome', $genuinelyBorderlessCss);
+
 $squareButtonStyle = ( new ButtonStyleResolver() )->nativeAttributes('border:0;padding:0;border-radius:0');
 $assert('0' === ($squareButtonStyle['style']['border']['radius'] ?? '') && '0' === ($squareButtonStyle['style']['spacing']['padding']['left'] ?? '') && '0' === ($squareButtonStyle['style']['spacing']['padding']['right'] ?? ''), 'explicit zero button radius and padding remain preserved', json_encode($squareButtonStyle));
 

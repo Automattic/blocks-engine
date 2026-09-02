@@ -39,7 +39,7 @@ final class HtmlTransformerAnalysisCache
     /** @var array<string, int> */
     private array $authorSelectorAnalysisBytes = array();
 
-    /** @var array<string, array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array}> */
+    /** @var array<string, array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array}> */
     public array $styles = array();
 
     public int $styleBuilds = 0;
@@ -111,7 +111,7 @@ final class HtmlTransformerAnalysisCache
 
     public int $sourceStructuralDeclarationHits = 0;
 
-    /** @param array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, custom_properties: array} $analysis */
+    /** @param array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} $analysis */
     public function rememberStyle(string $key, array $analysis): void
     {
         $this->remember(

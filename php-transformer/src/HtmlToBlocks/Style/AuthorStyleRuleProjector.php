@@ -13,6 +13,9 @@ final class AuthorStyleRuleProjector
 {
     private const ROOT_FONT_SIZE_PX = 16;
 
+    /** Bounded ancestor walk for stretch-derived percentage-height resolution. */
+    private const MAX_STRETCH_ANCESTOR_DEPTH = 12;
+
     /** @var WeakMap<AuthorStyleAnalysis, bool> */
     private WeakMap $universalBorderBoxResets;
 
@@ -235,8 +238,18 @@ final class AuthorStyleRuleProjector
         if ( in_array($position, array( 'absolute', 'fixed' ), true) && $this->hasDefiniteBlockAxisInsets($declarations) ) {
             return false;
         }
-        return ! $this->isDefiniteBlockSize((string) ($declarations['height'] ?? ''))
-            && ! $this->isDefiniteBlockSize((string) ($declarations['min-height'] ?? ''));
+        // `$declarations` (unlike the ancestor lookups {@see receivesDefiniteBlockSize}
+        // performs) is merged with the specific rule under evaluation, which
+        // matters most for a conditional (`@media`) rule: its declarations
+        // never reach the unconditional `structuralPresentationDeclarations()`
+        // stream on their own.
+        $height = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['height'] ?? ''), $element);
+        $minHeight = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['min-height'] ?? ''), $element);
+        if ( $this->isDefiniteBlockSize($height) || $this->isDefiniteBlockSize($minHeight) ) {
+            return false;
+        }
+
+        return ! $this->receivesDefiniteBlockSize($element, 0, $height, $minHeight);
     }
 
     /** @param array<string, string> $declarations */
@@ -272,6 +285,184 @@ final class AuthorStyleRuleProjector
         }
         return 1 === preg_match('/^(?:calc|min|max|clamp|var)\(/', $value)
             && (bool) preg_match('/(?:vh|dvh|svh|lvh|px|r?em)\b/', $value);
+    }
+
+    private function isPercentageBlockSize(string $value): bool
+    {
+        return 1 === preg_match('/^[\d.]+%$/', strtolower(CssValueInspector::withoutImportant($value)));
+    }
+
+    /**
+     * Whether `$value` is functionally equivalent to the CSS-initial `auto` for
+     * this heuristic's purposes: genuinely unset/auto, and therefore eligible
+     * to receive a size from default grid/flex stretch alignment. A literal
+     * zero is deliberately excluded -- it is a real, non-rescuable value, not
+     * an absence of one.
+     */
+    private function isAutoOrUnsetBlockSize(string $value): bool
+    {
+        return in_array(strtolower(CssValueInspector::withoutImportant($value)), array( '', 'auto', 'unset', 'inherit', 'initial' ), true);
+    }
+
+    /**
+     * Whether `$value` is a literal zero length (`0`, `0px`, `0%`, ...).
+     * Meaningful only for `min-height` in {@see receivesDefiniteBlockSize}:
+     * a zero minimum imposes no floor at all, so -- unlike a zero `height`,
+     * which specifies the block axis outright and rules out stretch -- it
+     * can never itself prevent an item's height from being resolved by the
+     * default grid/flex stretch alignment. Page builders commonly pair it
+     * with `height:auto` specifically to opt out of the browser's default
+     * `min-height:auto` (a content-based automatic minimum) while still
+     * relying on stretch for the actual size.
+     */
+    private function isZeroBlockSize(string $value): bool
+    {
+        $value = CssValueInspector::withoutImportant($value);
+        return '' !== $value && ! CssValueInspector::isNonZero($value);
+    }
+
+    /**
+     * Whether `$element` ends up with a definite block size once its ancestor
+     * chain is accounted for, even though no single declaration on it states
+     * one directly. Two indirect routes reach a definite size the same way a
+     * real browser's layout does:
+     *
+     *  - a percentage height/min-height resolves once its containing block
+     *    (the parent) itself has a definite size, transitively;
+     *  - an unset/`auto` height on a CSS Grid/Flex item defaults to filling
+     *    its parent's track via `align-items: normal` (which computes to
+     *    `stretch`), the same way, as long as the item does not opt out with
+     *    its own non-stretch `align-self`.
+     *
+     * A bounded, generic model of these two CSS Grid/Flex behaviors --
+     * deliberately not a full layout engine -- is enough to recognize the
+     * common "100% all the way up, one definite size far above" wrapper stack
+     * (e.g. a repeater/slideshow item) that {@see isIntrinsicallySizedGridContainer}
+     * would otherwise treat as unsized at every level, collapsing every
+     * `1fr` row track it owns to `min-content` and losing the whole subtree's
+     * box even where the eventual size is genuinely resolvable.
+     */
+    private function receivesDefiniteBlockSize(DOMElement $element, int $depth = 0, ?string $height = null, ?string $minHeight = null): bool
+    {
+        if ( null === $height || null === $minHeight ) {
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+            $height = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['height'] ?? ''), $element);
+            $minHeight = $this->styleResolver->resolveStructuralCssVariablesInValue((string) ($declarations['min-height'] ?? ''), $element);
+        }
+        if ( $this->isDefiniteBlockSize($height) || $this->isDefiniteBlockSize($minHeight) ) {
+            return true;
+        }
+        if ( $this->establishesOwnDefiniteBlockSize($element, $height) ) {
+            return true;
+        }
+        if ( self::MAX_STRETCH_ANCESTOR_DEPTH <= $depth ) {
+            return false;
+        }
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        $isPercentage = $this->isPercentageBlockSize($height) || $this->isPercentageBlockSize($minHeight);
+        if ( $isPercentage ) {
+            return $this->receivesDefiniteBlockSize($parent, $depth + 1);
+        }
+        if ( ! $this->isAutoOrUnsetBlockSize($height) ) {
+            // A genuinely intrinsic-sizing keyword or an explicit length on
+            // `height` itself governs the block axis outright, ruling out
+            // stretch regardless of `min-height`.
+            return false;
+        }
+        if ( ! $this->isAutoOrUnsetBlockSize($minHeight) && ! $this->isZeroBlockSize($minHeight) ) {
+            // A genuinely intrinsic-sizing keyword (min-content, max-content,
+            // fit-content, ...) or a real non-zero minimum: not a stretch
+            // candidate. A literal zero minimum is excluded from this check
+            // {@see isZeroBlockSize}.
+            return false;
+        }
+
+        // Wix/Squarespace-style page builders commonly gate `display` behind a
+        // `var(--token, var(--fallback-token))` indirection (an author-facing
+        // override hook that resolves to a literal keyword like `grid` once
+        // its own custom property is declared on the very same rule). Resolve
+        // it against the parent so that indirection does not hide a real grid
+        // container from this check.
+        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $parentDisplayRaw = (string) ($parentDeclarations['display'] ?? '');
+        $parentDisplay = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($parentDisplayRaw), $parent));
+        if ( ! in_array($parentDisplay, array( 'grid', 'inline-grid', 'flex', 'inline-flex' ), true) ) {
+            return false;
+        }
+        $flexDirectionRaw = (string) ($parentDeclarations['flex-direction'] ?? '');
+        $flexDirection = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($flexDirectionRaw), $parent));
+        if ( in_array($parentDisplay, array( 'flex', 'inline-flex' ), true)
+            && in_array($flexDirection, array( 'column', 'column-reverse' ), true) ) {
+            // Stretch only governs the cross axis. A column flex parent sizes
+            // its children along the block axis via flex-basis/grow instead,
+            // so it is not a stretch-derived size source for block height.
+            return false;
+        }
+        $alignSelfRaw = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['align-self'] ?? '');
+        $alignSelf = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant($alignSelfRaw), $element));
+        if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'stretch', 'auto', 'normal' ), true) ) {
+            // The element opted out of the default stretch alignment, so it
+            // does not receive a size from its parent's track this way.
+            return false;
+        }
+
+        return $this->receivesDefiniteBlockSize($parent, $depth + 1);
+    }
+
+    /**
+     * Whether `$element` establishes its own definite block size directly,
+     * independent of any ancestor. A CSS Grid container with a genuinely
+     * auto/unset `height` sizes itself, along the block axis, to the sum of
+     * its own row tracks' used sizes -- the reverse relationship from
+     * stretch (bottom-up, from the container's own track list, rather than
+     * top-down from an ancestor). When at least one of those tracks carries
+     * a definite minimum sizing function (a length, or `minmax(<length>,
+     * ...)` -- e.g. a responsive `minmax(max(0.5px, calc(...)), auto)` row,
+     * common in page-builder output that scales a section to the viewport),
+     * the container's own auto height is thereby definite too, the same way
+     * a real browser's grid track-sizing algorithm resolves it.
+     */
+    private function establishesOwnDefiniteBlockSize(DOMElement $element, string $height): bool
+    {
+        if ( ! $this->isAutoOrUnsetBlockSize($height) ) {
+            return false;
+        }
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $display = strtolower($this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? '')), $element));
+        if ( ! in_array($display, array( 'grid', 'inline-grid' ), true) ) {
+            return false;
+        }
+        $rows = $this->styleResolver->resolveStructuralCssVariablesInValue(CssValueInspector::withoutImportant((string) ($declarations['grid-template-rows'] ?? '')), $element);
+        return $this->gridTemplateRowsContainDefiniteTrack($rows);
+    }
+
+    private function gridTemplateRowsContainDefiniteTrack(string $rows): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevelWhitespace(CssValueInspector::withoutImportant($rows)) as $track ) {
+            if ( $this->gridRowTrackIsDefinite($track) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function gridRowTrackIsDefinite(string $track): bool
+    {
+        $track = trim($track);
+        if ( 1 === preg_match('/^minmax\(\s*(.+)\)$/is', $track, $matches) ) {
+            $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
+            return 2 === count($parts) && $this->isDefiniteBlockSize(trim($parts[0]));
+        }
+        if ( 1 === preg_match('/^repeat\(\s*(.+)\)$/i', $track, $matches) ) {
+            $parts = CssValueSplitter::splitTopLevel($matches[1], array( ',' ));
+            $list = $parts[1] ?? '';
+            return '' !== $list && $this->gridTemplateRowsContainDefiniteTrack($list);
+        }
+        return $this->isDefiniteBlockSize($track);
     }
 
     private function gridTemplateRowsContainFractionalTrack(string $rows): bool

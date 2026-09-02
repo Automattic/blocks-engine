@@ -505,28 +505,116 @@ final class SvgMaterializer implements SvgElementMaterializer
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
         $html = $this->styleResolver->resolveCssVariablesInValue($html);
-        if ( false === stripos($html, 'currentColor') ) {
-            return $html;
+        if ( false !== stripos($html, 'currentColor') ) {
+            $html = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
         }
 
-        return preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
+        return $this->bakeCascadedSvgPaint($html, $element);
     }
 
     private function inheritedSvgColor(DOMElement $element): string
     {
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-            $declarations = $this->styleResolver->presentationDeclarations($current);
-            if ( empty($declarations['color']) ) {
-                continue;
-            }
+        $color = $this->resolvedCascadedSvgPaint($element, 'color');
 
-            $color = $this->styleResolver->resolveCssVariablesInValue(trim((string) $declarations['color']));
-            if ( '' !== $color && ! preg_match('/\bcurrentColor\b|var\s*\(|[<>]/i', $color) ) {
-                return $color;
+        return null !== $color ? $color : '#000000';
+    }
+
+    /**
+     * The materialized SVG becomes an isolated document: an `<img src>` (or a
+     * standalone core/html payload) cannot inherit `fill`/`stroke` from the
+     * host page's stylesheet the way the inline source SVG could. Resolve the
+     * effective cascade value for each inheritable paint property — from the
+     * element's own matched CSS/inline style, or the nearest ancestor that
+     * declares one — and serialize it onto the root `<svg>` so the standalone
+     * asset renders identically without depending on any external CSS.
+     *
+     * An element's own literal presentation attribute (e.g. `fill="#fff"`)
+     * already travels with the markup verbatim and is left untouched unless a
+     * matched CSS declaration overrides it, mirroring browser cascade order.
+     */
+    private function bakeCascadedSvgPaint(string $html, DOMElement $element): string
+    {
+        $paint = array();
+        foreach ( array( 'fill', 'stroke' ) as $property ) {
+            $value = $this->resolvedCascadedSvgPaint($element, $property);
+            if ( null !== $value ) {
+                $paint[$property] = $value;
             }
         }
 
-        return '#000000';
+        return array() === $paint ? $html : $this->mergeSvgRootStyleDeclarations($html, $paint);
+    }
+
+    private function resolvedCascadedSvgPaint(DOMElement $element, string $property): ?string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $resolved = $this->styleResolver->resolvedSvgCascadeValue($current, $property);
+            if ( null === $resolved ) {
+                if ( $current === $element && '' !== trim(SourceDom::attr($current, $property)) ) {
+                    // The element's own presentation attribute already carries
+                    // this paint into the materialized markup verbatim.
+                    return null;
+                }
+                continue;
+            }
+
+            $resolved = trim($resolved);
+            if ( '' === $resolved || preg_match('/var\s*\(|[<>]/i', $resolved) ) {
+                // The declared value could not be fully resolved. Stop rather
+                // than risk baking the wrong ancestor's paint.
+                return null;
+            }
+
+            if ( ! preg_match('/^currentColor$/i', $resolved) ) {
+                return $resolved;
+            }
+            if ( 'color' === $property ) {
+                // `color: currentColor` computes to the inherited color; keep
+                // walking ancestors for `color` rather than resolving itself.
+                continue;
+            }
+
+            return $this->inheritedSvgColor($current);
+        }
+
+        return null;
+    }
+
+    /**
+     * Merge resolved declarations onto the root `<svg>` tag's style attribute
+     * within the (already partially transformed) markup string, preserving
+     * any style already present there — including box-sizing declarations a
+     * prior materialization step may have already written.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function mergeSvgRootStyleDeclarations(string $html, array $declarations): string
+    {
+        if ( 1 !== preg_match('/<svg\b[^>]*>/i', $html, $tagMatch, PREG_OFFSET_CAPTURE) ) {
+            return $html;
+        }
+
+        $tag = $tagMatch[0][0];
+        $existingStyle = '';
+        if ( preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $tag, $styleMatch) ) {
+            $existingStyle = html_entity_decode($styleMatch[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        // A style declaration already present on the tag (author-authored or
+        // written by an earlier materialization step) always outranks a value
+        // resolved from the lost external cascade.
+        $merged = array_merge($declarations, $this->styleResolver->cssDeclarations($existingStyle));
+        $style = $this->styleResolver->cssDeclarationString($merged);
+        if ( '' === $style ) {
+            return $html;
+        }
+
+        $escapedStyle = htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $newTag = preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $tag)
+            ? ( preg_replace('/(\sstyle\s*=\s*)(["\'])(.*?)\2/i', '$1$2' . $escapedStyle . '$2', $tag, 1) ?? $tag )
+            : ( preg_replace('/<svg\b/i', '<svg style="' . $escapedStyle . '"', $tag, 1) ?? $tag );
+
+        return substr($html, 0, $tagMatch[0][1]) . $newTag . substr($html, $tagMatch[0][1] + strlen($tag));
     }
 
 
