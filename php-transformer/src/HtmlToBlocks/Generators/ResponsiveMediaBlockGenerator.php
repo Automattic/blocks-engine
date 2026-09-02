@@ -31,15 +31,23 @@ final class ResponsiveMediaBlockGenerator
     public function assets(string $blockName): array
     {
         $script = <<<'JS'
-( function( blocks, blockEditor, components, element ) {
+( function( blocks, blockEditor, components, element, ServerSideRender ) {
     var createElement = element.createElement;
     function edit( props ) {
-        if ( ! props.isSelected ) { return createElement( 'div', blockEditor.useBlockProps( { style: { display: 'none' } } ) ); }
-        return createElement( 'div', blockEditor.useBlockProps(), createElement( components.TextareaControl, {
-            label: 'Captured media or layout HTML',
-            value: props.attributes.content || '',
-            onChange: function( content ) { props.setAttributes( { content: content } ); }
-        } ) );
+        var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
+            createElement( components.PanelBody, { title: 'Captured media HTML' },
+                createElement( components.TextareaControl, {
+                    label: 'HTML',
+                    value: props.attributes.content || '',
+                    onChange: function( content ) { props.setAttributes( { content: content } ); }
+                } )
+            )
+        ) : null;
+        return createElement( element.Fragment, {}, inspector,
+            createElement( 'div', blockEditor.useBlockProps(),
+                createElement( ServerSideRender, { block: '__BLOCK_NAME__', attributes: props.attributes } )
+            )
+        );
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: { content: { type: 'string', default: '', role: 'content' }, kind: { type: 'string', default: 'media' } },
@@ -47,7 +55,7 @@ final class ResponsiveMediaBlockGenerator
         edit: edit,
         save: function() { return null; }
     } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element, window.wp.serverSideRender );
 JS;
 
         return array( 'index.js' => str_replace('__BLOCK_NAME__', $blockName, $script) );
@@ -61,7 +69,7 @@ JS;
             'block_json' => $this->blockJson($namespace),
             'renderer' => self::RENDERER,
             'assets' => $this->assets($namespace . '/' . self::LOCAL_NAME),
-            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ),
+            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-server-side-render' ) ),
         );
     }
 }

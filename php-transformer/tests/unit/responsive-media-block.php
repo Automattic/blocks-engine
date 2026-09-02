@@ -21,12 +21,12 @@ $assert('ssi-example/responsive-media' === ($definition['block_json']['name'] ??
 $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'the companion disables raw HTML editing');
 $assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'the companion declares its editor script');
 $assert(!isset($definition['block_json']['render']), 'the companion metadata does not reference a producer-authored render asset');
-$assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element') === ($definition['script_dependencies']['index.js'] ?? null), 'the companion declares editor dependencies');
+$assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-server-side-render') === ($definition['script_dependencies']['index.js'] ?? null), 'the companion declares editor dependencies');
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? null) && !isset($definition['render']), 'the companion delegates runtime rendering through an audited identifier without producer-authored PHP');
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, '! props.isSelected') && str_contains($editor, "display: 'none'") && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, 'RawHTML'), 'the editor hides the captured HTML control until its block is deliberately selected');
+$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, 'ServerSideRender') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor presents an audited preview and keeps captured HTML controls in the inspector');
 $editorSchemaRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;
@@ -47,7 +47,8 @@ $assert('string' === ($definition['block_json']['attributes']['kind']['type'] ??
 $layoutDefinition = ( new ResponsiveLayoutBlockGenerator() )->definition('ssi-example');
 $assert('ssi-example/responsive-layout' === ($layoutDefinition['block_json']['name'] ?? null), 'one namespaced responsive-layout block type is defined');
 $layoutEditor = (string) ($layoutDefinition['assets']['index.js'] ?? '');
-$assert(str_contains($layoutEditor, '! props.isSelected') && str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout hides its captured HTML control until deliberately selected');
+$assert(str_contains($layoutEditor, 'ServerSideRender') && str_contains($layoutEditor, 'InspectorControls') && str_contains($layoutEditor, 'TextareaControl') && !str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout presents an audited preview and keeps captured HTML controls in the inspector');
+$assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-server-side-render') === ($layoutDefinition['script_dependencies']['index.js'] ?? null), 'responsive layout declares its preview dependency');
 $assert(array('content') === array_keys($layoutDefinition['block_json']['attributes'] ?? array()), 'responsive layout declares a dedicated content-only schema');
 $assert(ResponsiveLayoutBlockGenerator::RENDERER === ($layoutDefinition['renderer'] ?? null), 'responsive layout delegates rendering through its producer-owned capability');
 $layoutEditorAttributes = json_decode((string) shell_exec('node -e ' . escapeshellarg($editorSchemaRunner) . ' ' . escapeshellarg(base64_encode($layoutEditor))), true);
