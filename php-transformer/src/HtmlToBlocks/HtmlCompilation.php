@@ -9912,7 +9912,7 @@ final class HtmlCompilation implements SourceBlockCreator
         $prefix = $selector . ' > ';
         foreach ( $this->layoutGeometry()->proofReductions() as $proof ) {
             $wrapperSelector = is_array($proof) ? (string) ($proof['wrapper_selector'] ?? '') : '';
-            if ( $selector === $wrapperSelector || str_starts_with($wrapperSelector, $prefix) ) {
+            if ( $selector === $wrapperSelector || str_starts_with($wrapperSelector, $prefix) || str_starts_with($selector, $wrapperSelector . ' > ') ) {
                 return true;
             }
         }
