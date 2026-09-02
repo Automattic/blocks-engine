@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
 
 $failures = 0;
 $passes = 0;
@@ -25,6 +28,22 @@ $css = static function (array $result): string {
     }
     return implode("\n", $parts);
 };
+
+$candidateDom = new DOMDocument();
+$candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
+$candidateBody = $candidateDom->getElementsByTagName('body')->item(0);
+if (! $candidateBody instanceof DOMElement) {
+    throw new RuntimeException('Attribute candidate fixture did not produce a body element.');
+}
+$candidateAnalysis = new AuthorStyleAnalysis('', '', array(), $candidateBody);
+$attributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('[data-color="1"]'));
+$typedAttributeCandidates = $candidateAnalysis->selectorCandidates(CssSelectorMatcher::parse('p[data-color="1"]'));
+$assert(
+    2 === count($attributeCandidates)
+        && 2 === count($typedAttributeCandidates)
+        && array_reduce($attributeCandidates, static fn (bool $matched, DOMElement $element): bool => $matched && $element->hasAttribute('data-color'), true),
+    'rightmost attributes lazily narrow selector candidates instead of scanning the full source document'
+);
 
 $paragraph = $transform('<style>p{color:red}span{color:blue}</style><span>Loose text</span><p>Paragraph</p>');
 $paragraphClass = (string) ($paragraph['blocks'][1]['attrs']['className'] ?? '');
@@ -50,6 +69,15 @@ $specificity = $transform('<style>a.cta{color:red}.cta{color:blue}p{color:red}*{
 $specificityCss = $css($specificity);
 $specificityAuthorCss = strstr($specificityCss, "\n\n.blocks-engine-control-", true) ?: $specificityCss;
 $assert(str_contains($specificityAuthorCss, ':not(blocks-engine-specificity-') && strrpos($specificityAuthorCss, 'color:red') < strrpos($specificityAuthorCss, 'color:blue') && strrpos($specificityAuthorCss, 'color:blue') < strrpos($specificityAuthorCss, 'color:green'), 'type-specificity shims preserve the authored a.cta and p cascade ordering against later class and universal rules');
+
+$layoutMargins = $transform('<style>.container {max-width:60rem;margin:0 auto}.hero-inner {margin-top:52px}.section-head p {margin-bottom:16px}</style><main class="container"><div class="hero-inner"><div class="section-head"><p>Copy</p></div></div></main>');
+$layoutMarginCss = $css($layoutMargins);
+$assert(
+    preg_match('/\.container:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:0 auto\}/', $layoutMarginCss) === 1
+        && preg_match('/\.hero-inner:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-top:52px\}/', $layoutMarginCss) === 1
+        && preg_match('/\.container\s*\{max-width:60rem\}/', $layoutMarginCss) === 1,
+    'authored margin carriers outrank later WordPress flow-layout resets without increasing unrelated declaration specificity'
+);
 
 $important = $transform('<style>a.cta:hover{padding:1rem!important}.cta:hover{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $assert(str_contains($css($important), '> :where(.wp-block-button__link):hover{padding:1rem!important}') && strpos($css($important), 'padding:1rem!important') < strpos($css($important), 'padding:2rem'), 'projected selectors preserve !important declarations and authored cascade order');
@@ -79,6 +107,20 @@ $rootChildrenCss = $css($rootChildren);
 preg_match_all('/blocks-engine-root-child-[a-f0-9]+-\d+/', $rootChildrenMarkup . "\n" . $rootChildrenCss, $rootChildMarkers);
 $assert(2 === count(array_unique($rootChildMarkers[0] ?? array())) && str_contains($rootChildrenCss, ':where(.blocks-engine-root-child-') && str_contains($rootChildrenCss, 'section{color:red}') && 'pass' === ($rootChildren['source_reports']['wp_block_validity']['status'] ?? ''), 'root-child selectors project through isolated markers without rewriting unrelated selectors for the same elements');
 
+$documentRoot = $transform('<style>body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}@media (max-width:600px){body{font-size:15px}}</style><main><p>Document typography</p></main>');
+$documentRootCss = $css($documentRoot);
+$documentRootEditorRule = '';
+if ( preg_match('/:root \.editor-styles-wrapper\{([^}]*)\}/', $documentRootCss, $documentRootEditorMatch) ) {
+    $documentRootEditorRule = $documentRootEditorMatch[1];
+}
+$assert(
+    str_contains($documentRootCss, 'body{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65;background:url(texture.png);padding:24px}:root .editor-styles-wrapper{font-family:Lora,Georgia,serif;color:#123;font-size:17px;line-height:1.65}')
+        && ! str_contains($documentRootEditorRule, 'background')
+        && ! str_contains($documentRootEditorRule, 'padding')
+        && str_contains($documentRootCss, '@media (max-width:600px){body{font-size:15px}:root .editor-styles-wrapper{font-size:15px}}'),
+    'inherited document presentation targets the Gutenberg canvas root without duplicating body paint, geometry, assets, or responsive rules'
+);
+
 $rootShells = $transform('<style>body > *{position:relative;z-index:1}</style><header><p>Header</p></header><main><p>Body</p></main><footer><p>Footer</p></footer>');
 $rootShellCss = $css($rootShells);
 $assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 1 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while page content retains isolated marker identities');
@@ -88,6 +130,46 @@ $attributeCss = $css($attributes);
 $attributeFallbacks = array_values(array_filter($attributes['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $attributeFallback = $attributeFallbacks[0] ?? array();
 $assert(str_contains((string) ($attributes['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($attributeFallback['html'] ?? ''), 'aria-label="Start"'), 'a materially different anchor accessible name remains a diagnostic fallback rather than becoming an invalid native button');
+
+$attributeProjection = $transform('<style>.form-shell{display:flex}.form-shell [data-role="label"]{flex-grow:1}.animated:not([data-state="settled"]){animation:fade 1s backwards paused}</style><div class="form-shell"><div data-role="label">Label</div></div><div class="animated" data-state="settled">Visible</div>');
+$attributeProjectionMarkup = (string) ($attributeProjection['serialized_blocks'] ?? '');
+$attributeProjectionCss = $css($attributeProjection);
+preg_match_all('/blocks-engine-attribute-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeMarkers);
+preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $attributeProjectionMarkup, $attributeStateMarker);
+$assert(
+    1 === count(array_unique($attributeMarkers[0] ?? array()))
+    && str_contains($attributeProjectionCss, ':where(.blocks-engine-attribute-')
+    && str_contains($attributeProjectionCss, 'flex-grow:1')
+    && isset($attributeStateMarker[0])
+    && str_contains($attributeProjectionCss, ':not(.' . $attributeStateMarker[0] . ')')
+    && ! str_contains($attributeProjectionMarkup, 'data-role=')
+    && ! str_contains($attributeProjectionMarkup, 'data-state=')
+    && 'pass' === ($attributeProjection['source_reports']['wp_block_validity']['status'] ?? ''),
+    'rightmost data-attribute flex-grow and settled negated state selectors project through valid synthetic markers without source attributes'
+);
+
+$functionalAttributeState = $transform('<style>@media(prefers-reduced-motion:no-preference){:is(#hero :where(.artwork),[id^="artwork-"]):not([data-motion-enter="done"]){opacity:0;animation:reveal 1s backwards}}</style><main id="hero"><div class="artwork" data-motion-enter="done">Visible</div></main>');
+$functionalAttributeStateMarkup = (string) ($functionalAttributeState['serialized_blocks'] ?? '');
+$functionalAttributeStateCss = $css($functionalAttributeState);
+preg_match('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $functionalAttributeStateMarkup, $functionalAttributeStateMarker);
+$assert(
+    isset($functionalAttributeStateMarker[0])
+    && str_contains($functionalAttributeStateCss, ':not(.' . $functionalAttributeStateMarker[0] . ')')
+    && ! str_contains($functionalAttributeStateCss, 'data-motion-enter'),
+    'negated captured state projects through markers even when a functional selector list is outside the conservative matcher subset'
+);
+
+$scopedAttributeState = $transform('<style>.first:not([data-state="done"]){animation:first 1s}.second:not([data-state="done"]){animation:second 1s}</style><div class="first" data-state="done">First</div><div class="second" data-state="done">Second</div><div data-state="done">Unrelated</div>');
+$scopedAttributeStateMarkup = (string) ($scopedAttributeState['serialized_blocks'] ?? '');
+preg_match('/class="[^"]*first[^"]*"/', $scopedAttributeStateMarkup, $firstStateClass);
+preg_match('/class="[^"]*second[^"]*"/', $scopedAttributeStateMarkup, $secondStateClass);
+$unrelatedStateClass = (string) ($scopedAttributeState['blocks'][2]['attrs']['className'] ?? '');
+$assert(
+    1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $firstStateClass[0] ?? '')
+        && 1 === preg_match_all('/blocks-engine-attribute-state-[a-f0-9]+-\d+/', $secondStateClass[0] ?? '')
+        && ! str_contains($unrelatedStateClass, 'blocks-engine-attribute-state-'),
+    'negated state markers attach only to the settled targets of their owning selectors'
+);
 
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
@@ -117,6 +199,10 @@ $navCta = $transform('<style>a.btn.btn-primary.nav-cta{display:inline-flex;align
 $navCtaMarkup = (string) ($navCta['serialized_blocks'] ?? '');
 $navCtaCss = $css($navCta);
 $assert(str_contains($navCtaMarkup, 'blocks-engine-control-') && str_contains($navCtaCss, '> :where(.wp-block-button__link){display:inline-flex') && str_contains($navCtaCss, 'font-family:monospace') && str_contains($navCtaCss, 'padding:9px 20px') && str_contains($navCtaCss, 'background:#e8a020') && str_contains($navCtaCss, ':hover{background:#f0ac22}') && str_contains($navCtaCss, ':focus{outline:2px solid #fff}') && 'pass' === ($navCta['source_reports']['wp_block_validity']['status'] ?? ''), 'class-bearing source anchors project compound, typography, paint, and pseudo-state selectors onto valid core/button links');
+
+$nestedLabelButton = $transform('<style>.contact{display:inline-flex;padding:9px 20px;border-radius:999px;background:#001b2e;color:#000}.contact-label{color:#eeffff;font:400 15.75px/1 helvetica}</style><a class="contact" href="#contact"><span class="contact-label">Contacts</span></a>');
+$nestedLabelButtonCss = $css($nestedLabelButton);
+$assert(str_contains($nestedLabelButtonCss, '> :where(.wp-block-button__link){color:#eeffff;font:400 15.75px/1 helvetica}') && ! str_contains($nestedLabelButtonCss, 'color:#000!important') && 'pass' === ($nestedLabelButton['source_reports']['wp_block_validity']['status'] ?? ''), 'removed button label selectors own native link text presentation without a root-colour override');
 
 $controlMargin = $transform('<style>.nav-cta{margin-left:24px;font-family:monospace}</style><main><a class="nav-cta" href="#cta" style="display:inline-flex;padding:9px 20px;background:#e8a020">Get Early Access</a></main>');
 $controlMarginCss = $css($controlMargin);
@@ -228,6 +314,22 @@ $assert(
     'synthetic header anchor stays uncoloured when source does not state inherit'
 );
 
+$inheritedHeaderTypography = $transform(
+    '<style>.label{font-family:Georgia;font-size:18px;font-style:italic;letter-spacing:.05em;line-height:1.4;text-transform:uppercase;white-space:nowrap}.brand{display:inline-flex}</style>'
+        . '<header><div class="label"><a class="brand" href="/">Brand</a></div></header>'
+);
+$inheritedHeaderTypographyMarkup = (string) ($inheritedHeaderTypography['serialized_blocks'] ?? '');
+$inheritedHeaderTypographyCss = $css($inheritedHeaderTypography);
+preg_match('/p\.(blocks-engine-synthetic-header-anchor-[a-f0-9]+)>a\{([^}]*)\}/', $inheritedHeaderTypographyCss, $inheritedHeaderTypographyRule);
+$inheritedHeaderTypographyCarrier = (string) ($inheritedHeaderTypographyRule[2] ?? '');
+$assert(
+    str_contains($inheritedHeaderTypographyMarkup, 'wp-block-group label')
+        && str_contains($inheritedHeaderTypographyCss, '.label{font-family:Georgia;font-size:18px')
+        && str_contains($inheritedHeaderTypographyCarrier, 'display:inline-flex')
+        && ! preg_match('/(?:font-family|font-size|font-style|letter-spacing|line-height|text-transform|white-space):/', $inheritedHeaderTypographyCarrier),
+    'header anchor carrier leaves typography to the reconstructed ancestor chain while retaining non-inherited layout'
+);
+
 $mediaLogo = $transform('<a id="brand" href="/"><picture><img src="logo.png" alt=""></picture><span>Brand</span></a>');
 $mediaLogoMarkup = (string) ($mediaLogo['serialized_blocks'] ?? '');
 $assert(
@@ -293,7 +395,7 @@ $assert(str_contains($coexistingInlineFlowsMarkup, '<p class="blocks-engine-inli
 $groupInlineLeaves = $transform('<style>.stage-output{display:grid}.stage-output span{font-size:13px;display:inline-block;margin:2px}.stage-output strong{font-size:15px;display:block;margin:4px}</style><div class="stage-output"><span>Label</span><strong>Value</strong></div>');
 $groupInlineMarkup = (string) ($groupInlineLeaves['serialized_blocks'] ?? '');
 $groupInlineCss = $css($groupInlineLeaves);
-$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{margin:2px}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{margin:4px}'), 'native Group inline leaves retain projected typography, display, and margin declarations through their valid paragraph carriers');
+$assert(str_contains($groupInlineMarkup, '<div class="wp-block-group stage-output') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><span>Label</span></p>') && str_contains($groupInlineMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Value</strong></p>') && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > span{font-size:13px;display:inline-block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > span:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:2px\}/', $groupInlineCss) === 1 && str_contains($groupInlineCss, '.stage-output p.blocks-engine-inline-layout-carrier > strong{font-size:15px;display:block}') && preg_match('/\.stage-output p\.blocks-engine-inline-layout-carrier > strong:not\(\.blocks-engine-specificity-class-[^)]+\)\{margin:4px\}/', $groupInlineCss) === 1, 'native Group inline leaves retain projected typography, display, and reset-resistant margin declarations through their valid paragraph carriers');
 
 $typographyOnlyStructuralLeaves = $transform('<style>.typography-grid{display:grid}.typography-flex{display:flex}.typography-grid > strong{font-size:13px;font-weight:600;letter-spacing:.08em}.typography-flex > strong{font-size:15px;line-height:1.2}.maintenance-loop li > span{display:grid;place-items:center;width:30px;height:30px}</style><div class="typography-grid"><strong>Grid label</strong></div><div class="typography-flex"><strong>Flex label</strong></div><ol class="maintenance-loop"><li><span>1</span><div>Observe</div></li></ol><p>Ordinary <strong>prose</strong>.</p>');
 $typographyOnlyStructuralMarkup = (string) ($typographyOnlyStructuralLeaves['serialized_blocks'] ?? '');
@@ -409,7 +511,7 @@ $assert(str_contains($linkedRichTextMarkerMarkup, '<a href="/"><mark class="labe
 
 $resetRoleButton = ( new HtmlTransformer() )->transform('<style>a{background:0 0;border:0}.label{font-size:25px}</style><a role="button"><span class="label">Contact</span></a>')->toArray();
 $resetRoleButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $resetRoleButton['assets'] ?? array()));
-$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection carries explicit source reset chrome past later theme defaults');
+$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && ! str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection carries only the properties reset by the source border declaration past later theme defaults');
 $assert(str_contains($selectorIdentityMarkup, '<a href="/plain">Plain link</a>') && ! str_contains($selectorIdentityMarkup, '<a class="" href="/plain"'), 'plain links remain native links without invented source identity');
 $emptyAccessibleLink = $transform('<a class="logo-link" id="site-logo" data-kind="brand" href="/" aria-label="Home"></a>');
 $emptyAccessibleLinkMarkup = (string) ($emptyAccessibleLink['serialized_blocks'] ?? '');
@@ -439,11 +541,12 @@ $assert(
     'author grid cards retain direct child order and placement selectors through core/group'
 );
 $nestedGridItem = $transform('<style>.grid{display:grid}.card{display:grid}.card > span{grid-column:2}</style><div class="grid"><div class="card"><span>Label</span><span>Value</span></div></div>');
-$nestedGridItemBlock = $nestedGridItem['blocks'][0]['innerBlocks'][0] ?? array();
+$nestedGridItemBlock = $nestedGridItem['blocks'][0] ?? array();
 $nestedGridItemChildren = $nestedGridItemBlock['innerBlocks'] ?? array();
 $nestedGridItemCss = $css($nestedGridItem);
 $assert(
-    'core/group' === ($nestedGridItemBlock['blockName'] ?? '')
+    str_ends_with((string) ($nestedGridItemBlock['blockName'] ?? ''), '/layout-shell')
+    && 2 === count($nestedGridItemBlock['attrs']['wrappers'] ?? array())
     && 2 === count($nestedGridItemChildren)
     && 'core/paragraph' === ($nestedGridItemChildren[0]['blockName'] ?? '')
     && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-inline-layout-carrier')
@@ -513,8 +616,8 @@ $assert(str_contains($logoMarkup, 'assets/materialized-svg/') && 1 === $logoAsse
 $assert(array() === ($logoControl['source_reports']['conversion_report']['gutenberg_incompatibilities']['author_layout_topology'] ?? array()), 'SVG-to-image materialization preserves author-layout topology without a false wrapper-change diagnostic');
 
 $structuredAnchor = $transform('<style>.row{display:flex}</style><div class="row"><a class="card" href="/"><span>Copy</span><div>Structured</div></a></div>');
-$structuredAnchorBlock = $structuredAnchor['blocks'][0]['innerBlocks'][0] ?? array();
-$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && 0 < count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
+$structuredAnchorBlock = $structuredAnchor['blocks'][0] ?? array();
+$assert(! str_contains((string) ($structuredAnchor['serialized_blocks'] ?? ''), 'wp-block-blocks-engine-author-layout') && str_ends_with((string) ($structuredAnchorBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($structuredAnchorBlock['innerBlocks'] ?? array()), 'block-structured anchor descendants retain native blocks without a companion block');
 
 $instance = new HtmlTransformer();
 $first = $instance->transform('<style>p{color:red}</style><p>First</p>')->toArray();
@@ -522,6 +625,45 @@ $second = $instance->transform('<style>.cta:hover{padding:1rem}</style><a class=
 $assert(! str_contains($css($second), 'blocks-engine-source-p-') && 1 === substr_count($css($second), '> :where(.wp-block-button__link)') && ! str_contains($second['serialized_blocks'], 'core/html'), 'repeated transformer instances reset selector marker state and remain canonical');
 $third = $instance->transform('<style>.cta:hover{color:red}</style><p>Read <span class="cta">this</span>.</p>')->toArray();
 $assert(str_contains($css($third), 'blocks-engine-richtext-') && ! str_contains($css($third), '> :where(.wp-block-button__link)'), 'repeated selector text resolves against each transform source DOM');
+
+$applicabilityCompilation = new HtmlCompilation();
+$applicabilityCompilation->transform('<style>.absent *{color:red}.present,.missing{padding:1rem}</style><div class="present">Present</div>');
+$applicabilitySession = (new ReflectionClass($applicabilityCompilation))->getProperty('session')->getValue($applicabilityCompilation);
+$applicableRules = $applicabilitySession->authorStyleAnalysis()->styleRules();
+$applicableSelectors = array_column(array_merge(...array_column($applicableRules, 'selectors')), 'selector');
+$assert(array('.present') === $applicableSelectors, 'the installed page-matching graph omits selectors whose required source signals are absent');
+
+$unmatchableCompilation = new HtmlCompilation();
+$unmatchableCompilation->transform('<style>.card:before{content:""}.card::after{content:""}.card p::before{content:""}.card{color:red}</style><div class="card"><p>Copy</p></div>');
+$unmatchableSession = (new ReflectionClass($unmatchableCompilation))->getProperty('session')->getValue($unmatchableCompilation);
+$unmatchableIndex = $unmatchableSession->authorStyleAnalysis()->styleRuleCandidateIndex();
+$indexedAuthorSelectors = array();
+foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
+    $entries = 'universal' === $bucket ? $unmatchableIndex[$bucket] : array_merge(...array_values($unmatchableIndex[$bucket] ?: array(array())));
+    foreach ( $entries as $entry ) {
+        $indexedAuthorSelectors[(string) ($entry['rule']['selector'] ?? '')] = true;
+    }
+}
+$assert(
+    isset($indexedAuthorSelectors['.card'])
+        && isset($indexedAuthorSelectors['.card p::before'])
+        && ! isset($indexedAuthorSelectors['.card:before']),
+    'author candidate index omits selectors this matcher cannot evaluate while retaining direct-child pseudo-element forms'
+);
+
+$indexedSelectors = array();
+foreach ( $applicabilitySession->sourceStyleResolutionState()->ruleCandidateIndexes as $index ) {
+    foreach ( array( 'universal', 'ids', 'classes', 'tags', 'attributes' ) as $bucket ) {
+        $entries = 'universal' === $bucket ? $index[$bucket] : array_merge(...array_values($index[$bucket] ?: array(array())));
+        foreach ( $entries as $entry ) {
+            $indexedSelectors[(string) ($entry['rule']['selector'] ?? '')] = true;
+        }
+    }
+}
+$assert(
+    array() !== $indexedSelectors && ! isset($indexedSelectors['.absent *']) && ! isset($indexedSelectors['.missing']),
+    'source-style candidate indexes omit selectors whose required source signals are absent'
+);
 
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
@@ -531,6 +673,16 @@ $pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";backgro
 $pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');
 $assert(! str_contains($pseudoCustomPropertyMarkup, '--accent:') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '--accent:#fc0 !important') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed custom properties in generated carrier CSS');
 
+$inheritedConditionalCustomProperty = $transform('<style>@media (prefers-reduced-motion:no-preference){.scene .visual{margin-bottom:calc(100lvh - max(100lvh,var(--motion-comp-height,100%)))}}</style><div class="scene" style="--motion-comp-height:742px;--unused:discard"><div class="visual">Visual</div></div>');
+$inheritedConditionalCustomPropertyMarkup = (string) ($inheritedConditionalCustomProperty['serialized_blocks'] ?? '');
+$inheritedConditionalCustomPropertyCss = $css($inheritedConditionalCustomProperty);
+$assert(
+    ! str_contains($inheritedConditionalCustomPropertyMarkup, '--motion-comp-height:')
+    && str_contains($inheritedConditionalCustomPropertyCss, '--motion-comp-height:742px !important')
+    && ! str_contains($inheritedConditionalCustomPropertyCss, '--unused:'),
+    'inherited inline custom properties consumed by conditional descendant rules retain a generated carrier'
+);
+
 $geometryCustomProperty = $transform('<div style="width:var(--card-width);height:430px;--card-width:344px;--unused:discard">Card</div>');
 $geometryCustomPropertyMarkup = (string) ($geometryCustomProperty['serialized_blocks'] ?? '');
 $assert(! str_contains($geometryCustomPropertyMarkup, '--card-width:') && ! str_contains($geometryCustomPropertyMarkup, '--unused:discard') && str_contains($css($geometryCustomProperty), '--card-width:344px !important'), 'inline geometry retains only its referenced custom property in generated carrier CSS');
@@ -538,14 +690,16 @@ $assert(! str_contains($geometryCustomPropertyMarkup, '--card-width:') && ! str_
 $customPropertyRoundTrip = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),var(--accent))}</style><div class="tour-card" style="--tone:#315b74;border-color:var(--line);border-width:1px;border-style:solid;border-radius:var(--radius);padding:1.2rem;min-height:430px;--accent:#d9b86c">Card</div>');
 $customPropertyRoundTripMarkup = (string) ($customPropertyRoundTrip['serialized_blocks'] ?? '');
 $assert(
-    str_contains($customPropertyRoundTripMarkup, 'style="border-color:var(--line);border-style:solid;border-width:1px;border-radius:var(--radius);padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem"')
+    str_contains($customPropertyRoundTripMarkup, 'style="border-style:solid;border-width:1px;border-radius:var(--radius);padding-top:1.2rem;padding-right:1.2rem;padding-bottom:1.2rem;padding-left:1.2rem"')
+    && ! str_contains($customPropertyRoundTripMarkup, 'has-border-color')
     && ! str_contains($customPropertyRoundTripMarkup, 'min-height:430px')
     && ! str_contains($customPropertyRoundTripMarkup, '--accent:')
     && str_contains($css($customPropertyRoundTrip), '--tone:#315b74 !important')
     && str_contains($css($customPropertyRoundTrip), '--accent:#d9b86c !important')
+    && str_contains($css($customPropertyRoundTrip), 'border-color:var(--line)')
     && str_contains($css($customPropertyRoundTrip), 'min-height:430px !important')
     && 'pass' === ($customPropertyRoundTrip['source_reports']['wp_block_validity']['status'] ?? ''),
-    'unsupported custom properties and dimensions move to generated carrier CSS while supported styles retain a valid core block round trip',
+    'unresolved color variables, custom properties, and dimensions move to generated carrier CSS while supported styles retain a valid core block round trip',
     $customPropertyRoundTripMarkup
 );
 
@@ -568,7 +722,17 @@ $commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['seria
 $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
 
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
-$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+	$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+
+$nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
+$nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
+$assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
+
+$flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
+$assert(1 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($flexItemGroup['blocks'][0]['attrs']['wrappers'] ?? array()), 'a flex item wrapper around stacked content remains distinct inside one layout shell');
+
+$namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
+$assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($namedFlex['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex wrappers remain distinct inside one layout shell');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

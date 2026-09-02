@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityRunner;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticStyleParityComparator;
@@ -58,6 +59,28 @@ $assert(
     array( 'width' => '12.808px', 'style' => 'solid', 'color' => '#ffffff' ) === ($uniformBorder['style']['border'] ?? array()),
     '8a: equal physical border widths collapse without redundant side objects',
     json_encode($uniformBorder)
+);
+
+$colorDomainMapper = new StyleAttributeMapper();
+$dimensionBorderColor = $colorDomainMapper->map(
+    array( 'border-color' => 'var(--border-width,var(--fallback-width,0))' ),
+    static fn (string $value): string => '0'
+);
+$resolvedVariableBorderColor = $colorDomainMapper->map(
+    array( 'border-color' => 'var(--border-color,#123456)' ),
+    static fn (string $value): string => '#123456'
+);
+$assert(
+    ! isset($dimensionBorderColor['style']['border']['color'])
+        && 'var(--border-width,var(--fallback-width,0))' === ($dimensionBorderColor['leftover']['border-color'] ?? ''),
+    '8c: a dimension-resolving custom property stays authored CSS instead of becoming border color support',
+    json_encode($dimensionBorderColor)
+);
+$assert(
+    'var(--border-color,#123456)' === ($resolvedVariableBorderColor['style']['border']['color'] ?? '')
+        && ! isset($resolvedVariableBorderColor['leftover']['border-color']),
+    '8d: a color-resolving custom property retains its authored token in border color support',
+    json_encode($resolvedVariableBorderColor)
 );
 
 $classBorderImage = ( new HtmlTransformer() )->transform(
@@ -180,8 +203,8 @@ $buttonResult = ( new HtmlTransformer() )->transform('<a class="button" href="/b
 $button = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();
 $buttonAttrs = is_array($button['attrs'] ?? null) ? $button['attrs'] : array();
 $buttonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($buttonResult['assets'] ?? null) ? $buttonResult['assets'] : array()));
-$assert(50 === ($buttonAttrs['width'] ?? null), '32: recognized core/button owns its canonical width', json_encode($buttonAttrs));
-$assert(! str_contains($buttonCss, 'width:50%') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1') && str_contains($buttonCss, 'background-color:#135e96') && str_contains($buttonCss, 'padding-top:8px'), '33: core/button carries metadata-rejected paint and spacing with mixed geometry', $buttonCss);
+$assert(! isset($buttonAttrs['width']), '32: recognized core/button omits its legacy width attribute', json_encode($buttonAttrs));
+$assert(str_contains($buttonCss, '.wp-block-button){width:50%!important}') && str_contains($buttonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}') && str_contains($buttonCss, 'max-width:20rem') && str_contains($buttonCss, 'aspect-ratio:2 / 1') && str_contains($buttonCss, 'background-color:#135e96') && str_contains($buttonCss, 'padding-top:8px'), '33: core/button carries skipped width, metadata-rejected paint, spacing, and mixed geometry through generated CSS', $buttonCss);
 
 $specificityHtml = '<style>#target{width:12rem}</style><main><p id="target" style="width:30rem">Specificity</p></main>';
 $specificityResult = ( new HtmlTransformer() )->transform($specificityHtml, array())->toArray();
@@ -340,8 +363,9 @@ $assert('pricing-card' === ($paintAttrs['className'] ?? ''), '39: high-value car
 $assert(! isset($paintAttrs['style']['box-shadow']), '40: class-owned box-shadow is not stored as an unsupported block style attr', json_encode($paintAttrs['style'] ?? array()));
 $assert(! isset($paintAttrs['style']['background-position']) && ! isset($paintAttrs['style']['background-size']), '41: background layer controls stay out of block style attrs', json_encode($paintAttrs['style'] ?? array()));
 
-$rulesMethod = new ReflectionMethod(HtmlTransformer::class, 'staticStyleRules');
-$paintRules = $rulesMethod->invoke(new HtmlTransformer(), '', $paintCss);
+// Style resolution moved to StyleResolver under #242.
+$styleResolverProperty = new ReflectionProperty(HtmlCompilation::class, 'styleResolver');
+$paintRules = $styleResolverProperty->getValue(new HtmlCompilation())->stylesheetAnalysis($paintCss)['static'];
 $paintDeclarations = $paintRules[0]['declarations'] ?? array();
 
 $assert(($paintDeclarations['background'] ?? '') === 'radial-gradient(circle at 20% 10%,rgba(255,255,255,.9),rgba(255,255,255,0) 38%),linear-gradient(180deg,#fff,#f5efe4)', '42: radial and layered backgrounds survive safe CSS resolution', json_encode($paintDeclarations));
@@ -397,7 +421,7 @@ $compoundSourceProbe = ( new StaticStyleParityProbe() )->extract($compoundPaintH
 $compoundCandidateProbe = ( new StaticStyleParityProbe() )->extract(StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($compoundPaintMarkup), $compoundPaintCssAsset);
 $assert(0 < (int) ($compoundSourceProbe['summary']['styled_total'] ?? 0) && 0 < (int) ($compoundCandidateProbe['summary']['styled_total'] ?? 0), '62: layered background cascade case produces nonzero source and candidate style probes', json_encode(array($compoundSourceProbe['summary'] ?? array(), $compoundCandidateProbe['summary'] ?? array())));
 
-$amberQuoteHtml = '<blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
+$amberQuoteHtml = '<style>:root{--secondary:#f0ac22}</style><blockquote style="margin:0 0 1.6rem;padding-left:1.2rem;border-left:2px solid var(--secondary);font-family:var(--head);font-size:2.2rem;font-weight:700;letter-spacing:-.02em">Comfort is a result, never a method</blockquote>';
 $amberQuoteResult = ( new HtmlTransformer() )->transform($amberQuoteHtml, array())->toArray();
 $amberQuote = $amberQuoteResult['blocks'][0] ?? array();
 $amberQuoteAttrs = is_array($amberQuote['attrs'] ?? null) ? $amberQuote['attrs'] : array();
@@ -491,7 +515,7 @@ $assert(
 );
 
 $nativeBorderGroupResult = ( new HtmlTransformer() )->transform(
-    '<section style="border-left:2px solid var(--secondary)"><p>Native border</p></section>',
+    '<style>:root{--secondary:#f0ac22}</style><section style="border-left:2px solid var(--secondary)"><p>Native border</p></section>',
     array()
 )->toArray();
 $nativeBorderGroup = $nativeBorderGroupResult['blocks'][0] ?? array();

@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use DOMElement;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use DOMElement;
 
 /**
  * Recognizes column / split-layout / documentation-sidebar containers and
@@ -33,8 +34,8 @@ final class ColumnsPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        $style     = $context->structuralPresentationStyleCallback();
-        if ( null === $converter || null === $style ) {
+        $columns = $context->columnsContext();
+        if ( null === $converter || null === $columns ) {
             return null;
         }
 
@@ -44,9 +45,9 @@ final class ColumnsPattern implements PatternRecognizerInterface
             $fallbacks,
             array($converter, 'children'),
             array($converter, 'element'),
-            $context->presentationAttributesCallback(),
-            $style,
-            $context->createBlockCallback()
+            $context->presentationAttributes(...),
+            $columns->structuralStyle(...),
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -165,7 +166,7 @@ final class ColumnsPattern implements PatternRecognizerInterface
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
         return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
-            || ( $this->looksLikeSplitLayout($element) && 2 === $this->directElementChildCount($element) )
+            || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || $this->hasSidebarAndContentChildren($element)
             || preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?flex/', $inlineStyle);
@@ -177,19 +178,6 @@ final class ColumnsPattern implements PatternRecognizerInterface
 
         return (bool) preg_match('/(?:^|[\s_-])(?:split|two[\s_-]?col|media[\s_-]?text|text[\s_-]?media|feature[\s_-]?row|hero[\s_-]?(?:inner|grid|content|layout)|content[\s_-]?grid)(?:$|[\s_-])/', $name);
     }
-
-    private function directElementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
-    }
-
     private function looksLikeDocumentationLayout(DOMElement $element): bool
     {
         $name = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'id')));

@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\BackgroundImageExtractor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 use Throwable;
 
@@ -43,10 +44,8 @@ final class CoverPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        $style     = $context->mergedPresentationStyleCallback();
-        $attrs     = $context->htmlAttributesCallback();
-        $url       = $context->resolveAssetImageUrlCallback();
-        if ( null === $converter || null === $style || null === $attrs || null === $url ) {
+        $media = $context->mediaContext();
+        if ( null === $converter || null === $media ) {
             return null;
         }
 
@@ -55,11 +54,11 @@ final class CoverPattern implements PatternRecognizerInterface
             $element,
             $fallbacks,
             array($converter, 'children'),
-            $context->presentationAttributesCallback(),
-            $style,
-            $attrs,
-            $url,
-            $context->createBlockCallback()
+            $context->presentationAttributes(...),
+            $media->coverStyle(...),
+            SourceDom::htmlAttributes(...),
+            $media->resolveImageUrl(...),
+            $context->createBlock(...)
         );
 
         return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
@@ -118,7 +117,25 @@ final class CoverPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $excludedProperties = array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height', 'height' );
+        $minHeight = null;
+        try {
+            $minHeight = $this->styleResolver->minHeightFromStyle($style);
+        } catch ( Throwable ) {
+            $minHeight = null;
+        }
+
+        // A definite source height (fixed `height`, no `min-height`) fixes the
+        // hero box: core sizes wp-block-cover__image-background to the wrapper
+        // and already clips overflow, so the cover must keep that fixed box or
+        // in-flow overlay content grows the hero past the source section and
+        // pushes the following sections down. The height rides the generated
+        // geometry carrier (className + authored stylesheet), the one channel
+        // core/cover's save() round-trips verbatim — an inline wrapper height
+        // would diverge from save() and flag the block for editor recovery.
+        $excludedProperties = array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height' );
+        if ( null === $minHeight || empty($minHeight['definite']) ) {
+            $excludedProperties[] = 'height';
+        }
         try {
             $attrs = $presentationAttributes($element, $excludedProperties);
         } catch ( Throwable ) {
@@ -161,14 +178,9 @@ final class CoverPattern implements PatternRecognizerInterface
         $this->promoteDesignGradient($attrs, $dim);
         $this->removeConsumedGradient($attrs);
 
-        try {
-            $minHeight = $this->styleResolver->minHeightFromStyle($style);
-            if ( null !== $minHeight ) {
-                $attrs['minHeight'] = $minHeight['minHeight'];
-                $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
-            }
-        } catch ( Throwable ) {
-            // Omit underivable height attributes.
+        if ( null !== $minHeight ) {
+            $attrs['minHeight'] = $minHeight['minHeight'];
+            $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
         }
 
         try {
@@ -230,7 +242,7 @@ final class CoverPattern implements PatternRecognizerInterface
 
     private function columnsRejectionGate(DOMElement $element, string $style): ?string
     {
-        if ( $this->directElementChildCount($element) < 2 ) {
+        if ( SourceDom::directElementChildCount($element) < 2 ) {
             return null;
         }
 
@@ -259,19 +271,6 @@ final class CoverPattern implements PatternRecognizerInterface
     {
         return $hasTextBearingChildren ? null : 'no_text_content';
     }
-
-    private function directElementChildCount(DOMElement $element): int
-    {
-        $count = 0;
-        foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                ++$count;
-            }
-        }
-
-        return $count;
-    }
-
     /**
      * @param array<int, array<string, mixed>> $blocks
      */

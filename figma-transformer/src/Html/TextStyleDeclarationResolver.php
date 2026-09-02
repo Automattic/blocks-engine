@@ -9,34 +9,125 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
  */
 final class TextStyleDeclarationResolver
 {
-    /** @var callable(float): string */
-    private $number;
-
-    /** @var callable(mixed, mixed=): ?string */
-    private $color;
-
     public function __construct(
         private readonly TypographyModel $typographyModel,
-        callable $number,
-        callable $color,
+        private readonly StaticHtmlValueFormatter $formatter,
+        private readonly StaticHtmlTypographyState $typographyState,
+        private readonly StaticHtmlTextSizingResolver $textSizingResolver,
     ) {
-        $this->number = $number;
-        $this->color = $color;
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @return array<int, string>
+     */
+    public function nodeDeclarations(
+        array $node,
+        ?string $fallbackColor,
+        bool $semanticListItemBodyText,
+        bool $preserveChromeSpacing,
+        bool $splitParagraphs,
+        bool $atomicSingleLineLabel
+    ): array {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $style = is_array($text['style'] ?? null) ? $text['style'] : array();
+        if ( $semanticListItemBodyText && $this->hasUnprovenUppercaseTransform($node, $style) ) {
+            unset($style['text_transform']);
+        }
+        if ( ! isset($style['color']) && null !== $fallbackColor ) {
+            $style['css_color'] = $fallbackColor;
+        }
+
+        $styles = $this->declarations($style);
+        $derivedLineHeight = $this->textSizingResolver->derivedBaselineLineHeight($text);
+        if ( null !== $derivedLineHeight && 0.0 < $derivedLineHeight ) {
+            $styles = array_values(array_filter(
+                $styles,
+                static fn (string $style): bool => ! str_starts_with($style, 'line-height:')
+            ));
+            $styles[] = 'line-height:' . $this->formatter->number($derivedLineHeight) . 'px';
+        }
+        if ( $preserveChromeSpacing ) {
+            $styles[] = 'white-space:pre-wrap';
+        } elseif ( $this->textSizingResolver->hasLineBreaks($node) && ! $splitParagraphs ) {
+            $styles[] = 'white-space:pre-line';
+        } elseif ( $atomicSingleLineLabel ) {
+            $styles[] = 'white-space:nowrap';
+        }
+
+        return $styles;
+    }
+
+    /** @param array<string, mixed> $source */
+    public function hasExplicitUppercaseTextCase(array $source): bool
+    {
+        foreach ( array('textCase', 'text_case') as $key ) {
+            if ( isset($source[$key]) && is_scalar($source[$key]) && 'UPPER' === strtoupper((string) $source[$key]) ) {
+                return true;
+            }
+        }
+
+        foreach ( array('style', 'textData', 'derivedTextData') as $key ) {
+            if ( is_array($source[$key] ?? null) && $this->hasExplicitUppercaseTextCase($source[$key]) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function containsLowercase(string $text): bool
+    {
+        return 1 === preg_match('/\p{Ll}/u', $text);
+    }
+
+    /**
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $style
+     */
+    private function hasUnprovenUppercaseTransform(array $node, array $style): bool
+    {
+        return 'uppercase' === strtolower((string) ($style['text_transform'] ?? ''))
+            && $this->containsLowercase($this->rawDecodedText($node))
+            && ! $this->hasExplicitUppercaseTextCase($node);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function rawDecodedText(array $node): string
+    {
+        $text = is_array($node['figma_text'] ?? null) ? $node['figma_text'] : array();
+        $segments = is_array($text['segments'] ?? null) ? $text['segments'] : array();
+        if ( ! empty($segments) ) {
+            $content = '';
+            foreach ( $segments as $segment ) {
+                if ( is_array($segment) && isset($segment['characters']) && is_scalar($segment['characters']) ) {
+                    $content .= (string) $segment['characters'];
+                }
+            }
+            if ( '' !== $content ) {
+                return $content;
+            }
+        }
+
+        if ( isset($text['characters']) && is_scalar($text['characters']) ) {
+            return (string) $text['characters'];
+        }
+
+        return (string) ($node['characters'] ?? $node['text'] ?? '');
     }
 
     /**
      * @param array<string, mixed> $style
-     * @param array<string, string> $typographyTokenVars
      * @return array<int, string>
      */
-    public function declarations(array $style, array $typographyTokenVars): array
+    public function declarations(array $style): array
     {
         $styles = array();
         $lineHeightStyles = array();
 
         $typographyStyle = $this->typographyModel->styleFromNormalizedStyle($style);
         if ( null !== $typographyStyle ) {
-            foreach ( $this->typographyModel->declarations($typographyStyle, $typographyTokenVars) as $declaration ) {
+            foreach ( $this->typographyModel->declarations($typographyStyle, $this->typographyState->tokenVars()) as $declaration ) {
                 if ( str_starts_with($declaration, 'line-height:') ) {
                     $lineHeightStyles[] = $declaration;
                     continue;
@@ -49,7 +140,7 @@ final class TextStyleDeclarationResolver
             $settings = array();
             foreach ( $style['font_variation_settings'] as $axis => $value ) {
                 if ( is_string($axis) && 1 === preg_match('/^[A-Za-z0-9 ]{4}$/', $axis) && is_numeric($value) ) {
-                    $settings[] = '"' . $axis . '" ' . ($this->number)((float) $value);
+                    $settings[] = '"' . $axis . '" ' . $this->formatter->number((float) $value);
                 }
             }
             if ( ! empty($settings) ) {
@@ -74,17 +165,17 @@ final class TextStyleDeclarationResolver
         }
 
         if ( isset($style['letter_spacing']) && is_numeric($style['letter_spacing']) ) {
-            $styles[] = 'letter-spacing:' . ($this->number)((float) $style['letter_spacing']) . 'px';
+            $styles[] = 'letter-spacing:' . $this->formatter->number((float) $style['letter_spacing']) . 'px';
         } elseif ( isset($style['letter_spacing_em']) && is_numeric($style['letter_spacing_em']) ) {
-            $styles[] = 'letter-spacing:' . ($this->number)((float) $style['letter_spacing_em']) . 'em';
+            $styles[] = 'letter-spacing:' . $this->formatter->number((float) $style['letter_spacing_em']) . 'em';
         }
 
         // Figma `paragraphIndent` maps to CSS first-line indent. Zero is implicit.
         if ( isset($style['paragraph_indent']) && is_numeric($style['paragraph_indent']) && 0.0 !== (float) $style['paragraph_indent'] ) {
-            $styles[] = 'text-indent:' . ($this->number)((float) $style['paragraph_indent']) . 'px';
+            $styles[] = 'text-indent:' . $this->formatter->number((float) $style['paragraph_indent']) . 'px';
         }
 
-        $color = ($this->color)($style['color'] ?? null);
+        $color = $this->formatter->color($style['color'] ?? null);
         if ( null !== $color ) {
             $styles[] = 'color:' . $color;
         } elseif ( isset($style['css_color']) && is_scalar($style['css_color']) ) {

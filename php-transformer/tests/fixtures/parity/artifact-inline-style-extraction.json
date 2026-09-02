@@ -26,10 +26,11 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "assets", "assert": "count", "count": 2 },
-    { "path": "assets.0.path", "assert": "equals", "value": "assets/css/engine-support-before-author-584440b2b88ea95c.css" },
+    { "path": "assets.0.path", "assert": "equals", "value": "assets/css/engine-support-before-author-d34877b98a167d1b.css" },
     { "path": "assets.0.source", "assert": "equals", "value": "engine-support" },
     { "path": "assets.0.stylesheet_placement", "assert": "equals", "value": "before-author" },
     { "path": "assets.0.content", "assert": "contains", "value": ":root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}" },
     { "path": "assets.1.path", "assert": "equals", "value": "index.inline.css" },
     { "path": "assets.1.kind", "assert": "equals", "value": "css" },
     { "path": "assets.1.role", "assert": "equals", "value": "stylesheet" },

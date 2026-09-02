@@ -196,29 +196,22 @@ final class RuntimeDeclarations
     /** @param resource $context */
     private static function updateCanonicalStringHash($context, string $value): void
     {
-        if (1 !== preg_match('//u', $value)) throw new InvalidArgumentException('Runtime declaration payload is not serializable.');
         hash_update($context, '"');
         $length = strlen($value);
-        $start = 0;
-        $escapes = array(8 => '\\b', 9 => '\\t', 10 => '\\n', 12 => '\\f', 13 => '\\r', 34 => '\\"', 92 => '\\\\');
-        for ($index = 0; $index < $length; ++$index) {
-            $byte = ord($value[$index]);
-            $lineTerminator = 0xE2 === $byte && $index + 2 < $length && 0x80 === ord($value[$index + 1]) && in_array(ord($value[$index + 2]), array(0xA8, 0xA9), true);
-            if ($lineTerminator || $byte < 32 || isset($escapes[$byte])) {
-                if ($index > $start) hash_update($context, substr($value, $start, $index - $start));
-                if ($lineTerminator) {
-                    hash_update($context, 0xA8 === ord($value[$index + 2]) ? '\\u2028' : '\\u2029');
-                    $index += 2;
-                } else {
-                    hash_update($context, $escapes[$byte] ?? sprintf('\\u%04x', $byte));
-                }
-                $start = $index + 1;
-            } elseif ($index - $start >= 8191) {
-                hash_update($context, substr($value, $start, $index - $start + 1));
-                $start = $index + 1;
+        $offset = 0;
+        while ($offset < $length) {
+            $available = min(65536, $length - $offset);
+            $chunkLength = $available;
+            while ($offset + $chunkLength < $length && 0x80 === (ord($value[$offset + $chunkLength]) & 0xC0)) --$chunkLength;
+            if (0 === $chunkLength) $chunkLength = $available;
+            try {
+                $encoded = json_encode(substr($value, $offset, $chunkLength), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            } catch (JsonException) {
+                throw new InvalidArgumentException('Runtime declaration payload is not serializable.');
             }
+            hash_update($context, substr($encoded, 1, -1));
+            $offset += $chunkLength;
         }
-        if ($length > $start) hash_update($context, substr($value, $start));
         hash_update($context, '"');
     }
 

@@ -14,9 +14,8 @@ final class DecisionTraceBuilder
      * @param array<string, mixed> $node
      * @param array<string, mixed>|null $parentNode
      * @param array<string, mixed> $evidence
-     * @param callable(array<string, mixed>): string|null $classResolver
      */
-    public static function recordEmitterTrace(array &$traces, string $domain, string $reasonCode, array $node, string $decision, ?array $parentNode, array $evidence, string $currentPagePath, ?callable $classResolver = null): void
+    public static function recordEmitterTrace(array &$traces, string $domain, string $reasonCode, array $node, string $decision, ?array $parentNode, array $evidence, string $currentPagePath, ?string $class = null): void
     {
         if ( '' === $reasonCode ) {
             $reasonCode = 'unknown';
@@ -29,11 +28,6 @@ final class DecisionTraceBuilder
         if ( isset($traces[$key]) ) {
             $traces[$key]['count'] = (int) ($traces[$key]['count'] ?? 1) + 1;
             return;
-        }
-
-        $class = null;
-        if ( null !== $classResolver && ('' !== $nodeId || ! empty($node['name'] ?? '')) ) {
-            $class = $classResolver($node);
         }
 
         $traces[$key] = array_filter(array(

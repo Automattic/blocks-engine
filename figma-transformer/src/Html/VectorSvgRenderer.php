@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
-use Closure;
-
 /**
  * Renders normalized Figma vector geometry as inline SVG markup.
  */
@@ -16,30 +14,11 @@ final class VectorSvgRenderer
     private const VECTOR_PRIMITIVE_TYPES = array('VECTOR', 'BOOLEAN_OPERATION', 'LINE', 'ELLIPSE', 'RECTANGLE', 'ROUNDED_RECTANGLE', 'STAR', 'POLYGON', 'REGULAR_POLYGON');
     private const VECTOR_CONTAINER_TYPES = array('GROUP', 'FRAME', 'COMPONENT', 'INSTANCE');
 
-    private Closure $nodeList;
-    private Closure $number;
-    private Closure $sanitizeAttribute;
-    private Closure $firstSolidPaint;
-    private Closure $backgroundColor;
-    private Closure $nodeImagePaints;
-    private Closure $explicitNodeAssetReferences;
-
     public function __construct(
-        callable $nodeList,
-        callable $number,
-        callable $sanitizeAttribute,
-        callable $firstSolidPaint,
-        callable $backgroundColor,
-        callable $nodeImagePaints,
-        callable $explicitNodeAssetReferences
+        private readonly StaticHtmlNodeInspector $nodeInspector,
+        private readonly StaticHtmlValueFormatter $formatter,
+        private readonly StaticHtmlVectorEvidence $vectorEvidence,
     ) {
-        $this->nodeList = $nodeList instanceof Closure ? $nodeList : Closure::fromCallable($nodeList);
-        $this->number = $number instanceof Closure ? $number : Closure::fromCallable($number);
-        $this->sanitizeAttribute = $sanitizeAttribute instanceof Closure ? $sanitizeAttribute : Closure::fromCallable($sanitizeAttribute);
-        $this->firstSolidPaint = $firstSolidPaint instanceof Closure ? $firstSolidPaint : Closure::fromCallable($firstSolidPaint);
-        $this->backgroundColor = $backgroundColor instanceof Closure ? $backgroundColor : Closure::fromCallable($backgroundColor);
-        $this->nodeImagePaints = $nodeImagePaints instanceof Closure ? $nodeImagePaints : Closure::fromCallable($nodeImagePaints);
-        $this->explicitNodeAssetReferences = $explicitNodeAssetReferences instanceof Closure ? $explicitNodeAssetReferences : Closure::fromCallable($explicitNodeAssetReferences);
     }
 
     /**
@@ -1439,17 +1418,17 @@ final class VectorSvgRenderer
      */
     private function nodeList(array $node): array
     {
-        return ($this->nodeList)($node);
+        return $this->nodeInspector->nodeList($node);
     }
 
     private function number(float $value): string
     {
-        return ($this->number)($value);
+        return $this->formatter->number($value);
     }
 
     private function sanitizeAttribute(string $value): string
     {
-        return ($this->sanitizeAttribute)($value);
+        return $this->formatter->sanitizeAttribute($value);
     }
 
     /**
@@ -1457,7 +1436,7 @@ final class VectorSvgRenderer
      */
     private function firstSolidPaint(array $paints): ?string
     {
-        return ($this->firstSolidPaint)($paints);
+        return $this->vectorEvidence->firstSolidPaint($paints);
     }
 
     /**
@@ -1465,7 +1444,7 @@ final class VectorSvgRenderer
      */
     private function backgroundColor(array $node): ?string
     {
-        return ($this->backgroundColor)($node);
+        return $this->vectorEvidence->backgroundColor($node);
     }
 
     /**
@@ -1474,7 +1453,7 @@ final class VectorSvgRenderer
      */
     private function nodeImagePaints(array $node): array
     {
-        return ($this->nodeImagePaints)($node);
+        return $this->vectorEvidence->nodeImagePaints($node);
     }
 
     /**
@@ -1483,6 +1462,6 @@ final class VectorSvgRenderer
      */
     private function explicitNodeAssetReferences(array $node): array
     {
-        return ($this->explicitNodeAssetReferences)($node);
+        return $this->vectorEvidence->explicitNodeAssetReferences($node);
     }
 }

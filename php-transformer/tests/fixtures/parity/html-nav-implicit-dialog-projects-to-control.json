@@ -1,0 +1,44 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-implicit-dialog-projects-to-control",
+  "description": "Tianna-shaped responsive navigation: an icon-only hamburger exposes dialog semantics through aria-haspopup and aria-expanded but has no aria-controls. Its nearest shared chrome scope contains exactly one source-hidden dialog with link-bearing navigation, so that navigation is projected into the fixed-header control slot and the dialog source is suppressed.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-implicit-dialog-projects-to-control.json",
+    "notes": "Uses only generic ARIA dialog state, source-hidden data-visible state, and semantic navigation structure."
+  },
+  "legacy_comparison": { "skip": true, "reason": "This upstream primitive fixture has no downstream legacy comparison." },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"chrome-shell\"><header class=\"fixed-header\"><a href=\"/\">Brand</a><div class=\"mobile-control-slot\"><button aria-label=\"Open menu\" aria-haspopup=\"dialog\" aria-expanded=\"false\"><span class=\"screen-reader-label\">Open menu</span><svg aria-hidden=\"true\"><path></path></svg></button></div><nav class=\"desktop-navigation\" aria-label=\"Desktop navigation\"><a href=\"/\">HOME</a><a href=\"/about\">ABOUT</a><a href=\"/portfolio\">PORTFOLIO</a></nav></header><div id=\"mobile-menu\" role=\"dialog\" aria-modal=\"true\" aria-label=\"Site navigation\" data-visible=\"false\"><nav aria-label=\"Mobile navigation\"><ul><li><a href=\"/\">HOME</a></li><li><a href=\"/about\">ABOUT</a></li><li><a href=\"/portfolio\">PORTFOLIO</a></li></ul></nav></div></div>",
+    "options": { "static_css": ".screen-reader-label{display:none}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "chrome-shell" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "fixed-header", "tagName": "header" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "mobile-control-slot" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-projected-dialog-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "HOME", "url": "/", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation", "attrs": { "className": "desktop-navigation", "overlayMenu": "never" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"ABOUT\",\"url\":\"/about\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"PORTFOLIO\",\"url\":\"/portfolio\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-projected-dialog-navigation" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-navigation.blocks-engine-projected-dialog-navigation .wp-block-navigation__responsive-container.is-menu-open{background:#fff!important;color:#111!important;position:fixed!important;inset:0!important" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__container{align-items:flex-start!important;gap:.75rem!important;width:100%!important}" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation-item__content{color:#111!important;font-size:clamp(1.125rem,4vw,1.5rem)!important;line-height:1.4!important;padding:.5rem 0!important}" },
+    { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-navigation__responsive-container.is-menu-open .wp-block-navigation__responsive-container-close{background:#fff!important;color:#111!important;position:fixed!important;top:1rem!important;right:1rem!important;padding:.75rem!important" },
+    { "path": "assets.2.content", "assert": "contains", "value": "body.admin-bar .wp-block-navigation.blocks-engine-projected-dialog-navigation .wp-block-navigation__responsive-container.is-menu-open{top:var(--wp-admin--admin-bar--height,32px)!important}" },
+    { "path": "assets.2.content", "assert": "not_contains", "value": ".wp-block-navigation.blocks-engine-projected-dialog-navigation{background:" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "mobile-menu" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Open menu" }
+  ]
+}

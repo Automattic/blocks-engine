@@ -377,8 +377,8 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
 
     $responsivePolicy = new \Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
         new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlNodeInspector(),
-        static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.'),
-        new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(static fn (float $value): string => rtrim(rtrim(sprintf('%.3F', $value), '0'), '.')),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter(),
+        new \Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(new \Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter()),
         new \Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
     );
     $responsiveDecision = $responsivePolicy->responsiveSafetyDecision(
@@ -991,6 +991,11 @@ function blocks_engine_figma_transformer_run_diagnostics_evidence_contract(calla
     $assert(1 === ($multiPageReports[1]['diagnostic_codes']['unsupported_vector_node_placeholder'] ?? null), 'diagnostics-evidence-multi-page-about-diagnostic-code-page-scoped');
     $assert(1 === ($multiPageReports[0]['transform_diagnostics']['images']['node_refs'] ?? null), 'diagnostics-evidence-multi-page-home-image-diagnostics-page-scoped');
     $assert(1 === ($multiPageReports[1]['transform_diagnostics']['vectors']['placeholders'] ?? null), 'diagnostics-evidence-multi-page-about-vector-diagnostics-page-scoped');
+    $homePageDecisionTraceSamples = $multiPageReports[0]['transform_diagnostics']['decision_traces']['samples'] ?? array();
+    $aboutPageDecisionTraceSamples = $multiPageReports[1]['transform_diagnostics']['decision_traces']['samples'] ?? array();
+    $assert(! empty($homePageDecisionTraceSamples) && array() === array_values(array_filter($homePageDecisionTraceSamples, static fn (array $trace): bool => 'index.html' !== ($trace['page_path'] ?? null))), 'diagnostics-evidence-multi-page-home-decision-traces-page-scoped');
+    $assert(! empty($aboutPageDecisionTraceSamples) && array() === array_values(array_filter($aboutPageDecisionTraceSamples, static fn (array $trace): bool => 'aggregation-about.html' !== ($trace['page_path'] ?? null))), 'diagnostics-evidence-multi-page-about-decision-traces-page-scoped');
+    $assert(isset($homePageDecisionTraceSamples[0]['class']) && str_starts_with((string) $homePageDecisionTraceSamples[0]['class'], 'figma-node-'), 'diagnostics-evidence-multi-page-decision-trace-class-preserved');
     $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['empty_decoded_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-empty-text-count-aggregated');
     $assert(0 === ($multiPageDiagnostics['artifact_quality']['summary']['missing_emitted_text_nodes'] ?? null), 'diagnostics-evidence-multi-page-missing-text-count-aggregated');
     blocks_engine_figma_transformer_contract_assert_diagnostic_value($assert, $multiPageDiagnostics, array('decision_traces', 'schema'), 'blocks-engine/figma-transformer/decision-traces/v1', 'diagnostics-evidence-multi-page-decision-traces-schema');

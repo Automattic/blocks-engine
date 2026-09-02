@@ -180,7 +180,7 @@ php tests/core-block-coverage-docs-smoke.php
 git diff --check
 ```
 
-If the downstream PR adds a Composer script for the existing smoke/unit matrix, prefer that script and keep the explicit smoke commands in the PR body as the reviewer-facing evidence list. The GitHub workflow runs `homeboy test` across PHP 8.1, 8.2, 8.3, and 8.4.
+If the downstream PR adds a Composer script for the existing smoke/unit matrix, prefer that script and keep the explicit smoke commands in the PR body as the reviewer-facing evidence list. The GitHub workflow runs `homeboy test` across PHP 8.2, 8.3, 8.4, and 8.5.
 
 ## Acceptance Criteria
 

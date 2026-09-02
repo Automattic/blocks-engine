@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use DOMElement;
+use DOMNode;
+use WeakMap;
 
 /** Caches immutable-DOM selector inputs for one author-selector discovery pass. */
 final class CssSelectorMatchCache
@@ -28,6 +30,14 @@ final class CssSelectorMatchCache
 
     /** @var array<string, list<array<string, mixed>>> */
     private array $ruleCandidates = array();
+
+    /** @var WeakMap<DOMElement, int> */
+    private WeakMap $detachedElementKeys;
+
+    /** @var WeakMap<DOMElement, string> */
+    private WeakMap $connectedElementKeys;
+
+    private int $nextDetachedElementKey = 0;
 
     public int $classTokenBuilds = 0;
 
@@ -60,6 +70,16 @@ final class CssSelectorMatchCache
     public int $candidateRulePeakEntries = 0;
 
     public int $candidateRulePeakRetained = 0;
+
+    public int $connectedElementKeyBuilds = 0;
+
+    public int $connectedElementKeyHits = 0;
+
+    public function __construct()
+    {
+        $this->detachedElementKeys = new WeakMap();
+        $this->connectedElementKeys = new WeakMap();
+    }
 
     /** @return list<string> */
     public function classTokens(DOMElement $element): array
@@ -159,12 +179,8 @@ final class CssSelectorMatchCache
             $candidates = array_merge($candidates, $index['attributes'][$name] ?? array());
         }
 
-        $ordered = array();
-        foreach ( $candidates as $candidate ) {
-            $ordered[(string) ($candidate['key'] ?? $candidate['order'])] = $candidate;
-        }
-        uasort($ordered, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
-        $rules = array_column($ordered, 'rule');
+        uasort($candidates, static fn (array $left, array $right): int => $left['order'] <=> $right['order'] ?: (($left['sequence'] ?? $left['order']) <=> ($right['sequence'] ?? $right['order'])));
+        $rules = array_column($candidates, 'rule');
         $this->candidateRuleChecks += count($rules);
         $this->candidateRulesSkipped += $index['total'] - count($rules);
 
@@ -197,10 +213,35 @@ final class CssSelectorMatchCache
         $this->matches = array();
         $this->ruleCandidates = array();
         $this->candidateRulesRetained = 0;
+        $this->detachedElementKeys = new WeakMap();
+        $this->connectedElementKeys = new WeakMap();
+        $this->nextDetachedElementKey = 0;
     }
 
     private function elementKey(DOMElement $element): string
     {
-        return (string) spl_object_id($element);
+        if ( isset($this->connectedElementKeys[$element]) ) {
+            ++$this->connectedElementKeyHits;
+            return $this->connectedElementKeys[$element];
+        }
+
+        // PHP may return a new wrapper each time the same native DOM node is
+        // fetched, and it reuses spl_object_id() as soon as an old wrapper is
+        // released. A connected node's document path is stable across wrappers
+        // and unique within this per-document cache revision.
+        for ( $ancestor = $element; $ancestor instanceof DOMNode; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor instanceof \DOMDocument ) {
+                ++$this->connectedElementKeyBuilds;
+                return $this->connectedElementKeys[$element] = 'path:' . $element->getNodePath();
+            }
+        }
+
+        // Detached nodes can share a path such as `/p`; keep their live wrapper
+        // identity without retaining the wrapper or ever reusing its token.
+        if ( ! isset($this->detachedElementKeys[$element]) ) {
+            $this->detachedElementKeys[$element] = ++$this->nextDetachedElementKey;
+        }
+
+        return 'detached:' . $this->detachedElementKeys[$element];
     }
 }

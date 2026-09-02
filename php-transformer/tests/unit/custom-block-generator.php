@@ -12,7 +12,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\CustomBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
@@ -45,7 +45,7 @@ $render = $generator->render('<p>hello</p>');
 $assert('<p>hello</p>' === $render, '2: render is the supplied sanitized static HTML');
 $assert(! str_contains($render, '<?'), '2: render contains no server code');
 $editorScript = $generator->assets('ssi-acme/collection-1234abcd')['index.js'] ?? '';
-$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'TextareaControl'), '2: editor asset registers the exact block with editable source content');
+$assert(str_contains($editorScript, "registerBlockType( 'ssi-acme/collection-1234abcd'") && str_contains($editorScript, 'props.isSelected && createElement( components.TextareaControl'), '2: editor asset registers the exact block with source controls shown only after selection');
 
 $refAttrs = $generator->referenceAttributes('<p>hello</p>');
 $assert($refAttrs === array('content' => '<p>hello</p>'), '3: reference carries per-instance content only');
@@ -106,13 +106,119 @@ $galleryRepeat = ( new HtmlTransformer() )->transform($galleries)->toArray();
 $assert(array_column($galleryResult['blocks'], 'blockName') === array_column($galleryRepeat['blocks'], 'blockName'), '5: gallery content-bound identities are deterministic across runs');
 
 // ---------------------------------------------------------------------------
-// 6. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
+// 6. Deep repeatable components use one bounded companion block after native
+//    recognizers decline, without capturing ordinary page shells.
+// ---------------------------------------------------------------------------
+$collection = '<div class="story-collection">'
+    . '<article><h3>One</h3><p>First story</p></article>'
+    . '<article><h3>Two</h3><p>Second story</p></article>'
+    . '<article><h3>Three</h3><p>Third story</p></article>'
+    . '</div>';
+$deepCollection = $collection;
+for ($depth = 0; $depth < 16; ++$depth) $deepCollection = '<div class="shell-' . $depth . '">' . $deepCollection . '</div>';
+$deepResult = ( new HtmlTransformer() )->transform($deepCollection)->toArray();
+$deepDefinitions = $deepResult['source_reports']['generated_blocks'] ?? array();
+$deepMarkup = (string) ($deepResult['serialized_blocks'] ?? '');
+$assert(1 === count($deepDefinitions), '6: one deep repeatable component produces one generated definition');
+$assert(str_contains($deepMarkup, '<!-- wp:custom/collection-') && str_contains((string) ($deepDefinitions[0]['render'] ?? ''), '<div class="story-collection">') && !str_contains((string) ($deepDefinitions[0]['render'] ?? ''), 'shell-15'), '6: capture starts at the cohesive component root rather than the surrounding page shell');
+$assert(20 >= ($deepResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), '6: generated component keeps the resulting List View depth within policy');
+
+$tagResetResult = ( new HtmlTransformer() )->transform('<style>p{margin:0}</style>' . $deepCollection)->toArray();
+$tagResetDefinitions = $tagResetResult['source_reports']['generated_blocks'] ?? array();
+$tagResetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $tagResetResult['assets'] ?? array()));
+$assert(str_contains((string) ($tagResetDefinitions[0]['render'] ?? ''), '<p class="blocks-engine-source-p-') && str_contains($tagResetCss, ':where(.blocks-engine-source-p-') && str_contains($tagResetCss, '{margin:0}'), '6: generated component descendants retain source tag projection markers');
+
+$shallowResult = ( new HtmlTransformer() )->transform('<div><div>' . $collection . '</div></div>')->toArray();
+$assert(array() === ($shallowResult['source_reports']['generated_blocks'] ?? array()), '6: shallow repeatable content remains native blocks');
+
+$deepSection = str_replace('<div class="story-collection">', '<section class="story-collection">', str_replace('</div>', '</section>', $collection));
+for ($depth = 0; $depth < 16; ++$depth) $deepSection = '<div>' . $deepSection . '</div>';
+$sectionResult = ( new HtmlTransformer() )->transform($deepSection)->toArray();
+$assert(array() === ($sectionResult['source_reports']['generated_blocks'] ?? array()), '6: semantic sections are not captured as opaque generated components');
+
+$unsafeCollection = str_replace('class="story-collection"', 'class="story-collection" onclick="selectStory()"', $deepCollection);
+$unsafeResult = ( new HtmlTransformer() )->transform($unsafeCollection)->toArray();
+$assert(array() === ($unsafeResult['source_reports']['generated_blocks'] ?? array()), '6: inline behavior is never removed through static generated-component capture');
+
+$customHost = '<fluid-card-grid><div><article><h3>One</h3></article><article><h3>Two</h3></article><article><h3>Three</h3></article></div></fluid-card-grid>';
+for ($depth = 0; $depth < 16; ++$depth) $customHost = '<div>' . $customHost . '</div>';
+$customHostResult = ( new HtmlTransformer() )->transform($customHost)->toArray();
+$customHostDefinitions = array_values(array_filter($customHostResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => str_contains((string) ($definition['render'] ?? ''), '<fluid-card-grid>')));
+$assert(1 === count($customHostDefinitions), '6: a deep safe custom-element host becomes one exact companion block');
+
+$unsafeHost = str_replace('<div>', '<div><input value="unsafe">', $customHost);
+$unsafeHostResult = ( new HtmlTransformer() )->transform($unsafeHost)->toArray();
+$assert(array() === array_values(array_filter($unsafeHostResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => str_contains((string) ($definition['render'] ?? ''), '<fluid-card-grid>'))), '6: custom-element hosts with data-entry controls stay on application-aware conversion paths');
+
+$unsafeUrls = '<object data="javascript:alert(1)"></object><video poster="vbscript:alert(1)"></video><a href="%6a%61vascript:alert(1)" formaction="data:text/html,unsafe">Unsafe</a><img src="safe.jpg" srcset="safe.jpg 1x, javascript:alert(1) 2x"><meta http-equiv="refresh" content="0; url=data:text/html,unsafe">';
+$unsafeDeepCollection = preg_replace('/<article>/', '<article>' . $unsafeUrls, $deepCollection, 1) ?? $deepCollection;
+$unsafeUrlResult = ( new HtmlTransformer() )->transform($unsafeDeepCollection)->toArray();
+$unsafeRenders = implode('', array_map(static fn (array $definition): string => (string) ($definition['render'] ?? ''), $unsafeUrlResult['source_reports']['generated_blocks'] ?? array()));
+$assert(!str_contains(strtolower($unsafeRenders), 'javascript:') && !str_contains(strtolower($unsafeRenders), 'vbscript:') && !str_contains(strtolower($unsafeRenders), 'data:text') && str_contains($unsafeRenders, 'src="safe.jpg"'), '6: generated component HTML uses the complete fallback URL sanitization policy');
+
+$runtimeDeepCollection = preg_replace('/<article>/', '<article id="runtime-card">', $deepCollection, 1) ?? $deepCollection;
+$runtimeComponent = ( new HtmlTransformer() )->transform($runtimeDeepCollection, array('runtime_dom_selectors' => array('#runtime-card')))->toArray();
+$runtimeContracts = $runtimeComponent['source_reports']['runtime_dom_contracts'] ?? array();
+$runtimeProvenance = $runtimeComponent['source_reports']['html']['source_provenance'] ?? array();
+$assert(in_array('#runtime-card', array_column($runtimeContracts, 'selector'), true) && array_filter($runtimeProvenance, static fn (array $entry): bool => !empty($entry['editability_runtime_owned']) && str_starts_with((string) ($entry['block_name'] ?? ''), 'custom/')), '6: descendant runtime selectors remain attributed to the generated component block');
+
+$nativeColumns = '<div class="wp-block-columns"><div class="wp-block-column"><p>One</p></div><div class="wp-block-column"><p>Two</p></div><div class="wp-block-column"><p>Three</p></div></div>';
+for ($depth = 0; $depth < 16; ++$depth) $nativeColumns = '<div>' . $nativeColumns . '</div>';
+$nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumns)->toArray();
+$assert(array() === ($nativeColumnsResult['source_reports']['generated_blocks'] ?? array()) && str_contains((string) ($nativeColumnsResult['serialized_blocks'] ?? ''), '<!-- wp:columns'), '6: native recognizers take precedence over generated component capture');
+
+$projectedChain = '<p>Editable terminal content</p>';
+for ($depth = 0; $depth < 8; ++$depth) $projectedChain = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $projectedChain . '</div>';
+$shellResult = ( new HtmlTransformer() )->transform($projectedChain)->toArray();
+$shellBlock = $shellResult['blocks'][0] ?? array();
+$shellDefinitions = array_values(array_filter($shellResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
+$assert(str_ends_with((string) ($shellBlock['blockName'] ?? ''), '/layout-shell') && 8 === count($shellBlock['attrs']['wrappers'] ?? array()) && 'core/paragraph' === ($shellBlock['innerBlocks'][0]['blockName'] ?? null), '6: a projected wrapper chain becomes one layout-shell block around native editable content');
+$shellScript = (string) ($shellDefinitions[0]['assets']['index.js'] ?? '');
+$assert(1 === count($shellDefinitions) && str_contains($shellScript, 'InnerBlocks.Content'), '6: layout-shell emits one companion definition whose save path retains native inner blocks');
+$assert(str_contains($shellScript, 'function wrappedContent( wrappers, content, outerProps )') && str_contains($shellScript, 'props = outerProps( props )') && str_contains($shellScript, 'content = wrappedContent( wrappers, content )') && str_contains($shellScript, 'edit: edit,'), '6: layout-shell edit preserves the save wrapper chain without merging editor props into authored wrappers');
+$assert(str_contains($shellScript, "useBlockProps( { style: { display: 'contents' } } )"), '6: layout-shell uses a box-neutral editor carrier so Gutenberg layout CSS cannot override authored wrapper positioning');
+$assert(str_contains($shellScript, "return createElement( 'div', useBlockProps( { style: { display: 'contents' } } ), content )"), '6: layout-shell retains the editor carrier for empty and source-backed wrapper chains');
+$assert(str_contains($shellScript, '__experimentalLabel: function( attributes, options )') && str_contains($shellScript, "context === 'list-view' || context === 'breadcrumb'") && str_contains($shellScript, "replace( /^_+/, '' ).replace( /_[a-z0-9]{5,}_\\d+$/i, '' )") && str_contains($shellScript, "return semantic + ': ' + detail") && str_contains($shellScript, "return 'Layout shell ('"), '6: layout-shell exposes concise semantic labels in List View and breadcrumbs');
+$assert(false === ($shellDefinitions[0]['block_json']['supports']['renaming'] ?? true), '6: generated semantic labels are read-only rather than persisted as user metadata');
+$assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && 8 === substr_count((string) ($shellResult['serialized_blocks'] ?? ''), 'id="shell-'), '6: layout-shell collapses List View depth while preserving every rendered source wrapper');
+
+$emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();
+$emptyShellBlock = $emptyShellResult['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($emptyShellBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($emptyShellBlock['attrs']['wrappers'] ?? array()) && empty($emptyShellBlock['innerBlocks']), '6: layout-shell absorbs a projected empty Group endpoint without adding List View depth');
+$assert(1 === ($emptyShellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-outer"') && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-inner"'), '6: empty layout-shell serialization preserves both source wrappers exactly');
+
+$branchShell = ( new HtmlTransformer() )->transform('<div id="branch-outer" class="blocks-engine-source-div-outer-3"><div id="branch-inner" class="blocks-engine-source-div-fixture-3"><section id="branch-section" class="blocks-engine-source-section-fixture-3"><p>First branch</p><p>Second branch</p></section></div></div>')->toArray();
+$branchBlock = $branchShell['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell') && 3 === count($branchBlock['attrs']['wrappers'] ?? array()) && 2 === count($branchBlock['innerBlocks'] ?? array()), '6: layout-shell absorbs a final branching Group and exposes all ordered native children through InnerBlocks');
+$branchMarkup = (string) ($branchShell['serialized_blocks'] ?? '');
+$assert(str_contains($branchMarkup, '<section id="branch-section"') && 2 === substr_count($branchMarkup, '<!-- wp:paragraph') && strpos($branchMarkup, 'First branch') < strpos($branchMarkup, 'Second branch'), '6: branching layout-shell serialization preserves semantic wrappers and ordered native child blocks');
+
+$twoWrapperBranch = ( new HtmlTransformer() )->transform('<div id="depth-outer" class="blocks-engine-source-div-outer-3"><section id="depth-branch" class="blocks-engine-source-section-branch-3"><p>First branch</p><p>Second branch</p></section></div>')->toArray();
+$twoWrapperBranchBlock = $twoWrapperBranch['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($twoWrapperBranchBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($twoWrapperBranchBlock['attrs']['wrappers'] ?? array()) && 2 === count($twoWrapperBranchBlock['innerBlocks'] ?? array()), '6: an exact two-wrapper branch becomes one layout shell independent of document depth');
+
+$importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
+$assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
+
+$styledShell = ( new HtmlTransformer() )->transform('<div id="styled-outer" class="blocks-engine-source-div-outer-3" style="margin-top:0"><div id="styled-inner" class="blocks-engine-source-div-fixture-3"><p>Style-sensitive content</p></div></div>')->toArray();
+$styledShellBlock = $styledShell['blocks'][0] ?? array();
+$styledShellDefinitions = array_values(array_filter($styledShell['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
+$styledShellScript = (string) ($styledShellDefinitions[0]['assets']['index.js'] ?? '');
+$assert(str_ends_with((string) ($styledShellBlock['blockName'] ?? ''), '/layout-shell') && 'margin-top:0' === ($styledShellBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell compresses canonical styled wrappers without changing their serialized declarations');
+$assert(str_contains((string) ($styledShell['serialized_blocks'] ?? ''), 'style="margin-top:0"') && str_contains($styledShellScript, 'appendDeclaration( declaration )'), '6: layout-shell preserves unitless zero declarations through its React save path');
+
+$normalizedStyleShell = ( new HtmlTransformer() )->transform('<div id="color-outer" class="blocks-engine-source-div-outer-3" style="color:#fff"><div id="color-inner" class="blocks-engine-source-div-fixture-3"><p>Color-sensitive content</p></div></div>')->toArray();
+$normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($normalizedStyleBlock['blockName'] ?? ''), '/layout-shell') && 'color:#fff' === ($normalizedStyleBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell bypasses CSSOM normalization and retains canonical color declarations');
+
+// ---------------------------------------------------------------------------
+// 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
 // ---------------------------------------------------------------------------
 $weak = ( new HtmlTransformer() )->transform('<my-widget><span>hello there</span></my-widget>')->toArray();
-$assert(count($weak['source_reports']['generated_blocks'] ?? array()) === 0, '6: low-confidence subtree generates nothing');
-$assert(count($weak['blocks']) === 0, '6: low-confidence subtree emits no block');
-$assert(count($weak['fallbacks']) === 1, '6: existing fallback behavior is preserved');
-$assert(($weak['fallbacks'][0]['classification']['bucket'] ?? '') === 'unknown', '6: classifier verdict is unknown', json_encode($weak['fallbacks'][0]['classification'] ?? array()));
+$assert(count($weak['source_reports']['generated_blocks'] ?? array()) === 0, '7: low-confidence subtree generates nothing');
+$assert(count($weak['blocks']) === 0, '7: low-confidence subtree emits no block');
+$assert(count($weak['fallbacks']) === 1, '7: existing fallback behavior is preserved');
+$assert(($weak['fallbacks'][0]['classification']['bucket'] ?? '') === 'unknown', '7: classifier verdict is unknown', json_encode($weak['fallbacks'][0]['classification'] ?? array()));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "CustomBlockGenerator unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

@@ -6,15 +6,14 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Resolves class-scoped responsive fallback decisions when breakpoint nodes cannot be matched directly.
+ *
+ * @internal
  */
 final class ResponsiveBreakpointSafetyPolicy
 {
-    /**
-     * @param callable(float): string $number
-     */
     public function __construct(
         private readonly StaticHtmlNodeInspector $nodeInspector,
-        private readonly mixed $number,
+        private readonly StaticHtmlValueFormatter $formatter,
         private readonly BreakpointDimensionPolicy $breakpointDimensionPolicy,
         private readonly LayoutIntentClassifier $layoutIntentClassifier,
     ) {
@@ -118,7 +117,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( $hasBackgroundImage && null !== $height && $height > 0.0 ) {
-            $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'aspect-ratio:' . ($this->number)($width) . ' / ' . ($this->number)($height));
+            $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'aspect-ratio:' . $this->formatter->number($width) . ' / ' . $this->formatter->number($height));
             if ( isset($baseMap['background-size']) && ! in_array($baseMap['background-size'], array('cover', 'contain'), true) ) {
                 $declarations[] = 'background-size:cover';
             }
@@ -135,7 +134,7 @@ final class ResponsiveBreakpointSafetyPolicy
         if ( null !== $height && $height > 240.0 ) {
             $declarations[] = 'height:auto';
             if ( ! $wrapsRow ) {
-                $declarations[] = 'min-height:' . ($this->number)(min($height, 720.0)) . 'px';
+                $declarations[] = 'min-height:' . $this->formatter->number(min($height, 720.0)) . 'px';
             }
         }
 
@@ -241,7 +240,7 @@ final class ResponsiveBreakpointSafetyPolicy
     private function namedResponsiveShellDecision(array $node, ?array $parentNode, array $baseMap, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
     {
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
-            return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . ($this->number)($this->footerResponsiveMinHeight($node)) . 'px'));
+            return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . $this->formatter->number($this->footerResponsiveMinHeight($node)) . 'px'));
         }
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $chromeRole || 'navigation' === $name) && $isContainer ) {
@@ -319,7 +318,7 @@ final class ResponsiveBreakpointSafetyPolicy
         $mobileContentWidth = max(1.0, $viewportWidth - 48.0);
         return array(
             'width:calc(100% - 48px)',
-            'max-width:' . ($this->number)(min($width, $mobileContentWidth)) . 'px',
+            'max-width:' . $this->formatter->number(min($width, $mobileContentWidth)) . 'px',
             'left:24px',
             'right:auto',
         );
@@ -640,7 +639,7 @@ final class ResponsiveBreakpointSafetyPolicy
         $declarations = array('width:100%', 'max-width:100%', 'height:auto', 'display:flex', 'flex-direction:column', 'align-items:stretch', 'justify-content:flex-start');
         $minHeight = $this->responsiveHeaderMinHeight($node, $baseMap, $variantNode);
         if ( null !== $minHeight && $minHeight > 0.0 ) {
-            $declarations[] = 'min-height:' . ($this->number)($minHeight) . 'px';
+            $declarations[] = 'min-height:' . $this->formatter->number($minHeight) . 'px';
         }
 
         return $declarations;

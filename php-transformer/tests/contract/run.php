@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
@@ -79,6 +80,54 @@ $assert(
     str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
     'video playback attributes should be preserved in native save markup'
 );
+$coffeeFestivalVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video></wix-video>')->toArray();
+$assert(
+    'core/video' === ($coffeeFestivalVideoResult['blocks'][0]['blockName'] ?? null)
+        && 'hero.jpg' === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['poster'] ?? null)
+        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['tracks'] ?? null)
+        && str_contains((string) ($coffeeFestivalVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
+        && array() === ($coffeeFestivalVideoResult['fallbacks'] ?? array()),
+    'the presentation-transparent Coffee Festival custom video lowers to editable core/video markup'
+);
+$styledCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"><video src="hero.mp4"></video></wix-video>')->toArray();
+$assert(
+    'custom/responsive-media' === ($styledCustomVideoResult['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($styledCustomVideoResult['blocks'][0]['attrs']['content'] ?? ''), 'style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"')
+        && ! str_contains((string) ($styledCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
+    'styled custom video hosts preserve presentation in a typed gap instead of lowering to core/video'
+);
+$ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4"></video><video src="trailer.mp4"></video></wix-video>')->toArray();
+$assert(
+    'core/video' !== ($ambiguousCustomVideoResult['blocks'][0]['blockName'] ?? null)
+        && ! str_contains((string) ($ambiguousCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
+    'ambiguous custom media hosts remain typed gaps rather than raw HTML'
+);
+
+$runtimeMediaMaskFixture = file_get_contents(dirname(__DIR__) . '/fixtures/unsupported-runtime-media-mask.html');
+$runtimeMediaMaskResult = ( new HtmlTransformer() )->transform((string) $runtimeMediaMaskFixture)->toArray();
+$runtimeMediaMaskMarkup = (string) ($runtimeMediaMaskResult['serialized_blocks'] ?? '');
+$runtimeMediaMaskFallback = $runtimeMediaMaskResult['fallbacks'][0] ?? array();
+$runtimeMediaMaskReportFallback = $runtimeMediaMaskResult['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array();
+$assert(
+    'runtime-slideshow' === ($runtimeMediaMaskFallback['tag'] ?? null)
+        && 'runtime_media_mask' === ($runtimeMediaMaskFallback['dependent_losses'][0]['relationship'] ?? null)
+        && 'omitted' === ($runtimeMediaMaskFallback['dependent_losses'][0]['disposition'] ?? null)
+        && ($runtimeMediaMaskFallback['dependent_losses'] ?? null) === ($runtimeMediaMaskReportFallback['dependent_losses'] ?? null),
+    'unsupported runtime media records its adjacent decorative mask as an explicit dependent loss'
+);
+$assert(
+    ! str_contains($runtimeMediaMaskMarkup, '334.611')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality one')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality two')
+        && str_contains($runtimeMediaMaskMarkup, 'Quality three'),
+    'a dependent mask is omitted without discarding independent sibling labels'
+);
+$assert(
+    1 === count(array_filter($runtimeMediaMaskResult['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)))
+        && str_contains($runtimeMediaMaskMarkup, '<img src="assets/materialized-svg/')
+        && str_contains(implode("\n", array_column($runtimeMediaMaskResult['assets'] ?? array(), 'content')), 'Independent mark'),
+    'an independent labeled SVG still follows the normal native image materialization path'
+);
 
 $responsiveImageResult = ( new HtmlTransformer() )->transform('<img src="hero.jpg" srcset="hero.jpg 1x, hero-2x.jpg 2x" sizes="100vw" alt="Hero">')->toArray();
 $assert(
@@ -119,6 +168,16 @@ $assert(
         && str_contains($visualLayerImageCss, 'position:relative'),
     'a media-only container retains intrinsic height when its visual layer is out of flow'
 );
+$staticVisualMediaWrapperResult = ( new HtmlTransformer() )->transform('<style>.visual-layer{position:absolute}</style><div class="media-shell"><div class="visual-layer"><media-image><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div></div>')->toArray();
+$staticVisualMediaWrapperCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $staticVisualMediaWrapperResult['assets'] ?? array()));
+$staticVisualMediaWrapperClass = (string) ($staticVisualMediaWrapperResult['blocks'][0]['attrs']['className'] ?? '');
+preg_match('/(?:^|\s)(be-inline-geometry-[a-f0-9]+)(?:\s|$)/', $staticVisualMediaWrapperClass, $staticVisualMediaWrapperCarrier);
+$assert(
+    isset($staticVisualMediaWrapperCarrier[1])
+        && str_contains($staticVisualMediaWrapperCss, 'min-height:281px')
+        && ! preg_match('/\.' . preg_quote($staticVisualMediaWrapperCarrier[1], '/') . '\{[^}]*position:relative/', $staticVisualMediaWrapperCss),
+    'a source-static visual media wrapper reserves intrinsic height without changing the absolute child containing block'
+);
 $stickyVisualLayerImageResult = ( new HtmlTransformer() )->transform('<style>.media-column{position:relative}.visual-layer{position:absolute}.sticky-image{position:sticky}</style><div class="media-column"><div class="visual-layer"><media-image class="sticky-image"><img src="hero.jpg" style="width:320px;height:281px" width="320" height="281" alt="Hero"></media-image></div><div class="content"><p>Caption establishes the section height.</p></div></div>')->toArray();
 $stickyVisualLayerImageCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $stickyVisualLayerImageResult['assets'] ?? array()));
 $assert(
@@ -151,6 +210,36 @@ $assert(
         && str_contains($responsiveGallery['blocks'][0]['attrs']['content'] ?? '', '<div class="gallery">')
         && ! str_contains((string) ($responsiveGallery['serialized_blocks'] ?? ''), '<!-- wp:gallery'),
     'responsive gallery media is preserved as one reusable editable block instead of a gallery with unsupported children'
+);
+$carouselSource = '<div class="service-carousel"><button aria-label="Previous slide">Previous</button><div role="list"><div role="listitem" aria-label="Back pain"><img src="back.jpg" alt="Back pain"><div class="title">Back pain</div><div class="description">Treatment for back pain.</div></div><div role="listitem" aria-label="Sciatica"><img src="sciatica.jpg" alt="Sciatica"><div class="title">Sciatica</div><div class="description">Treatment for sciatica.</div></div></div><button aria-label="Next slide">Next</button><div class="expanded-gallery"><div role="list"><div role="listitem"><img src="back-expanded.jpg" alt="Back pain expanded"></div><div role="listitem"><img src="sciatica-expanded.jpg" alt="Sciatica expanded"></div></div></div></div>';
+$carouselResult = ( new HtmlTransformer() )->transform($carouselSource)->toArray();
+$carouselBlock = $carouselResult['blocks'][0] ?? array();
+$carouselMarkup = (string) ($carouselResult['serialized_blocks'] ?? '');
+$carouselDefinitions = $carouselResult['source_reports']['generated_blocks'] ?? array();
+$assert(
+    'custom/authored-carousel' === ($carouselBlock['blockName'] ?? null)
+        && 2 === count($carouselBlock['innerBlocks'] ?? array())
+        && 'core/image' === ($carouselBlock['innerBlocks'][0]['blockName'] ?? null)
+        && str_contains($carouselMarkup, 'back.jpg')
+        && str_contains($carouselMarkup, 'sciatica.jpg')
+        && str_contains($carouselMarkup, 'Treatment for back pain.')
+        && ! str_contains($carouselMarkup, 'back-expanded.jpg')
+        && ! str_contains($carouselMarkup, 'expanded-gallery'),
+    'bounded carousel topology lowers one primary ordered rail to editable native slide blocks'
+);
+$assert(
+    1 === count($carouselDefinitions)
+        && 'authored-carousel' === ($carouselDefinitions[0]['name'] ?? null)
+        && 'file:./view.js' === ($carouselDefinitions[0]['block_json']['viewScriptModule'] ?? null)
+        && true === ($carouselDefinitions[0]['block_json']['supports']['interactivity'] ?? null)
+        && str_contains((string) ($carouselDefinitions[0]['view_js'] ?? ''), "store( 'blocks-engine/carousel'")
+        && isset($carouselDefinitions[0]['assets']['style.css']),
+    'bounded carousel projection carries one generic editor block with scoped frontend behavior'
+);
+$staticGalleryResult = ( new HtmlTransformer() )->transform('<div class="service-gallery"><div role="list"><div role="listitem"><img src="one.jpg" alt="One"></div><div role="listitem"><img src="two.jpg" alt="Two"></div></div></div>')->toArray();
+$assert(
+    'custom/authored-carousel' !== ($staticGalleryResult['blocks'][0]['blockName'] ?? null),
+    'an ordered image collection without previous and next controls is not promoted to an interactive carousel'
 );
 
 $referenceAnalyzer = new ReferenceAnalyzer();
@@ -363,7 +452,6 @@ $registry = new PatternRecognizerRegistry(array(
 ));
 $registryContext = new PatternContext(
     static fn (DOMElement $element): array => array(),
-    static fn (DOMElement $element): string => '',
     static fn (string $name, array $attrs = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $innerBlocks)
 );
 $assert($registryElement instanceof DOMElement, 'pattern registry fixture element parses');
@@ -446,6 +534,15 @@ $nestedLayoutTableMarkup = (string) ($nestedLayoutTableResult['serialized_blocks
 $nestedLayoutTableLinkedMedia = $nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
 $assert(TableClassificationPolicy::COMPLEX_NESTED === ($tablePolicy->classify($tableElement($nestedLayoutTableSource))['classification'] ?? null) && $tablePolicy->isNestedLayoutTable($tableElement($nestedLayoutTableSource)), 'nested single-row headerless tables are recognized as layout columns');
 $assert('core/columns' === ($nestedLayoutTableResult['blocks'][0]['blockName'] ?? null) && 2 === count($nestedLayoutTableResult['blocks'][0]['innerBlocks'] ?? array()) && 'core/columns' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? null), 'nested layout tables lower to responsive native column blocks');
+$assert('30%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null) && '70%' === ($nestedLayoutTableResult['blocks'][0]['innerBlocks'][1]['attrs']['width'] ?? null) && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:30%') && str_contains((string) ($nestedLayoutTableResult['serialized_blocks'] ?? ''), 'flex-basis:70%'), 'layout table cell percentages become rendered core/column widths');
+
+$percentLayoutTable = ( new HtmlTransformer() )->transform('<table class="wsite-multicol-table"><tr><td style="width:18.5%">Left</td><td style="width:63%">Center</td><td style="width:18.5%">Right</td></tr></table>')->toArray();
+$percentLayoutTableBlock = $percentLayoutTable['blocks'][0] ?? array();
+$assert('core/columns' === ($percentLayoutTableBlock['blockName'] ?? null) && 3 === count($percentLayoutTableBlock['innerBlocks'] ?? array()), 'percent-width layout tables become core/columns');
+$assert('18.5%' === ($percentLayoutTableBlock['innerBlocks'][0]['attrs']['width'] ?? null) && '63%' === ($percentLayoutTableBlock['innerBlocks'][1]['attrs']['width'] ?? null) && '18.5%' === ($percentLayoutTableBlock['innerBlocks'][2]['attrs']['width'] ?? null), 'percent-width layout tables preserve cell percentages as column widths');
+$percentLayoutTableCss = implode("\n", array_column($percentLayoutTable['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($percentLayoutTable['serialized_blocks'] ?? ''), 'blocks-engine-layout-table-columns') && str_contains($percentLayoutTableCss, '.wp-block-columns.blocks-engine-layout-table-columns{gap:0}'), 'layout-table columns suppress the core default gap because source cells own their gutters');
+$assert('core/table' === (( new HtmlTransformer() )->transform('<table><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'headerless tables without cell percentages remain data tables');
 $assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/responsive-media' === ($nestedLayoutTableLinkedMedia['blockName'] ?? null) && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'href="/quote"') && str_contains((string) ($nestedLayoutTableLinkedMedia['attrs']['content'] ?? ''), 'src="quote.jpg"') && str_contains($nestedLayoutTableMarkup, 'src="mark.jpg"') && str_contains($nestedLayoutTableMarkup, 'Layout copy'), 'nested layout table lowering preserves links, media, and content order without HTML fallback');
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
 $nestedDataTableResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></td></tr></table>')->toArray();
@@ -489,17 +586,93 @@ $assert(2 === count($navigationBlock['innerBlocks'] ?? array()), 'navigation con
 $assert('About' === ($navigationBlock['innerBlocks'][0]['attrs']['label'] ?? null), 'navigation conversion still preserves link labels');
 $assert('/about' === ($navigationBlock['innerBlocks'][0]['attrs']['url'] ?? null), 'navigation conversion still preserves link URLs');
 
-$socialLinksResult = ( new HtmlTransformer() )->transform('<ul class="social-links"><li><a href="https://github.com/Automattic" aria-label="GitHub"><svg aria-hidden="true"></svg></a></li><li><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg aria-hidden="true"></svg></a></li></ul>')->toArray();
+$socialLinksResult = ( new HtmlTransformer() )->transform('<style>.social-links .social-item{display:inline-block;width:22px;height:22px;margin:0 11px 0 0}</style><ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>')->toArray();
 $socialLinksBlock = $socialLinksResult['blocks'][0] ?? array();
 $assert('core/social-links' === ($socialLinksBlock['blockName'] ?? null), 'explicit social profile clusters convert to core/social-links instead of generic navigation');
 $assert('github' === ($socialLinksBlock['innerBlocks'][0]['attrs']['service'] ?? null) && 'instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['service'] ?? null), 'social profile hosts map to WordPress social-link service semantics');
 $assert('GitHub' === ($socialLinksBlock['innerBlocks'][0]['attrs']['label'] ?? null) && 'Instagram' === ($socialLinksBlock['innerBlocks'][1]['attrs']['label'] ?? null), 'icon-only social links retain accessible profile labels');
 $socialLinksMarkup = (string) ($socialLinksResult['serialized_blocks'] ?? '');
-$assert(str_contains($socialLinksMarkup, '<ul class="wp-block-social-links social-links">') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the static social-links wrapper');
+$assert(str_contains((string) ($socialLinksBlock['className'] ?? $socialLinksBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'image-backed social clusters use core logos-only presentation instead of adding provider backgrounds');
+$assert('normal' === ($socialLinksBlock['attrs']['size'] ?? null) && str_contains($socialLinksMarkup, 'normal has-normal-icon-size'), 'explicit source icon dimensions select the nearest core Social Links size preset');
+$assert('social-item' === ($socialLinksBlock['innerBlocks'][0]['attrs']['className'] ?? null), 'social-link children retain their structural item class where core renders it');
+$assert(str_contains((string) ($socialLinksBlock['attrs']['className'] ?? ''), 'blocks-engine-source-social-item-spacing'), 'structural social items mark the wrapper so source item spacing remains authoritative');
+$socialLinksCss = implode("\n", array_column($socialLinksResult['assets'] ?? array(), 'content'));
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}'), 'engine support CSS neutralizes the core default gap without adding invalid saved styles');
+$assert(str_contains($socialLinksCss, '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}'), 'logos-only social links drop source sprite backgrounds without !important');
+$assert(! str_contains($socialLinksMarkup, 'style="gap:') && ! str_contains($socialLinksMarkup, '<li ') && ! str_contains($socialLinksMarkup, '<a href='), 'social-link children preserve their dynamic empty-save contract inside the canonical social-links wrapper');
 $assert('pass' === ($socialLinksResult['source_reports']['wp_block_validity']['status'] ?? ''), 'dynamic social-link children and their static parent remain WordPress-valid');
+
+$visibleSocialLabels = ( new HtmlTransformer() )->transform('<div class="social-links"><a href="https://github.com/Automattic/blocks-engine">Blocks Engine</a><a href="https://github.com/Automattic/static-site-importer">Static Site Importer</a></div>')->toArray();
+$assert(str_contains((string) ($visibleSocialLabels['serialized_blocks'] ?? ''), 'class="wp-block-social-links has-visible-labels social-links"'), 'social-links save markup carries the canonical has-visible-labels class when labels are shown');
+
+$spanSocialSource = '<span class="wsite-social wsite-social-default"><a class="wsite-social-item wsite-social-facebook" href="https://www.facebook.com/tasteandtravelitaly" aria-label="Facebook"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-twitter" href="//#" aria-label="Twitter"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-instagram" href="https://instagram.com/tasteandtravel_italy" aria-label="Instagram"><span class="wsite-social-item-inner"></span></a><a class="wsite-social-item wsite-social-mail" href="mailto:hello@example.com" aria-label="Mail"><span class="wsite-social-item-inner"></span></a></span>';
+$spanSocialResult = ( new HtmlTransformer() )->transform($spanSocialSource)->toArray();
+$spanSocialBlock = $spanSocialResult['blocks'][0] ?? array();
+$spanSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $spanSocialBlock['innerBlocks'] ?? array());
+$assert('core/social-links' === ($spanSocialBlock['blockName'] ?? null), 'inline social clusters convert to core/social-links instead of empty mark hooks');
+$assert(array( 'facebook', 'twitter', 'instagram', 'mail' ) === $spanSocialServices, 'explicit labeled social placeholders infer their service while mailto maps to mail', json_encode($spanSocialServices));
+$assert(str_contains((string) ($spanSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'empty generated-content inners count as icon-only social presentation');
+$assert('small' === ($spanSocialBlock['attrs']['size'] ?? null), 'icon-font social clusters default to compact core size when source icons are not measured bitmaps');
+$assert(! str_contains((string) ($spanSocialResult['serialized_blocks'] ?? ''), '<mark'), 'icon-font inner spans are not lowered to mark');
+
+$placeholderSocialSource = '<style>.footer-social{display:flex;gap:14px}.footer-social a{display:inline-flex;width:32px;height:32px}</style><div class="footer-social"><a href="#" aria-label="LinkedIn"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="X / Twitter"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="YouTube"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="GitHub"><svg width="14" height="14" aria-hidden="true"><path d="M0 0h1v1z"/></svg></a></div>';
+$placeholderSocialResult = ( new HtmlTransformer() )->transform($placeholderSocialSource)->toArray();
+$placeholderSocialBlock = $placeholderSocialResult['blocks'][0] ?? array();
+$placeholderSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$placeholderSocialUrls = array_map(static fn(array $link): string => (string) ($link['attrs']['url'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$placeholderSocialLabels = array_map(static fn(array $link): string => (string) ($link['attrs']['label'] ?? ''), $placeholderSocialBlock['innerBlocks'] ?? array());
+$assert('core/social-links' === ($placeholderSocialBlock['blockName'] ?? null), 'explicit labeled social placeholders convert to core/social-links');
+$assert(array( 'linkedin', 'x', 'youtube', 'github' ) === $placeholderSocialServices, 'social placeholder services infer from accessible labels', json_encode($placeholderSocialServices));
+$assert(array( '#', '#', '#', '#' ) === $placeholderSocialUrls, 'social placeholder URLs survive unchanged', json_encode($placeholderSocialUrls));
+$assert(array( 'LinkedIn', 'X / Twitter', 'YouTube', 'GitHub' ) === $placeholderSocialLabels, 'social placeholder accessible labels survive', json_encode($placeholderSocialLabels));
+$assert(str_contains((string) ($placeholderSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'labeled SVG placeholders retain logos-only presentation');
+
+$unknownPlaceholderSocial = ( new HtmlTransformer() )->transform('<div class="footer-social"><a href="#" aria-label="Community"><svg aria-hidden="true"></svg></a></div>')->toArray();
+$assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockName'] ?? null), 'unknown placeholder labels do not fabricate social services');
 
 $ordinaryFooterLinks = ( new HtmlTransformer() )->transform('<nav aria-label="Company"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
 $assert('core/navigation' === ($ordinaryFooterLinks['blocks'][0]['blockName'] ?? null), 'ordinary navigation does not become social links without profile-host or social-cluster semantics');
+
+// core/navigation emits its own item markup, so a builder wrapper that carried
+// the menu's type and colour does not survive and its rule matches nothing.
+// Recover that presentation onto the native counterpart, and deliver it as CSS:
+// shell identity compares block markup across documents, so a per-page value in
+// that markup would split one shared template part into several.
+$navInherited = ( new HtmlTransformer() )->transform(
+    '<style>body{font-family:Arial;font-size:10px;color:#000}.labelBox{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}</style>'
+    . '<body><header><nav class="menu navbar" aria-label="Main"><ul>'
+    . '<li><div class="labelBox"><a href="/features">Features</a></div></li>'
+    . '<li><div class="labelBox"><a href="/benefits">Benefits</a></div></li>'
+    . '</ul></nav></header></body>'
+)->toArray();
+$navInheritedCss = implode("\n", array_column($navInherited['assets'] ?? array(), 'content'));
+$navInheritedMarkup = (string) ($navInherited['serialized_blocks'] ?? '');
+$assert(str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:rgb(238,255,255);font-family:helvetica-w01-roman;font-size:15.75px}'), 'menu presentation on a replaced source wrapper is recovered onto the native navigation item');
+$assert(! str_contains($navInheritedCss, '.wp-block-navigation.menu.navbar .wp-block-navigation-item__content{color:#000') && ! str_contains($navInheritedCss, 'font-family:Arial;font-size:10px}'), 'recovery reads the source menu rather than the document default that surrounds it');
+preg_match('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $navInheritedMarkup, $navInheritedAttrs);
+$navInheritedBlock = $navInheritedAttrs[1] ?? '';
+$assert('' !== $navInheritedBlock && ! str_contains($navInheritedBlock, 'customTextColor') && ! str_contains($navInheritedBlock, 'helvetica-w01-roman'), 'recovered navigation presentation stays out of the navigation block so documents sharing a shell keep identical markup: ' . $navInheritedBlock);
+$navNoInheritance = ( new HtmlTransformer() )->transform(
+    '<header><nav class="plain-nav" aria-label="Main"><ul><li><a href="/a">A</a></li><li><a href="/b">B</a></li></ul></nav></header>'
+)->toArray();
+$assert(! str_contains(implode("\n", array_column($navNoInheritance['assets'] ?? array(), 'content')), '.wp-block-navigation.plain-nav '), 'a menu with no distinct presentation gets no fabricated rule');
+
+// A source nav landmark keeps native menu semantics, so its icon-only anchors
+// must not silently lose the artwork core/navigation-link cannot save.
+$navIconResult = ( new HtmlTransformer() )->transform(
+    '<style>.social-nav a svg{width:23px;height:23px}</style><nav class="social-nav" aria-label="Social"><a href="https://www.facebook.com/wix" aria-label="Facebook"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M0 0h24v24H0z"></path></svg></a><a href="https://x.com/wix" aria-label="Twitter"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle></svg></a></nav>'
+)->toArray();
+$navIconMarkup = (string) ($navIconResult['serialized_blocks'] ?? '');
+$navIconCss = implode("\n", array_column($navIconResult['assets'] ?? array(), 'content'));
+$assert('core/navigation' === ($navIconResult['blocks'][0]['blockName'] ?? null), 'icon-only anchors inside a nav landmark stay native navigation');
+$assert(str_contains($navIconMarkup, '"label":"Facebook"') && str_contains($navIconMarkup, '"label":"Twitter"'), 'icon-only navigation links keep their accessible name as the saved label');
+$assert(1 === preg_match('/blocks-engine-navigation-link-icon-[a-f0-9]{12}/', $navIconMarkup), 'icon-only navigation links carry an opaque icon marker');
+$assert(str_contains($navIconCss, 'background-image:url("data:image/svg+xml,') && str_contains($navIconCss, 'width:23px;height:23px'), 'recovered navigation icons project the source artwork at its source box');
+$assert(str_contains($navIconCss, 'font-size:0') && ! str_contains($navIconCss, 'visibility:hidden;background-image'), 'recovered navigation icons collapse the label without removing it from the accessibility tree');
+$navTextLinks = ( new HtmlTransformer() )->transform(
+    '<nav class="main-nav" aria-label="Main"><a href="/work">Work</a><a href="/about">About</a></nav>'
+)->toArray();
+$assert(! str_contains((string) ($navTextLinks['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-icon-'), 'text navigation links do not fabricate icon markers');
 
 // A row of button-styled links whose container merely carries a `links` token is
 // a call-to-action button group, not site navigation. It must convert to
@@ -554,6 +727,22 @@ $assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><s
 $assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
 $assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
 
+// A visually empty native summary is capture scaffolding, not an editor-visible
+// disclosure trigger. Keep adjacent prose editable while lowering the bounded
+// dialog separately so core/details cannot add its default closed-state height.
+$capturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details class="dla-disclosure"><summary>&nbsp;</summary><div class="dla-dialog" role="dialog"><nav><a href="/about">About</a><a href="/contact">Contact</a></nav></div></details></div>')->toArray();
+$capturedDisclosureRoot = $capturedDisclosureResult['blocks'][0] ?? array();
+$capturedDisclosureChildren = $capturedDisclosureRoot['innerBlocks'] ?? array();
+$capturedDisclosureDialog = $capturedDisclosureChildren[1] ?? array();
+$capturedDisclosureMarkup = (string) ($capturedDisclosureResult['serialized_blocks'] ?? '');
+$assert('core/group' === ($capturedDisclosureRoot['blockName'] ?? null) && 'core/paragraph' === (($capturedDisclosureChildren[0] ?? array())['blockName'] ?? null) && 'Copyright text' === (($capturedDisclosureChildren[0]['attrs']['content'] ?? null)), 'mixed rich text keeps ordinary sibling prose editable when an empty-summary disclosure is present');
+$assert(str_ends_with((string) ($capturedDisclosureDialog['blockName'] ?? ''), '/captured-dialog') && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures lower to the typed dialog block with native navigation children');
+$assert(! str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<dialog class="dla-dialog">'), 'empty-summary dialog disclosures avoid both details trigger geometry and collection fallback');
+
+$unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
+$unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
+$assert(! str_contains($unsafeCapturedDisclosureMarkup, '/captured-dialog') && str_contains($unsafeCapturedDisclosureMarkup, 'Copyright text'), 'runtime-heavy empty-summary dialogs fail closed without swallowing adjacent editable prose');
+
 // A single disclosure widget (toggle control + collapsible region) carries no
 // faq/accordion class, only the structural WAI-ARIA disclosure shape, and is
 // converted to a native zero-JS core/details block instead of leaking a dead
@@ -573,6 +762,15 @@ $assert('What is your refund policy?' === ($decorativeDisclosureResult['blocks']
 $headingDisclosureResult = ( new HtmlTransformer() )->transform('<div class="item"><h3><button aria-expanded="false" aria-controls="panel-1">Shipping times?</button></h3><div id="panel-1" role="region"><p>Ships in 2 days.</p></div></div>')->toArray();
 $assert('core/details' === (($headingDisclosureResult['blocks'][0] ?? array())['blockName'] ?? null), 'a heading-wrapped disclosure toggle converts to core/details');
 $assert('Shipping times?' === (($headingDisclosureResult['blocks'][0] ?? array())['attrs']['summary'] ?? null), 'heading-wrapped disclosure toggle text maps to the details summary');
+
+// A nested navigation toggle cannot consume its page-container ancestor as a
+// disclosure header and discard the sibling page content.
+$pageShellDisclosureResult = ( new HtmlTransformer() )->transform('<div id="master-page"><div id="site-pages"><header><button aria-expanded="false">Open site navigation</button></header><main><h1>Portfolio heading</h1><p>Substantive page content.</p><img src="portrait.jpg" alt="Portrait"></main></div><div class="navigation-overlay"><nav><a href="/about">About</a></nav></div></div>')->toArray();
+$pageShellDisclosureMarkup = (string) ($pageShellDisclosureResult['serialized_blocks'] ?? '');
+$assert(! str_contains($pageShellDisclosureMarkup, '<!-- wp:details'), 'a page shell with a nested navigation toggle is not converted to core/details');
+$assert(str_contains($pageShellDisclosureMarkup, 'Portfolio heading'), 'a false disclosure preserves the substantive page heading');
+$assert(str_contains($pageShellDisclosureMarkup, 'Substantive page content.'), 'a false disclosure preserves the substantive page paragraph');
+$assert(str_contains($pageShellDisclosureMarkup, '<!-- wp:image'), 'a false disclosure preserves the substantive page image');
 
 // Negative guard: a plain heading followed by text is NOT a disclosure (no
 // toggle control, aria-expanded, or aria-controls) and must stay as a heading +
@@ -675,7 +873,7 @@ $missingConversionReport = $result;
 unset($missingConversionReport['source_reports']['conversion_report']);
 $assertInvalidCanonicalEnvelope($missingConversionReport, 'source_reports.conversion_report', 'canonical validation rejects results without conversion reports');
 
-$assertInvalidCanonicalEnvelope($result, 'source_reports.materialization_plan', 'canonical validation can require materialization plans for downstream artifact consumers', true);
+$assertInvalidCanonicalEnvelope($result, 'Materialization-plan validation was removed', 'canonical validation rejects removed materialization-plan requirements', true);
 
 $contextual = ( new HtmlTransformer() )->transform(
     '<main><h1>Context</h1><canvas id="runtime-context">Fallback</canvas></main>',
@@ -694,17 +892,20 @@ $assert('fixture:contextual-html' === ($contextual['provenance'][0]['source'] ??
 $assert('contract-test' === ($contextual['provenance'][0]['scope'] ?? ''), 'HTML provenance exposes generic scope metadata');
 
 $formFallback = ( new HtmlTransformer() )->transform(
-    '<main><form action="/contact" method="post" data-action="contact-submit"><label for="email">Email</label><input id="email" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
+    '<main><form action="/contact" method="post" data-action="contact-submit"><label class="field-label" for="email">Email</label><input id="email" class="field-input" name="email" type="email" required><select name="topic"><option value="support" selected>Support</option></select><button type="submit">Send</button></form></main>'
 )->toArray();
 $formFallbackDiagnostic = $formFallback['fallbacks'][0] ?? array();
 $assert(1 === count($formFallback['fallbacks'] ?? array()), 'data-entry runtime form surfaces a materializable form fallback finding');
 $assert('html_form_fallback' === ($formFallbackDiagnostic['diagnostic_code'] ?? ''), 'data-entry runtime form fallback carries the form diagnostic code');
 $assert('email' === ($formFallbackDiagnostic['controls'][0]['name'] ?? ''), 'data-entry runtime form fallback carries generic control metadata');
+$assert('field-input' === ($formFallbackDiagnostic['controls'][0]['class'] ?? '') && 'field-label' === ($formFallbackDiagnostic['controls'][0]['label_class'] ?? ''), 'data-entry runtime form fallback carries bounded control and label presentation classes');
 $assert('/contact' === ($formFallbackDiagnostic['form']['action'] ?? ''), 'data-entry runtime form fallback carries form action metadata');
 $assert('form' === ($formFallbackDiagnostic['materialization_target']['capability'] ?? ''), 'data-entry runtime form targets a form materializer capability');
 $assert('form_provider' === ($formFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'data-entry runtime form targets a form provider role');
+$assert(preg_match('/^[a-f0-9]{64}$/', $formFallbackDiagnostic['fallback_identity'] ?? '') === 1 && ($formFallbackDiagnostic['fallback_identity'] ?? null) === ($formFallbackDiagnostic['reconciliation_identity'] ?? null), 'data-entry runtime form fallback carries a stable generic reconciliation identity');
 $assertNormalizedFallbackDiagnostic($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0] ?? array(), 'html_form_fallback', 'warning', 'server_or_client_form_handler', 'form');
 $assert('form_provider' === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['materialization_target']['provider_role'] ?? ''), 'conversion report preserves form provider materialization target');
+$assert(($formFallbackDiagnostic['fallback_identity'] ?? null) === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['fallback_identity'] ?? null) && ($formFallbackDiagnostic['reconciliation_identity'] ?? null) === ($formFallback['source_reports']['conversion_report']['fallback_diagnostics'][0]['reconciliation_identity'] ?? null), 'conversion report preserves form fallback reconciliation identities');
 $assert('core/html' === ($formFallback['blocks'][0]['blockName'] ?? ''), 'data-entry form materializes as preserved form HTML');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<form action="/contact" method="post"'), 'data-entry form serialized markup keeps the form element');
 $assert(str_contains((string) ($formFallback['serialized_blocks'] ?? ''), '<input id="email"'), 'data-entry form serialized markup keeps input controls');
@@ -736,8 +937,11 @@ $exactTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => '
 $overflowTopologyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $boundedTopologyHtml(1))))->toArray();
 $runtimeDeclarationKeys = static fn(array $result): array => array_map(static fn(array $declaration): string => ($declaration['kind'] ?? '') . ':' . ($declaration['type'] ?? $declaration['capability'] ?? ''), $result['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array());
 $assert(in_array('entity_collection:forms', $runtimeDeclarationKeys($exactTopologyResult), true), 'complete bounded form topology remains provider-materializable');
+$exactFormDeclaration = current(array_filter($exactTopologyResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(($exactTopologyResult['fallbacks'][0]['fallback_identity'] ?? null) === ($exactFormDeclaration['payload']['entities'][0]['fallback_identity'] ?? null) && ($exactTopologyResult['fallbacks'][0]['reconciliation_identity'] ?? null) === ($exactFormDeclaration['payload']['entities'][0]['reconciliation_identity'] ?? null), 'complete form projection carries its source fallback reconciliation identities unchanged');
 $assert(!in_array('entity_collection:forms', $runtimeDeclarationKeys($overflowTopologyResult), true) && !in_array('dependency:form', $runtimeDeclarationKeys($overflowTopologyResult), true), 'truncated form topology remains fallback-only without claiming provider materialization');
 $assert('html_form_fallback' === ($overflowTopologyResult['fallbacks'][0]['diagnostic_code'] ?? '') && true === ($overflowTopologyResult['fallbacks'][0]['control_topology']['truncated'] ?? null), 'fallback-only overflow forms retain explicit source-loss evidence');
+$assert(isset($overflowTopologyResult['fallbacks'][0]['fallback_identity']) && array() === array_values(array_filter($overflowTopologyResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null))), 'truncated form identity remains unresolved because no provider entity is emitted');
 $assert(isset($overflowTopologyResult['source_reports']['wordpress_site_plan']), 'fallback-only overflow forms still produce a WordPress site plan');
 $presentationTopology = ( new HtmlTransformer() )->transform('<main><form><custom-element id="bad id" class="safe bad/token one two three four five six seven eight nine ' . str_repeat('x', 81) . '"><input name="safe"></custom-element><button type="submit">Send</button></form></main>')->toArray()['fallbacks'][0]['control_topology']['nodes'][0] ?? array();
 $assert(! isset($presentationTopology['tag']) && ! isset($presentationTopology['source_id']), 'form topology omits unsupported wrapper tags and malformed source IDs');
@@ -747,7 +951,7 @@ $layoutGraphCss = '.form{display:grid;grid-template-columns:1fr;gap:1rem}.form .
 $layoutGraphFallback = (new HtmlTransformer())->transform($layoutGraphHtml, array('static_css' => $layoutGraphCss))->toArray()['fallbacks'][0] ?? array();
 $layoutGraph = $layoutGraphFallback['layout_graph'] ?? array();
 $layoutNodes = array_column($layoutGraph['nodes'] ?? array(), null, 'id');
-$assert('generic/computed-layout-graph/v1' === ($layoutGraph['schema'] ?? null) && 'source_css_cascade' === ($layoutGraph['basis'] ?? null), 'form fallback emits the versioned declared-CSS layout graph contract');
+$assert('generic/computed-layout-graph/v2' === ($layoutGraph['schema'] ?? null) && 'source_css_cascade' === ($layoutGraph['basis'] ?? null), 'form fallback emits the v2 declared-CSS layout graph contract');
 $assert('grid' === ($layoutNodes['form']['layout']['display'] ?? null) && '1fr 1fr' === ($layoutNodes['wrapper-0']['layout']['columns'] ?? null) && 'flex' === ($layoutNodes['wrapper-1']['layout']['display'] ?? null), 'layout graph preserves form, row, and field layout facts in source order');
 $assert('form' === ($layoutNodes['wrapper-0']['parent'] ?? null) && 'wrapper-0' === ($layoutNodes['wrapper-1']['parent'] ?? null), 'layout graph preserves deterministic source parentage without inferring Columns');
 $layoutVariantKinds = array_values(array_unique(array_column(array_column($layoutGraph['variants'] ?? array(), 'condition'), 'kind'))); sort($layoutVariantKinds, SORT_STRING);
@@ -763,9 +967,45 @@ $conditionalOnlyGraph = (new HtmlTransformer())->transform('<form><div class="fi
 $conditionalOnlyNode = array_column($conditionalOnlyGraph['nodes'] ?? array(), null, 'id')['wrapper-0'] ?? array(); $conditionalOnlyVariant = $conditionalOnlyGraph['variants'][0] ?? array();
 $conditionalOnlyProperties = $conditionalOnlyVariant['provenance'][0]['properties'] ?? array();
 $assert(array() === ($conditionalOnlyNode['layout'] ?? null) && array() === ($conditionalOnlyNode['provenance'] ?? null) && 'column' === ($conditionalOnlyVariant['layout_patch']['direction'] ?? null) && 'flex-start' === ($conditionalOnlyVariant['layout_patch']['align_items'] ?? null) && isset($conditionalOnlyVariant['precedence']['flex-direction'], $conditionalOnlyVariant['precedence']['align-items']) && in_array('flex-direction', $conditionalOnlyProperties, true) && in_array('align-items', $conditionalOnlyProperties, true), 'conditional-only layout nodes retain explicit empty base facts and canonical normalized-key to CSS-property correspondence.');
-$inlineGraph = (new HtmlTransformer())->transform('<form class="form" style="display:flex"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$highSpecificitySelector = str_repeat('#active', 101);
+$inlineGraph = (new HtmlTransformer())->transform('<form id="active" style="display:flex"><input name="x"><button type="submit">Send</button></form>', array('static_css' => $highSpecificitySelector . '{display:grid}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $inlineNode = array_column($inlineGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
-$assert('flex' === ($inlineNode['layout']['display'] ?? null) && 'inline-style' === ($inlineNode['provenance'][0]['source_path'] ?? null) && '[style]' === ($inlineNode['provenance'][0]['selector'] ?? null), 'layout graph gives inline declarations highest normal author specificity and source order.');
+$assert('flex' === ($inlineNode['layout']['display'] ?? null) && 'inline-style' === ($inlineNode['provenance'][0]['source_path'] ?? null) && '[style]' === ($inlineNode['provenance'][0]['selector'] ?? null), 'inline normal declarations outrank matching normal stylesheet selectors with more than 100 IDs.');
+$importantStylesheetGraph = (new HtmlTransformer())->transform('<form id="active" style="display:flex"><input name="x"><button type="submit">Send</button></form>', array('static_css' => $highSpecificitySelector . '{display:grid!important}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$importantStylesheetNode = array_column($importantStylesheetGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
+$assert('grid' === ($importantStylesheetNode['layout']['display'] ?? null) && $highSpecificitySelector === ($importantStylesheetNode['provenance'][0]['selector'] ?? null), 'important stylesheet declarations outrank normal inline declarations.');
+$importantInlineGraph = (new HtmlTransformer())->transform('<form id="active" style="display:flex!important"><input name="x"><button type="submit">Send</button></form>', array('static_css' => $highSpecificitySelector . '{display:grid!important}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$importantInlineNode = array_column($importantInlineGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
+$assert('flex' === ($importantInlineNode['layout']['display'] ?? null) && 'inline-style' === ($importantInlineNode['provenance'][0]['source_path'] ?? null), 'important inline declarations outrank important stylesheet declarations regardless of selector specificity.');
+$deepColumns = '';
+foreach ( array('first', 'second', 'third') as $name ) $deepColumns .= '<td style="width:33.333333333333%"><div class="field"><input name="' . $name . '"></div></td>';
+$deepThreeColumnHtml = '<main><form class="deep-form">' . str_repeat('<div>', 9) . '<table><tbody><tr>' . $deepColumns . '</tr></tbody></table>' . str_repeat('</div>', 9) . '<button type="submit">Send</button></form></main>';
+$largeUnrelatedCss = ''; for ( $index = 0; $index < 1200; ++$index ) $largeUnrelatedCss .= '.unrelated-' . $index . '{display:grid}'; $largeUnrelatedCss .= '.deep-form{display:flex;flex-direction:column}';
+$deepGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $largeUnrelatedCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$deepGraphNodes = array_column($deepGraph['nodes'] ?? array(), null, 'id');
+$deepWidthNodes = array_values(array_filter($deepGraph['nodes'] ?? array(), static fn(array $node): bool => 'td' === ($node['source']['tag'] ?? null) && '33.333333333333%' === ($node['layout']['width'] ?? null)));
+$assert(false === ($deepGraph['truncated'] ?? null) && 'generic/computed-layout-graph/v2' === ($deepGraph['schema'] ?? null) && 16 === ($deepGraph['limits']['depth'] ?? null) && 'flex' === ($deepGraphNodes['form']['layout']['display'] ?? null) && '.deep-form' === ($deepGraphNodes['form']['provenance'][0]['selector'] ?? null) && !in_array('css_rule_or_selector_limit', $deepGraph['diagnostics'] ?? array(), true) && !in_array('css_selector_scan_limit', $deepGraph['diagnostics'] ?? array(), true), 'deep form layout analysis retains matching stylesheet facts after 1,200 unrelated selectors within the documented v2 scan and topology bounds.');
+$assert(3 === count($deepWidthNodes) && array('width') === ($deepWidthNodes[0]['provenance'][0]['properties'] ?? null) && 'inline-style' === ($deepWidthNodes[0]['provenance'][0]['source_path'] ?? null) && '[style]' === ($deepWidthNodes[0]['provenance'][0]['selector'] ?? null), 'deep three-column form cells retain explicit percentage width facts with inline source provenance.');
+$deepGraphAgain = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $largeUnrelatedCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(hash('sha256', json_encode($deepGraph)) === hash('sha256', json_encode($deepGraphAgain)), 'deep form layout facts and provenance are deterministic across repeated transforms.');
+$deepArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="style.css">' . $deepThreeColumnHtml, 'style.css' => $largeUnrelatedCss)))->toArray();
+$deepDeclaration = current(array_filter($deepArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$projectedDeepGraph = $deepDeclaration['payload']['entities'][0]['layout_graph'] ?? array();
+$projectedWidthNodes = array_values(array_filter($projectedDeepGraph['nodes'] ?? array(), static fn(array $node): bool => 'td' === ($node['source']['tag'] ?? null) && '33.333333333333%' === ($node['layout']['width'] ?? null)));
+$assert(3 === count($projectedWidthNodes) && false === ($projectedDeepGraph['truncated'] ?? null), 'artifact compilation projects the complete deep percentage-width graph into generic/forms/v1.');
+$depthBoundaryHtml = '<form>' . str_repeat('<div>', 16) . '<input name="edge">' . str_repeat('</div>', 16) . '<button type="submit">Send</button></form>';
+$depthOverflowHtml = '<form>' . str_repeat('<div>', 17) . '<input name="overflow">' . str_repeat('</div>', 17) . '<button type="submit">Send</button></form>';
+$depthBoundaryGraph = (new HtmlTransformer())->transform($depthBoundaryHtml, array('static_css' => 'input{width:100%}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$depthOverflowGraph = (new HtmlTransformer())->transform($depthOverflowHtml, array('static_css' => 'input{width:100%}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(false === ($depthBoundaryGraph['truncated'] ?? null) && true === ($depthOverflowGraph['truncated'] ?? null) && in_array('node_or_depth_limit', $depthOverflowGraph['diagnostics'] ?? array(), true), 'layout traversal accepts topology depth 16 exactly and fails closed at depth 17.');
+$selectorOverflowCss = str_repeat('.deep-form{display:grid}', 513);
+$selectorOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $selectorOverflowCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$selectorOverflowArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="style.css">' . $deepThreeColumnHtml, 'style.css' => $selectorOverflowCss)))->toArray();
+$selectorOverflowDeclaration = current(array_filter($selectorOverflowArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(true === ($selectorOverflowGraph['truncated'] ?? null) && in_array('css_rule_or_selector_limit', $selectorOverflowGraph['diagnostics'] ?? array(), true) && !isset($selectorOverflowDeclaration['payload']['entities'][0]['layout_graph']), 'retained rule overflow remains explicit and incomplete graphs remain omitted from generic/forms/v1.');
+$scanOverflowCss = ''; for ( $index = 0; $index < 4097; ++$index ) $scanOverflowCss .= '.unrelated-' . $index . '{display:grid}';
+$scanOverflowGraph = (new HtmlTransformer())->transform($deepThreeColumnHtml, array('static_css' => $scanOverflowCss))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$assert(true === ($scanOverflowGraph['truncated'] ?? null) && in_array('css_selector_scan_limit', $scanOverflowGraph['diagnostics'] ?? array(), true) && !in_array('css_rule_or_selector_limit', $scanOverflowGraph['diagnostics'] ?? array(), true), 'unrelated selector scanning fails closed at its independent 4,096-selector work budget.');
 $assert(is_int($cascadeVariant['precedence']['gap']['source_order'] ?? null) && is_int($cascadeVariant['precedence']['gap']['specificity'] ?? null) && is_bool($cascadeVariant['precedence']['gap']['important'] ?? null), 'conditional variants carry deterministic cascade precedence rather than implying independent winners.');
 $crossConditionGraph = (new HtmlTransformer())->transform('<form id="active" class="form"><input name="x"><button type="submit">Send</button></form>', array('static_css' => '.form{display:grid!important}@media (max-width:50rem){.form{display:flex}}@media (min-width:40rem){.form#active{display:flex!important}}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $crossConditionVariants = $crossConditionGraph['variants'] ?? array();
@@ -784,6 +1024,11 @@ $assert(true === ($boundedGraph['truncated'] ?? null) && in_array('css_rule_or_s
 $invalidLayoutGraph = $layoutGraph; $invalidLayoutGraph['nodes'][0]['id'] = 'wrapper-0'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($invalidLayoutGraph); $assert(false, 'layout graph validation rejects duplicate node identities'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects duplicate node identities'); }
 $unsafeGraph = $layoutGraph; $unsafeGraph['nodes'][0]['provenance'][0]['source_path'] = '../../untrusted.css'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($unsafeGraph); $assert(false, 'layout graph validation rejects unsafe provenance traversal paths'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unsafe provenance traversal paths'); }
 $semanticGraph = $layoutGraph; $semanticGraph['nodes'][0]['layout']['unknown_layout'] = 'value'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($semanticGraph); $assert(false, 'layout graph validation rejects unknown semantic layout keys'); } catch (\InvalidArgumentException) { $assert(true, 'layout graph validation rejects unknown semantic layout keys'); }
+$v1LayoutGraph = $layoutGraph; $v1LayoutGraph['schema'] = 'generic/computed-layout-graph/v1'; $v1LayoutGraph['limits']['depth'] = 8;
+try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1LayoutGraph); $assert(true, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); } catch (\InvalidArgumentException) { $assert(false, 'layout graph validation accepts persisted v1 depth-8 graphs using the old property vocabulary'); }
+$v1WidthGraph = $v1LayoutGraph; $v1WidthGraph['nodes'][0]['layout']['width'] = '100%'; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1WidthGraph); $assert(false, 'v1 layout graph validation rejects v2 width facts'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 width facts'); }
+$v1Depth16Graph = $v1LayoutGraph; $v1Depth16Graph['limits']['depth'] = 16; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v1Depth16Graph); $assert(false, 'v1 layout graph validation rejects v2 depth limits'); } catch (\InvalidArgumentException) { $assert(true, 'v1 layout graph validation rejects v2 depth limits'); }
+$v2Depth8Graph = $layoutGraph; $v2Depth8Graph['limits']['depth'] = 8; try { \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder::assertValid($v2Depth8Graph); $assert(false, 'v2 layout graph validation rejects v1 depth limits'); } catch (\InvalidArgumentException) { $assert(true, 'v2 layout graph validation rejects v1 depth limits'); }
 
 $newsletterFallback = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Newsletter</h2><form class="newsletter-form" action="#" method="post" novalidate><input type="email" name="email" placeholder="your@email.com" autocomplete="email" required aria-label="Email address"><button type="submit">Subscribe</button></form></section></main>'
@@ -984,19 +1229,19 @@ $assert(! str_contains($largeCssSizedInlineSvgArtworkMarkup, '<svg class="hero-c
 
 $percentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="100%" viewBox="0 0 620 380" role="img" aria-label="Responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $percentageWidthSvgMarkup = (string) ($percentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image uses canonical width-only markup while the SVG viewBox supplies its intrinsic aspect ratio');
+$assert(str_contains($percentageWidthSvgMarkup, 'style="width:100%"') && ! str_contains($percentageWidthSvgMarkup, 'height:auto') && ! str_contains($percentageWidthSvgMarkup, 'height:380px') && str_contains((string) ($percentageWidthSvg['assets'][0]['content'] ?? ''), 'viewBox="0 0 620 380"'), 'percentage-width inline SVG core/image matches the WordPress 7.0.4 width-only save shape');
 
 $fractionalPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width=".5%" viewBox="0 0 620 380" role="img" aria-label="Fractional responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $fractionalPercentageWidthSvgMarkup = (string) ($fractionalPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($fractionalPercentageWidthSvgMarkup, 'style="width:.5%"') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($fractionalPercentageWidthSvgMarkup, 'height:380px'), 'fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $signedPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="+.5%" viewBox="0 0 620 380" role="img" aria-label="Signed responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $signedPercentageWidthSvgMarkup = (string) ($signedPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($signedPercentageWidthSvgMarkup, 'style="width:+.5%"') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($signedPercentageWidthSvgMarkup, 'height:380px'), 'signed fractional percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $exponentPercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="1e2%" viewBox="0 0 620 380" role="img" aria-label="Exponent responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $exponentPercentageWidthSvgMarkup = (string) ($exponentPercentageWidthSvg['serialized_blocks'] ?? '');
-$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses canonical width-only responsive markup');
+$assert(str_contains($exponentPercentageWidthSvgMarkup, 'style="width:1e2%"') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:auto') && ! str_contains($exponentPercentageWidthSvgMarkup, 'height:380px'), 'exponent percentage-width inline SVG core/image uses the WordPress 7.0.4 width-only save shape');
 
 $negativePercentageWidthSvg = ( new HtmlTransformer() )->transform('<main><svg width="-1%" viewBox="0 0 620 380" role="img" aria-label="Invalid negative responsive map"><rect width="620" height="380" fill="#111"/></svg></main>')->toArray();
 $negativePercentageWidthSvgMarkup = (string) ($negativePercentageWidthSvg['serialized_blocks'] ?? '');
@@ -1007,14 +1252,20 @@ $fixedBackgroundLayer = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks'] ?? '');
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
-$assert(str_contains($fixedBackgroundLayerMarkup, '<div class="wp-block-group page-bg"'), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', $fixedBackgroundLayerMarkup), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
+$fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
+$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important'), 'empty painted groups retain frontend geometry while their Gutenberg placeholder is bounded in normal flow');
+$assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
+// Reserving height for a withheld picker displaces every following block, which
+// moves the whole source composition down the editor canvas.
+$assert(str_contains($fixedBackgroundEditorCss, 'min-height:0!important') && ! str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem'), 'painted source layers reserve no editor height for the picker they withhold');
 
 $styleOnlyVisualShell = ( new HtmlTransformer() )->transform(
     '<style>.footer-wrap{background:#000}.footer-wrap .container{padding:40px 0}</style><main><div class="footer-wrap"><div class="container"><style>.footer-wrap{min-height:80px}</style></div></div></main>'
 )->toArray();
 $styleOnlyVisualShellMarkup = (string) ($styleOnlyVisualShell['serialized_blocks'] ?? '');
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*footer-wrap[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its outer source wrapper');
-$assert(str_contains($styleOnlyVisualShellMarkup, '<div class="wp-block-group container"'), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
+$assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*container[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
@@ -1048,7 +1299,7 @@ $outlineButtonMarkup = (string) ($outlineButton['serialized_blocks'] ?? '');
 $outlineButtonCss = implode("\n", array_column($outlineButton['assets'] ?? array(), 'content'));
 $assert(str_contains($outlineButtonMarkup, '<!-- wp:button'), 'styled anchor with presentational span materializes as core/button');
 $assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outline button carries transparent background to suppress default theme fill');
-$assert(str_contains($outlineButtonCss, 'border-radius:0'), 'outline button with no source radius carries square radius to suppress default rounded inner button chrome');
+$assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
 
@@ -1128,7 +1379,7 @@ $fullWidthAnchorButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $fullWidthAnchorButtonMarkup = (string) ($fullWidthAnchorButton['serialized_blocks'] ?? '');
 $fullWidthAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthAnchorButton['assets'] ?? array()));
-$assert(str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor preserves native core/button width support and its generated marker');
+$assert(! str_contains($fullWidthAnchorButtonMarkup, 'has-custom-width') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button__width-100') && str_contains($fullWidthAnchorButtonMarkup, 'blocks-engine-control-'), 'styled full-width anchor uses the WordPress 7.1 core/button save shape and its generated marker');
 $assert(! str_contains($fullWidthAnchorButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthAnchorButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width anchor without descendants keeps authored root classes out of canonical button markup');
 $assert(str_contains($fullWidthAnchorButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button){display:block!important;margin:0!important;width:100%!important}') && str_contains($fullWidthAnchorButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width anchor bridges width through every synthetic wrapper while preserving source wrapper margins');
 $assert('pass' === ($fullWidthAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width anchor wrapper chain remains editor-valid');
@@ -1139,14 +1390,14 @@ $fullWidthNativeButton = ( new HtmlTransformer() )->transform(
 $fullWidthNativeButtonMarkup = (string) ($fullWidthNativeButton['serialized_blocks'] ?? '');
 $fullWidthNativeButtonAttrs = $fullWidthNativeButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $fullWidthNativeButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fullWidthNativeButton['assets'] ?? array()));
-$assert(100 === ($fullWidthNativeButtonAttrs['width'] ?? null) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button uses native width support and a generated marker instead of source root classes');
+$assert(! isset($fullWidthNativeButtonAttrs['width']) && str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'selector-submit'), 'styled full-width native button omits the legacy width attribute and uses a generated marker instead of source root classes');
 $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-submit') && ! str_contains($fullWidthNativeButtonMarkup, 'wp-element-button selector-submit'), 'styled full-width native button keeps source root classes out of canonical markup');
 $assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && ! isset($fullWidthNativeButtonAttrs['style']['color']['background']) && str_contains($fullWidthNativeButtonCss, 'background-color:#123456!important'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
 
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
-    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
+    '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;border-radius:0;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
 $contextualSurfaceButtonAttrs = $contextualSurfaceButton['blocks'][0]['innerBlocks'][0]['attrs'] ?? array();
 $contextualSurfaceButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $contextualSurfaceButton['assets'] ?? array()));
@@ -1183,6 +1434,37 @@ $dataAncestryCss = implode("\n", array_map(static fn (array $asset): string => '
 $assert(str_contains($dataAncestryCss, ':where(#hero)') && str_contains($dataAncestryCss, 'position:relative'), 'source-proven data-attribute ancestry projects onto a surviving matched element ID');
 $assert(str_contains($dataAncestryCss, ':where(.blocks-engine-attribute-') && ! str_contains($dataAncestryCss, '[data-layout="grid"]{') && str_contains((string) ($dataAncestryLayout['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'direct data-attribute layout selectors project through deterministic structural marker classes');
 
+$dataAttributeFlex = ( new HtmlTransformer() )->transform('<style>[data-label="copy"]{flex-grow:1}</style><main><div style="display:flex"><div data-label="copy"><p>A flexible label</p></div></div></main>')->toArray();
+$dataAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAttributeFlex['assets'] ?? array()));
+$assert(str_contains($dataAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($dataAttributeFlexCss, 'flex-grow:1') && ! str_contains($dataAttributeFlexCss, '[data-label="copy"]'), 'data-attribute selectors carrying flex growth project through deterministic structural marker classes');
+$assert(str_contains((string) ($dataAttributeFlex['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($dataAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'flex growth attribute projection survives valid Gutenberg serialization');
+
+$dataAttributePointerTarget = ( new HtmlTransformer() )->transform('<style>[data-mesh-id$="inlineContent"]{pointer-events:none;position:relative}[data-mesh-id$="gridContainer"]{display:grid}[data-mesh-id$="gridContainer"] > *{pointer-events:auto}</style><main><div data-mesh-id="header-inlineContent"><div data-mesh-id="header-gridContainer"><div id="menu"><a href="/contact">Contact</a></div><p id="copy">Copy</p></div></div></main>')->toArray();
+$dataAttributePointerTargetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $dataAttributePointerTarget['assets'] ?? array()));
+$assert(str_contains($dataAttributePointerTargetCss, ':where(.blocks-engine-attribute-') && str_contains($dataAttributePointerTargetCss, ':where(#menu)') && str_contains($dataAttributePointerTargetCss, 'pointer-events:none') && str_contains($dataAttributePointerTargetCss, 'pointer-events:auto'), 'data-attribute interaction boundaries retain disabled-container and enabled-child hit targeting after selector projection');
+$assert(str_contains((string) ($dataAttributePointerTarget['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($dataAttributePointerTarget['source_reports']['wp_block_validity']['status'] ?? ''), 'pointer-event attribute projection survives valid Gutenberg serialization');
+
+$mixedIdentityPointerTarget = ( new HtmlTransformer() )->transform('<style>[data-mesh-id$="-gridContainer"] > *{pointer-events:auto}</style><main><div data-mesh-id="header-gridContainer"><div id="menu"><a href="/contact">Contact</a></div><div><p>Copy</p></div></div></main>')->toArray();
+$mixedIdentityPointerCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $mixedIdentityPointerTarget['assets'] ?? array()));
+$assert(str_contains($mixedIdentityPointerCss, ':where(#menu)') && str_contains($mixedIdentityPointerCss, ':where(.blocks-engine-attribute-') && ! str_contains($mixedIdentityPointerCss, '[data-mesh-id$="-gridContainer"]'), 'data-attribute ancestry projects mixed ID and marker targets without retaining dead source ancestry');
+$assert(str_contains((string) ($mixedIdentityPointerTarget['serialized_blocks'] ?? ''), 'blocks-engine-attribute-') && 'pass' === ($mixedIdentityPointerTarget['source_reports']['wp_block_validity']['status'] ?? ''), 'mixed-identity pointer targets retain projection markers through valid Gutenberg serialization');
+
+$fallbackAttributeFlex = ( new HtmlTransformer() )->transform('<style>label[data-hook="checkbox-core"] div[data-hook="label-wrapper"]{flex-grow:1}</style><form><label data-hook="checkbox-core"><input type="checkbox" name="consent"><div data-hook="label-wrapper">Consent copy</div></label><button type="submit">Send</button></form>')->toArray();
+$fallbackAttributeFlexCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fallbackAttributeFlex['assets'] ?? array()));
+$fallbackAttributeFlexHtml = implode("\n", array_map(static fn (array $fallback): string => (string) ($fallback['html'] ?? ''), $fallbackAttributeFlex['fallbacks'] ?? array()));
+$assert(str_contains($fallbackAttributeFlexHtml, 'data-hook="label-wrapper"') && str_contains($fallbackAttributeFlexHtml, 'blocks-engine-attribute-'), 'data-attribute projection markers survive inside bounded fallback islands');
+$assert(str_contains($fallbackAttributeFlexCss, ':where(.blocks-engine-attribute-') && str_contains($fallbackAttributeFlexCss, 'flex-grow:1') && 'pass' === ($fallbackAttributeFlex['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded fallback attribute projection remains styled and Gutenberg-valid');
+
+$fallbackTagReset = ( new HtmlTransformer() )->transform('<style>p{margin:0}label[data-hook="checkbox-core"] div[data-hook="label-wrapper"]{flex-grow:1}</style><form><label data-hook="checkbox-core"><input type="checkbox"><div data-hook="label-wrapper"><p>Consent copy</p></div></label><button type="submit">Send</button></form>')->toArray();
+$fallbackTagResetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fallbackTagReset['assets'] ?? array()));
+$fallbackTagResetHtml = implode("\n", array_map(static fn (array $fallback): string => (string) ($fallback['html'] ?? ''), $fallbackTagReset['fallbacks'] ?? array()));
+$assert(str_contains($fallbackTagResetHtml, '<p class="blocks-engine-source-p-') && str_contains($fallbackTagResetCss, ':where(.blocks-engine-source-p-') && str_contains($fallbackTagResetCss, '{margin:0}'), 'source tag projection markers preserve authored resets on descendants inside bounded fallback islands');
+
+$settledAttributeState = ( new HtmlTransformer() )->transform('<style>.animated:not([data-state="done"]){animation:fade 1s backwards paused}@keyframes fade{from{opacity:0}to{opacity:1}}</style><main><div class="animated" data-state="done"><img src="hero.jpg" alt="Hero"></div><div class="animated"><p>Pending</p></div></main>')->toArray();
+$settledAttributeStateCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $settledAttributeState['assets'] ?? array()));
+$assert(str_contains($settledAttributeStateCss, ':not(.blocks-engine-attribute-state-') && str_contains((string) ($settledAttributeState['serialized_blocks'] ?? ''), 'blocks-engine-attribute-state-'), 'negated data-attribute state selectors preserve source matching through specificity-equivalent marker classes');
+$assert('pass' === ($settledAttributeState['source_reports']['wp_block_validity']['status'] ?? ''), 'settled data-attribute state projection preserves valid Gutenberg serialization');
+
 $emptyDataLayoutCarrier = ( new HtmlTransformer() )->transform('<style>[data-mesh-id="header"]{height:auto;min-height:83px}</style><header id="site-header"><div><div data-mesh-id="header"></div></div></header>')->toArray();
 $emptyDataLayoutCarrierCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $emptyDataLayoutCarrier['assets'] ?? array()));
 $assert(str_contains((string) ($emptyDataLayoutCarrier['serialized_blocks'] ?? ''), 'blocks-engine-attribute-'), 'empty data-addressed layout carriers survive as editable structural groups');
@@ -1214,8 +1496,8 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn tier-cta" style="display:inline-flex;width:100%;justify-content:center;padding:10px 18px;background:#111827;color:#ffffff" href="/pricing">Start free</a></main>'
 )->toArray();
 $fullWidthButtonMarkup = (string) ($fullWidthButton['serialized_blocks'] ?? '');
-$assert(100 === ($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width'] ?? null), '100% source button width maps to the native core/button width attribute');
-$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button has-custom-width wp-block-button__width-100 btn tier-cta blocks-engine-native-button-'), '100% source button width emits canonical core/button width wrapper classes plus its scoped native style marker');
+$assert(! isset($fullWidthButton['blocks'][0]['innerBlocks'][0]['attrs']['width']), '100% source button width omits the legacy core/button width attribute');
+$assert(str_contains($fullWidthButtonMarkup, '<div class="wp-block-button btn tier-cta blocks-engine-native-button-') && ! str_contains($fullWidthButtonMarkup, 'has-custom-width') && ! str_contains($fullWidthButtonMarkup, 'wp-block-button__width-100'), '100% source button width emits the WordPress 7.1 wrapper shape plus its scoped native style marker');
 $assert('pass' === ($fullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'full-width button serialization passes generated WordPress block validity checks');
 
 $cssVariableButton = ( new HtmlTransformer() )->transform(
@@ -1228,6 +1510,15 @@ $assert(str_contains($cssVariableButtonCss, 'color:#050d1a!important'), 'button 
 $assert(str_contains($cssVariableButtonCss, 'border-radius:6px!important'), 'button CSS variable radius resolves to a concrete carried radius');
 $assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
 $assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
+
+$borderWidthVariableCta = ( new HtmlTransformer() )->transform(
+    '<style>:root{--corvid-border-width:var(--brw,0)}.cta{display:inline-block;width:142px;height:40px;background:#1684d6;color:#fff;border-color:var(--corvid-border-width,var(--brw,0))}</style><a class="cta" href="/more">Meer info</a>'
+)->toArray();
+$borderWidthVariableCtaMarkup = (string) ($borderWidthVariableCta['serialized_blocks'] ?? '');
+$borderWidthVariableCtaCss = implode("\n", array_column($borderWidthVariableCta['assets'] ?? array(), 'content'));
+$assert(! isset($borderWidthVariableCta['blocks'][0]['attrs']['style']['border']['color']) && ! str_contains($borderWidthVariableCtaMarkup, 'has-border-color'), 'dimension-valued custom properties do not activate Gutenberg border color support');
+$assert(str_contains($borderWidthVariableCtaMarkup, 'Meer info') && str_contains($borderWidthVariableCtaCss, 'width:142px;height:40px;background:#1684d6') && str_contains($borderWidthVariableCtaCss, 'border-color:var(--corvid-border-width,var(--brw,0))'), 'rejected CTA border color remains in authored CSS with its label, source fill, and dimensions');
+$assert('pass' === ($borderWidthVariableCta['source_reports']['wp_block_validity']['status'] ?? ''), 'dimension-valued CTA border variable preserves valid Gutenberg serialization');
 
 $plainWrappedLink = ( new HtmlTransformer() )->transform('<main><div class="card-link"><a href="/docs">Read docs</a></div></main>')->toArray();
 $assert(! str_contains((string) ($plainWrappedLink['serialized_blocks'] ?? ''), '<!-- wp:button'), 'plain single-anchor wrappers without button signals do not become buttons');
@@ -1335,6 +1626,13 @@ $assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-tar
 $assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
 $assert(! str_contains($styledInputMarkup, '<!-- wp:html') || str_contains($styledInputMarkup, '<input class="js-filter"'), 'styled static input never uses core/html while runtime input remains compatible');
 $assert('pass' === ($styledInputs['source_reports']['wp_block_validity']['status'] ?? ''), 'compact input serialization passes canonical Gutenberg validity');
+
+$whitespaceInput = ( new HtmlTransformer() )->transform(
+    '<input class="authored-input" type="text" name="expected-# of people " placeholder=" ">',
+    array('static_css' => '.authored-input{border:1px solid;padding:1rem}')
+)->toArray();
+$whitespaceInputBlock = $whitespaceInput['blocks'][0] ?? array();
+$assert('expected-# of people ' === ($whitespaceInputBlock['attrs']['name'] ?? null) && ' ' === ($whitespaceInputBlock['attrs']['placeholder'] ?? null) && str_contains((string) ($whitespaceInput['serialized_blocks'] ?? ''), 'name="expected-# of people " placeholder=" "'), 'compact input PHP markup preserves the same safe whitespace-bearing attributes as its companion save function');
 
 $unstyledSelect = ( new HtmlTransformer() )->transform(
     '<main><select id="plain-sort" class="catalog-sort" name="products" aria-label="Sort products"><option selected>Featured</option><option>Price</option></select></main>'
@@ -1467,6 +1765,18 @@ $assert('#live-filter' === ($artifactControlIslands[0]['selector'] ?? ''), 'arti
 $assert(str_contains((string) ($artifactControlIslands[0]['source_snippet'] ?? ''), '<input id="live-filter"'), 'artifact runtime control island preserves source snippet metadata');
 $artifactControlRuntimeReport = $artifactControlSelectors['source_reports']['runtime_dependency_parity'] ?? array();
 $assert('pass' === ($artifactControlRuntimeReport['status'] ?? ''), 'runtime parity does not flag readable static controls as missing runtime targets');
+$artifactNeutralRuntimeSelector = ( new ArtifactCompiler() )->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files'      => array(
+            'index.html' => '<main><div class="hero-banner"><p>Welcome</p></div><script src="js/app.js"></script></main>',
+            'js/app.js'  => 'document.querySelector(".hero-banner");',
+        ),
+    )
+)->toArray();
+$artifactNeutralRuntimeIslands = $artifactNeutralRuntimeSelector['source_reports']['runtime_islands'] ?? array();
+$assert(1 === count($artifactNeutralRuntimeIslands) && '.hero-banner' === ($artifactNeutralRuntimeIslands[0]['selector'] ?? ''), 'artifact compilation preserves a neutral queried selector identified by shared fail-closed runtime evidence');
+$assert('pass' === ($artifactNeutralRuntimeSelector['source_reports']['runtime_dependency_parity']['status'] ?? ''), 'runtime parity consumes the same neutral selector evidence as artifact compilation');
 $artifactRuntimeAnchor = ( new ArtifactCompiler() )->compile(
     array(
         'entrypoint' => 'index.html',
@@ -1569,6 +1879,8 @@ $sourceParagraphQuote = $quoteMarginResult['blocks'][1] ?? array();
 $quoteMarginMarkup = (string) ($quoteMarginResult['serialized_blocks'] ?? '');
 $quoteMarginCss = implode("\n", array_column(array_filter($quoteMarginResult['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
 $assert('core/quote' === ($directQuote['blockName'] ?? '') && 'blocks-engine-synthetic-paragraph' === ($directQuote['innerBlocks'][0]['attrs']['className'] ?? '') && str_contains($quoteMarginMarkup, '<blockquote class="wp-block-quote"><!-- wp:paragraph {"className":"blocks-engine-synthetic-paragraph"} --><p class="blocks-engine-synthetic-paragraph">Direct quote.</p>'), 'direct-text quotes use native core/quote with a scoped synthetic paragraph save shape');
+$inlineQuote = ( new HtmlTransformer() )->transform('<blockquote><span>Inline quote.</span></blockquote>')->toArray();
+$assert('blocks-engine-synthetic-paragraph' === ($inlineQuote['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'inline-wrapped quote content keeps the synthesized paragraph margin-neutral');
 $assert(str_contains($quoteMarginCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && ! str_contains($quoteMarginCss, 'blockquote p{margin-top:0') && ! str_contains($quoteMarginCss, 'blockquote p{margin:0'), 'direct-text quote margin neutralization is scoped to synthesized paragraphs without a broad quote override');
 $assert('core/quote' === ($sourceParagraphQuote['blockName'] ?? '') && ! isset($sourceParagraphQuote['innerBlocks'][0]['attrs']['className']) && str_contains($quoteMarginMarkup, '<p style="margin-top:12px;margin-bottom:8px">Source paragraph.</p>'), 'source quote paragraphs preserve authored margins without the synthetic reset');
 $assert(array() === ( new CanonicalSaveShapeValidator() )->findings($quoteMarginResult['blocks'] ?? array()) && 'pass' === ($quoteMarginResult['source_reports']['wp_block_validity']['status'] ?? ''), 'direct-text and source-paragraph quote variants retain canonical editor-valid save shapes');
@@ -1900,9 +2212,9 @@ $emptyCoverCandidate = ( new HtmlTransformer() )->transform(
     '<div style="background-image:url(https://example.com/decor.png);background-size:cover;min-height:400px"></div>'
 )->toArray();
 $emptyCoverCandidateSerialized = (string) ($emptyCoverCandidate['serialized_blocks'] ?? '');
-$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
+$expectedEmptyCoverCandidateSerialized = '<!-- wp:group {"className":"be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485","style":{"dimensions":{"minHeight":"400px"}}} --><div class="wp-block-group be-inline-geometry-218c90ba931caddc1d55a64151a2f27f83f6d8e4595b0e904092ee275b5d2485" style="min-height:400px"><!-- wp:image {"className":"blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure","scale":"cover"} --><figure class="wp-block-image blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure"><img src="https://example.com/decor.png" alt="" style="object-fit:cover"/></figure><!-- /wp:image --></div><!-- /wp:group -->';
 $assert($expectedEmptyCoverCandidateSerialized === $emptyCoverCandidateSerialized, 'empty background container preserves exact tagged core/image serialization', $emptyCoverCandidateSerialized);
-$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
+$assert('core/image' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['blockName'] ?? null) && 'blocks-engine-background-image blocks-engine-background-image-cover blocks-engine-synthetic-image-figure' === ($emptyCoverCandidate['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? null) && ! str_contains($emptyCoverCandidateSerialized, '<!-- wp:cover'), 'empty background container retains the tagged core/image path without core/cover');
 
 // Slice 4 L6: support-derived color and spacing declarations retain canonical
 // wrapper attribute order before the cover-owned min-height declaration.
@@ -2058,6 +2370,19 @@ $assert('0' === ($listGapNavigationBlock['attrs']['style']['spacing']['blockGap'
 $assert('pass' === ($listGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), 'direct navigation list gap preserves semantic parity');
 $assert('pass' === ($listGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), 'direct navigation list gap serializes to a valid WordPress block');
 $assert(str_contains($listGapNavigationSerialized, '<!-- wp:navigation ') && str_contains($listGapNavigationSerialized, '"blockGap":"0"'), 'direct navigation list gap uses canonical dynamic navigation serialization');
+
+$wrappedListGapNavigation = ( new HtmlTransformer() )->transform(
+    '<style>.wsite-menu-default{display:flex;gap:20px}</style><nav aria-label="Primary"><div class="nav-wrap"><ul class="wsite-menu-default"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></div></nav>'
+)->toArray();
+$wrappedListGapNavigationAttrs = $wrappedListGapNavigation['blocks'][0]['attrs'] ?? array();
+$wrappedListGapNavigationSerialized = (string) ($wrappedListGapNavigation['serialized_blocks'] ?? '');
+$assert('20px' === ($wrappedListGapNavigationAttrs['style']['spacing']['blockGap'] ?? ''), '#748 wrapper-originated navigation preserves the authored list gap');
+$assert(str_contains((string) ($wrappedListGapNavigationAttrs['className'] ?? ''), 'wsite-menu-default'), '#748 wrapper-originated navigation keeps the logical source-list class');
+$assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), '#748 wrapper-originated navigation serializes native block spacing');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
+$assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
+$wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container stays a row without !important');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -2340,6 +2665,10 @@ $activeNavigationColorCss = implode("\n", array_map(static fn (array $asset): st
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['color']['text']) && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'navigation link retains source anchor text color in projected CSS instead of an unsupported native attribute');
 $assert(str_contains((string) ($activeNavigationColorLinks[0]['attrs']['className'] ?? ''), 'blocks-engine-current-navigation-underline'), 'source-authored active underline carries an explicit frontend compatibility marker');
 $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['fontFamily']) && str_contains($activeNavigationColorCss, 'font-family:monospace'), 'list navigation leaves anchor typography in mapped author CSS instead of applying it to the core list item');
+// The anchors carry their own typography. Projecting it onto the navigation
+// container also re-struts the list, because the li line box is governed by the
+// container font-size/line-height rather than by the inline anchor. Keeping the
+// container typography separate preserves the source line box exactly.
 $assert(! isset($activeNavigationColorAttrs['customTextColor']) && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation') && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'list navigation keeps source container typography separate while retaining shared color through projected CSS');
 $assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
@@ -2492,6 +2821,19 @@ $assert(2 === count($deduplicatedMobileNavigation['blocks'][0]['innerBlocks'] ??
 $assert(str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'mobile-nav'), 'deduplicated desktop/mobile navigation preserves mobile navigation target class');
 $assert(! str_contains((string) ($deduplicatedMobileNavigation['serialized_blocks'] ?? ''), 'drawer-nav'), 'deduplicated desktop/mobile navigation removes duplicate drawer navigation children');
 
+$decoratedImageLink = ( new HtmlTransformer() )->transform(
+    '<a href="/photo.jpg" class="lightbox"><img src="/photo.jpg" alt="Photo"><div class="overlay"></div><div class="overlay-inner"></div></a>'
+)->toArray();
+$assert(str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($decoratedImageLink['serialized_blocks'] ?? ''), 'photo.jpg'), 'an image-only link tolerates empty decorative overlay siblings without losing its media');
+
+$centeredSocialLinks = ( new HtmlTransformer() )->transform(
+    '<div style="text-align:center"><span class="social-links"><a href="https://facebook.com/example" aria-label="Facebook"><span></span></a><a href="https://instagram.com/example" aria-label="Instagram"><span></span></a></span></div>'
+)->toArray();
+$assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), '"justifyContent":"center"'), 'social links inherit explicit alignment from their source wrapper');
+$assert(str_contains((string) ($centeredSocialLinks['serialized_blocks'] ?? ''), 'is-content-justification-center'), 'social link justification is present in rendered save markup');
+$centeredSocialLinksCss = implode("\n", array_column($centeredSocialLinks['assets'] ?? array(), 'content'));
+$assert(str_contains($centeredSocialLinksCss, '.wp-block-social-links.is-content-justification-center{justify-content:center}'), 'social link justification renders without depending on theme block CSS');
+
 $deduplicatedNestedNavigation = ( new HtmlTransformer() )->transform(
     '<main><section class="shell"><div class="desktop-wrap"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div><div class="mobile-nav drawer"><div class="drawer-panel"><nav><a href="/">Home</a><a href="/services">Services</a></nav></div></div><article><h2>Services</h2><p>Copy</p></article></section></main>'
 )->toArray();
@@ -2530,6 +2872,14 @@ $assertNormalizedFallbackDiagnostic($diagnosticsByCode['html_iframe_embed_fallba
 $assert(! isset($diagnosticsByCode['html_inline_svg_fallback']), 'safe inline SVGs convert to inline core/html blocks instead of fallback diagnostics');
 $assert(! isset($diagnosticsByCode['html_canvas_runtime_fallback']), 'non-runtime canvas does not emit runtime canvas fallback diagnostics');
 
+$emptySvgPlaceholder = ( new HtmlTransformer() )->transform(
+    '<main><div role="button" aria-label="Open gallery image"><svg class="zoom-mask" viewBox="0 0 10000 10000"></svg><img src="portrait.jpg" alt="Portrait"></div></main>'
+)->toArray();
+$assert(array() === ($emptySvgPlaceholder['fallbacks'] ?? array()), 'a structurally empty SVG placeholder does not emit fallback metadata');
+$assert(str_contains((string) ($emptySvgPlaceholder['serialized_blocks'] ?? ''), 'portrait.jpg'), 'discarding an empty SVG placeholder preserves its independent image sibling');
+$unsafeEmptySvg = ( new HtmlTransformer() )->transform('<main><svg onload="alert(1)"></svg></main>')->toArray();
+$assert('html_unsafe_inline_svg' === ($unsafeEmptySvg['fallbacks'][0]['diagnostic_code'] ?? ''), 'an unsafe empty SVG retains its fallback diagnostic');
+
 $coffeeFixturePath = dirname(__DIR__, 3) . '/fixtures/websites/2-onepager-coffee/index.html';
 $coffeeFixtureHtml = (string) file_get_contents($coffeeFixturePath);
 $coffeeResult = ( new HtmlTransformer() )->transform($coffeeFixtureHtml)->toArray();
@@ -2562,22 +2912,67 @@ $assert('facebook' === ($facebookProviderBlock['attrs']['providerNameSlug'] ?? '
 $assert(array() === ($facebookProviderIframe['fallbacks'] ?? array()), 'Facebook plugin iframe does not emit fallback metadata');
 
 $unknownIframe = ( new HtmlTransformer() )->transform(
-    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen"></iframe><p>After embed.</p></section></main>'
+    '<main><section><h2>Playground</h2><p>Before embed.</p><iframe title="Interactive demo" src="https://example.test/playground" width="640" height="360" allow="fullscreen" loading="lazy" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe><p>After embed.</p></section></main>'
 )->toArray();
 $unknownDiagnostics = $unknownIframe['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
 $unknownIframeDiagnostics = array_values(array_filter($unknownDiagnostics, static fn (array $diagnostic): bool => 'html_iframe_embed_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
-$assert(1 === count($unknownIframeDiagnostics), 'unknown iframe emits one iframe fallback diagnostic');
-$assert('runtime_island_preserved' === ($unknownIframeDiagnostics[0]['conversion_classification'] ?? ''), 'unknown iframe fallback is classified as runtime island preservation');
-$assert('https://example.test/playground' === ($unknownIframe['fallbacks'][0]['attributes']['src'] ?? ''), 'unknown iframe fallback preserves bounded safe src metadata');
+$assert(array() === $unknownIframeDiagnostics, 'bounded visual iframe does not emit a fallback diagnostic');
+$assert(array() === ($unknownIframe['fallbacks'] ?? array()), 'bounded visual iframe does not increase fallback count');
 $unknownIframeIslands = array_values(array_filter($unknownIframe['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
 $assert(1 === count($unknownIframeIslands), 'unknown iframe projects as a runtime island');
 $assert('iframe_requires_embed_runtime' === ($unknownIframeIslands[0]['preservation_reason'] ?? ''), 'unknown iframe runtime island exposes preservation reason');
+$unknownVisualIframeBlock = array_values(array_filter($unknownIframe['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? array();
 $unknownSerialized = (string) ($unknownIframe['serialized_blocks'] ?? '');
 $assert(! str_contains($unknownSerialized, '<!-- wp:embed'), 'unknown iframe does not become a provider embed block');
-$assert(! str_contains($unknownSerialized, '<!-- wp:html'), 'unknown iframe does not force raw HTML fallback materialization');
+$assert('custom/visual-iframe' === ($unknownVisualIframeBlock['blockName'] ?? ''), 'bounded visible unknown iframe is materialized as the typed visual-iframe companion');
+$assert(! str_contains($unknownSerialized, '<!-- wp:html') && str_contains($unknownSerialized, '<!-- wp:custom/visual-iframe'), 'bounded visual iframe does not use a core HTML fallback');
+$assert(str_contains($unknownSerialized, '<iframe') && str_contains($unknownSerialized, 'width="640"') && str_contains($unknownSerialized, 'height="360"'), 'bounded iframe source dimensions survive companion save serialization');
+$assert(str_contains($unknownSerialized, 'title="Interactive demo"') && str_contains($unknownSerialized, 'loading="lazy"') && str_contains($unknownSerialized, 'sandbox="allow-scripts"') && str_contains($unknownSerialized, 'referrerpolicy="no-referrer"'), 'bounded iframe accessibility and safe runtime attributes survive companion save serialization');
 $assert(str_contains($unknownSerialized, 'Playground'), 'ancestor content around unknown iframe still converts heading content');
 $assert(str_contains($unknownSerialized, 'Before embed.'), 'ancestor content before unknown iframe still converts');
 $assert(str_contains($unknownSerialized, 'After embed.'), 'ancestor content after unknown iframe still converts');
+$assert('pass' === ($unknownIframe['source_reports']['wp_block_validity']['status'] ?? ''), 'bounded iframe companion save shape is Gutenberg-valid');
+
+$responsiveIframeWrapper = ( new HtmlTransformer() )->transform(
+    '<main><wix-iframe data-src=""><div class="map-container"><iframe title="Map" src="https://example.test/map" width="1280" height="350"></iframe></div></wix-iframe><wix-iframe data-src=""><div class="map-container"></div></wix-iframe></main>'
+)->toArray();
+$assert(array() === ($responsiveIframeWrapper['fallbacks'] ?? array()), 'an inactive custom media placeholder does not emit an unsupported-element fallback');
+$assert(1 === substr_count((string) ($responsiveIframeWrapper['serialized_blocks'] ?? ''), '<iframe'), 'the active custom media variant still lowers through bounded iframe conversion');
+
+$customIframeMap = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe data-src="https://example.test/map" title="Studio map" width="1280" height="350"><div class="map-container"></div></vendor-iframe></main>'
+)->toArray();
+$customIframeMapMarkup = (string) ($customIframeMap['serialized_blocks'] ?? '');
+$customIframeMapBlock = array_values(array_filter($customIframeMap['blocks'][0]['innerBlocks'] ?? array(), static fn (array $block): bool => 'custom/visual-iframe' === ($block['blockName'] ?? '')))[0] ?? ($customIframeMap['blocks'][0] ?? array());
+$assert('custom/visual-iframe' === ($customIframeMapBlock['blockName'] ?? ''), 'portable custom iframe map materializes as the typed visual-iframe companion');
+$assert('https://example.test/map' === ($customIframeMapBlock['attrs']['src'] ?? '') && '1280' === ($customIframeMapBlock['attrs']['width'] ?? ''), 'portable custom iframe map retains destination and geometry');
+$assert(array() === ($customIframeMap['fallbacks'] ?? array()) && ! str_contains($customIframeMapMarkup, '<!-- wp:html') && ! str_contains($customIframeMapMarkup, 'html_unsupported_element'), 'portable custom iframe map does not emit raw HTML or unsupported-element fallbacks');
+$assert('pass' === ($customIframeMap['source_reports']['wp_block_validity']['status'] ?? ''), 'portable custom iframe map save shape is Gutenberg-valid');
+$customIframeMapIslands = array_values(array_filter($customIframeMap['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'iframe' === ($island['kind'] ?? '')));
+$assert(1 === count($customIframeMapIslands) && 'typed_visual_iframe_companion' === ($customIframeMapIslands[0]['preservation_strategy'] ?? ''), 'portable custom iframe map keeps runtime-dependency parity as a typed island');
+
+$customIframeGaps = ( new HtmlTransformer() )->transform(
+    '<main><vendor-iframe src="https://example.test/one" data-src="https://example.test/two" width="640" height="360"></vendor-iframe><vendor-iframe data-widget-id="comp-runtime" width="640" height="360"></vendor-iframe></main>'
+)->toArray();
+$customIframeGapRows = array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_iframe_surface_capability_gap' === ($fallback['diagnostic_code'] ?? '')));
+$assert(2 === count($customIframeGapRows), 'ambiguous and source-runtime-only custom iframes emit capability-gap diagnostics');
+$assert(array( 'ambiguous_iframe_destination', 'source_runtime_only_iframe' ) === array_values(array_map(static fn (array $fallback): string => (string) ($fallback['reason'] ?? ''), $customIframeGapRows)), 'custom iframe capability gaps keep explicit rejection reasons');
+$assert(array() === array_values(array_filter($customIframeGaps['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_unsupported_element' === ($fallback['diagnostic_code'] ?? ''))), 'classified custom iframe rejections do not use html_unsupported_element');
+$assert(! str_contains((string) ($customIframeGaps['serialized_blocks'] ?? ''), '<!-- wp:html'), 'rejected custom iframe surfaces do not emit core/html fallbacks');
+
+$visualIframeGeometry = ( new HtmlTransformer() )->transform(
+    '<main><div style="width:1280px;height:350px;margin:0 80px 10px"><iframe title="Map surface" src="https://example.test/map" width="100%" height="100%"></iframe></div><p>Following content</p></main>'
+)->toArray();
+$visualIframeGeometryMarkup = (string) ($visualIframeGeometry['serialized_blocks'] ?? '');
+$visualIframeGeometryCss = (string) ($visualIframeGeometry['css'] ?? '');
+$assert(str_contains($visualIframeGeometryMarkup, 'width="100%"') && str_contains($visualIframeGeometryMarkup, 'height="100%"') && str_contains($visualIframeGeometryMarkup, 'title="Map surface"'), 'bounded iframe retains source sizing and title within its geometry-owning wrapper');
+$assert((str_contains($visualIframeGeometryMarkup, 'margin-bottom:10px') || str_contains($visualIframeGeometryCss, 'margin-bottom:10px')) && str_contains($visualIframeGeometryMarkup, 'Following content'), 'iframe wrapper margins and following content layout remain serialized');
+
+$suppressedIframe = ( new HtmlTransformer() )->transform(
+    '<main><iframe src="https://example.test/tag-manager" width="0" height="0" style="display:none"></iframe><iframe src="https://example.test/worker" width="1" height="1" style="visibility:hidden"></iframe><iframe src="javascript:alert(1)" width="640" height="360" srcdoc="<p>unsafe</p>"></iframe><iframe src="https://example.test/unbounded"></iframe></main>'
+)->toArray();
+$suppressedIframeMarkup = (string) ($suppressedIframe['serialized_blocks'] ?? '');
+$assert(! str_contains($suppressedIframeMarkup, '<iframe'), 'hidden, zero-size, unsafe, and unbounded iframes remain suppressed');
 
 $staticTemplate = ( new HtmlTransformer() )->transform(
     '<main><section><h2>Visible</h2><template><article><h3>Deferred article</h3><p>Readable metadata.</p></article></template><p>After.</p></section></main>'
@@ -2829,6 +3224,13 @@ $assetMetadataOptions = array(
                 'id'  => 42,
                 'url' => 'https://example.test/wp-content/uploads/hero.jpg',
             ),
+            'media/root-hero.jpg' => array(
+                'id'  => 43,
+                'url' => 'https://example.test/wp-content/uploads/root-hero.jpg',
+            ),
+            'media/root-background.jpg' => array(
+                'url' => 'https://example.test/wp-content/uploads/root-background.jpg',
+            ),
         ),
     ),
 );
@@ -2839,6 +3241,17 @@ $assert('https://example.test/wp-content/uploads/hero.jpg' === ($resolvedImageAt
 $assert('Hero alt' === ($resolvedImageAttrs['alt'] ?? ''), 'HTML image transform preserves original alt text while resolving asset metadata');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'src="https://example.test/wp-content/uploads/hero.jpg"'), 'HTML image transform serializes resolved asset URL');
 $assert(str_contains((string) ($resolvedImage['serialized_blocks'] ?? ''), 'class="wp-image-42"'), 'HTML image transform serializes resolved image id class');
+
+$resolvedRootImage = ( new HtmlTransformer() )->transform('<main><img src="/media/root-hero.jpg?size=large#hero" srcset="/media/root-hero.jpg?size=small 480w, /media/root-hero.jpg?size=large 960w" alt="Root hero"></main>', $assetMetadataOptions)->toArray();
+$resolvedRootImageAttrs = $resolvedRootImage['blocks'][0]['attrs'] ?? array();
+$assert('core/image' === ($resolvedRootImage['blocks'][0]['blockName'] ?? null), 'metadata-backed standalone responsive image remains core/image');
+$assert('https://example.test/wp-content/uploads/root-hero.jpg?size=large#hero' === ($resolvedRootImageAttrs['url'] ?? ''), 'metadata-backed root-relative image preserves its authored query and fragment suffix');
+$assert(! isset($resolvedRootImageAttrs['srcset'], $resolvedRootImageAttrs['sizes']) && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'srcset=') && ! str_contains((string) ($resolvedRootImage['serialized_blocks'] ?? ''), 'sizes='), 'metadata-backed standalone responsive image does not add srcset or sizes to core/image');
+
+$resolvedRootBackground = ( new HtmlTransformer() )->transform('<main><div style="width:640px;height:320px;background-image:url(/media/root-background.jpg?crop=wide#panel)"></div></main>', $assetMetadataOptions)->toArray();
+$resolvedRootBackgroundMarkup = (string) ($resolvedRootBackground['serialized_blocks'] ?? '');
+$assert(str_contains($resolvedRootBackgroundMarkup, 'src="https://example.test/wp-content/uploads/root-background.jpg?crop=wide#panel"'), 'metadata-backed extracted root-relative background preserves its authored query and fragment suffix');
+$assert(str_contains($resolvedRootBackgroundMarkup, 'blocks-engine-background-image'), 'metadata-backed root-relative background remains an extracted editable image reference');
 
 $linkedRuntimeImage = ( new HtmlTransformer() )->transform(
     '<main><a id="productHero" class="product-detail__main-image" href="/product"><img src="assets/product.jpg" alt="Product"></a></main>'
@@ -2871,8 +3284,36 @@ $assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'Wo
 $assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
 $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
 $assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
-$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
+$assert(($simple['source_reports']['editability_report'] ?? null) === ($simplePlanView['editability_report'] ?? null), 'WordPress site plan view preserves the producer-owned editability report exactly');
+$assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
+$boundedEditabilityReport = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')))));
+$boundedPlanResult = $simple;
+$boundedPlanResult['source_reports']['editability_report'] = $boundedEditabilityReport;
+$boundedPlanView = (new WordPressSitePlanView())->fromResult($boundedPlanResult);
+$assert($boundedEditabilityReport === ($boundedPlanView['editability_report'] ?? null) && 101 === ($boundedPlanView['editability_report']['signal_totals']['observed'] ?? null) && 100 === ($boundedPlanView['editability_report']['signal_totals']['reported'] ?? null) && 1 === ($boundedPlanView['editability_report']['signal_totals']['omitted'] ?? null) && true === ($boundedPlanView['editability_report']['signal_totals']['truncated'] ?? null) && 100 === count($boundedPlanView['editability_report']['signals'] ?? array()), 'WordPress site plan view preserves bounded editability evidence without reprojecting it');
+$assert(array('schema', 'result_schema', 'status', 'wordpress_site_plan', 'gutenberg_gaps', 'companion_plugin_payload', 'font_materialization', 'editability_report', 'diagnostics') === array_keys($simplePlanView), 'WordPress site plan view has a stable bounded shape');
 $assert(!isset($simplePlanView['compiled_site'], $simplePlanView['materialization_plan'], $simplePlanView['assets'], $simplePlanView['documents'], $simplePlanView['blocks']), 'WordPress site plan view omits duplicate legacy and root projections');
+$failedPlanResult = $simple;
+$failedPlanResult['status'] = 'failed';
+unset($failedPlanResult['source_reports']['wordpress_site_plan'], $failedPlanResult['source_reports']['wordpress_site_plan_diagnostics']);
+$failedPlanResult['diagnostics'] = array(
+    array('code' => 'non_plan_warning', 'severity' => 'warning', 'message' => 'Not actionable for a failed handoff.'),
+    array('code' => 'non_plan_failure', 'severity' => 'error', 'message' => 'Canonical compiler failure.'),
+);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$assert(array('non_plan_failure') === array_column($failedPlanView['diagnostics'], 'code'), 'failed WordPress site plan view retains canonical compiler errors when no plan-specific diagnostic exists');
+$planSpecificDiagnostic = array('code' => 'wordpress_site_plan_invalid', 'severity' => 'error', 'message' => 'Plan-specific failure.');
+$failedPlanResult['source_reports']['wordpress_site_plan_diagnostics'] = array($planSpecificDiagnostic);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$assert(array($planSpecificDiagnostic) === $failedPlanView['diagnostics'], 'failed WordPress site plan view preserves existing plan-specific diagnostics exactly');
+unset($failedPlanResult['source_reports']['wordpress_site_plan_diagnostics']);
+$failedPlanResult['diagnostics'] = array_map(
+    static fn (int $index): array => array('code' => 'compiler_error_' . $index, 'severity' => 'error', 'message' => 'Compiler error.'),
+    range(1, WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS + 5)
+);
+$failedPlanView = (new WordPressSitePlanView())->fromResult($failedPlanResult);
+$truncationDiagnostic = $failedPlanView['diagnostics'][WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS - 1] ?? array();
+$assert(WordPressSitePlanView::MAX_FAILURE_DIAGNOSTICS === count($failedPlanView['diagnostics']) && 'compiler_error_1' === ($failedPlanView['diagnostics'][0]['code'] ?? '') && 'compiler_error_99' === ($failedPlanView['diagnostics'][98]['code'] ?? '') && 'wordpress_site_plan_view_diagnostics_truncated' === ($truncationDiagnostic['code'] ?? '') && 99 === ($truncationDiagnostic['retained_count'] ?? null) && 6 === ($truncationDiagnostic['omitted_count'] ?? null), 'failed WordPress site plan view deterministically bounds canonical compiler errors with explicit truncation evidence');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['schema'] ?? ''), 'artifact report exposes canonical site artifact schema');
 $assert(ArtifactCompiler::INPUT_SCHEMA === ($simple['source_reports']['artifact']['original_schema'] ?? ''), 'canonical site artifact input schema is accepted and preserved');
 $assert('index.html' === ($simple['source_reports']['artifact']['entry_path'] ?? ''), 'generated HTML becomes an index entry');
@@ -2886,8 +3327,8 @@ $assert(2 === ($simple['metrics']['block_count'] ?? null), 'artifact metrics exp
 $assert(0 === ($simple['metrics']['fallback_count'] ?? null), 'artifact metrics expose fallback count');
 $assert(0 === ($simple['metrics']['diagnostic_count'] ?? null), 'artifact metrics expose diagnostic count');
 $assert(is_float($simple['metrics']['transform_duration_ms'] ?? null), 'artifact metrics expose transform duration');
-$assert(MaterializationPlanBuilder::SCHEMA === ($simple['source_reports']['materialization_plan']['schema'] ?? ''), 'artifact retains the legacy materialization plan report for compatibility');
-$assert('index.html' === ($simple['source_reports']['materialization_plan']['entry_path'] ?? ''), 'materialization plan exposes entry path');
+$assert(!isset($simple['source_reports']['materialization_plan']), 'artifact omits the superseded materialization plan projection');
+$assert('index.html' === ($simple['source_reports']['wordpress_site_plan']['source']['entry_path'] ?? ''), 'canonical plan exposes entry path');
 
 $artifactNavAnchorCss = $compiler->compile(
     array(
@@ -2956,6 +3397,20 @@ $artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialize
 $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
 $assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
+
+$artifactSummaryToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><nav class="menu"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav><nav><details><summary aria-label="Menu" style="box-sizing:border-box;width:40px;height:40px;padding:5px"><svg aria-hidden="true"></svg></summary></details></nav></header>',
+        ),
+    )
+)->toArray();
+$artifactSummaryToggleNavigationMarkup = (string) ($artifactSummaryToggleNavigation['serialized_blocks'] ?? '');
+$artifactSummaryToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactSummaryToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'a semantic details summary menu control promotes its associated menu to native responsive navigation');
+$assert(! str_contains($artifactSummaryToggleNavigationMarkup, '<!-- wp:details') && ! str_contains($artifactSummaryToggleNavigationMarkup, '<summary'), 'native responsive navigation supersedes empty details summary menu chrome', $artifactSummaryToggleNavigationMarkup);
+$assert(str_contains($artifactSummaryToggleNavigationMarkup, 'blocks-engine-native-navigation-toggle-') && str_contains($artifactSummaryToggleNavigationCss, '>.wp-block-navigation__responsive-container-open{') && str_contains($artifactSummaryToggleNavigationCss, 'width:40px!important') && str_contains($artifactSummaryToggleNavigationCss, 'padding:5px!important'), 'native responsive navigation projects source toggle geometry onto the core open control', $artifactSummaryToggleNavigationCss);
 
 $artifactCheckboxLabelNavigation = $compiler->compile(
     array(
@@ -3063,8 +3518,8 @@ $artifactGeometryCss = implode("\n", array_map(static fn (array $asset): string 
 $artifactGeometryMarkup = (string) ($artifactGeometry['serialized_blocks'] ?? '');
 $assert(str_contains($artifactGeometryMarkup, 'be-inline-geometry-'), 'artifact compiler serializes geometry carrier classes into primary block output', $artifactGeometryMarkup);
 $assert(str_contains($artifactGeometryCss, 'width:75%') && str_contains($artifactGeometryCss, 'max-width:72rem') && str_contains($artifactGeometryCss, 'aspect-ratio:16 / 9'), 'artifact compiler exposes carrier CSS in primary assets', $artifactGeometryCss);
-$artifactPlanCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometry['source_reports']['materialization_plan']['assets'] ?? array()));
-$assert(str_contains($artifactPlanCss, 'width:75%') && str_contains($artifactPlanCss, 'max-width:72rem'), 'artifact materialization plan carries the primary geometry asset');
+$artifactPlanCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactGeometry['source_reports']['wordpress_site_plan']['assets'] ?? array()));
+$assert(str_contains($artifactPlanCss, 'width:75%') && str_contains($artifactPlanCss, 'max-width:72rem'), 'canonical plan carries the primary geometry asset');
 
 $artifactGeometryCascade = $compiler->compile(
     array(
@@ -3093,7 +3548,7 @@ $artifactInlineSvg = $compiler->compile(
         'generated_html' => '<svg role="img" aria-label="Inline logo" viewBox="0 0 12 12"><title>Inline logo</title><path d="M0 0h12v12H0z"></path></svg>',
     )
 )->toArray();
-$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineSvgAssets = $artifactInlineSvg['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactInlineSvgImageAssets = array_values(array_filter($artifactInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
 $assert('core/image' === ($artifactInlineSvg['blocks'][0]['blockName'] ?? ''), 'artifact safe passive inline SVG is represented as native core/image');
 $assert(1 === count($artifactInlineSvgImageAssets), 'artifact safe inline SVG is externalized to one generated .svg image asset');
@@ -3110,10 +3565,10 @@ $artifactNonEntryInlineSvg = $compiler->compile(
         ),
     )
 )->toArray();
-$artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['pages'][1] ?? array();
-$artifactNonEntryInlineSvgAssets = $artifactNonEntryInlineSvg['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactNonEntryInlineSvgPage = $artifactNonEntryInlineSvg['source_reports']['wordpress_site_plan']['pages'][1] ?? array();
+$artifactNonEntryInlineSvgAssets = $artifactNonEntryInlineSvg['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactNonEntryInlineSvgImageAssets = array_values(array_filter($artifactNonEntryInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? '')));
-$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
+$assert(str_contains((string) ($artifactNonEntryInlineSvgPage['canonical_block_markup'] ?? ''), '<!-- wp:image'), 'non-entry artifact simple icon SVG is represented as native core/image, not a dynamic core/icon');
 $assert(str_contains((string) ($artifactNonEntryInlineSvgImageAssets[0]['content'] ?? ''), 'aria-label="About icon"') && str_contains((string) ($artifactNonEntryInlineSvgImageAssets[0]['content'] ?? ''), 'viewBox="0 0 8 8"'), 'non-entry artifact faithful SVG preserves its accessible label and correct-case viewBox in the generated asset');
 $assert(1 === count(array_filter($artifactNonEntryInlineSvgAssets, static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? ''))), 'non-entry artifact simple icon SVG materializes one generated image asset');
 
@@ -3123,38 +3578,23 @@ $artifactInlineScript = $compiler->compile(
         'generated_html' => '<!doctype html><html><head><script type="application/ld+json">{"name":"metadata"}</script></head><body><main><h1>Cafe</h1></main><script defer>document.documentElement.classList.add("hydrated");</script></body></html>',
     )
 )->toArray();
-$artifactInlineScriptAssets = $artifactInlineScript['source_reports']['materialization_plan']['assets'] ?? array();
+$artifactInlineScriptAssets = $artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $artifactInlineScriptAsset = array_values(array_filter($artifactInlineScriptAssets, static fn (array $asset): bool => 'inline-script' === ($asset['source'] ?? '')))[0] ?? array();
 $assert('js' === ($artifactInlineScriptAsset['kind'] ?? ''), 'artifact inline executable script becomes a JS materialization asset');
 $assert('script' === ($artifactInlineScriptAsset['role'] ?? ''), 'artifact inline executable script asset has script role');
 $assert('behavior' === ($artifactInlineScriptAsset['intent'] ?? ''), 'artifact inline executable script asset has behavior intent');
 $assert('body' === ($artifactInlineScriptAsset['placement'] ?? ''), 'artifact inline executable script placement is preserved');
 $assert(true === ($artifactInlineScriptAsset['defer'] ?? false), 'artifact inline executable script defer metadata is preserved');
-$assert('index.inline-2.js' === ($artifactInlineScriptAsset['path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
+$assert('index.inline-2.js' === ($artifactInlineScriptAsset['source_path'] ?? ''), 'artifact inline executable script path is stable and indexed by source script position');
 $assert('script:nth-of-type(2)' === ($artifactInlineScriptAsset['selector'] ?? ''), 'artifact inline executable script selector is preserved');
 $assert(str_contains((string) ($artifactInlineScriptAsset['content'] ?? ''), 'classList.add'), 'artifact inline executable script content is preserved');
-$assert(in_array('index.inline-2.js', $artifactInlineScript['source_reports']['materialization_plan']['theme']['scripts'] ?? array(), true), 'artifact inline executable script is exposed as a theme script');
+$assert(in_array('index.inline-2.js', array_column($artifactInlineScript['source_reports']['wordpress_site_plan']['assets'] ?? array(), 'source_path'), true), 'artifact inline executable script is exposed as a canonical plan asset');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), '<!-- wp:html'), 'artifact materialized inline script does not become a core/html fallback block');
 $assert(! str_contains((string) ($artifactInlineScript['serialized_blocks'] ?? ''), 'classList.add'), 'artifact materialized inline script body is removed from serialized block content');
 
-$assert(1 === ($simple['source_reports']['materialization_plan']['totals']['pages'] ?? null), 'materialization plan counts pages');
-$assert('index' === ($simple['source_reports']['materialization_plan']['pages'][0]['slug'] ?? ''), 'materialization plan exposes page slug');
-$assert('blocks' === ($simple['source_reports']['materialization_plan']['pages'][0]['body_format'] ?? ''), 'materialization plan exposes converted block body format');
-
-$missingMaterializationPlan = $simple;
-unset($missingMaterializationPlan['source_reports']['materialization_plan']);
-$assertInvalidCanonicalEnvelope($missingMaterializationPlan, 'source_reports.materialization_plan', 'canonical validation rejects artifact results without materialization plans');
-
-$invalidMaterializationPlan = $simple;
-$invalidMaterializationPlan['source_reports']['materialization_plan']['schema'] = 'legacy/materialization-plan/v1';
-$assertInvalidCanonicalEnvelope($invalidMaterializationPlan, 'materialization plan schema', 'canonical validation rejects materialization plans with unsupported schemas');
-
-$incompleteMaterializationPlan = $simple;
-unset($incompleteMaterializationPlan['source_reports']['materialization_plan']['routes']);
-$assertInvalidCanonicalEnvelope($incompleteMaterializationPlan, 'materialization plan routes', 'canonical validation rejects incomplete materialization plans');
-
-$rebuiltPlan = ( new MaterializationPlanBuilder() )->fromResult($simple);
-$assert($simple['source_reports']['materialization_plan'] === $rebuiltPlan, 'materialization plan builder preserves canonical plans from result envelopes');
+$assert(1 === count($simple['source_reports']['wordpress_site_plan']['pages'] ?? array()), 'canonical plan counts pages');
+$assert('index' === ($simple['source_reports']['wordpress_site_plan']['pages'][0]['slug'] ?? ''), 'canonical plan exposes page slug');
+$assert(str_contains((string) ($simple['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? ''), '<!-- wp:'), 'canonical plan exposes converted block markup');
 
 $formatResult = ( new FormatBridge() )->convertResult('# Format report', 'markdown', 'blocks')->toArray();
 TransformerResult::assertCanonicalEnvelope($formatResult);
@@ -3175,7 +3615,7 @@ $staticSite = $compiler->compile(
         ),
     )
 )->toArray();
-$staticPlan = $staticSite['source_reports']['materialization_plan'] ?? array();
+$staticPlan = $staticSite['source_reports']['wordpress_site_plan'] ?? array();
 $aboutCompiledPage = null;
 foreach ( $staticSite['source_reports']['compiled_site']['pages'] ?? array() as $compiledPage ) {
     if ( 'about.html' === ($compiledPage['source_path'] ?? '') ) {
@@ -3190,25 +3630,24 @@ foreach ( $staticPlan['pages'] ?? array() as $planPage ) {
 }
 $assert(str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:heading'), 'compiled site transforms non-entry HTML pages into semantic block markup');
 $assert(! str_contains((string) ($aboutCompiledPage['block_markup'] ?? ''), '<!-- wp:html -->'), 'compiled site avoids full-document core/html wrappers for transformer-safe non-entry HTML pages');
-$assert(str_contains((string) ($aboutPlanPage['block_markup'] ?? ''), '<!-- wp:heading'), 'materialization plan preserves transformed non-entry HTML page markup');
-$assert('parts/header.html' === ($staticPlan['template_part_writes'][0]['source_path'] ?? ''), 'materialization plan exposes template part writes');
-$assert('wp_template_part' === ($staticPlan['template_part_writes'][0]['type'] ?? ''), 'template part writes identify the WordPress write target');
-$assert(str_contains((string) ($staticPlan['visual_repair_css'] ?? ''), 'min-height:100vh'), 'materialization plan exposes visual repair CSS');
-$assert(! empty(array_filter($staticPlan['asset_rewrite_candidates'] ?? array(), static fn (array $candidate): bool => 'template_part' === ($candidate['scope'] ?? '') && 'assets/logo.png' === ($candidate['asset_path'] ?? ''))), 'materialization plan exposes template part asset rewrite candidates');
-$assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'materialization plan exposes entry route path');
-$assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'materialization plan exposes document route path');
-$assert(empty(array_filter($staticPlan['assets'] ?? array(), static fn (array $asset): bool => 'html' === ($asset['kind'] ?? '') || str_ends_with((string) ($asset['path'] ?? ''), '.html'))), 'materialization plan omits HTML documents from asset rows');
-$assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'materialization plan exposes generic navigation link rows');
-$assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'materialization plan exposes navigation link labels');
-$assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'materialization plan exposes navigation target paths');
-$assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'materialization plan exposes generic menu rows');
-$assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'materialization plan counts menu items');
+$assert(str_contains((string) ($aboutPlanPage['canonical_block_markup'] ?? ''), '<!-- wp:heading'), 'canonical plan preserves transformed non-entry HTML page markup');
+$assert('parts/header.html' === ($staticPlan['template_parts'][0]['source_path'] ?? ''), 'canonical plan exposes template parts');
+$assert('theme_template_part' === ($staticPlan['writes'][2]['kind'] ?? '') || !empty($staticPlan['template_parts']), 'canonical plan exposes template part writes');
+$assert(str_contains((string) ($staticPlan['visual_repair']['css'] ?? ''), 'min-height:100vh'), 'canonical plan exposes visual repair CSS');
+$assert('/' === ($staticPlan['routes'][0]['target_path'] ?? ''), 'canonical plan exposes entry route path');
+$assert('/about' === ($staticPlan['routes'][1]['target_path'] ?? ''), 'canonical plan exposes document route path');
+$assert(empty(array_filter($staticPlan['assets'] ?? array(), static fn (array $asset): bool => 'html' === ($asset['kind'] ?? '') || str_ends_with((string) ($asset['source_path'] ?? ''), '.html'))), 'canonical plan omits HTML documents from asset rows');
+$assert('navigation_link' === ($staticPlan['navigation_links'][0]['kind'] ?? ''), 'canonical plan exposes generic navigation link rows');
+$assert('About' === ($staticPlan['navigation_links'][1]['label'] ?? ''), 'canonical plan exposes navigation link labels');
+$assert('/about' === ($staticPlan['navigation_links'][1]['target_path'] ?? ''), 'canonical plan exposes navigation target paths');
+$assert('menu' === ($staticPlan['menus'][0]['kind'] ?? ''), 'canonical plan exposes generic menu rows');
+$assert(2 === ($staticPlan['menus'][0]['items'] ?? null), 'canonical plan counts menu items');
 $staticSummary = $staticSite['source_reports']['conversion_report']['source_summary'] ?? array();
-$assert(($staticPlan['totals']['pages'] ?? null) === ($staticSummary['page_count'] ?? null), 'conversion report page count matches materialization plan totals');
-$assert(($staticPlan['totals']['assets'] ?? null) === ($staticSummary['asset_count'] ?? null), 'conversion report asset count matches materialization plan totals');
-$assert(($staticPlan['totals']['routes'] ?? null) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches materialization plan totals');
-$assert(($staticPlan['totals']['navigation_links'] ?? null) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches materialization plan totals');
-$assert(($staticPlan['totals']['menus'] ?? null) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches materialization plan totals');
+$assert(count($staticPlan['pages'] ?? array()) === ($staticSummary['page_count'] ?? null), 'conversion report page count matches canonical plan');
+$assert(count($staticPlan['assets'] ?? array()) === ($staticSummary['asset_count'] ?? null), 'conversion report asset count matches canonical plan');
+$assert(count($staticPlan['routes'] ?? array()) === ($staticSummary['route_count'] ?? null), 'conversion report route count matches canonical plan');
+$assert(count($staticPlan['navigation_links'] ?? array()) === ($staticSummary['navigation_link_count'] ?? null), 'conversion report navigation link count matches canonical plan');
+$assert(count($staticPlan['menus'] ?? array()) === ($staticSummary['menu_count'] ?? null), 'conversion report menu count matches canonical plan');
 
 $footerShellSite = $compiler->compile(
     array(
@@ -3243,6 +3682,7 @@ $canonicalHeaderPart = array_values(array_filter($canonicalShellPlan['template_p
 $canonicalFooterPart = array_values(array_filter($canonicalShellPlan['template_parts'] ?? array(), static fn (array $part): bool => 'footer' === ($part['area'] ?? '')))[0] ?? array();
 $canonicalEntryPage = array_values(array_filter($canonicalShellPlan['pages'] ?? array(), static fn (array $page): bool => 'index.html' === ($page['source_path'] ?? '')))[0] ?? array();
 $assert(! str_contains((string) ($canonicalEntryPage['canonical_block_markup'] ?? ''), 'Get started') && str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), 'Get started'), 'canonical entry header is projected only to its shell part, without duplicate post-content chrome');
+$assert(str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), '<!-- wp:') && ! str_contains((string) ($canonicalEntryPage['canonical_block_markup'] ?? ''), '<!-- wp:custom/layout-shell'), 'canonical shell extraction recognizes a semantic outer wrapper projected through a layout shell');
 $assert(str_contains((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), 'Global footer'), 'canonical entry footer part preserves global footer content');
 $assert(! str_contains((string) ($canonicalHeaderPart['canonical_block_markup'] ?? ''), '<header') && ! str_contains((string) ($canonicalFooterPart['canonical_block_markup'] ?? ''), '<footer'), 'canonical shell parts rely on their semantic template-part references instead of nesting duplicate landmarks');
 $assert(2 === count(array_filter($canonicalShellPlan['writes'] ?? array(), static fn (array $write): bool => 'theme_template_part' === ($write['kind'] ?? ''))), 'WordPress site plan exposes canonical entry header and footer writes');
@@ -3483,6 +3923,47 @@ $assert(
     'runtime dependency parity does not fail entry output for shared drum script selectors absent from that entry source'
 );
 
+$staticJsonRuntimeSite = $compiler->compile(
+    array(
+        'entrypoint' => 'index.html',
+        'files' => array(
+            'index.html' => '<main><script id="config" type="application/json">{"message":"Ready"}</script><script src="js/app.js"></script><h1>Home</h1></main>',
+            'js/app.js' => 'JSON.parse(document.getElementById("config").textContent).message;',
+        ),
+    )
+)->toArray();
+$staticJsonRuntimeMarkup = (string) ($staticJsonRuntimeSite['serialized_blocks'] ?? '');
+$staticJsonRuntimeDependency = array_values(array_filter($staticJsonRuntimeSite['source_reports']['runtime_dependency_parity']['dependencies'] ?? array(), static fn (array $dependency): bool => '#config' === ($dependency['selector'] ?? '')))[0] ?? array();
+$assert('pass' === ($staticJsonRuntimeSite['source_reports']['runtime_dependency_parity']['status'] ?? '') && true === ($staticJsonRuntimeDependency['generated_present'] ?? null), 'ID-addressed static JSON remains an addressable runtime target for carried first-party scripts');
+$assert(str_contains($staticJsonRuntimeMarkup, '<script id="config" type="application/json">{"message":"Ready"}</script>'), 'addressable static JSON is preserved as bounded non-executable block markup');
+$assert(1 === count(array_filter($staticJsonRuntimeSite['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'static_script' === ($island['kind'] ?? ''))), 'addressable static JSON target is recorded as a runtime configuration island');
+
+$companionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => 'document.querySelector("a[data-anchor]").addEventListener("click", function () {});')),
+    '<main><a data-anchor="docs">Docs</a></main>',
+    '<!-- wp:custom/companion /-->',
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('block_json' => array('render' => 'file:./render.php'), 'render' => '<a data-anchor="docs">Docs</a>'))
+);
+$companionRenderDependency = $companionRenderReport['dependencies'][0] ?? array();
+$assert('pass' === ($companionRenderReport['status'] ?? '') && true === ($companionRenderDependency['generated_present'] ?? null) && 'declared_companion_render' === ($companionRenderDependency['generated_target_evidence'] ?? ''), 'declared exact companion render HTML supplies data-attribute target evidence');
+$undeclaredCompanionRenderReport = (new \Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDependencyParityReport())->fromArtifact(
+    array(array('path' => 'js/app.js', 'kind' => 'js', 'content' => 'document.querySelector("a[data-anchor]").addEventListener("click", function () {});')),
+    '<main><a data-anchor="docs">Docs</a></main>',
+    '<!-- wp:custom/companion /-->',
+    'index.html',
+    array(),
+    array(),
+    array(),
+    array(),
+    array(array('block_json' => array(), 'render' => '<a data-anchor="docs">Docs</a>'))
+);
+$assert('warning' === ($undeclaredCompanionRenderReport['status'] ?? '') && 'runtime_dependency_target_missing' === ($undeclaredCompanionRenderReport['findings'][0]['code'] ?? ''), 'undeclared companion render strings cannot suppress missing-target failures');
+
 $hamburgerOverlaySite = $compiler->compile(
     array(
         'entrypoint' => 'index.html',
@@ -3586,12 +4067,12 @@ $legacyFrontPageSite = $compiler->compile(
     )
 )->toArray();
 $legacyPlanPage = null;
-foreach ( $legacyFrontPageSite['source_reports']['materialization_plan']['pages'] ?? array() as $planPage ) {
+foreach ( $legacyFrontPageSite['source_reports']['wordpress_site_plan']['pages'] ?? array() as $planPage ) {
     if ( 'about-us.html' === ($planPage['source_path'] ?? '') ) {
         $legacyPlanPage = $planPage;
     }
 }
-$legacyBlockMarkup = (string) ($legacyPlanPage['block_markup'] ?? '');
+$legacyBlockMarkup = (string) ($legacyPlanPage['canonical_block_markup'] ?? '');
 $assert('' !== trim($legacyBlockMarkup), 'legacy HTML 4 FrontPage-era documents produce non-empty materialization block markup');
 $assert(str_contains($legacyBlockMarkup, 'About Hank&#039;s Tool Rental'), 'legacy HTML 4 FrontPage-era table/font/center content is preserved');
 $assert(str_contains($legacyBlockMarkup, '<!-- wp:table'), 'legacy HTML 4 layout tables convert to table block markup instead of empty fallback metadata');
@@ -3603,20 +4084,18 @@ $assert(str_contains((string) ($legacyInline['serialized_blocks'] ?? ''), '<!-- 
 $logoAssetPlanRow = null;
 $cssAssetPlanRow = null;
 foreach ( $staticPlan['assets'] ?? array() as $assetPlanRow ) {
-    if ( 'assets/logo.png' === ($assetPlanRow['path'] ?? '') ) {
+    if ( 'assets/logo.png' === ($assetPlanRow['source_path'] ?? '') ) {
         $logoAssetPlanRow = $assetPlanRow;
     }
-    if ( 'visual-repair.css' === ($assetPlanRow['path'] ?? '') ) {
+    if ( 'visual-repair.css' === ($assetPlanRow['source_path'] ?? '') ) {
         $cssAssetPlanRow = $assetPlanRow;
     }
 }
-$assert('assets/logo.png' === ($logoAssetPlanRow['target_path'] ?? ''), 'materialization plan asset rows expose generic target paths');
-$assert('base64' === ($logoAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose binary content encoding');
-$assert(base64_encode("\x89PNG\r\n\x1a\n") === ($logoAssetPlanRow['content_base64'] ?? ''), 'materialization plan asset rows expose base64 payloads for binary assets');
-$assert('image/png' === ($logoAssetPlanRow['media_type'] ?? ''), 'materialization plan asset rows expose generic media types');
-$assert(! empty($logoAssetPlanRow['hash'] ?? ''), 'materialization plan asset rows expose stable payload hashes');
-$assert('text' === ($cssAssetPlanRow['content_encoding'] ?? ''), 'materialization plan asset rows expose text content encoding');
-$assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'materialization plan asset rows expose text payloads for writable assets');
+$assert('assets/assets/logo.png' === ($logoAssetPlanRow['target_path'] ?? ''), 'canonical plan asset rows expose materialized target paths');
+$assert(base64_encode("\x89PNG\r\n\x1a\n") === ($logoAssetPlanRow['content_base64'] ?? ''), 'canonical plan asset rows expose base64 payloads for binary assets');
+$assert('image/png' === ($logoAssetPlanRow['mime_type'] ?? ''), 'canonical plan asset rows expose media types');
+$assert(! empty($logoAssetPlanRow['content_hash'] ?? ''), 'canonical plan asset rows expose stable payload hashes');
+$assert('.wp-site-blocks{min-height:100vh}' === ($cssAssetPlanRow['content'] ?? ''), 'canonical plan asset rows expose text payloads for writable assets');
 
 $cssReferences = $compiler->compile(
     array(
@@ -3652,8 +4131,8 @@ foreach ( $cssReferences['source_reports']['compiled_site']['assets'] ?? array()
         $fontCompiledAsset = $asset;
     }
 }
-foreach ( $cssReferences['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
-    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['path'] ?? '') ) {
+foreach ( $cssReferences['source_reports']['wordpress_site_plan']['assets'] ?? array() as $asset ) {
+    if ( 'theme/fonts/FixtureSans.woff2' === ($asset['source_path'] ?? '') ) {
         $fontPlanAsset = $asset;
     }
 }
@@ -3675,8 +4154,8 @@ $imageReferenceSite = $compiler->compile(
     )
 )->toArray();
 $imageReferencePlanAssets = array();
-foreach ( $imageReferenceSite['source_reports']['materialization_plan']['assets'] ?? array() as $asset ) {
-    $imageReferencePlanAssets[$asset['path'] ?? ''] = $asset;
+foreach ( $imageReferenceSite['source_reports']['wordpress_site_plan']['assets'] ?? array() as $asset ) {
+    $imageReferencePlanAssets[$asset['source_path'] ?? ''] = $asset;
 }
 $assert('source' === ($imageReferencePlanAssets['assets/hero-small.png']['references'][0]['element'] ?? ''), 'materialization plan image rows preserve picture source references');
 $assert('inline-style' === ($imageReferencePlanAssets['assets/panel.png']['references'][0]['context'] ?? ''), 'materialization plan image rows preserve inline background references');
@@ -3730,9 +4209,17 @@ $assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? nu
 $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
 $assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
-$importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
+$importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins&family=Quicksand&family=Muli">', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
 $assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
 $assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
+
+$mixedFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap">',
+    'body{font-family:system-ui,sans-serif}h1{font-family:Inter,sans-serif}.custom{font-family:"Acme Custom",serif}.invalid{font-family:var(--missing),inherit}'
+);
+$assert(array(array('family' => 'Inter', 'weights' => array(400, 700))) === ($mixedFontPlan['fonts'] ?? null), 'Google font materialization remains provider-backed across mixed Google, system, custom, and invalid CSS families');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap");' === ($mixedFontPlan['css'] ?? null), 'mixed CSS family usage cannot add unbacked families to the Google Fonts request');
+$assert(array('heading' => 'Inter') === ($mixedFontPlan['roles'] ?? null), 'mixed CSS family roles retain the provider-backed Google family and omit system, custom, and invalid families');
 
 $importedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '',
@@ -3783,6 +4270,32 @@ $assert(1 === count($deduplicatedWebFontPlan['webfont_contract']['imports'] ?? a
 $unsupportedWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', '@import url("https://fonts.example.test/brand.css");');
 $assert('webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['diagnostics'][0]['code'] ?? null), 'unsupported web-font imports retain a reason-coded diagnostic');
 $assert('unsupported' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['state'] ?? null) && 'webfont_import_unsupported_provider' === ($unsupportedWebFontPlan['webfont_contract']['imports'][0]['diagnostics'][0]['code'] ?? null) && array() === ($unsupportedWebFontPlan['webfont_contract']['faces'] ?? null), 'zero-face web-font contracts retain required import diagnostics');
+
+$directFaceCss = '@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2") format("woff2")}h1{font-family:"Festival Display",serif}body{font-family:"Unproven Sans",sans-serif}';
+$directFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $directFaceCss, array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))));
+$assert(array(array('family' => 'Festival Display', 'weights' => array(700))) === ($directFacePlan['fonts'] ?? null) && 'Festival Display' === ($directFacePlan['roles']['heading'] ?? null) && ! isset($directFacePlan['roles']['body']), 'source-proven direct font faces materialize their family and matching role without CSS-only families');
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' === ($directFacePlan['css'] ?? null), 'direct font materialization emits only the typed font-face declaration');
+$directContract = $directFacePlan['webfont_contract'] ?? array();
+$assert('direct' === ($directContract['imports'][0]['provider'] ?? null) && 'font' === ($directContract['imports'][0]['source']['format'] ?? null) && 'https://cdn.example.test/fonts/festival-display.woff2' === ($directContract['faces'][0]['sources'][0]['url'] ?? null) && 'styles/typography.css' === ($directContract['imports'][0]['provenance']['source_path'] ?? null) && 'css:@font-face(1)' === ($directContract['imports'][0]['provenance']['selector'] ?? null), 'direct font faces retain typed source URL and source provenance in the materialization contract');
+$directMaterializationPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array('theme' => array('static_css' => $directFaceCss, 'font_css_sources' => array(array('path' => 'styles/typography.css', 'content' => $directFaceCss, 'source_hash' => str_repeat('d', 64))))));
+$assert('@font-face{font-family:"Festival Display";font-style:italic;font-weight:700;src:url("https://cdn.example.test/fonts/festival-display.woff2");}' . "\n" === ($directMaterializationPlan['theme']['font_materialization']['stylesheets'][0]['content'] ?? null), 'materialization plan carries the direct font declaration as its standalone stylesheet asset');
+$eligibleDirectFaceCss = '@font-face{font-family:Eligible Woff;src:url("https://cdn.example.test/fonts/eligible.woff?download=1")}@font-face{font-family:Eligible Woff2;src:url("https://cdn.example.test:443/fonts/eligible.WOFF2#face")}';
+$eligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $eligibleDirectFaceCss);
+$eligibleDirectFaceUrls = array_column(array_map(static fn (array $import): array => $import['source'] ?? array(), $eligibleDirectFacePlan['webfont_contract']['imports'] ?? array()), 'url');
+$expectedEligibleDirectFaceUrls = array('https://cdn.example.test/fonts/eligible.woff?download=1', 'https://cdn.example.test:443/fonts/eligible.WOFF2#face');
+sort($eligibleDirectFaceUrls, SORT_STRING); sort($expectedEligibleDirectFaceUrls, SORT_STRING);
+$assert($expectedEligibleDirectFaceUrls === $eligibleDirectFaceUrls && 2 === count($eligibleDirectFacePlan['webfont_contract']['faces'] ?? array()), 'HTTPS WOFF and WOFF2 direct faces with implicit or explicit port 443 retain the typed materialization contract');
+foreach (array(
+    'http://cdn.example.test/fonts/insecure.woff2',
+    'https://user:password@cdn.example.test/fonts/credentials.woff2',
+    'https://cdn.example.test:8443/fonts/nonstandard-port.woff2',
+    'https://cdn.example.test/fonts/not-a-font.ttf',
+    'https://',
+) as $ineligibleDirectFaceUrl) {
+    $ineligibleDirectFaceCss = '@font-face{font-family:Ineligible;src:url("' . $ineligibleDirectFaceUrl . '")}';
+    $ineligibleDirectFacePlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('', $ineligibleDirectFaceCss);
+    $assert(array() === ($ineligibleDirectFacePlan['webfont_contract']['imports'] ?? null) && array() === ($ineligibleDirectFacePlan['webfont_contract']['faces'] ?? null), 'direct face eligibility rejects ' . $ineligibleDirectFaceUrl);
+}
 
 $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300..900;1,300..900&amp;family=JetBrains+Mono:wght@400&amp;display=swap"></head>',
@@ -3880,22 +4393,20 @@ $materializedTypographyFindings = array_filter(
 );
 $assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
 
-// Negative: the base/body font-family is the document's foundational typography
-// and must survive into materialized output even when declared only in an inline
-// <style> block (no link, no static css). It is carried into the base typography
-// the transformer emits, so it must NOT surface a typography_font_family_dropped:body finding.
+// Positive: a base/body family without a provider source cannot be represented
+// by claiming it is a Google font, so it remains a reported typography drop.
 $inlineBodyFontResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
     array()
 )->toArray();
 $inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
-$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family is materialized and not reported dropped');
+$assert(array() !== $inlineBodyDropped, 'inline <style> base/body font-family without a provider is reported dropped');
 $inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
     ''
 );
-$assert('Brand Sans' === ($inlineBodyPlan['roles']['body'] ?? null), 'inline <style> base/body font-family flows into materialized body role');
-$assert('Brand Sans' === ($inlineBodyPlan['fonts'][0]['family'] ?? null), 'inline <style> base/body font-family is preserved in materialized fonts');
+$assert(! array_key_exists('fonts', $inlineBodyPlan), 'inline <style> base/body font-family is not materialized without a provider source');
+$assert(! array_key_exists('roles', $inlineBodyPlan), 'unbacked inline body family is omitted from materialized roles');
 
 // Positive: a heading-only font in an inline <style> block (no body declaration)
 // still requires a loaded web-font to render, so it remains a reported drop.
@@ -4075,7 +4586,7 @@ $companion = $compiler->compile(
 )->toArray();
 $companionPayload = $companion['source_reports']['companion_plugin_payload'] ?? null;
 $assert(is_array($companionPayload), 'companion_plugin_payload is emitted when a generated block is present');
-$assert('static-site-importer/companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the shared consumer schema');
+$assert('blocks-engine/wordpress-companion-plugin/v1' === ($companionPayload['schema'] ?? ''), 'companion payload stamps the producer-owned WordPress contract');
 $assert('acme' === ($companionPayload['site_slug'] ?? ''), 'companion payload derives site_slug from the artifact');
 $assert('Acme Co' === ($companionPayload['site_name'] ?? ''), 'companion payload derives site_name from the artifact');
 $assert(array() === ($companionPayload['preserved_js'] ?? null), 'companion payload exposes an empty preserved_js slot');
@@ -4329,7 +4840,7 @@ $normalized = $compiler->compile(
 )->toArray();
 $assert('public/index.html' === ($normalized['source_reports']['artifact']['entry_path'] ?? ''), 'entry alias selects public index HTML');
 $assetPaths = array_column($normalized['assets'], 'path');
-$pagePaths = array_column($normalized['source_reports']['materialization_plan']['pages'] ?? array(), 'source_path');
+$pagePaths = array_column($normalized['source_reports']['compiled_site']['pages'] ?? array(), 'source_path');
 $assert(in_array('public/index-2.html', $pagePaths, true), 'duplicate document paths are deduped deterministically');
 $assert(in_array('style.css', $assetPaths, true), 'styles shorthand becomes a CSS file');
 $assert(in_array('site.js', $assetPaths, true), 'script shorthand becomes a JS file');
@@ -4661,6 +5172,10 @@ $assert(is_array($editorStaticStateAsset) && 'editor' === ($editorStaticStateAss
 $editorStaticStateCss = (string) ($editorStaticStateAsset['content'] ?? '');
 $assert(str_contains($editorStaticStateCss, 'animation-delay:-999999s!important') && str_contains($editorStaticStateCss, ':root .reveal.feature-copy{opacity:1!important;transform:none!important}'), 'editor static-state CSS settles authored animation and restores conversion-proven hidden content', $editorStaticStateCss);
 $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? ''), 'blocks-engine-editor-anchor-process') && str_contains($editorStaticStateCss, '.blocks-engine-editor-anchor-process{background:#111;padding:4rem}') && str_contains($editorStaticStateCss, '@media(max-width:600px){.blocks-engine-editor-anchor-process{padding:2rem}}'), 'editor static-state CSS projects authored anchor selectors onto deterministic Gutenberg wrapper classes', $editorStaticStateCss);
+
+$hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();
+$hiddenRichTextCss = implode("\n", array_column($hiddenRichTextMarker['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'

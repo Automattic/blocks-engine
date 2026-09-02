@@ -11,7 +11,6 @@ use Automattic\BlocksEngine\FigmaTransformer\FigFile\FigArchiveReader;
 use Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlEmitter;
 use Automattic\BlocksEngine\FigmaTransformer\Parity\ParityReportBuilder;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphFrameInspector;
-use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphIndex;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphNormalizer;
 use Automattic\BlocksEngine\FigmaTransformer\Scenegraph\ScenegraphPagePlanner;
 
@@ -28,8 +27,7 @@ final class FigmaTransformer
         private readonly RenderStyleMismatchReportBuilder $renderStyleMismatchReportBuilder = new RenderStyleMismatchReportBuilder(),
         private readonly ScenegraphNormalizer $scenegraphNormalizer = new ScenegraphNormalizer(),
         private readonly ScenegraphFrameInspector $frameInspector = new ScenegraphFrameInspector(),
-        private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner(),
-        private readonly ScenegraphIndex $scenegraphIndex = new ScenegraphIndex()
+        private readonly ScenegraphPagePlanner $pagePlanner = new ScenegraphPagePlanner()
     ) {
     }
 
@@ -637,7 +635,6 @@ final class FigmaTransformer
             $emitOptions = $options;
             $emitOptions['implicit_route_page_plan'] = $pagePlan;
             $emitOptions['inline_css'] = false;
-            $emitOptions['link_target_paths'] = $this->linkTargetPathsFromPages($pages, $scenegraph);
             unset($emitOptions['responsive_variants'], $emitOptions['page_name']);
             $artifact = $this->htmlEmitter->emitSite($normalized, $pagePlan, $emitOptions);
             $artifact = $this->withMultiPageSourceReports($artifact, $normalized, $pagePlan, $options);
@@ -862,7 +859,7 @@ final class FigmaTransformer
             $artifact['files'][$fileIndex]['source_frame_identity'] = $isAlias
                 ? array_merge($sourceFrameIdentity, array('path' => $filePath, 'alias_for_path' => $path))
                 : $sourceFrameIdentity;
-            if ( ! in_array($pageType, array('single', 'archive', '404'), true) ) {
+            if ( $isAlias || ! in_array($pageType, array('single', 'archive', '404'), true) ) {
                 continue;
             }
             $templateSlug = $this->canonicalTemplateSlug($pageType);
@@ -1274,138 +1271,6 @@ final class FigmaTransformer
         }
 
         return $artifactQuality;
-    }
-
-    /**
-     * Map planned frame ids to their generated page paths so per-page emission can resolve NODE/prototype links to slugs.
-     *
-     * @param array<int, mixed> $pages
-     * @return array<string, string>
-     */
-    private function linkTargetPathsFromPages(array $pages, array $scenegraph): array
-    {
-        $map = array();
-        $descendantRootPaths = array();
-        foreach ( $pages as $page ) {
-            if ( ! is_array($page) ) {
-                continue;
-            }
-
-            $frameId = isset($page['frame_id']) && is_scalar($page['frame_id']) ? (string) $page['frame_id'] : '';
-            $path = isset($page['path']) && is_scalar($page['path']) && '' !== (string) $page['path']
-                ? (string) $page['path']
-                : (true === ($page['entrypoint'] ?? false) ? 'index.html' : (string) ($page['slug'] ?? $frameId) . '.html');
-            if ( '' === $frameId || '' === $path ) {
-                continue;
-            }
-
-            $map[$frameId] = $path;
-            $descendantRootPaths[$frameId] = $path;
-
-            foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
-                if ( ! is_array($variant) || ! isset($variant['frame_id']) || ! is_scalar($variant['frame_id']) ) {
-                    continue;
-                }
-
-                $variantFrameId = (string) $variant['frame_id'];
-                if ( '' === $variantFrameId ) {
-                    continue;
-                }
-
-                $map[$variantFrameId] = $path;
-                $descendantRootPaths[$variantFrameId] = $path;
-            }
-        }
-
-        if ( empty($descendantRootPaths) ) {
-            return $map;
-        }
-
-        $index = $this->scenegraphIndex->build($scenegraph);
-        $nodes = is_array($index['nodes'] ?? null) ? $index['nodes'] : array();
-        $childrenIndex = is_array($index['children_index'] ?? null) ? $index['children_index'] : array();
-        foreach ( $descendantRootPaths as $rootId => $path ) {
-            $this->mapDescendantLinkTargets((string) $rootId, (string) $path, $childrenIndex, $nodes, $map);
-        }
-
-        return $map;
-    }
-
-    /**
-     * Map every node below a planned page frame to that page's generated path.
-     * Figma prototype links often target a section/text/control inside a frame
-     * instead of the page frame itself; static HTML can only navigate to the
-     * generated page path, so descendants inherit their containing page target.
-     *
-     * @param array<string, array<int, string>>  $childrenIndex
-     * @param array<string, array<string, mixed>> $nodes
-     * @param array<string, string>              $map
-     */
-    private function mapDescendantLinkTargets(string $rootId, string $path, array $childrenIndex, array $nodes, array &$map): void
-    {
-        $stack = is_array($childrenIndex[$rootId] ?? null) ? $childrenIndex[$rootId] : array();
-        $visited = array($rootId => true);
-        $guard = 0;
-
-        while ( array() !== $stack && $guard < 200000 ) {
-            ++$guard;
-            $nodeId = array_pop($stack);
-            if ( ! is_string($nodeId) || isset($visited[$nodeId]) ) {
-                continue;
-            }
-
-            $visited[$nodeId] = true;
-            $map[$nodeId] = $this->descendantLinkTargetPath($path, is_array($nodes[$nodeId] ?? null) ? $nodes[$nodeId] : array());
-
-            foreach ( is_array($childrenIndex[$nodeId] ?? null) ? $childrenIndex[$nodeId] : array() as $childId ) {
-                if ( is_string($childId) && ! isset($visited[$childId]) ) {
-                    $stack[] = $childId;
-                }
-            }
-        }
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function descendantLinkTargetPath(string $path, array $node): string
-    {
-        if ( 'TEXT' !== strtoupper((string) ($node['type'] ?? '')) ) {
-            return $path;
-        }
-
-        $name = strtolower((string) ($node['name'] ?? ''));
-        $fontSize = isset($node['fontSize']) && is_numeric($node['fontSize']) ? (float) $node['fontSize'] : null;
-        if ( null !== $fontSize && $fontSize < 24.0 ) {
-            return $path;
-        }
-        if ( null === $fontSize && ! str_contains($name, 'heading') && ! str_contains($name, 'title') ) {
-            return $path;
-        }
-
-        $text = trim((string) ($node['characters'] ?? $node['text'] ?? $node['name'] ?? ''));
-        if ( '' === $text ) {
-            return $path;
-        }
-
-        return $this->linkHrefWithHash($path, $this->slug($text));
-    }
-
-    private function linkHrefWithHash(string $href, string $hash): string
-    {
-        if ( '' === $hash || str_contains($href, '#') ) {
-            return $href;
-        }
-
-        return $href . '#' . $hash;
-    }
-
-    private function slug(string $value): string
-    {
-        $slug = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '-', $value) ?? '');
-        $slug = trim($slug, '-');
-
-        return '' === $slug ? 'node' : $slug;
     }
 
     /**

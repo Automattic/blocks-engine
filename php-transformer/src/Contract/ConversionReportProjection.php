@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 
 final class ConversionReportProjection
 {
@@ -61,8 +62,8 @@ final class ConversionReportProjection
     {
         $artifact = is_array($sourceReports['artifact'] ?? null) ? $sourceReports['artifact'] : array();
         $compiledSite = is_array($sourceReports['compiled_site'] ?? null) ? $sourceReports['compiled_site'] : array();
-        $materializationPlan = is_array($sourceReports['materialization_plan'] ?? null) ? $sourceReports['materialization_plan'] : array();
-        $materializationTotals = is_array($materializationPlan['totals'] ?? null) ? $materializationPlan['totals'] : array();
+        $wordpressSitePlan = is_array($sourceReports['wordpress_site_plan'] ?? null) ? $sourceReports['wordpress_site_plan'] : array();
+        $legacySummary = array() === $wordpressSitePlan && array() !== $compiledSite ? (new MaterializationPlanBuilder())->fromCompiledSite($compiledSite) : array();
 
         return array_filter(
             array(
@@ -71,11 +72,11 @@ final class ConversionReportProjection
                 'file_count'       => $artifact['file_count'] ?? null,
                 'accepted_count'   => $artifact['accepted_count'] ?? null,
                 'rejected_count'   => $artifact['rejected_count'] ?? null,
-                'page_count'       => $materializationTotals['pages'] ?? (isset($compiledSite['pages']) && is_array($compiledSite['pages']) ? count($compiledSite['pages']) : null),
-                'asset_count'      => $materializationTotals['assets'] ?? (0 < count($assets) ? count($assets) : null),
-                'route_count'      => $materializationTotals['routes'] ?? null,
-                'navigation_link_count' => $materializationTotals['navigation_links'] ?? null,
-                'menu_count'       => $materializationTotals['menus'] ?? null,
+                'page_count'       => count(is_array($wordpressSitePlan['pages'] ?? null) ? $wordpressSitePlan['pages'] : ($legacySummary['pages'] ?? array())),
+                'asset_count'      => count(is_array($wordpressSitePlan['assets'] ?? null) ? $wordpressSitePlan['assets'] : ($legacySummary['assets'] ?? array())),
+                'route_count'      => count(is_array($wordpressSitePlan['routes'] ?? null) ? $wordpressSitePlan['routes'] : ($legacySummary['routes'] ?? array())),
+                'navigation_link_count' => count(is_array($wordpressSitePlan['navigation_links'] ?? null) ? $wordpressSitePlan['navigation_links'] : ($legacySummary['navigation_links'] ?? array())),
+                'menu_count'       => count(is_array($wordpressSitePlan['menus'] ?? null) ? $wordpressSitePlan['menus'] : ($legacySummary['menus'] ?? array())),
                 'block_count'      => $metrics['block_count'] ?? self::countBlocks($blocks),
                 'fallback_count'   => $metrics['fallback_count'] ?? count($fallbacks),
                 'diagnostic_count' => $metrics['diagnostic_count'] ?? null,
@@ -156,6 +157,8 @@ final class ConversionReportProjection
                     'source'          => $fallback['source'] ?? '',
                     'scope'           => $fallback['scope'] ?? '',
                     'source_path'            => $fallback['source_path'] ?? '',
+                    'fallback_identity'      => $fallback['fallback_identity'] ?? '',
+                    'reconciliation_identity' => $fallback['reconciliation_identity'] ?? '',
                     'tag'                    => $fallback['tag'] ?? '',
                     'selector'               => $fallback['selector'] ?? '',
                     'container_selector'     => $fallback['container_selector'] ?? '',
@@ -174,6 +177,7 @@ final class ConversionReportProjection
                     'events'                 => $fallback['events'] ?? array(),
                     'script_dependency_hint' => $fallback['script_dependency_hint'] ?? '',
                     'readable_blocks'        => $fallback['readable_blocks'] ?? array(),
+                    'dependent_losses'       => $fallback['dependent_losses'] ?? array(),
                     'html_bytes'             => $fallback['html_bytes'] ?? (isset($fallback['html']) && is_string($fallback['html']) ? strlen($fallback['html']) : null),
                     'html_truncated'         => $fallback['html_truncated'] ?? null,
                 ),

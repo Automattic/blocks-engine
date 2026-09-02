@@ -3,12 +3,22 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use InvalidArgumentException;
 
 final class FontMaterializationPlanBuilder
 {
     public const SCHEMA = 'blocks-engine/php-transformer/font-materialization-plan/v1';
     private const CSS_WIDE_KEYWORDS = array('inherit', 'initial', 'revert', 'revert-layer', 'unset');
+
+    /**
+     * Typography consumers rescan one shared stylesheet for every page. A
+     * caller that compiles several pages supplies a cache so the immutable
+     * CSS-derived analysis is built once for the stylesheets it shares.
+     */
+    public function __construct(private readonly CssFontAnalysisCache $fontAnalysisCache = new CssFontAnalysisCache())
+    {
+    }
 
     /**
      * @param array<int,array<string,mixed>> $fontUsage
@@ -42,9 +52,9 @@ final class FontMaterializationPlanBuilder
      * Build a materialization plan from raw web-font sources.
      *
      * Detects web-font stylesheets (e.g. Google Fonts `css2`/`css` `<link>` and
-     * CSS `@import` sources) plus `font-family` declarations, preserving the
-     * discovered typefaces and their heading/body roles so that materialized
-     * output keeps the source typography.
+     * CSS `@import` sources), preserving their requested typefaces. CSS
+     * `font-family` declarations select heading/body roles but cannot introduce
+     * families that are not backed by a supported provider source.
      *
      * @return array<string,mixed>
      */
@@ -56,31 +66,36 @@ final class FontMaterializationPlanBuilder
         // their concrete typefaces before parsing so the plan captures the real
         // family — never a literal `var(--font-body)` token, which would corrupt
         // the materialized Google Fonts request and the body role.
-        $resolvedCss = $this->resolveCssVariables($css);
-
         $imports = $this->webFontImports($css, $cssSources);
-        $fontUsage = array_merge(
-            $this->fontUsageFromLinkedStylesheets($html),
-            ...array_merge(array_column($imports, 'font_usage'), array($this->fontUsageFromCssDeclarations($resolvedCss)))
-        );
-        $roles = $this->fontRolesFromCss($resolvedCss);
-
-        // The base/body `font-family` is the document's foundational typography
-        // and must survive into the materialized output even when it is declared
-        // only in an inline `<style>` block (no external stylesheet, no linked
-        // web-font). Carry that base font into the plan so the generated base
-        // typography keeps the source's body face. Heading-only inline fonts are
-        // deliberately NOT materialized here: a custom heading face with no
-        // loaded web-font cannot render, so it stays a reported drop.
-        $inlineBody = (string) ($this->fontRolesFromCss($this->resolveCssVariables($this->styleBlockCss($html)))['body'] ?? '');
-        if ( '' !== $inlineBody ) {
-            $fontUsage[] = array('family' => $inlineBody, 'weights' => array(400));
-            if ( '' === (string) ($roles['body'] ?? '') ) {
-                $roles['body'] = $inlineBody;
-            }
+        $directFaces = $this->directFontFaces($css, $cssSources);
+        foreach ( $directFaces as $directFace ) {
+            $imports[] = array(
+                'id' => 'webfont-import-' . substr(hash('sha256', $directFace['provenance']['source_path'] . "\n" . $directFace['provenance']['selector'] . "\n" . $directFace['source_url']), 0, 20),
+                'href' => $directFace['source_url'],
+                'href_hash' => hash('sha256', $directFace['source_url']),
+                'provider' => 'direct',
+                'supported' => true,
+                'font_usage' => array(array('family' => $directFace['family'], 'weights' => $this->faceWeights($directFace['weight']))),
+                'faces' => array(array('id' => 'webfont-face-' . substr(hash('sha256', $directFace['family'] . "\n" . $directFace['style'] . "\n" . json_encode($directFace['weight']) . "\n" . $directFace['source_url']), 0, 20), 'family' => $directFace['family'], 'style' => $directFace['style'], 'weight' => $directFace['weight'], 'axes' => array('wght' => $directFace['weight']))),
+                'provenance' => $directFace['provenance'],
+            );
         }
+        usort($imports, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
+        $googleFontUsage = array_merge(
+            $this->fontUsageFromLinkedStylesheets($html),
+            ...array_column(array_filter($imports, static fn (array $import): bool => 'google_fonts' === $import['provider']), 'font_usage')
+        );
+        $roles = $this->fontRolesFromCss($css);
 
-        $plan = $this->googleFonts($fontUsage, $roles);
+        // A CSS family name alone does not prove that Google hosts the font.
+        // Materialize only families backed by a Google import/link or a direct face.
+        $plan = $this->googleFonts($googleFontUsage, $roles);
+        $directFontUsage = array_column(array_filter($imports, static fn (array $import): bool => 'direct' === $import['provider']), 'font_usage');
+        if ( array() !== $directFontUsage ) {
+            $plan['fonts'] = $this->normalizeFontUsage(array_merge($googleFontUsage, ...$directFontUsage));
+            $plan['roles'] = $this->filterRoles($roles, $plan['fonts']);
+            $plan['provider'] = array() === $googleFontUsage ? 'direct' : 'mixed';
+        }
         $faces = array();
         $diagnostics = array();
         foreach ( $imports as $import ) {
@@ -95,9 +110,11 @@ final class FontMaterializationPlanBuilder
         }
         usort($faces, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
         $importCss = $this->cssFromImports($imports);
-        if ( '' !== $importCss ) {
-            $plan['css'] = $importCss;
-            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $importCss . "\n"));
+        $directCss = $this->cssFromDirectFaces($directFaces);
+        $materializedCss = implode("\n", array_filter(array($importCss, $directCss)));
+        if ( '' !== $materializedCss ) {
+            $plan['css'] = $materializedCss;
+            $plan['stylesheets'] = array(array('path' => 'assets/css/fonts.css', 'role' => 'stylesheet', 'mime_type' => 'text/css', 'content' => $materializedCss . "\n"));
         }
         if ( isset($plan['stylesheets'][0]) ) {
             $plan['stylesheets'][0]['content_hash'] = hash('sha256', (string) $plan['stylesheets'][0]['content']);
@@ -175,7 +192,7 @@ final class FontMaterializationPlanBuilder
     {
         $diagnosticsByImport = array();
         foreach ( $diagnostics as $diagnostic ) $diagnosticsByImport[$diagnostic['import_ref'] ?? ''][] = $diagnostic;
-        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
+        $contractImports = array_map(static fn (array $import): array => array('id' => $import['id'], 'provider' => $import['provider'], 'state' => array() === $import['faces'] ? ($import['supported'] ? 'unresolved' : 'unsupported') : 'declared', 'source' => array('url' => $import['href'], 'format' => 'direct' === $import['provider'] ? 'font' : 'css', 'expected_digest' => null, 'observed_digest' => null), 'provenance' => $import['provenance'], 'diagnostics' => $diagnosticsByImport[$import['id']] ?? array()), $imports);
         $importsById = array_column($contractImports, null, 'id');
         $contractFaces = array_map(static fn (array $face): array => array('id' => $face['id'], 'import_id' => $face['import_ref'], 'receipt_id' => 'webfont-receipt-' . substr(hash('sha256', $face['id']), 0, 20), 'state' => 'declared', 'family' => $face['family'], 'style' => $face['style'], 'weight' => $face['weight'], 'axes' => $face['axes'], 'unicode_ranges' => array(), 'sources' => array($importsById[$face['import_ref']]['source'])), $faces);
         $contractReceipts = array_map(static fn (array $face): array => array('id' => $face['receipt_id'], 'face_id' => $face['id'], 'import_id' => $face['import_id'], 'required' => true, 'state' => 'pending_browser_readiness'), $contractFaces);
@@ -195,20 +212,19 @@ final class FontMaterializationPlanBuilder
     private function cssFromImports(array $imports): string
     {
         $urls = array();
-        foreach ( $imports as $import ) if ( $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
+        foreach ( $imports as $import ) if ( 'google_fonts' === $import['provider'] && $import['supported'] ) $urls[] = '@import url("' . $import['href'] . '");';
         return implode("\n", $urls);
     }
 
-    /**
-     * Concatenate the CSS inside every `<style>` block of an HTML document.
-     */
-    private function styleBlockCss(string $html): string
+    /** @param array<int,array<string,mixed>> $faces */
+    private function cssFromDirectFaces(array $faces): string
     {
-        if ( '' === trim($html) || ! preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
-            return '';
+        $css = array();
+        foreach ( $faces as $face ) {
+            $weight = 'range' === ($face['weight']['kind'] ?? '') ? $face['weight']['min'] . ' ' . $face['weight']['max'] : (string) ($face['weight']['value'] ?? 400);
+            $css[] = '@font-face{font-family:"' . str_replace('"', '\\"', $face['family']) . '";font-style:' . $face['style'] . ';font-weight:' . $weight . ';src:url("' . str_replace('"', '\\"', $face['source_url']) . '");}';
         }
-
-        return implode("\n", $matches[1]);
+        return implode("\n", $css);
     }
 
     /**
@@ -229,29 +245,6 @@ final class FontMaterializationPlanBuilder
             if ( '' === $href ) {
                 continue;
             }
-            foreach ( $this->fontUsageFromFontHref($href) as $font ) {
-                $usage[] = $font;
-            }
-        }
-
-        return $usage;
-    }
-
-    /**
-     * Parse web-font stylesheet URLs from CSS `@import` rules.
-     *
-     * @return array<int,array{family:string,weights:array<int,int>}>
-     */
-    private function fontUsageFromCssImports(string $css): array
-    {
-        $css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
-        if ( '' === trim($css) || ! preg_match_all('/@import\s+(?:url\(\s*)?(?:"([^"]+)"|\'([^\']+)\'|([^\s\)"\';]+))/i', $css, $matches, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        $usage = array();
-        foreach ( $matches as $match ) {
-            $href = (string) (($match[1] ?? '') ?: ($match[2] ?? '') ?: ($match[3] ?? ''));
             foreach ( $this->fontUsageFromFontHref($href) as $font ) {
                 $usage[] = $font;
             }
@@ -299,6 +292,62 @@ final class FontMaterializationPlanBuilder
         }
         usort($imports, static fn (array $left, array $right): int => strcmp($left['id'], $right['id']));
         return $imports;
+    }
+
+    /**
+     * Extract a bounded set of source-proven direct font files. The emitted CSS
+     * is reconstructed from these typed facts rather than copying author CSS.
+     *
+     * @param array<int,array<string,mixed>> $cssSources
+     * @return array<int,array<string,mixed>>
+     */
+    private function directFontFaces(string $css, array $cssSources): array
+    {
+        $sources = array();
+        foreach ( $cssSources as $source ) {
+            if ( is_array($source) && is_string($source['content'] ?? null) ) $sources[] = array('content' => $source['content'], 'source_path' => (string) ($source['path'] ?? 'css:input'), 'source_hash' => (string) ($source['source_hash'] ?? hash('sha256', $source['content'])));
+        }
+        if ( array() === $sources && '' !== trim($css) ) $sources[] = array('content' => $css, 'source_path' => 'css:input', 'source_hash' => hash('sha256', $css));
+
+        $faces = array();
+        foreach ( $sources as $source ) {
+            if ( count($faces) >= 64 || ! preg_match_all('/@font-face\s*\{([^{}]{1,16384})\}/i', $source['content'], $matches, PREG_SET_ORDER) ) continue;
+            foreach ( $matches as $index => $match ) {
+                if ( count($faces) >= 64 ) break;
+                $declaration = (string) $match[1];
+                if ( ! preg_match('/(?:^|;)\s*font-family\s*:\s*([^;{}]+)/i', $declaration, $familyMatch) || ! preg_match('/(?:^|;)\s*src\s*:\s*[^;{}]*url\(\s*(?:"([^"]+)"|\'([^\']+)\'|([^\s\)]+))\s*\)/i', $declaration, $sourceMatch) ) continue;
+                $family = $this->normalizeFamily((string) $familyMatch[1]);
+                $sourceUrl = html_entity_decode((string) (($sourceMatch[1] ?? '') ?: ($sourceMatch[2] ?? '') ?: ($sourceMatch[3] ?? '')), ENT_QUOTES | ENT_HTML5);
+                if ( '' === $family || $this->isWebSafeFontFamily($family) || $this->isInvalidFontFamily($family) || ! $this->isEligibleDirectFontSourceUrl($sourceUrl) ) continue;
+                preg_match('/(?:^|;)\s*font-style\s*:\s*([^;{}]+)/i', $declaration, $styleMatch);
+                preg_match('/(?:^|;)\s*font-weight\s*:\s*([^;{}]+)/i', $declaration, $weightMatch);
+                $style = strtolower(trim((string) ($styleMatch[1] ?? 'normal')));
+                $weight = $this->typedWeight(trim((string) ($weightMatch[1] ?? '400')));
+                if ( ! in_array($style, array('normal', 'italic', 'oblique'), true) ) continue;
+                $faces[] = array('family' => $family, 'style' => $style, 'weight' => $weight, 'source_url' => $sourceUrl, 'provenance' => array('source_kind' => 'css_font_face', 'source_path' => $source['source_path'], 'source_hash' => $source['source_hash'], 'selector' => 'css:@font-face(' . ($index + 1) . ')'));
+            }
+        }
+        usort($faces, static fn (array $left, array $right): int => strcmp($left['provenance']['source_path'] . "\n" . $left['provenance']['selector'] . "\n" . $left['source_url'], $right['provenance']['source_path'] . "\n" . $right['provenance']['selector'] . "\n" . $right['source_url']));
+        return $faces;
+    }
+
+    private function isEligibleDirectFontSourceUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        $path = is_array($parts) ? strtolower((string) ($parts['path'] ?? '')) : '';
+        return is_array($parts)
+            && 'https' === strtolower((string) ($parts['scheme'] ?? ''))
+            && ! empty($parts['host'])
+            && (! isset($parts['port']) || 443 === (int) $parts['port'])
+            && ! isset($parts['user'])
+            && ! isset($parts['pass'])
+            && (bool) preg_match('/\.woff2?$/', $path);
+    }
+
+    /** @param array<string,int|string> $weight @return array<int,int> */
+    private function faceWeights(array $weight): array
+    {
+        return 'range' === ($weight['kind'] ?? '') ? array((int) $weight['min'], (int) $weight['max']) : array((int) ($weight['value'] ?? 400));
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -431,31 +480,16 @@ final class FontMaterializationPlanBuilder
      */
     public function fontRolesFromCss(string $css): array
     {
-        if ( '' === $css || ! preg_match('/\S/', $css) ) {
-            return array();
-        }
-
         $heading = '';
         $body = '';
-        $offset = 0;
-        while ( preg_match('/([^{}]+)\{([^{}]*)\}/s', $css, $rule, PREG_OFFSET_CAPTURE, $offset) ) {
-            $offset = $rule[0][1] + strlen($rule[0][0]);
-            if ( ! preg_match('/font-family\s*:\s*([^;{}]+)/i', (string) $rule[2][0], $declaration) ) {
-                continue;
+        foreach ( $this->fontFamilyDeclarationsFromCssSources(array($css)) as $declaration ) {
+            $selector = $declaration['selector'];
+            $family = $declaration['family'];
+            if ( '' === $heading && preg_match('/(^|[\s>+~])h[1-6]\b/i', $selector) ) {
+                $heading = $family;
             }
-            $family = $this->primaryFamily((string) $declaration[1]);
-            if ( '' === $family ) {
-                continue;
-            }
-
-            $selectors = array_map('trim', explode(',', (string) $rule[1][0]));
-            foreach ( $selectors as $selector ) {
-                if ( '' === $heading && preg_match('/(^|[\s>+~])h[1-6]\b/i', $selector) ) {
-                    $heading = $family;
-                }
-                if ( '' === $body && preg_match('/(^|[\s>+~])(body|html|:root|\*)\b/i', $selector) ) {
-                    $body = $family;
-                }
+            if ( '' === $body && preg_match('/(^|[\s>+~])(body|html|:root|\*)\b/i', $selector) ) {
+                $body = $family;
             }
             if ( '' !== $heading && '' !== $body ) {
                 break;
@@ -463,6 +497,73 @@ final class FontMaterializationPlanBuilder
         }
 
         return array_filter(array('heading' => $heading, 'body' => $body), static fn (string $value): bool => '' !== $value);
+    }
+
+    /**
+     * @param list<string> $stylesheets
+     * @return list<array{family:string,selector:string,source_snippet:string}>
+     */
+    public function fontFamilyDeclarationsFromCssSources(array $stylesheets): array
+    {
+        return $this->fontAnalysisCache->declarations($stylesheets, fn (): array => $this->buildFontFamilyDeclarations($stylesheets));
+    }
+
+    /**
+     * @param list<string> $stylesheets
+     * @return list<array{family:string,selector:string,source_snippet:string}>
+     */
+    private function buildFontFamilyDeclarations(array $stylesheets): array
+    {
+        $variables = $this->cssVariableValues($stylesheets);
+        $visitor = new CssStylesheetTransformer();
+        $declarations = array();
+        foreach ( $stylesheets as $css ) {
+            $visitor->visitStyleRules($css, function (string $prelude, string $body) use (&$declarations, $variables): void {
+                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match('/font-family\s*:\s*([^;{}]+)/i', $body, $match) ) {
+                    return;
+                }
+                $value = $this->resolveCssVariableValue((string) $match[1], $variables);
+                $family = $this->primaryFamily($value);
+                if ( '' === $family ) {
+                    return;
+                }
+                foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                    $selector = trim($selector);
+                    if ( '' !== $selector ) {
+                        $declarations[] = array(
+                            'family' => $family,
+                            'selector' => $selector,
+                            'source_snippet' => trim($prelude) . '{font-family:' . trim((string) $match[1]) . '}',
+                        );
+                    }
+                }
+            });
+        }
+        return $declarations;
+    }
+
+    /** @param list<string> $stylesheets @return array<string,string> */
+    public function cssVariableValues(array $stylesheets): array
+    {
+        return $this->fontAnalysisCache->variables($stylesheets, fn (): array => $this->buildCssVariableValues($stylesheets));
+    }
+
+    /** @param list<string> $stylesheets @return array<string,string> */
+    private function buildCssVariableValues(array $stylesheets): array
+    {
+        $variables = array();
+        $visitor = new CssStylesheetTransformer();
+        foreach ( $stylesheets as $css ) {
+            $visitor->visitStyleRules($css, static function (string $prelude, string $body) use (&$variables): void {
+                if ( str_starts_with(ltrim($prelude), '@') || ! preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
+                    return;
+                }
+                foreach ( $matches as $match ) {
+                    $variables[(string) $match[1]] = trim((string) $match[2]);
+                }
+            });
+        }
+        return $variables;
     }
 
     /**
@@ -577,6 +678,29 @@ final class FontMaterializationPlanBuilder
         }
 
         return $css;
+    }
+
+    /** @param array<string,string> $variables */
+    public function resolveCssVariableValue(string $value, array $variables): string
+    {
+        for ( $pass = 0; $pass < 5; $pass++ ) {
+            $expanded = preg_replace_callback(
+                '/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/',
+                static function (array $match) use ($variables): string {
+                    $name = (string) $match[1];
+                    if ( isset($variables[$name]) && '' !== $variables[$name] ) {
+                        return $variables[$name];
+                    }
+                    return isset($match[2]) && '' !== trim((string) $match[2]) ? trim((string) $match[2]) : (string) $match[0];
+                },
+                $value
+            );
+            if ( ! is_string($expanded) || $expanded === $value ) {
+                break;
+            }
+            $value = $expanded;
+        }
+        return $value;
     }
 
     /**

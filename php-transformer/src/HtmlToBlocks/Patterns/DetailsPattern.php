@@ -3,11 +3,46 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
-final class DetailsPattern
+final class DetailsPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $converter = $context->recursiveConverter();
+        if ( ! $converter instanceof PatternRecursiveConverter ) {
+            return null;
+        }
+
+        $fallbacks = array();
+        if ( 'details' === strtolower($element->tagName) ) {
+            $block = $this->match(
+                $element,
+                $fallbacks,
+                function (DOMElement $sourceElement, array &$sourceFallbacks, array $excludedTags) use ($converter): array {
+                    return $converter->childrenWithoutTags($sourceElement, $sourceFallbacks, $excludedTags);
+                },
+                $context->presentationAttributes(...),
+                SourceDom::innerHtml(...),
+                $context->createBlock(...)
+            );
+        } else {
+            $block = $this->matchDisclosure(
+                $element,
+                function (DOMElement $sourceElement) use ($converter, &$fallbacks): array {
+                    return $converter->children($sourceElement, $fallbacks, true);
+                },
+                $context->presentationAttributes(...),
+                SourceDom::innerHtml(...),
+                $context->createBlock(...)
+            );
+        }
+
+        return null === $block ? null : new PatternRecognitionResult($block, $fallbacks);
+    }
 
     /**
      * @param array<int, array<string, mixed>> $fallbacks
@@ -71,7 +106,7 @@ final class DetailsPattern
         }
 
         $header = $this->headerForToggle($element, $toggle);
-        if ( ! $header instanceof DOMElement ) {
+        if ( ! $header instanceof DOMElement || ! $this->isBoundedDisclosureHeader($header, $toggle) ) {
             return null;
         }
 
@@ -149,12 +184,17 @@ final class DetailsPattern
         }
 
         for ( $node = $header->nextSibling; null !== $node; $node = $node->nextSibling ) {
-            if ( $node instanceof DOMElement ) {
+            if ( $node instanceof DOMElement && $this->isCollapsibleRegion($node) ) {
                 return $node;
             }
         }
 
         return null;
+    }
+
+    private function isCollapsibleRegion(DOMElement $element): bool
+    {
+        return $element->hasAttribute('hidden') || 'region' === strtolower($this->trimmedAttribute($element, 'role'));
     }
 
     /**
@@ -173,20 +213,25 @@ final class DetailsPattern
         return null;
     }
 
-    private function isNavigationLandmark(DOMElement $element): bool
+    /**
+     * A disclosure header may wrap its toggle (for example in a heading), but
+     * must not also contain unrelated page-content branches that would be lost
+     * when the widget is folded into one details block.
+     */
+    private function isBoundedDisclosureHeader(DOMElement $header, DOMElement $toggle): bool
     {
-        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->trimmedAttribute($element, 'role'));
-    }
-
-    private function containsNode(DOMElement $ancestor, DOMElement $node): bool
-    {
-        for ( $current = $node; $current instanceof DOMElement; $current = $current->parentNode ) {
-            if ( $current->isSameNode($ancestor) ) {
-                return true;
+        foreach ( $header->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && ! $this->containsNode($candidate, $toggle) && ! $this->containsNode($toggle, $candidate) ) {
+                return false;
             }
         }
 
-        return false;
+        return true;
+    }
+
+    private function isNavigationLandmark(DOMElement $element): bool
+    {
+        return 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->trimmedAttribute($element, 'role'));
     }
 
 }

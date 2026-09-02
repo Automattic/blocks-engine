@@ -42,16 +42,25 @@ $requiredFiles = array(
     'docs/contracts/visual-parity-report.md',
     'resources/wordpress-latest-core-block-attributes.json',
     'resources/wordpress-latest-core-block-supports.json',
-    'tools/visual-parity/package-lock.json',
-    'tools/visual-parity/package.json',
-    'tools/visual-parity/bin/visual-parity.mjs',
-    'tools/visual-parity/tests/fixtures/source.html',
-    'tools/visual-parity/tests/fixtures/target.html',
-    'tools/visual-parity/tests/smoke.mjs',
 );
 foreach ( $requiredFiles as $requiredFile ) {
     if ( ! is_file($packageRoot . '/' . $requiredFile) ) {
         fwrite(STDERR, "php-transformer install proof missing package file: {$requiredFile}\n");
+        exit(1);
+    }
+}
+// The harness is mapped through autoload-dev, and Composer never registers a
+// dependency's autoload-dev block. An installed package must therefore be
+// unable to resolve these names even though a path-repository install copies
+// the working tree verbatim. File-level dist shape is proven separately, in
+// tests/packaging/dist-shape.php, against `git archive`.
+$harnessClasses = array(
+    'Automattic\\BlocksEngine\\PhpTransformer\\VisualParity\\StaticStyleParityRunner',
+    'Automattic\\BlocksEngine\\PhpTransformer\\CorpusDiagnostics\\CorpusDiagnosticsRunner',
+);
+foreach ( $harnessClasses as $harnessClass ) {
+    if ( class_exists($harnessClass) ) {
+        fwrite(STDERR, "php-transformer install proof resolved a monorepo-only class from an installed package: {$harnessClass}\n");
         exit(1);
     }
 }
@@ -72,6 +81,38 @@ $quoteAttrs = $quote['blocks'][0]['attrs'] ?? array();
 $quoteBorder = $quoteAttrs['style']['border']['left'] ?? null;
 if (array('width' => '2px', 'style' => 'solid', 'color' => 'red') !== $quoteBorder || str_contains((string) ($quoteAttrs['className'] ?? ''), 'be-inline-geometry-')) {
     fwrite(STDERR, "php-transformer install proof failed WordPress 7.1 Quote border support\n");
+    exit(1);
+}
+$previous = libxml_use_internal_errors(true);
+$document = new DOMDocument();
+$document->loadHTML('<details open><summary>More</summary><p>Answer.</p></details>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$details = $document->documentElement;
+$pattern = new Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\DetailsPattern();
+$fallbacks = array();
+$block = $pattern->match(
+    $details,
+    $fallbacks,
+    static fn (DOMElement $element, array &$sourceFallbacks, array $excludedTags): array => array(array('blockName' => 'core/paragraph')),
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => $element->textContent ?? '',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)
+);
+if ('core/details' !== ($block['blockName'] ?? null) || true !== ($block['attrs']['showContent'] ?? null) || array() !== $fallbacks) {
+    fwrite(STDERR, "php-transformer install proof failed DetailsPattern public match API\n");
+    exit(1);
+}
+$document->loadHTML('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p></div></div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+$disclosure = $pattern->matchDisclosure(
+    $document->documentElement,
+    static fn (DOMElement $element): array => array(array('blockName' => 'core/paragraph')),
+    static fn (DOMElement $element): array => array(),
+    static fn (DOMElement $element): string => $element->textContent ?? '',
+    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array('blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children)
+);
+libxml_clear_errors();
+libxml_use_internal_errors($previous);
+if ('core/details' !== ($disclosure['blockName'] ?? null) || 'Question?' !== ($disclosure['attrs']['summary'] ?? null)) {
+    fwrite(STDERR, "php-transformer install proof failed DetailsPattern public disclosure API\n");
     exit(1);
 }
 PHP;

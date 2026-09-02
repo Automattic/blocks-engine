@@ -28,6 +28,10 @@ for ($depth = 0; $depth < 44; ++$depth) $svgChain = '<div class="depth-' . $dept
 $deepSvg = $transform($svgChain);
 $assert('core/image' === ($deepSvg['blocks'][0]['blockName'] ?? null) && $maxDepth($deepSvg['blocks'] ?? array()) <= 20 && 1 === count(array_filter($deepSvg['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? null))), 'A depth-44 passive SVG image chain coalesces to one native image without losing its materialized asset.');
 
+$resourceSvg = $transform('<svg viewBox="0 0 10 10" role="presentation"><defs><link rel="stylesheet" href="assets/icon.css"></defs><path d="M0 0h10v10H0z"/></svg>');
+$resourceSvgAsset = array_values(array_filter($resourceSvg['assets'] ?? array(), static fn (array $asset): bool => 'svg' === ($asset['kind'] ?? null)))[0] ?? array();
+$assert('core/image' === ($resourceSvg['blocks'][0]['blockName'] ?? null) && !str_contains((string) ($resourceSvgAsset['content'] ?? ''), '<link') && !str_contains((string) ($resourceSvg['serialized_blocks'] ?? ''), '<!-- wp:html'), 'An inert resource link inside SVG defs is stripped before passive artwork materialization.');
+
 $wowChain = '<wow-image class="captured-media"><img src="hero.jpg" alt="Hero"></wow-image>';
 for ($depth = 0; $depth < 39; ++$depth) $wowChain = '<div class="depth-' . $depth . '">' . $wowChain . '</div>';
 $deepWow = $transform($wowChain);

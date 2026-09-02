@@ -106,6 +106,37 @@ final class TableClassificationPolicy
     }
 
     /**
+     * A single headerless row whose cells all declare percentage widths is a
+     * layout grid, not a data table.
+     */
+    public function isPercentLayoutTable(DOMElement $table): bool
+    {
+        $className = strtolower($table->getAttribute('class'));
+        if ( 'table' !== strtolower($table->tagName)
+            || $this->hasDescendantTable($table)
+            || ! $this->isSingleRowLayoutTable($table)
+            || 1 !== preg_match('/(?:^|[\s_-])(?:multi)?col(?:umns?|s)?(?:[\s_-]|$)|multicol/', $className)
+        ) {
+            return false;
+        }
+
+        $rows = $this->rowsForTable($table);
+        $cells = $this->cellsForRow($rows[0]);
+        if ( count($cells) < 2 ) {
+            return false;
+        }
+
+        foreach ( $cells as $cell ) {
+            $style = strtolower($cell->getAttribute('style'));
+            if ( 1 !== preg_match('/(?:^|;)\s*width\s*:\s*\d+(?:\.\d+)?%/i', $style) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function tableSignals(DOMElement $table): array

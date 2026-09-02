@@ -3,68 +3,68 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Closure;
 use DOMElement;
 
 final class PatternContext
 {
     /**
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(DOMElement): string $innerHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
+     * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
+     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
      * @param PatternRecursiveConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
-     * @param callable(DOMElement): string|null $mergedPresentationStyle
-     * @param callable(DOMElement): array<string, string>|null $htmlAttributes
-     * @param callable(string): string|null $resolveAssetImageUrl
-     * @param callable(DOMElement, array<int, string>): array<string, mixed>|null $mediaTextPresentationAttributes
-     * @param callable(DOMElement): string|null $mediaTextPresentationStyle
-     * @param callable(DOMElement): string|null $structuralPresentationStyle
+     * @param MediaPatternContext|null $mediaContext
+     * @param ColumnsPatternContext|null $columnsContext
+     * @param MarkupPatternContext|null $markupContext
+     * @param ButtonPatternContext|null $buttonContext
+     * @param QuotePatternContext|null $quoteContext
+     * @param CodeWindowPatternContext|null $codeWindowContext
+     * @param LogoPatternContext|null $logoContext
+     * @param GalleryPatternContext|null $galleryContext
      */
     public function __construct(
-        private readonly mixed $presentationAttributes,
-        private readonly mixed $innerHtml,
-        private readonly mixed $createBlock,
+        private readonly Closure $presentationAttributes,
+        private readonly Closure $createBlock,
         private readonly ?PatternRecursiveConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
-        private readonly mixed $mergedPresentationStyle = null,
-        private readonly mixed $htmlAttributes = null,
-        private readonly mixed $resolveAssetImageUrl = null,
-        private readonly mixed $mediaTextPresentationAttributes = null,
-        private readonly mixed $mediaTextPresentationStyle = null,
-        private readonly mixed $structuralPresentationStyle = null
+        private readonly ?MediaPatternContext $mediaContext = null,
+        private readonly ?ColumnsPatternContext $columnsContext = null,
+        private readonly ?MarkupPatternContext $markupContext = null,
+        private readonly ?ButtonPatternContext $buttonContext = null,
+        private readonly ?QuotePatternContext $quoteContext = null,
+        private readonly ?CodeWindowPatternContext $codeWindowContext = null,
+        private readonly ?LogoPatternContext $logoContext = null,
+        private readonly ?GalleryPatternContext $galleryContext = null
     ) {
     }
 
     /**
-     * @return callable(DOMElement): array<string, mixed>
+     * @param array<int, string> $excludedGeometryProperties
+     * @return array<string, mixed>
      */
-    public function presentationAttributesCallback(): callable
+    public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
-        return $this->presentationAttributes;
+        return ($this->presentationAttributes)($element, $excludedGeometryProperties);
     }
 
     /**
-     * @return callable(DOMElement): string
+     * @param array<string, mixed> $attributes
+     * @param array<int, array<string, mixed>> $innerBlocks
+     * @return array<string, mixed>
      */
-    public function innerHtmlCallback(): callable
+    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
-        return $this->innerHtml;
-    }
-
-    /**
-     * @return callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed>
-     */
-    public function createBlockCallback(): callable
-    {
-        return $this->createBlock;
+        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
     public function recursiveConverter(): ?PatternRecursiveConverter { return $this->recursiveConverter; }
     public function navigationContext(): ?NavigationPatternContext { return $this->navigationContext; }
-    public function mergedPresentationStyleCallback(): ?callable { return is_callable($this->mergedPresentationStyle) ? $this->mergedPresentationStyle : null; }
-    public function htmlAttributesCallback(): ?callable { return is_callable($this->htmlAttributes) ? $this->htmlAttributes : null; }
-    public function resolveAssetImageUrlCallback(): ?callable { return is_callable($this->resolveAssetImageUrl) ? $this->resolveAssetImageUrl : null; }
-    public function mediaTextPresentationAttributesCallback(): ?callable { return is_callable($this->mediaTextPresentationAttributes) ? $this->mediaTextPresentationAttributes : null; }
-    public function mediaTextPresentationStyleCallback(): ?callable { return is_callable($this->mediaTextPresentationStyle) ? $this->mediaTextPresentationStyle : null; }
-    public function structuralPresentationStyleCallback(): ?callable { return is_callable($this->structuralPresentationStyle) ? $this->structuralPresentationStyle : null; }
+    public function mediaContext(): ?MediaPatternContext { return $this->mediaContext; }
+    public function columnsContext(): ?ColumnsPatternContext { return $this->columnsContext; }
+    public function markupContext(): ?MarkupPatternContext { return $this->markupContext; }
+    public function buttonContext(): ?ButtonPatternContext { return $this->buttonContext; }
+    public function quoteContext(): ?QuotePatternContext { return $this->quoteContext; }
+    public function codeWindowContext(): ?CodeWindowPatternContext { return $this->codeWindowContext; }
+    public function logoContext(): ?LogoPatternContext { return $this->logoContext; }
+    public function galleryContext(): ?GalleryPatternContext { return $this->galleryContext; }
 }

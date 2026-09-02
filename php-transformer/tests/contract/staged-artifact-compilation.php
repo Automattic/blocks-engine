@@ -31,6 +31,8 @@ $artifact['runtime_declarations'] = array(array('kind' => 'entity_collection', '
 $compiler = new ArtifactCompiler();
 $shared = $compiler->prepareShared($artifact);
 $assert('blocks-engine/php-transformer/staged-shared-plan/v1' === $shared['schema'] && 2 === $shared['summary']['file_count'] && preg_match('/^[a-f0-9]{64}$/', $shared['digest']), 'Shared preparation preserves the published v1 plan envelope and digest.');
+$assert('artifact' === ($shared['shared_reduction']['files_source'] ?? null) && !array_key_exists('files', $shared['shared_reduction']), 'Inline shared reductions reference their digest-bound artifact files instead of serializing a duplicate payload.');
+$assert(array('diagnostics', 'projected_count') === array_keys($shared['analysis']['captured_dialogs']), 'Shared preparation persists bounded captured-dialog evidence without duplicating projected artifact files.');
 // Inline assets expanded out of an unannotated page follow that page, not the
 // immutable shared plan: parking page-varying content in the shared plan would
 // invalidate every page plan on a page edit.
@@ -49,13 +51,25 @@ $assert(array('about.html', 'contact.html', 'index.html') === array_keys($batchP
 
 $compiledPages = array();
 foreach ($pageIds as $pageId) $compiledPages[$pageId] = $compiler->compilePage($artifact, $shared, $pageId);
-$assert(1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+$assert(ArtifactCompiler::COMPACT_RECEIPT_SCHEMA === ($compiledPages['about.html']['receipt_schema'] ?? null) && 1 === ($compiledPages['about.html']['work']['compiled_document_count'] ?? null) && isset($compiledPages['about.html']['compiled_documents']['about.html']), 'A compiled page plan persists only its bounded page-owned document receipt.');
+$assert(!array_key_exists('files', $compiledPages['about.html']['terminal_reduction']) && !array_key_exists('entry_blocks', $compiledPages['index.html']['terminal_reduction']), 'Compact receipts reference canonical page files and compiled entry output instead of serializing duplicate terminal payloads.');
 $compiledBatch = $compiler->compilePreparedPages($shared, $pages);
 foreach ($compiledBatch as &$compiledBatchPage) unset($compiledBatchPage['work']['compile_duration_ms']);
 unset($compiledBatchPage);
 foreach ($compiledPages as &$compiledPage) unset($compiledPage['work']['compile_duration_ms']);
 unset($compiledPage);
 $assert($compiledPages === $compiledBatch, 'Worker-batch compilation reuses bounded analysis without changing independently compiled receipt content.');
+
+// One batch verifies its immutable shared plan once, so the batch entry point
+// stays the enforcement boundary for every shared-plan invariant.
+$tamperedReduction = $shared;
+$tamperedReduction['shared_reduction']['component_facts']['tampered'] = true;
+$throws(static fn () => $compiler->compilePreparedPages($tamperedReduction, $pages), 'Batch compilation rejects a shared reduction whose contents no longer match its digest.');
+$throws(static fn () => $compiler->compilePreparedPage($tamperedReduction, $pages['index.html']), 'Single-page compilation rejects a shared reduction whose contents no longer match its digest.');
+$tamperedSharedDigest = $shared;
+$tamperedSharedDigest['digest'] = str_repeat('0', 64);
+$throws(static fn () => $compiler->compilePreparedPages($tamperedSharedDigest, $pages), 'Batch compilation rejects a shared plan whose declared plan digest is invalid.');
+$throws(static fn () => $compiler->compilePreparedPages(array_diff_key($shared, array('schema' => null)), $pages), 'Batch compilation rejects a shared plan that omits its staged schema.');
 
 // Simulate interruption/resume and arbitrary parallel completion order.
 $resumedShared = json_decode(json_encode($shared, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
@@ -65,7 +79,8 @@ $partialLegacy = $compiler->compose($resumedShared, array($pages['index.html']))
 $assert(array('index.html') === array_column($partialLegacy['source_reports']['wordpress_site_plan']['pages'] ?? array(), 'source_path'), 'Legacy prepared envelopes retain partial composition for batch-local page sets.');
 $whole = $compiler->compile($artifact)->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical site plans, including source-operation provenance and hashes.');
-$assert(($whole['source_reports']['materialization_plan'] ?? array()) === ($staged['source_reports']['materialization_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent materialization receipts.');
+$assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($staged['source_reports']['wordpress_site_plan'] ?? array()), 'Whole and staged compilation yield byte-for-byte equivalent canonical materialization plans.');
+$assert(!isset($whole['source_reports']['materialization_plan'], $staged['source_reports']['materialization_plan']), 'Whole and staged results remove the superseded projection while preserving their byte-identical canonical plan.');
 $compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
 $manyPages = array();
@@ -92,6 +107,15 @@ unset($initialWorker, $manyArtifact, $preparedPages);
 $resumedWorker = new ArtifactCompiler();
 $manyReceipts = array_merge($manyReceipts, array_values($resumedWorker->compilePreparedPages($serializedShared, array_slice($serializedPages, 25, null, true))));
 $serializedReceipts = json_decode(json_encode($manyReceipts, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$expandedReceipts = $serializedReceipts;
+foreach ($expandedReceipts as &$expandedReceipt) {
+    $expandedReceipt['terminal_reduction']['files'] = $expandedReceipt['artifact']['files'];
+    $expandedReceipt['terminal_reduction']['entry_blocks'] = $expandedReceipt['compiled_documents']['index.html'] ?? null;
+}
+unset($expandedReceipt);
+$compactReceiptBytes = strlen(json_encode($serializedReceipts, JSON_THROW_ON_ERROR));
+$expandedReceiptBytes = strlen(json_encode($expandedReceipts, JSON_THROW_ON_ERROR));
+$assert($compactReceiptBytes < $expandedReceiptBytes, sprintf('Fifty compact receipts serialize fewer bytes than equivalent duplicate terminal payloads (%d compact bytes versus %d expanded bytes).', $compactReceiptBytes, $expandedReceiptBytes));
 $terminalWorker = new ArtifactCompiler();
 $manyStaged = $terminalWorker->compose($serializedShared, array_reverse($serializedReceipts))->toArray();
 $canonical = static function (mixed $value) use (&$canonical): mixed {
@@ -107,6 +131,40 @@ $assert($canonical($manyInline['source_reports']['wordpress_site_plan'] ?? array
 $assert($canonical($manyInline) === $canonical($manyStaged), 'Fifty-page arbitrary-order resume preserves the complete canonical transformer result after observational fields are excluded.');
 $manyPageComponent = current(array_filter($manyStaged['components'], static fn(array $component): bool => 'page' === ($component['name'] ?? null)));
 $assert(50 === ($manyPageComponent['occurrences'] ?? null), 'A class occurring once per page is qualified from the globally summed uncapped component facts.');
+$largeReceiptArtifact = array('entrypoint' => 'index.html', 'files' => array(array('path' => 'index.html', 'content' => '<main><p>' . str_repeat('receipt-payload ', 32768) . '</p></main>')));
+$largeReceiptShared = $compiler->prepareShared($largeReceiptArtifact);
+$largeReceipt = $compiler->compilePage($largeReceiptArtifact, $largeReceiptShared, 'index.html');
+$largeExpandedReceipt = $largeReceipt;
+$largeExpandedReceipt['terminal_reduction']['files'] = $largeExpandedReceipt['artifact']['files'];
+$largeExpandedReceipt['terminal_reduction']['entry_blocks'] = $largeExpandedReceipt['compiled_documents']['index.html'];
+$largeCompactBytes = strlen(json_encode($largeReceipt, JSON_THROW_ON_ERROR));
+$largeExpandedBytes = strlen(json_encode($largeExpandedReceipt, JSON_THROW_ON_ERROR));
+$assert($largeCompactBytes < (int) ($largeExpandedBytes * 0.7), sprintf('A large compiled page receipt is at least thirty percent smaller without duplicate source and entry output (%d compact bytes versus %d expanded bytes).', $largeCompactBytes, $largeExpandedBytes));
+$largeSharedArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main>Shared reduction size</main>'),
+    array('path' => 'assets/shared.bin', 'content_base64' => base64_encode(str_repeat('shared-payload', 32768)), 'mime_type' => 'application/octet-stream', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$largeSharedPlan = $compiler->prepareShared($largeSharedArtifact);
+$largeExpandedSharedPlan = $largeSharedPlan;
+$largeExpandedSharedPlan['shared_reduction']['files'] = $largeExpandedSharedPlan['artifact']['files'];
+unset($largeExpandedSharedPlan['shared_reduction']['files_source']);
+$largeSharedBytes = strlen(json_encode($largeSharedPlan, JSON_THROW_ON_ERROR));
+$largeExpandedSharedBytes = strlen(json_encode($largeExpandedSharedPlan, JSON_THROW_ON_ERROR));
+$assert($largeSharedBytes < (int) ($largeExpandedSharedBytes * 0.7), sprintf('A large shared plan is at least thirty percent smaller when its reduction references the digest-bound artifact files (%d compact bytes versus %d expanded bytes).', $largeSharedBytes, $largeExpandedSharedBytes));
+$pageScopedScriptArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<main id="home-target"><script src="js/home.js"></script><h1>Home</h1></main>'),
+    array('path' => 'about.html', 'content' => '<main id="about-target"><script src="js/about.js"></script><h1>About</h1></main>'),
+    array('path' => 'js/home.js', 'content' => 'document.getElementById("home-target").addEventListener("click", function () {});', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'index.html'))),
+    array('path' => 'js/about.js', 'content' => 'document.getElementById("about-target").addEventListener("click", function () {});', 'metadata' => array('compilation' => array('scope' => 'page', 'id' => 'about.html'))),
+));
+$pageScopedWhole = $compiler->compile($pageScopedScriptArtifact)->toArray();
+$pageScopedShared = $compiler->prepareShared($pageScopedScriptArtifact);
+$pageScopedReceipts = array();
+foreach ($pageScopedShared['analysis']['page_ids'] as $pageId) $pageScopedReceipts[] = $compiler->compilePage($pageScopedScriptArtifact, $pageScopedShared, $pageId);
+$pageScopedStaged = $compiler->compose($pageScopedShared, array_reverse($pageScopedReceipts))->toArray();
+$pageScopedDependencies = $pageScopedWhole['source_reports']['runtime_dependency_parity']['dependencies'] ?? array();
+$assert('pass' === ($pageScopedWhole['source_reports']['runtime_dependency_parity']['status'] ?? '') && array() === array_values(array_filter($pageScopedDependencies, static fn (array $dependency): bool => 'js/about.js' === ($dependency['script_path'] ?? ''))), 'page-owned scripts are not evaluated against another page output');
+$assert($canonical($pageScopedWhole) === $canonical($pageScopedStaged), 'page-owned script parity remains deterministic for staged receipt composition.');
 $componentArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main class="distributed-widget"><h1>Home</h1></main>'),
     array('path' => 'second.html', 'content' => '<main class="distributed-widget"><h1>Second</h1></main>'),
@@ -130,6 +188,17 @@ foreach ($sourceShared['analysis']['page_ids'] as $pageId) $sourceReceipts[] = $
 $sourceInline = $compiler->compile($sourceArtifact)->toArray();
 $sourceStaged = $compiler->compose($sourceShared, array_reverse($sourceReceipts))->toArray();
 $assert($canonical($sourceInline) === $canonical($sourceStaged), 'Compiled receipts exactly cover HTML, Markdown, and MDX sources and preserve their complete canonical result.');
+$nestedEntryArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
+    array('path' => 'website/about.html', 'content' => '<main>About</main>'),
+    array('path' => 'website/blog/post/index.html', 'content' => '<main>Post</main>', 'entrypoint' => true),
+    array('path' => 'website/index.html', 'content' => '<main>Home</main>'),
+));
+$nestedEntryShared = $compiler->prepareShared($nestedEntryArtifact);
+$nestedEntryReceipts = array();
+foreach ($nestedEntryShared['analysis']['page_ids'] as $pageId) $nestedEntryReceipts[] = $compiler->compilePage($nestedEntryArtifact, $nestedEntryShared, $pageId);
+$nestedEntryStaged = $compiler->compose($nestedEntryShared, array_reverse($nestedEntryReceipts))->toArray();
+$nestedEntryPages = array_column($nestedEntryStaged['source_reports']['compiled_site']['pages'] ?? array(), 'entrypoint', 'source_path');
+$assert(isset($nestedEntryStaged['source_reports']['wordpress_site_plan']) && array('website/about.html' => false, 'website/blog/post/index.html' => false, 'website/index.html' => true) === $nestedEntryPages, 'Nested index candidates remain ordinary routes when the artifact selects a shallower canonical entrypoint.');
 $throws(static fn() => $compiler->compose($manyShared, array_slice($serializedReceipts, 1)), 'Composition rejects a missing compiled page receipt deterministically.');
 $sitePlan = $whole['source_reports']['wordpress_site_plan'] ?? array();
 $siteAssets = array_column($sitePlan['assets'] ?? array(), null, 'source_path');
@@ -138,8 +207,10 @@ $bootstrap = (string) ($siteWrites['functions.php']['payload']['data'] ?? '');
 $assert(array(array('kind' => 'global')) === ($siteAssets['assets/site.css']['scopes'] ?? null), 'Shared stylesheets retain an explicit global runtime scope.');
 $assert('about.html' === ($siteAssets['assets/about.css']['scopes'][0]['source_path'] ?? null) && str_contains($bootstrap, "if ( is_page() && 'about' === trim( get_page_uri( get_queried_object_id() ), '/' ) ) wp_enqueue_style"), 'Page-owned stylesheets enqueue only on their canonical WordPress route.');
 $assert('(min-width: 48rem)' === ($siteAssets['assets/about.css']['media'] ?? null) && str_contains($bootstrap, "array(), null, '(min-width: 48rem)'"), 'Stylesheet media conditions are retained as canonical frontend enqueue arguments.');
-$assert(str_contains($bootstrap, "\$css = '@media ' . \$style['media'] . '{' . \$css . '}'"), 'Canonical editor styles preserve their stylesheet media conditions.');
-$assert(str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "blocks-engine-presentation:") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "\$context->post") && str_contains($bootstrap, "get_page_uri( \$post )"), 'Canonical bootstrap loads content-addressed route styles into the edited post iframe.');
+$assert(str_contains($bootstrap, "wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 )") && str_contains($bootstrap, "\$style['content_hash']") && str_contains($bootstrap, "\$style['media'] ?? 'all'") && str_contains($bootstrap, "get_theme_file_uri( \$style['target_path'] )"), 'Canonical editor styles preserve stylesheet media conditions and content-addressed external delivery.');
+$assert(str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && !str_contains($bootstrap, "add_filter( 'wp_theme_json_data_theme'") && !str_contains($bootstrap, "blocks_engine_presentation_css") && !str_contains($bootstrap, "file_get_contents( get_theme_file_path( \$style['target_path'] ) )"), 'Canonical bootstrap routes editor presentation through WordPress iframe asset delivery without reading, theme-JSON materializing, or inline-settings serializing stylesheet bodies.');
+$themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
+$assert(is_array($themeScaffold) && '0px' === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json declares an explicit block gap so the editor canvas does not inherit the WordPress 24px layout gap that the frontend never emits.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();
@@ -164,7 +235,7 @@ $bundledStaged = $bundleCompiler->compose($bundledShared, array_reverse($bundled
 $bundledPlan = $bundledWhole['source_reports']['wordpress_site_plan'] ?? array();
 $bundledCss = array_values(array_filter($bundledPlan['assets'] ?? array(), static fn(array $asset): bool => 'css' === ($asset['kind'] ?? null)));
 $bundledBootstrap = (string) ((array_column($bundledPlan['writes'] ?? array(), null, 'target_path')['functions.php']['payload']['data'] ?? ''));
-$assert(8 === count($bundledCss) && 8 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 2 === substr_count($bundledBootstrap, 'is_front_page()'), 'Three-page inline-style fragmentation coalesces into one shared and two bounded stylesheet records per route, plus the existing global engine-support stylesheet.');
+$assert(8 === count($bundledCss) && 9 === substr_count($bundledBootstrap, 'wp_enqueue_style(') && 2 === substr_count($bundledBootstrap, 'is_front_page()'), 'Three-page inline-style fragmentation coalesces into one shared and two bounded stylesheet records per route, plus one generic editor iframe delivery loop.');
 $indexBundle = current(array_filter($bundledCss, static fn(array $asset): bool => 'page' === ($asset['scopes'][0]['kind'] ?? null) && true === ($asset['scopes'][0]['front_page'] ?? null) && '' === ($asset['media'] ?? '')));
 $assert(is_array($indexBundle) && str_contains((string) ($indexBundle['content'] ?? ''), '.cascade-0{color:#000}') && strpos((string) $indexBundle['content'], '.cascade-0{color:#000}') < strpos((string) $indexBundle['content'], '.cascade-7{color:#777}') && hash('sha256', (string) $indexBundle['content']) === ($indexBundle['content_hash'] ?? null), 'A coalesced route bundle preserves author cascade order and content-addressed identity.');
 $assert($canonical($bundledWhole['source_reports']['wordpress_site_plan'] ?? array()) === $canonical($bundledStaged['source_reports']['wordpress_site_plan'] ?? array()) && $canonical($bundledWhole['diagnostics'] ?? array()) === $canonical($bundledStaged['diagnostics'] ?? array()), 'Bounded stylesheet bundles preserve direct and staged canonical plans and diagnostics.');
@@ -197,6 +268,19 @@ $reductionMismatch['shared_reduction']['component_facts']['classes']['corrupt'] 
 $throws(static fn() => $compiler->compose($reductionMismatch, array()), 'Composition rejects a shared reduction whose immutable digest no longer matches.');
 
 $throws(static fn() => $compiler->compose($shared, array($pages['index.html'], $pages['index.html'])), 'Composition rejects more than one page plan for the same page id.');
+
+$v2Shared = $shared;
+$v2Shared['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
+$v2Shared['digest'] = RuntimeDeclarations::hash(array('artifact' => $v2Shared['artifact'], 'analysis' => $v2Shared['analysis'], 'shared_reduction' => $v2Shared['shared_reduction'], 'shared_reduction_digest' => $v2Shared['shared_reduction_digest'], 'compiler_options' => $v2Shared['compiler_options']));
+$v2Receipts = array();
+foreach ($pageIds as $pageId) {
+    $v2Page = $compiler->preparePage($artifact, $v2Shared, $pageId);
+    $v2Page['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
+    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
+    $v2Receipts[] = $compiler->compilePreparedPage($v2Shared, $v2Page);
+}
+$v2Result = $compiler->compose($v2Shared, array_reverse($v2Receipts))->toArray();
+$assert(array_key_exists('files', $v2Receipts[0]['terminal_reduction']) && array_key_exists('entry_blocks', $v2Receipts[0]['terminal_reduction']) && $whole['blocks'] === $v2Result['blocks'] && ($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($v2Result['source_reports']['wordpress_site_plan'] ?? array()), 'Persisted v2 duplicate-payload receipts retain canonical composition compatibility.');
 
 $legacyShared = $shared;
 unset($legacyShared['shared_reduction'], $legacyShared['shared_reduction_digest']);
@@ -253,12 +337,10 @@ $referenceWrites = array_column($referencePlan['writes'] ?? array(), null, 'targ
 $binary = $payloads['payload:assets/logo.png'];
 $inlineAsset = $siteAssets['assets/logo.png'];
 $referenceAsset = $referenceAssets['assets/logo.png'];
-$inlineMaterialization = array_column($whole['source_reports']['materialization_plan']['assets'] ?? array(), null, 'path')['assets/logo.png'] ?? array();
-$referenceMaterialization = array_column($referencedResult['source_reports']['materialization_plan']['assets'] ?? array(), null, 'path')['assets/logo.png'] ?? array();
 $assert('base64' === ($inlineWrites['assets/assets/logo.png']['payload']['encoding'] ?? null) && base64_encode($binary) === ($inlineWrites['assets/assets/logo.png']['payload']['data'] ?? null), 'Inline binary compilation retains the existing base64 write transport.');
 $assert(array('source_path' => $inlineAsset['source_path'], 'target_path' => $inlineAsset['target_path'], 'token' => $inlineAsset['token'], 'bytes' => $inlineAsset['bytes'], 'binary' => $inlineAsset['binary'], 'raw_sha256' => $inlineAsset['raw_sha256']) === array('source_path' => $referenceAsset['source_path'], 'target_path' => $referenceAsset['target_path'], 'token' => $referenceAsset['token'], 'bytes' => $referenceAsset['bytes'], 'binary' => $referenceAsset['binary'], 'raw_sha256' => $referenceAsset['raw_sha256']) && hash('sha256', base64_encode($binary)) === ($inlineAsset['transport_sha256'] ?? null) && !isset($referenceAsset['transport_sha256'], $referenceAsset['content_base64']) && ($referenceAsset['payload_reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceAsset['content_hash'] ?? null), 'Inline and referenced binaries retain identical semantic identity and raw digest; representation intentionally differs only as canonical base64 transport versus raw-byte reference.');
 $assert('reference' === ($referenceWrites['assets/assets/logo.png']['payload']['encoding'] ?? null) && ($referenceWrites['assets/assets/logo.png']['payload']['reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceWrites['assets/assets/logo.png']['raw_sha256'] ?? null), 'Referenced binary assets survive to matching materialization writes with their raw-byte SHA.');
-$assert(($referenceMaterialization['payload_reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceMaterialization['raw_sha256'] ?? null) && !isset($referenceMaterialization['content_base64'], $referenceMaterialization['transport_sha256']) && base64_encode($binary) === ($inlineMaterialization['content_base64'] ?? null) && hash('sha256', base64_encode($binary)) === ($inlineMaterialization['transport_sha256'] ?? null), 'Materialization plans preserve reference identity and raw digest while inline transport retains its canonical base64 digest.');
+$assert(($referenceAsset['payload_reference']['id'] ?? null) === 'payload:assets/logo.png' && hash('sha256', $binary) === ($referenceAsset['raw_sha256'] ?? null) && !isset($referenceAsset['content_base64'], $referenceAsset['transport_sha256']) && base64_encode($binary) === ($inlineAsset['content_base64'] ?? null) && hash('sha256', base64_encode($binary)) === ($inlineAsset['transport_sha256'] ?? null), 'Canonical plan assets preserve reference identity and raw digest while inline transport retains its canonical base64 digest.');
 $svgReferencePlan = $referencePlan;
 $svgReferencePlan['assets'][array_search('assets/logo.png', array_column($svgReferencePlan['assets'], 'source_path'), true)]['mime_type'] = 'image/svg+xml';
 $throws(static fn() => WordPressSitePlan::assertValid($svgReferencePlan), 'WordPress plan validation rejects reference-backed SVG assets because SVG payloads must be hydrated for publication safety.');
@@ -310,6 +392,12 @@ $fileEntrypointArtifact = array('files' => array(
     array('path' => 'landing.html', 'content' => '<main><h1>Selected entry</h1></main>', 'entrypoint' => true, 'role' => 'entry'),
 ));
 $assertReceiptEquality($fileEntrypointArtifact, 'File-level entrypoint and role selection preserve the exact complete inline result through staged receipts.');
+$responsiveShell = static fn(string $title): string => '<div class="desktop-document"><header class="desktop-header">Desktop header</header><main><h1>' . $title . '</h1></main><footer class="desktop-footer">Desktop footer</footer></div><div class="mobile-document"><header class="mobile-header">Mobile header</header><main><h1>' . $title . ' mobile</h1></main><footer class="mobile-footer">Mobile footer</footer></div>';
+$responsiveShellArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $responsiveShell('Home'),
+    'about.html' => $responsiveShell('About'),
+));
+$assertReceiptEquality($responsiveShellArtifact, 'Shared responsive shell variants are compiled into durable receipts before terminal composition.');
 
 $dialogHtml = '<div role="dialog" aria-label="Contact"><p>Captured dialog</p></div>';
 $capturedStates = array(
@@ -350,6 +438,10 @@ $assertReferenceReceiptEquality = static function (array $artifact, string $mess
     $assert(0 === ($staged['metrics']['html_document_transform_count'] ?? null) && 0 === ($staged['metrics']['normalization_count'] ?? null) && 0 === ($staged['metrics']['analysis_count'] ?? null), $message . ' Terminal composition performs no reads or work.');
 };
 $assertReferenceReceiptEquality($capturedDialogArtifact, 'Fully reference-backed captured dialogs preserve the exact complete canonical result.');
+$assertReferenceReceiptEquality(array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => $responsiveShell('Home')),
+    array('path' => 'about.html', 'content' => $responsiveShell('About')),
+)), 'Fully reference-backed shared responsive shell variants compose without terminal reads or work.');
 $duplicateStylesheetArtifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/site.css"><main class="card">Duplicate stylesheet</main>'),
     array('path' => 'assets/site.css', 'content' => '.card{color:#123}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
@@ -431,7 +523,7 @@ $layoutWhole = $layoutCompiler->compile($layoutArtifact)->toArray();
 $layoutShared = $layoutCompiler->prepareShared($layoutArtifact);
 $layoutStaged = $layoutCompiler->compose($layoutShared, array($layoutCompiler->compilePage($layoutArtifact, $layoutShared, 'index.html')))->toArray();
 $layoutPage = $layoutWhole['source_reports']['compiled_site']['pages'][0] ?? array();
-$assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '"kind":"layout"'), 'A deep semantic media main compiles as one typed layout boundary under the unchanged editability policy.');
+$assert('passed' === ($layoutWhole['source_reports']['editability_policy']['status'] ?? null) && str_contains((string) ($layoutPage['block_markup'] ?? ''), '<!-- wp:custom/responsive-layout {"content":'), 'A deep semantic media main compiles as one dedicated typed layout boundary under the unchanged editability policy.');
 $assert($canonical($layoutWhole) === $canonical($layoutStaged), 'Typed captured layout boundaries preserve direct and staged canonical equivalence.');
 
-fwrite(STDOUT, "Staged artifact compilation contract passed\n");
+fwrite(STDOUT, sprintf("Staged artifact compilation contract passed (50-page receipts: %d compact / %d expanded bytes; large receipt: %d compact / %d expanded bytes)\n", $compactReceiptBytes, $expandedReceiptBytes, $largeCompactBytes, $largeExpandedBytes));

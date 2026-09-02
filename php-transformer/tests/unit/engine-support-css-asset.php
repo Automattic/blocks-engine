@@ -54,7 +54,7 @@ $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
@@ -115,6 +115,13 @@ $fullWidthButton = ( new HtmlTransformer() )->transform(
 $syntheticImageFigure = ( new HtmlTransformer() )->transform(
     '<main><img src="portrait.jpg" alt="Portrait"><figure class="authored-figure"><img src="work.jpg" alt="Work"></figure></main>'
 )->toArray();
+$logosOnlySocial = ( new HtmlTransformer() )->transform(
+    '<ul class="social-links"><li class="social-item"><a href="https://github.com/Automattic" aria-label="GitHub"><svg width="22" height="22" aria-hidden="true"></svg></a></li><li class="social-item"><a href="https://www.instagram.com/wordpress/" title="Instagram"><svg width="22" height="22" aria-hidden="true"></svg></a></li></ul>'
+)->toArray();
+$adminBar = ( new HtmlTransformer() )->transform(
+    '<style>.fixed-shell{position:fixed;top:0}.sticky-toc{position:sticky;top:calc(var(--header-h) + 1rem)}.ordinary{position:relative;top:1rem}</style>'
+        . '<header class="fixed-shell">Header</header><aside class="sticky-toc">Contents</aside><main class="ordinary">Content</main>'
+)->toArray();
 
 $results = array(
     $authorOrder,
@@ -132,6 +139,7 @@ $results = array(
     $colouredSyntheticLink,
     $uncolouredSyntheticLink,
     $syntheticImageFigure,
+    $logosOnlySocial,
 );
 $beforeCss = '';
 $afterCss = '';
@@ -149,20 +157,24 @@ $beforeFamilies = array(
     'synthetic-anchor-undecorated' => 'blocks-engine-synthetic-anchor-undecorated',
     'synthetic-image-figure' => '.blocks-engine-synthetic-image-figure{margin:0}',
     'inline-layout-carrier' => ':where(p.blocks-engine-inline-layout-carrier){display:contents;margin:0!important;padding:0!important;border:0!important}',
+    'css-owned editor wrappers' => ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks,:root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}',
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
     'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
+    'list-navigation container row' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
+    'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
     'list-navigation host' => '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
+    'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',
     'directFlexButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}',
     'fullWidthButtonStyleRules' => '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}',
 );
@@ -182,6 +194,10 @@ foreach ( $afterFamilies as $family => $needle ) {
     $assert(str_contains($afterCss, $needle), 'G3: ' . $family . ' lives in after-author engine-support');
     $assert(! str_contains($authorCss, $needle), 'G3: ' . $family . ' does not leak into author-css');
 }
+$assert(
+    ! str_contains($cssFor($fullWidthButton, 'engine-support', 'after-author'), 'width:max-content'),
+    'G3: an authored button width remains authoritative over intrinsic wrapper support'
+);
 
 $orderedCssAssets = $cssAssets($authorOrder);
 $beforeIndex = null;
@@ -225,7 +241,7 @@ foreach ( $navAssets as $index => $asset ) {
 }
 $assert(is_int($navBeforeIndex) && is_int($navAuthorIndex) && is_int($navAfterIndex) && $navBeforeIndex < $navAuthorIndex && $navAuthorIndex < $navAfterIndex, 'G4: ArtifactCompiler preserves generated support around manifest author CSS');
 
-foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' ) as $reportName ) {
+foreach ( array( 'compiled_site', 'wordpress_site_plan' ) as $reportName ) {
     $reportAssets = $navArtifact['source_reports'][$reportName]['assets'] ?? array();
     $supportRows = array_values(array_filter(
         is_array($reportAssets) ? $reportAssets : array(),
@@ -237,7 +253,7 @@ foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' 
 
 $neutralizer = '.wp-block-group.blocks-engine-css-owned-layout>:where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width:none!important;margin-left:0!important;margin-right:0!important}';
 $layoutCssSurfaces = array($beforeCss);
-foreach ( array( 'compiled_site', 'materialization_plan', 'wordpress_site_plan' ) as $reportName ) {
+foreach ( array( 'compiled_site', 'wordpress_site_plan' ) as $reportName ) {
     foreach ( $layoutItems['source_reports'][$reportName]['assets'] ?? array() as $asset ) {
         if ( is_array($asset) && 'css' === ($asset['kind'] ?? '') ) {
             $layoutCssSurfaces[] = (string) ($asset['content'] ?? '');
@@ -255,6 +271,12 @@ $assert(
     'G6: richtext-marker mark defers neutral background and color to engine support CSS'
 );
 $assert(str_contains($beforeCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}'), 'G6: richTextMarkerResetCss remains in engine-support');
+
+$adminBarAuthorCss = $cssFor($adminBar, 'author-css');
+$adminBarSupportCss = $cssFor($adminBar, 'engine-support', 'after-author');
+$assert(str_contains($adminBarAuthorCss, '.fixed-shell{position:fixed;top:0}') && ! str_contains($adminBarAuthorCss, 'body.admin-bar'), 'G7: authored fixed CSS remains logged-out source CSS');
+$assert(str_contains($adminBarSupportCss, 'body.admin-bar .fixed-shell{top:calc((0px) + var(--wp-admin--admin-bar--height, 32px))!important}') && str_contains($adminBarSupportCss, 'body.admin-bar .sticky-toc{top:calc((calc(var(--header-h) + 1rem)) + var(--wp-admin--admin-bar--height, 32px))!important}'), 'G7: post-author support offsets fixed and sticky layers');
+$assert(! str_contains($adminBarSupportCss, '.ordinary'), 'G7: ordinary positioned rules do not receive admin-bar support CSS');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Engine support CSS asset contract: {$failures} failed, {$passes} passed\n");

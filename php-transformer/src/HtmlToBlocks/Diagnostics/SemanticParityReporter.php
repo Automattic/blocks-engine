@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TypographyParityAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
@@ -35,7 +34,10 @@ final class SemanticParityReporter
      * normalizedNavigationLabel). It mirrors the transformer's own runtime so the
      * extracted builders behave identically to the inline implementation.
      */
-    public function __construct(private readonly Runtime $runtime = new Runtime())
+    public function __construct(
+        private readonly Runtime $runtime = new Runtime(),
+        private readonly TypographyParityAnalyzer $typographyParityAnalyzer = new TypographyParityAnalyzer()
+    )
     {
     }
 
@@ -66,7 +68,7 @@ final class SemanticParityReporter
         }
         $findings = array_merge(
             $findings,
-            ( new TypographyParityAnalyzer() )->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
+            $this->typographyParityAnalyzer->findings($html, $staticCss, $this->inlineHeadingFontDeclarations($body))
         );
 
         $findings = array_map(
@@ -160,6 +162,9 @@ final class SemanticParityReporter
     private function collectSourceLandmarks(DOMElement $element, array &$counts, array &$selectors, array &$seenNavigation): void
     {
         $landmark = $this->landmarkKindForElement($element);
+        if ( 'nav' === $landmark && $this->isSourceChromeOnlyNavigation($element) ) {
+            $landmark = '';
+        }
         if ( '' !== $landmark ) {
             if ( 'nav' === $landmark ) {
                 $signature = $this->sourceNavigationMenuSignature($this->sourceNavigationMenuItems($element));
@@ -277,24 +282,31 @@ final class SemanticParityReporter
      */
     private function collectSourceNavigationMenus(DOMElement $element, array &$menus, array &$seen): void
     {
-        if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
+        if ( ('nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')))
+            && ! $this->isSourceChromeOnlyNavigation($element)
+        ) {
             $items = $this->sourceNavigationMenuItems($element);
 
-            $signature = $this->sourceNavigationMenuSignature($items);
-            if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
-                return;
-            }
+            // A chrome-bearing landmark can carry the real menu in a descendant
+            // nav without owning items itself. Inventory the descendant menu,
+            // not a synthetic empty menu that would pair with an unrelated block.
+            if ( array() !== $items || 0 === $element->getElementsByTagName('nav')->length ) {
+                $signature = $this->sourceNavigationMenuSignature($items);
+                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicateSourceNavigation($element) ) {
+                    return;
+                }
 
-            if ( '' !== $signature ) {
-                $seen[$signature] = true;
-            }
+                if ( '' !== $signature ) {
+                    $seen[$signature] = true;
+                }
 
-            $menus[] = array(
-                'selector' => $this->elementSelector($element),
-                'item_count' => count($items),
-                'items' => $items,
-                'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
-            );
+                $menus[] = array(
+                    'selector' => $this->elementSelector($element),
+                    'item_count' => count($items),
+                    'items' => $items,
+                    'excludes_outside_anchors' => $this->sourceMenuExcludesOutsideAnchors($element),
+                );
+            }
         }
 
         foreach ( $element->childNodes as $child ) {
@@ -458,6 +470,35 @@ final class SemanticParityReporter
         }
 
         return false;
+    }
+
+    private function isSourceChromeOnlyNavigation(DOMElement $element): bool
+    {
+        $hasToggle = false;
+        return $this->isSourceChromeOnlyNavigationContents($element, $hasToggle) && $hasToggle;
+    }
+
+    private function isSourceChromeOnlyNavigationContents(DOMElement $element, bool &$hasToggle): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'button' === strtolower($child->tagName) && $this->isSourceMenuToggleControl($child) ) {
+                $hasToggle = true;
+                continue;
+            }
+            if ( ! in_array(strtolower($child->tagName), array( 'div', 'span' ), true)
+                || ! $this->isSourceChromeOnlyNavigationContents($child, $hasToggle)
+            ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isSourceMenuToggleControl(DOMElement $element): bool

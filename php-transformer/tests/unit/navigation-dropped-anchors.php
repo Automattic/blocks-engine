@@ -116,6 +116,22 @@ foreach ( $controls as $label => [$markup, $needle] ) {
     );
 }
 
+$chromeOnly = ( new HtmlTransformer() )->transform(
+    '<nav aria-label="Site"><div><button type="button" aria-label="Menu">Menu icon</button></div></nav>'
+)->toArray();
+$chromeOnlyParity = $chromeOnly['source_reports']['semantic_parity'] ?? array();
+$assert(
+    'pass' === ($chromeOnlyParity['status'] ?? '') && 0 === count($chromeOnlyParity['findings'] ?? array()),
+    'a button-only hamburger landmark is treated as chrome instead of a missing menu',
+    json_encode($chromeOnlyParity)
+);
+$assert(
+    0 === ($chromeOnlyParity['landmarks']['source']['nav'] ?? -1)
+    && array() === ($chromeOnlyParity['navigation_menus']['source'] ?? null),
+    'a chrome-only hamburger contributes neither a source landmark nor menu to parity',
+    json_encode($chromeOnlyParity)
+);
+
 // -- An anchor named by an image alone is labelled with that alt text, not with
 // the raw `<img>` markup it is built from.
 $combined = $outcome(

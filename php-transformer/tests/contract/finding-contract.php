@@ -247,6 +247,7 @@ $htmlCases = array(
     'script-fallback'     => '<main><div id="widget">Hi</div><script>document.getElementById("widget").addEventListener("click", function () { window.__x = 1; });</script></main>',
     'template-fallback'   => '<main><template id="card"><div data-role="card"><script>render()</script></div></template></main>',
     'iframe-embed'        => '<main><iframe src="https://example.com/widget"></iframe></main>',
+    'custom-iframe-gap'   => '<main><vendor-iframe data-widget-id="comp-runtime" width="640" height="360"></vendor-iframe></main>',
     'unsupported-element' => '<main><marquee>Scrolling</marquee></main>',
     'header-footer-nav'   => '<body><header><nav><a href="/a">A</a><a href="/b">B</a></nav></header><main><p>Body</p></main><footer><nav><a href="/c">C</a><a href="/d">D</a></nav></footer></body>',
 );
@@ -286,6 +287,23 @@ $assert(
     array() !== ($runtimeDependencyParity['dependencies'] ?? array()),
     'artifact runtime dependency parity records the shared-script dependency row'
 );
+
+$emptyDocumentResult = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files'      => array(
+        'website/index.html' => '',
+        'website/about.html' => '',
+    ),
+))->toArray();
+$totalFindings += $walk($emptyDocumentResult, 'artifact:empty-documents');
+$emptyDocumentFindings = array_values(array_filter(
+    $emptyDocumentResult['diagnostics'],
+    static fn (array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ConversionFindingContract::findingCode($diagnostic)
+));
+$assert(2 === count($emptyDocumentFindings), 'empty compiled documents emit per-document identity findings');
+$emptyDocumentClassified = ConversionFindingContract::classify(array('code' => 'wordpress_site_plan_not_self_contained'));
+$assert('site_plan_document' === ($emptyDocumentClassified['pattern_family'] ?? null), 'empty-document findings cluster under site_plan_document');
+$assert('restore_compiled_document_identity' === ($emptyDocumentClassified['repair_bucket'] ?? null), 'empty-document findings route to a concrete identity repair bucket');
 
 $assert($totalFindings > 0, 'the contract walk validated a non-empty set of real conversion findings');
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assert = static function (bool $condition, string $message): void {
     if ( ! $condition ) {
@@ -28,6 +30,8 @@ $tiles = '<my-pricing><div class="tier"><h3>Basic</h3><p>$9</p></div><div class=
 $svg = '<main><svg viewBox="0 0 10 10" role="img" aria-label="Map"><path d="M0 0h10v10z"/></svg></main>';
 $script = '<main><script src="widget.js"></script><canvas id="map">Map</canvas></main>';
 $styled = '<style>.card{display:grid;gap:1rem;color:#123}.card .title{font-weight:700}</style><main class="card" style="display:flex;gap:2rem"><h2 class="title">Styled</h2></main>';
+$borderBox = '<style>*,*::before,*::after{box-sizing:border-box}.card{width:640px;padding:48px;border:2px solid}</style><main class="card">Border box</main>';
+$contentBox = '<style>.card{width:640px;padding:48px;border:2px solid}</style><main class="card">Content box</main>';
 $accordion = static fn (string $label, string $answer): string => '<section class="faq"><div class="faq-item"><button aria-controls="a">' . $label . ' A?</button><div id="a"><p>' . $answer . ' A.</p></div></div><div class="faq-item"><button aria-controls="b">' . $label . ' B?</button><div id="b"><p>' . $answer . ' B.</p></div></div></section>';
 
 $families = array(
@@ -59,6 +63,14 @@ $families = array(
             '#0a0'
         ),
     ),
+    'author border-box reset' => array(
+        'seed' => array($borderBox, array()),
+        'target' => array($contentBox, array()),
+        'assertion' => static fn (array $result): bool => str_contains(
+            implode('', array_column(array_filter($result['assets'] ?? array(), static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '')), 'content')),
+            'box-sizing:content-box'
+        ),
+    ),
     'reused pattern execution context' => array(
         'seed' => array($accordion('Seed', 'Old'), array()),
         'target' => array($accordion('Target', 'Current'), array()),
@@ -79,6 +91,36 @@ foreach ( $families as $name => $family ) {
         $withoutDurations($freshResult) === $withoutDurations($reusedResult),
         $name . ' must produce identical fresh and reused-instance output.'
     );
+}
+
+$sessionReflection = new ReflectionClass(HtmlTransformerSession::class);
+$transformerReflection = new ReflectionClass(HtmlTransformer::class);
+$assert(array() === $sessionReflection->getProperties(ReflectionProperty::IS_PUBLIC), 'Transform session state must remain encapsulated behind typed lifecycle APIs.');
+$transformerProperties = array_map(
+    static fn (ReflectionProperty $property): string => $property->getName(),
+    $transformerReflection->getProperties()
+);
+sort($transformerProperties);
+$assert(
+    array('analysisCache', 'runtime') === $transformerProperties,
+    'HtmlTransformer must remain a stateless facade over immutable shared inputs.'
+);
+foreach ( array('__get', '__set', '__isset') as $magicAccessor ) {
+    $assert(! $transformerReflection->hasMethod($magicAccessor), 'HtmlTransformer must not delegate state through ' . $magicAccessor . '.');
+}
+
+$unpreparedSession = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+foreach ( array(
+    'authorStyleAnalysis' => 'Author styles have not been prepared for this transform.',
+    'layoutGeometryState' => 'Layout geometry state has not been prepared for this transform.',
+    'assetMaterializationState' => 'Asset materialization state has not been prepared for this transform.',
+) as $method => $message ) {
+    try {
+        $unpreparedSession->{$method}();
+        $assert(false, $method . ' must fail before its lifecycle state is installed.');
+    } catch ( LogicException $exception ) {
+        $assert($message === $exception->getMessage(), $method . ' must preserve its lifecycle failure.');
+    }
 }
 
 fwrite(STDOUT, "HTML transformer session state passed\n");

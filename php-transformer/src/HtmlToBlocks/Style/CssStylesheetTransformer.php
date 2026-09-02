@@ -15,7 +15,7 @@ final class CssStylesheetTransformer
      * and comments, and must return its replacement. It may optionally return a
      * list of prelude/body pairs when a caller needs to split one source rule.
      *
-     * @param callable(string, string): string|list<array{prelude: string, body: string}> $transformSelectorPrelude
+     * @param callable(string, string, list<string>): string|list<array{prelude: string, body: string}> $transformSelectorPrelude
      */
     public function transform(string $stylesheet, callable $transformSelectorPrelude): string
     {
@@ -45,6 +45,32 @@ final class CssStylesheetTransformer
             return $stylesheet;
         }
         return $this->transformRules($stylesheet, static fn (string $prelude): string => $prelude, $transformStyleRule, false);
+    }
+
+    /**
+     * Visit every style rule with its enclosing safe-to-walk at-rules.
+     *
+     * @param callable(string, string, list<string>): void $visitStyleRule
+     */
+    public function visitStyleRules(string $stylesheet, callable $visitStyleRule): void
+    {
+        $this->visitRules($stylesheet, $visitStyleRule, array());
+    }
+
+    /**
+     * Visit every `@keyframes` rule with its animation name and its raw body.
+     *
+     * `visitStyleRules()` deliberately stops at `@keyframes`: its children are
+     * offsets, not selectors. A caller that needs to know what state an
+     * animation starts and ends in has to read them, so they are surfaced here
+     * rather than by re-scanning the stylesheet with a regular expression.
+     * Prefixed variants (`@-webkit-keyframes`) report the same name.
+     *
+     * @param callable(string, string): void $visitKeyframes
+     */
+    public function visitKeyframeRules(string $stylesheet, callable $visitKeyframes): void
+    {
+        $this->visitKeyframeRulesIn($stylesheet, $visitKeyframes);
     }
 
     /**
@@ -109,7 +135,7 @@ final class CssStylesheetTransformer
     /**
      * @param callable(string): string $transformSelectorPrelude
      */
-    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true): string
+    private function transformRules(string $css, callable $transformSelectorPrelude, ?callable $transformStyleRule, bool $walkNested = true, array $ancestors = array()): string
     {
         $output = '';
         $offset = 0;
@@ -137,14 +163,16 @@ final class CssStylesheetTransformer
             if ( $this->isAtRule($prelude) ) {
                 $output .= $prelude . '{';
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
-                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule) : $body;
+                $nestedAncestors = $ancestors;
+                $nestedAncestors[] = trim($prelude);
+                $output .= $walkNested && $this->walksNestedRules($prelude) ? $this->transformRules($body, $transformSelectorPrelude, $transformStyleRule, true, $nestedAncestors) : $body;
                 $output .= '}';
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
                 if ( null !== $transformStyleRule ) {
                     $output .= $transformStyleRule($prelude, $body);
                 } else {
-                    $transformed = $transformSelectorPrelude($prelude, $body);
+                    $transformed = $transformSelectorPrelude($prelude, $body, $ancestors);
                     if ( is_array($transformed) ) {
                         foreach ( $transformed as $rule ) {
                             $output .= $rule['prelude'] . '{' . $rule['body'] . '}';
@@ -161,6 +189,77 @@ final class CssStylesheetTransformer
         }
 
         return $output;
+    }
+
+    /** @param callable(string, string, list<string>): void $visitStyleRule @param list<string> $ancestors */
+    private function visitRules(string $css, callable $visitStyleRule, array $ancestors): void
+    {
+        $offset = 0;
+        $length = strlen($css);
+        while ($offset < $length) {
+            $boundary = $this->nextRuleBoundary($css, $offset);
+            if (null === $boundary || ';' === $css[$boundary]) {
+                $offset = null === $boundary ? $length : $boundary + 1;
+                continue;
+            }
+            $blockEnd = $this->matchingBrace($css, $boundary);
+            if (null === $blockEnd) {
+                return;
+            }
+            $prelude = substr($css, $offset, $boundary - $offset);
+            $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
+            if ($this->isAtRule($prelude) && $this->walksNestedRules($prelude)) {
+                $nested = $ancestors;
+                $nested[] = trim($prelude);
+                $this->visitRules($body, $visitStyleRule, $nested);
+            } elseif ($this->isStylePrelude($prelude)) {
+                $visitStyleRule($prelude, $body, $ancestors);
+            }
+            $offset = $blockEnd + 1;
+        }
+    }
+
+    /** @param callable(string, string): void $visitKeyframes */
+    private function visitKeyframeRulesIn(string $css, callable $visitKeyframes): void
+    {
+        $offset = 0;
+        $length = strlen($css);
+        while ( $offset < $length ) {
+            $boundary = $this->nextRuleBoundary($css, $offset);
+            if ( null === $boundary || ';' === $css[ $boundary ] ) {
+                $offset = null === $boundary ? $length : $boundary + 1;
+                continue;
+            }
+            $blockEnd = $this->matchingBrace($css, $boundary);
+            if ( null === $blockEnd ) {
+                return;
+            }
+            $prelude = substr($css, $offset, $boundary - $offset);
+            $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
+            if ( $this->isAtRule($prelude) ) {
+                $name = self::atRuleName($prelude);
+                if ( 'keyframes' === $name || str_ends_with($name, '-keyframes') ) {
+                    $animationName = self::keyframesAnimationName($prelude);
+                    if ( '' !== $animationName ) {
+                        $visitKeyframes($animationName, $body);
+                    }
+                } elseif ( $this->walksNestedRules($prelude) ) {
+                    $this->visitKeyframeRulesIn($body, $visitKeyframes);
+                }
+            }
+            $offset = $blockEnd + 1;
+        }
+    }
+
+    private static function keyframesAnimationName(string $prelude): string
+    {
+        $name = trim((string) preg_replace('#/\\*.*?\\*/#s', ' ', $prelude));
+        $name = trim((string) preg_replace('/^@[A-Za-z-]+/', '', $name));
+        if ( 2 <= strlen($name) && ( ('"' === $name[0] && '"' === substr($name, -1)) || ("'" === $name[0] && "'" === substr($name, -1)) ) ) {
+            $name = substr($name, 1, -1);
+        }
+
+        return trim($name);
     }
 
     private function nextRuleBoundary(string $css, int $offset): ?int

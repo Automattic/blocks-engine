@@ -7169,8 +7169,8 @@ $assert(str_contains($ulResetSiteCss, 'ul,ol{margin:0;padding:0;list-style:none}
 // PARITY FIX 3 — Responsive breakpoint keyed at midpoint, not variant width.
 // Two-variant case: desktop=1440, mobile=390 → midpoint = 915 (not 390).
 // ──────────────────────────────────────────────────────────────────────────────
-$breakpointDimensionPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'));
-$responsiveNodeMatcher = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveNodeMatcher(fn (string $value): string => strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim($value, '-')) ?? $value));
+$breakpointDimensionPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\BreakpointDimensionPolicy(new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter());
+$responsiveNodeMatcher = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveNodeMatcher(new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter());
 $assert('header' === $responsiveNodeMatcher->responsiveIdentity('Header Desktop 1440'), 'responsive-node-matcher-strips-desktop-width-qualifiers');
 $assert('hero-card' === $responsiveNodeMatcher->responsiveIdentity('Hero Card / Mobile 390 x 844'), 'responsive-node-matcher-strips-mobile-viewport-size');
 $responsiveNodeMatcherDesktopCounts = $responsiveNodeMatcher->siblingSignatureCounts(array(array('type' => 'FRAME', 'name' => 'Header Desktop')));
@@ -7197,7 +7197,7 @@ $assert(
 );
 $responsiveBreakpointSafetyPolicy = new Automattic\BlocksEngine\FigmaTransformer\Html\ResponsiveBreakpointSafetyPolicy(
     new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlNodeInspector(),
-    fn (float $value): string => rtrim(rtrim(sprintf('%.4F', $value), '0'), '.'),
+    new Automattic\BlocksEngine\FigmaTransformer\Html\StaticHtmlValueFormatter(),
     $breakpointDimensionPolicy,
     new Automattic\BlocksEngine\FigmaTransformer\Html\LayoutIntentClassifier()
 );

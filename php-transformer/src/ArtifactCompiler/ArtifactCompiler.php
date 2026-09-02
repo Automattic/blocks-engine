@@ -3,24 +3,29 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Support\RuntimeSelectorVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
-use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
-use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use DOMDocument;
 use DOMElement;
 
@@ -35,27 +40,33 @@ final class ArtifactCompiler
     public const PAGE_PLAN_SCHEMA = 'blocks-engine/php-transformer/staged-page-plan/v1';
     public const PAGE_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v1';
     public const COMPILED_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v2';
+    public const COMPACT_RECEIPT_SCHEMA = 'blocks-engine/php-transformer/compiled-page-receipt/v3';
 
     /**
      * Tag-only script selectors whose native DOM shape can be behavior-bearing.
      *
      * @var array<int, string>
      */
-    private const RUNTIME_TAG_SELECTORS = array( 'button', 'input', 'select', 'textarea', 'ul', 'ol', 'li' );
 
 	/** @var array<string, string> */
 	private array $themeStaticCssCache = array();
 
-	/** @var array<string, string> */
-	private array $wordpressCompatCssCache = array();
+	private WordPressCompatCss $wordpressCompat;
+
+    private readonly RuntimeScriptEvidenceAnalyzer $runtimeScriptEvidenceAnalyzer;
 
     private ?HtmlTransformerAnalysisCache $htmlTransformerAnalysisCache = null;
 
     /** Observational only: excludes receipt cache hits. */
     private int $htmlDocumentTransformCount = 0;
 
+    /** Observational only: counts source stylesheet discovery passes. */
+    private int $stylesheetAssetDiscoveryCount = 0;
+
     public function __construct(private readonly bool $cacheHtmlAnalysis = true)
     {
+        $this->wordpressCompat = new WordPressCompatCss();
+        $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
     }
 
     /** @return array<string, int> */
@@ -75,6 +86,7 @@ final class ArtifactCompiler
             'author_hits' => $cache->authorSelectorHits,
             'author_evictions' => $cache->authorSelectorEvictions,
             'author_bytes' => $cache->authorSelectorBytes,
+            'stylesheet_asset_discoveries' => $this->stylesheetAssetDiscoveryCount,
         );
     }
 
@@ -88,12 +100,6 @@ final class ArtifactCompiler
 
     /** @var array<int, string> */
     private array $scriptContents = array();
-
-    /** @var array<string, array<int, string>> */
-    private array $scriptDomSelectorCache = array();
-
-    /** @var array<string, array<string, bool>> */
-    private array $scriptControlSelectorCache = array();
 
     /** @var array<string,mixed> Optional normalized proof for the current artifact. */
     private array $layoutGeometryProof = array();
@@ -168,8 +174,9 @@ final class ArtifactCompiler
             'compiler_options' => $this->receiptCompilerOptions(),
         );
         $plan['shared_reduction'] = array(
-            'files' => $sharedArtifact['files'],
+            'files_source' => 'artifact',
             'component_facts' => $this->collectComponentFacts($sharedArtifact['files']),
+            'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $artifact),
         );
         $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         $plan['digest'] = $this->planDigest($this->sharedPlanDigestInput($plan));
@@ -292,8 +299,10 @@ final class ArtifactCompiler
             if (!is_array($pagePlan) || !is_string($pagePlan['page_id'] ?? null) || isset($receipts[$pagePlan['page_id']])) {
                 throw new \InvalidArgumentException('Prepared page batches require unique page plans with string page ids.');
             }
-            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader);
+            $receipts[$pagePlan['page_id']] = $this->compilePreparedPageWithCompiler($sharedPlan, $pagePlan, $stageCompiler, $payloadReader, true);
         }
+        $this->htmlTransformerAnalysisCache = $stageCompiler->htmlTransformerAnalysisCache;
+        $this->stylesheetAssetDiscoveryCount = $stageCompiler->stylesheetAssetDiscoveryCount;
         return $receipts;
     }
 
@@ -304,15 +313,21 @@ final class ArtifactCompiler
         return $compiler;
     }
 
-    /** @param array<string,mixed> $sharedPlan @param array<string,mixed> $pagePlan @return array<string,mixed> */
-    private function compilePreparedPageWithCompiler(array $sharedPlan, array $pagePlan, self $stageCompiler, ?PayloadReader $payloadReader): array
+    /**
+     * A shared plan is immutable for the whole batch, and verifying its
+     * reduction digest rehashes every shared fact. Callers that already
+     * verified this exact plan declare it so one batch validates once.
+     *
+     * @param array<string,mixed> $sharedPlan @param array<string,mixed> $pagePlan @return array<string,mixed>
+     */
+    private function compilePreparedPageWithCompiler(array $sharedPlan, array $pagePlan, self $stageCompiler, ?PayloadReader $payloadReader, bool $sharedPlanVerified = false): array
     {
         $startedAt = hrtime(true);
         $initialTransformCount = $stageCompiler->htmlDocumentTransformCount;
-        $this->assertSharedPlan($sharedPlan);
+        if (!$sharedPlanVerified) $this->assertSharedPlan($sharedPlan);
         $this->assertPagePlan($pagePlan, $sharedPlan);
         $sharedArtifact = isset($sharedPlan['shared_reduction'])
-            ? array_merge($sharedPlan['artifact'], array('files' => $sharedPlan['shared_reduction']['files']))
+            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
         $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
@@ -369,7 +384,10 @@ final class ArtifactCompiler
         }
         // A receipt owns every page-derived input required by final reduction.
         // Text is hydrated here; binary references deliberately stay portable.
-        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction']) ? self::COMPILED_RECEIPT_SCHEMA : self::PAGE_RECEIPT_SCHEMA;
+        $pagePlan['receipt_schema'] = isset($sharedPlan['shared_reduction'])
+            ? ($pagePlan['compiler_options']['compiled_page_schema'] ?? self::COMPACT_RECEIPT_SCHEMA)
+            : self::PAGE_RECEIPT_SCHEMA;
+        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) $pagePlan['artifact'] = $pageArtifact;
         $pagePlan['compiled_documents'] = $compiledDocuments;
         $pagePlan['owned_document_paths'] = array_keys($compiledDocuments);
         if (!isset($sharedPlan['shared_reduction'])) {
@@ -393,6 +411,9 @@ final class ArtifactCompiler
             $files,
             $entryPath
         );
+        if (self::COMPACT_RECEIPT_SCHEMA === $pagePlan['receipt_schema']) {
+            unset($pagePlan['terminal_reduction']['files'], $pagePlan['terminal_reduction']['entry_blocks']);
+        }
         /*
          * Observational work data is deliberately excluded from the receipt
          * digest so independently resumed work has stable canonical identity.
@@ -459,9 +480,9 @@ final class ArtifactCompiler
         $this->htmlDocumentTransformCount = 0;
         $this->assertSharedPlan($sharedPlan);
         $hasReceipts = false;
-        foreach ($pagePlans as $candidate) if (($candidate['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) { $hasReceipts = true; break; }
+        foreach ($pagePlans as $candidate) if ($this->isTerminalReceiptSchema($candidate['receipt_schema'] ?? null)) { $hasReceipts = true; break; }
         $sharedArtifact = $hasReceipts
-            ? array_merge($sharedPlan['artifact'], array('files' => array()))
+            ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $files = $sharedArtifact['files'];
         $seen = array();
@@ -474,19 +495,21 @@ final class ArtifactCompiler
                 throw new \InvalidArgumentException(sprintf('Composition received more than one staged page plan for page id "%s".', $pagePlan['page_id']));
             }
             $seen[$pagePlan['page_id']] = true;
-            $isReceipt = ($pagePlan['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA;
+            $isReceipt = $this->isTerminalReceiptSchema($pagePlan['receipt_schema'] ?? null);
             if (!$isReceipt) {
                 if ($hasReceipts) throw new \InvalidArgumentException('Composition requires a compiled receipt for every page plan.');
                 $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
                 $files = array_merge($files, $pageArtifact['files']);
                 continue;
             }
-            if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled v2 receipts require the digest-bound shared reduction supplied by their shared plan.');
+            if (!isset($sharedPlan['shared_reduction'])) throw new \InvalidArgumentException('Compiled terminal receipts require the digest-bound shared reduction supplied by their shared plan.');
             $reduction = $pagePlan['terminal_reduction'] ?? null;
-            if (!is_array($reduction) || !is_array($reduction['files'] ?? null) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
+            $isCompactReceipt = self::COMPACT_RECEIPT_SCHEMA === ($pagePlan['receipt_schema'] ?? null);
+            $pageFiles = $isCompactReceipt ? ($pagePlan['artifact']['files'] ?? null) : ($reduction['files'] ?? null);
+            if (!is_array($reduction) || !is_array($pageFiles) || !is_array($reduction['source_documents'] ?? null) || !is_array($reduction['component_facts'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt requires a complete terminal reduction.');
             if (($pagePlan['shared_reduction_digest'] ?? null) !== ($sharedPlan['shared_reduction_digest'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt is bound to another shared reduction.');
-            $pageArtifact = array('files' => $reduction['files']);
-            $files = array_merge($files, $reduction['files']);
+            $pageArtifact = array('files' => $pageFiles);
+            $files = array_merge($files, $pageFiles);
             $expected = $this->ownedHtmlPaths($pageArtifact['files'], (string) $pagePlan['page_id']);
             if ($expected !== array_keys($pagePlan['compiled_documents']) || $expected !== ($pagePlan['owned_document_paths'] ?? null)) throw new \InvalidArgumentException('A compiled page receipt does not exactly cover its owned HTML documents.');
             $expectedTransformable = $this->ownedTransformablePaths($pageArtifact['files'], (string) $pagePlan['page_id']);
@@ -500,6 +523,11 @@ final class ArtifactCompiler
                     throw new \InvalidArgumentException('A compiled page plan contains invalid or duplicate document output.');
                 }
                 $compiledDocuments[$path] = $document;
+            }
+            if ($isCompactReceipt) {
+                $reduction['files'] = $pageFiles;
+                $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
+                $reduction['entry_blocks'] = $pagePlan['compiled_documents'][$entryPath] ?? null;
             }
             $reductions[] = $reduction;
         }
@@ -541,7 +569,7 @@ final class ArtifactCompiler
     private function compileArtifact(array $artifact): TransformerResult
     {
 		$this->themeStaticCssCache = array();
-		$this->wordpressCompatCssCache = array();
+		$this->wordpressCompat = new WordPressCompatCss();
         $this->htmlTransformerAnalysisCache = $this->cacheHtmlAnalysis ? new HtmlTransformerAnalysisCache() : null;
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
@@ -550,7 +578,10 @@ final class ArtifactCompiler
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
-            'captured_dialogs' => $capturedDialogs,
+            'captured_dialogs' => array(
+                'diagnostics' => $capturedDialogs['diagnostics'],
+                'projected_count' => $capturedDialogs['projected_count'],
+            ),
         ));
     }
 
@@ -584,7 +615,11 @@ final class ArtifactCompiler
         $this->indexFiles($normalized['files']);
         $entryBlocks = is_array($reduction['entry_blocks'] ?? null) ? $reduction['entry_blocks'] : $this->compileEntryBlocks($html, $entryPath, $normalized['files'], $companionPluginPayloadBuilder->blockNamespace($artifact));
         $compiledHtmlDocuments = is_array($reduction['compiled_documents'] ?? null) ? $reduction['compiled_documents'] : $this->compileHtmlSourceDocuments($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
+        $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
+            ? $reduction['inline_shell_compilation']
+            : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
         $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
+        $runtimeScriptProjections = $entryBlocks['runtime_script_projections'];
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
@@ -592,6 +627,7 @@ final class ArtifactCompiler
         $coreHtmlFallbackEvidence = array($entryBlocks['core_html_fallback_evidence']);
         foreach ( $compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument ) {
             $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiledHtmlDocument['author_stylesheet_projections'] ?? array());
+            $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiledHtmlDocument['runtime_script_projections'] ?? array());
             $allDiagnostics = array_merge($allDiagnostics, $this->entryTransformDiagnostics($compiledHtmlDocument['diagnostics'] ?? array(), (string) $sourcePath));
             $allFallbacks = array_merge($allFallbacks, $compiledHtmlDocument['fallbacks'] ?? array());
             $allGeneratedBlocks = array_merge($allGeneratedBlocks, $compiledHtmlDocument['generated_blocks'] ?? array());
@@ -600,13 +636,28 @@ final class ArtifactCompiler
         }
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
-        $runtimeIslandPackage = ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
-        $wordpressCompatAsset = $this->wordpressCompatAsset($normalized['files']);
+        $normalized['files'] = $this->applyRuntimeScriptProjections($normalized['files'], $runtimeScriptProjections);
+        $runtimeIslandPackage = $this->applyRuntimeScriptPackageProjections(
+            ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
+            $runtimeScriptProjections
+        );
+        $wordpressCompatAsset = $this->wordpressCompat->asset($normalized['files'], $this->themeStaticCss($normalized['files'], false), $this->allScriptContents($normalized['files']));
         $referenceReports = $this->referenceReports($normalized['files']);
         $manifestAssets = $this->assetManifest($normalized['files'], $entryPath, $referenceReports['asset_references'], $html);
         $entryOwnership = is_array($entry) ? $this->fileOwnership($entry) : array('scope' => 'page', 'id' => $entryPath);
         $generatedAssets = $this->generatedAssetsForDocuments($entryBlocks['assets'], $entryOwnership, $compiledHtmlDocuments, $normalized['files']);
+        $generatedAssetIdentities = array();
+        foreach ($generatedAssets as $asset) $generatedAssetIdentities[hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''))] = true;
+        foreach ($inlineShellCompilation['assets'] as $asset) {
+            $identity = hash('sha256', (string) ($asset['path'] ?? '') . "\0" . (string) ($asset['content'] ?? ''));
+            if (isset($generatedAssetIdentities[$identity])) continue;
+            $generatedAssetIdentities[$identity] = true; $generatedAssets[] = $asset;
+        }
+        $projectedAdminBarAsset = $this->projectedAdminBarAccommodationAsset($normalized['files']);
+        if (null !== $projectedAdminBarAsset) {
+            $generatedAssets[] = $projectedAdminBarAsset;
+        }
         $beforeAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'before-author' === ($asset['stylesheet_placement'] ?? '')));
         $afterAuthorAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => 'after-author' === ($asset['stylesheet_placement'] ?? '')));
         $otherGeneratedAssets = array_values(array_filter($generatedAssets, static fn (array $asset): bool => ! in_array($asset, $beforeAuthorAssets, true) && ! in_array($asset, $afterAuthorAssets, true)));
@@ -664,7 +715,11 @@ final class ArtifactCompiler
                 'projected_dialog_count' => $capturedDialogs['projected_count'],
             );
         }
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments);
+        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
+        foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
+            $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
+        }
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
         $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'editability_report' => $entryBlocks['editability_report'] ?? null, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
@@ -695,7 +750,10 @@ final class ArtifactCompiler
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
-        $sourceReports['materialization_plan'] = ( new MaterializationPlanBuilder() )->fromCompiledSite($sourceReports['compiled_site']);
+        $sitePlanInput = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site']);
+        if (array() !== $sitePlanInput->fontMaterialization) {
+            $sourceReports['font_materialization'] = $sitePlanInput->fontMaterialization;
+        }
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
@@ -703,7 +761,7 @@ final class ArtifactCompiler
         if ( array() !== $entryBlocks['superseded_selectors'] ) {
             $sourceReports['superseded_selectors'] = $entryBlocks['superseded_selectors'];
         }
-        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport() )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors']);
+        $sourceReports['runtime_dependency_parity'] = ( new RuntimeDependencyParityReport($this->runtimeScriptEvidenceAnalyzer) )->fromArtifact($normalized['files'], $html, $serializedBlocks, $entryPath, $entryBlocks['runtime_islands'], $referenceReports['asset_references'], $entryBlocks['interaction_candidates'], $entryBlocks['superseded_selectors'], $allGeneratedBlocks);
         foreach ($sourceReports['runtime_dependency_parity']['findings'] ?? array() as $finding) {
             if ('runtime_dependency_target_missing' !== ($finding['code'] ?? '') || 'telemetry' === ($finding['script_kind'] ?? '')) {
                 continue;
@@ -746,7 +804,7 @@ final class ArtifactCompiler
         );
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.
-        if ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) {
+        if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) ) {
             $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
                 $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
@@ -767,6 +825,10 @@ final class ArtifactCompiler
                     'metrics' => $metrics,
                 ));
                 $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $sourceReports['wordpress_site_plan']['templates']);
+            } catch (DocumentIdentityException $exception) {
+                foreach ( $exception->diagnostics() as $identityDiagnostic ) {
+                    $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
+                }
             } catch (\InvalidArgumentException $exception) {
                 $diagnostics[] = $exception instanceof ValidationException
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
@@ -841,7 +903,7 @@ final class ArtifactCompiler
     private function reduceCompiledReceipts(array $sharedPlan, array $sharedArtifact, array $reductions, array $compiledDocuments): array
     {
         $sharedReduction = $sharedPlan['shared_reduction'];
-        $files = $sharedReduction['files'];
+        $files = $sharedArtifact['files'];
         $sharedArtifact['files'] = $files;
         $documents = array('documents' => array(), 'components' => array(), 'diagnostics' => array());
         $componentFacts = array($sharedReduction['component_facts']);
@@ -909,6 +971,7 @@ final class ArtifactCompiler
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
+            'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array()),
             'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),
         );
     }
@@ -926,46 +989,6 @@ final class ArtifactCompiler
         }
         hash_update($context, "\n" . RuntimeDeclarations::canonicalJson($runtimeDeclarations));
         return hash_final($context);
-    }
-
-    /**
-     * @param array<string,mixed> $artifact
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>}
-     */
-    private function partitionArtifact(array $artifact): array
-    {
-        $normalized = (new ArtifactNormalizer())->normalize($artifact);
-        $shared = array();
-        $pages = array();
-        foreach ($normalized['files'] as $file) {
-            $ownership = $this->fileOwnership($file);
-            if ('shared' === $ownership['scope']) {
-                $shared[] = $file;
-                continue;
-            }
-            $pages[$ownership['id']][] = $file;
-        }
-        ksort($pages, SORT_STRING);
-        foreach ($pages as $pageId => $files) {
-            $pages[$pageId] = self::sortedByPath($files);
-        }
-        $shared = self::sortedByPath($shared);
-
-        return array(
-            'shared' => $shared,
-            'pages' => $pages,
-            'entrypoints' => $normalized['entrypoints'],
-            'limits' => $normalized['limits'],
-            'runtime_declarations' => $normalized['runtime_declarations'],
-            'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
-            'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
-            'identity' => array_filter(array(
-                'site_slug' => is_string($artifact['site_slug'] ?? null) ? $artifact['site_slug'] : null,
-                'site_name' => is_string($artifact['site_name'] ?? null) ? $artifact['site_name'] : null,
-                'block_namespace' => is_string($artifact['block_namespace'] ?? null) ? $artifact['block_namespace'] : null,
-            ), static fn(mixed $value): bool => null !== $value),
-            'normalized' => $normalized,
-        );
     }
 
     /**
@@ -1027,7 +1050,10 @@ final class ArtifactCompiler
             'canonical_provenance_hashes' => $canonicalProvenanceHashes,
             'canonical_diagnostics' => array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics']),
             'canonical_rejected_count' => $normalized['rejected_count'],
-            'captured_dialogs' => $capturedDialogs,
+            'captured_dialogs' => array(
+                'diagnostics' => $capturedDialogs['diagnostics'],
+                'projected_count' => $capturedDialogs['projected_count'],
+            ),
         );
     }
 
@@ -1387,6 +1413,7 @@ final class ArtifactCompiler
             $plan['shared_reduction'] = array(
                 'files' => $planArtifact['files'],
                 'component_facts' => $this->collectComponentFacts($planArtifact['files']),
+                'inline_shell_compilation' => $this->compileSharedInlineShellReduction($partition, $hydratedArtifact),
             );
             $plan['shared_reduction_digest'] = $this->planDigest($plan['shared_reduction']);
         }
@@ -1474,6 +1501,15 @@ final class ArtifactCompiler
         return $artifact;
     }
 
+    /** @return array<int,array<string,mixed>> */
+    private function sharedReductionFiles(array $sharedPlan, ?PayloadReader $payloadReader): array
+    {
+        if (is_array($sharedPlan['shared_reduction']['files'] ?? null)) {
+            return $sharedPlan['shared_reduction']['files'];
+        }
+        return $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader)['files'];
+    }
+
     /** @param array<string,mixed> $file */
     private function isReferenceBackedBinary(array $file): bool
     {
@@ -1500,7 +1536,9 @@ final class ArtifactCompiler
             throw new \InvalidArgumentException('A staged shared plan requires its serialized artifact payload.');
         }
         if (isset($sharedPlan['shared_reduction'])) {
-            if (!is_array($sharedPlan['shared_reduction']['files'] ?? null) || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
+            $filesSource = $sharedPlan['shared_reduction']['files_source'] ?? null;
+            $hasFiles = is_array($sharedPlan['shared_reduction']['files'] ?? null) || 'artifact' === $filesSource;
+            if (!$hasFiles || !is_array($sharedPlan['shared_reduction']['component_facts'] ?? null) || !is_string($sharedPlan['shared_reduction_digest'] ?? null) || !hash_equals($this->planDigest($sharedPlan['shared_reduction']), $sharedPlan['shared_reduction_digest'])) {
                 throw new \InvalidArgumentException('A staged shared plan contains an invalid shared reduction digest.');
             }
         }
@@ -1538,7 +1576,7 @@ final class ArtifactCompiler
         if (!$this->compatibleReceiptOptions($pagePlan['compiler_options'] ?? null) || ($pagePlan['output_schema'] ?? null) !== TransformerResult::SCHEMA) {
             throw new \InvalidArgumentException('A staged page plan was prepared with incompatible compiler options or output schema.');
         }
-        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA), true)) {
+        if (isset($pagePlan['compiled_documents']) && !in_array(($pagePlan['receipt_schema'] ?? null), array(self::PAGE_RECEIPT_SCHEMA, self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true)) {
             throw new \InvalidArgumentException('A compiled page plan requires the compiled page receipt schema.');
         }
         $this->assertPlanDigest(
@@ -1557,7 +1595,7 @@ final class ArtifactCompiler
             $input['compiled_documents'] = $pagePlan['compiled_documents'];
             $input['owned_document_paths'] = $pagePlan['owned_document_paths'] ?? null;
             $input['shared_reduction_digest'] = $pagePlan['shared_reduction_digest'] ?? null;
-            if (($pagePlan['receipt_schema'] ?? null) === self::COMPILED_RECEIPT_SCHEMA) $input['terminal_reduction'] = $pagePlan['terminal_reduction'] ?? null;
+            if ($this->isTerminalReceiptSchema($pagePlan['receipt_schema'] ?? null)) $input['terminal_reduction'] = $pagePlan['terminal_reduction'] ?? null;
         }
         $input['compiler_options'] = $pagePlan['compiler_options'] ?? null;
         $input['output_schema'] = $pagePlan['output_schema'] ?? null;
@@ -1581,7 +1619,7 @@ final class ArtifactCompiler
     private function receiptCompilerOptions(): array
     {
         return array(
-            'compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA,
+            'compiled_page_schema' => self::COMPACT_RECEIPT_SCHEMA,
             'output_schema' => TransformerResult::SCHEMA,
         );
     }
@@ -1589,10 +1627,14 @@ final class ArtifactCompiler
     /** @param mixed $options */
     private function compatibleReceiptOptions(mixed $options): bool
     {
-        return $options === $this->receiptCompilerOptions() || $options === array(
-            'compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA,
-            'output_schema' => TransformerResult::SCHEMA,
-        );
+        return $options === $this->receiptCompilerOptions()
+            || $options === array('compiled_page_schema' => self::COMPILED_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA)
+            || $options === array('compiled_page_schema' => self::PAGE_RECEIPT_SCHEMA, 'output_schema' => TransformerResult::SCHEMA);
+    }
+
+    private function isTerminalReceiptSchema(mixed $schema): bool
+    {
+        return in_array($schema, array(self::COMPILED_RECEIPT_SCHEMA, self::COMPACT_RECEIPT_SCHEMA), true);
     }
 
     /** @param array<string,mixed> $normalized @return array<string,mixed> */
@@ -1811,6 +1853,7 @@ final class ArtifactCompiler
                 if ( true === ($fallback['control_topology']['truncated'] ?? false) ) continue;
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
                 if ( is_array($fallback['layout_graph'] ?? null) && true !== ($fallback['layout_graph']['truncated'] ?? false) ) { FormLayoutGraphBuilder::assertValid($fallback['layout_graph']); $form['layout_graph'] = $fallback['layout_graph']; }
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
@@ -1894,7 +1937,7 @@ final class ArtifactCompiler
 
     /**
      * @param array<int, array<string, mixed>> $files
-     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
+     * @return array{blocks: array<int, array<string, mixed>>, serialized_blocks: string, diagnostics: array<int, array<string, mixed>>, fallbacks: array<int, array<string, mixed>>, assets: array<int, array<string, mixed>>, runtime_islands: array<int, array<string, mixed>>, generated_blocks: array<int, array<string, mixed>>, gutenberg_gaps: array<int, array<string, mixed>>, interaction_candidates: array<int, array<string, mixed>>, superseded_selectors: array<int, string>, author_stylesheet_projections: array<int, array<string, mixed>>, runtime_script_projections: array<int, array<string, mixed>>, shell_artifacts: array<int, array<string, mixed>>, core_html_fallback_evidence: array<string, mixed>}
      */
     private function compileEntryBlocks(string $html, string $entryPath, array $files, string $generatedBlockNamespace = ''): array
     {
@@ -1912,6 +1955,7 @@ final class ArtifactCompiler
             'interaction_candidates' => $result['interaction_candidates'],
             'superseded_selectors' => $result['superseded_selectors'],
             'author_stylesheet_projections' => $result['author_stylesheet_projections'],
+            'runtime_script_projections' => $result['runtime_script_projections'],
             'shell_artifacts' => $result['shell_artifacts'],
             'core_html_fallback_evidence' => $result['core_html_fallback_evidence'],
             'runtime_block_paths' => $result['runtime_block_paths'] ?? array(),
@@ -1938,6 +1982,7 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'runtime_script_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
@@ -1957,29 +2002,34 @@ final class ArtifactCompiler
                 'interaction_candidates' => array(),
                 'superseded_selectors' => array(),
                 'author_stylesheet_projections' => array(),
+                'runtime_script_projections' => array(),
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
             );
         }
 
-        $stylesheetPayloads = $this->linkedStylesheetPayloads($html, $sourcePath, $files);
+        $stylesheetAssets = $this->stylesheetAssetsForSource($html, $sourcePath, $files);
+        $stylesheetPayloads = $this->linkedStylesheetPayloads($stylesheetAssets, $sourcePath, $files);
         $analysisCache = $this->cacheHtmlAnalysis
             ? $this->htmlTransformerAnalysisCache ??= new HtmlTransformerAnalysisCache()
             : new HtmlTransformerAnalysisCache();
         $runtimeDomSelectors = $this->runtimeDomSelectors($html, $sourcePath, $files);
+        $runtimeProjectionSelectors = $this->runtimeProjectionSelectors($html, $sourcePath, $files);
         $result = (new HtmlTransformer(analysisCache: $analysisCache))->transform($this->safeHtmlDocumentHtml($html, $sourcePath, $files), array(
             'source'                    => $sourcePath,
             'source_scope'              => $sourceScope,
             'declarative_state_html'    => $html,
-            'static_css'                => $this->linkedStylesheetCss($html, $sourcePath, $files),
+            'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
-            'author_stylesheet_assets'  => $this->stylesheetAssetsForSource($html, $sourcePath, $files),
+            'author_stylesheet_assets'  => $stylesheetAssets,
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
             'runtime_dom_selectors'     => $runtimeDomSelectors,
             'runtime_behavioral_selectors' => $runtimeDomSelectors,
+            'runtime_projection_selectors' => $runtimeProjectionSelectors,
+            'runtime_projection_script_assets' => $this->runtimeProjectionScriptAssetsForSource($html, $sourcePath, $files),
             'runtime_canvas_selectors'  => $this->runtimeCanvasSelectors($html, $sourcePath, $files),
             'generated_block_namespace' => $generatedBlockNamespace,
             'generated_asset_root'       => $this->generatedAssetRoot,
@@ -2012,6 +2062,7 @@ final class ArtifactCompiler
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
             'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
+            'runtime_script_projections' => is_array($result['source_reports']['runtime_script_projections'] ?? null) ? $result['source_reports']['runtime_script_projections'] : array(),
             'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
         );
     }
@@ -2056,7 +2107,7 @@ final class ArtifactCompiler
                     'attributes'         => $this->inlineScriptAttributes($file),
                 ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value);
             }
-            $runtimeIsland['required_scripts'] = $this->dedupeArrayRows($requiredScripts);
+            $runtimeIsland['required_scripts'] = SourceDom::dedupeArrayRows($requiredScripts);
         }
         unset($runtimeIsland);
 
@@ -2162,15 +2213,6 @@ final class ArtifactCompiler
         }
 
         return $attributes;
-    }
-
-    /**
-     * @param array<int, mixed> $rows
-     * @return array<int, mixed>
-     */
-    private function dedupeArrayRows(array $rows): array
-    {
-        return DeterministicRowDeduplicator::dedupe($rows);
     }
 
     /**
@@ -2371,23 +2413,16 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array<int, array<string, mixed>> $files
-     */
-    private function linkedStylesheetCss(string $html, string $sourcePath, array $files): string
-    {
-        return trim(implode("\n", array_column($this->linkedStylesheetPayloads($html, $sourcePath, $files), 'content')));
-    }
-
-    /**
      * Keep source stylesheet boundaries intact for payload-addressed analysis.
      *
+     * @param list<array{path: string, content: string, source_hash: string}> $stylesheets
      * @param array<int, array<string, mixed>> $files
      * @return list<array{content: string, source_hash: string}>
      */
-    private function linkedStylesheetPayloads(string $html, string $sourcePath, array $files): array
+    private function linkedStylesheetPayloads(array $stylesheets, string $sourcePath, array $files): array
     {
         $payloads = array();
-        foreach ( $this->stylesheetAssetsForSource($html, $sourcePath, $files) as $stylesheet ) {
+        foreach ( $stylesheets as $stylesheet ) {
             $content = (string) ($stylesheet['content'] ?? '');
             if ( '' !== trim($content) ) {
                 $payloads[] = array(
@@ -2409,6 +2444,7 @@ final class ArtifactCompiler
      */
     private function stylesheetAssetsForSource(string $html, string $sourcePath, array $files): array
     {
+        ++$this->stylesheetAssetDiscoveryCount;
         $byPath = array();
         $inline = array();
         $occurrencePaths = array();
@@ -2428,37 +2464,44 @@ final class ArtifactCompiler
         $seenPaths = array();
         $inlineIndex = 0;
         $linkOccurrences = array();
-        if ( preg_match_all('/<style\b[^>]*>.*?<\/style>|<link\b[^>]*>/is', $html, $matches) ) {
-            foreach ( $matches[0] as $tag ) {
-                if ( preg_match('/^<style\b/i', $tag) ) {
-                    $attributes = '';
-                    preg_match('/^<style\b([^>]*)>/i', $tag, $styleMatch);
-                    $attributes = (string) ($styleMatch[1] ?? '');
-                    if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
-                        continue;
-                    }
-                    if ( '' === trim((string) preg_replace('@^<style\b[^>]*>|</style>$@is', '', $tag)) ) {
-                        continue;
-                    }
-                    ++$inlineIndex;
-                    $file = $inline[$inlineIndex] ?? null;
-                    if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
-                        $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
-                        $seenPaths[$file['path']] = true;
-                    }
+        $tags = array_map(
+            static fn (array $style): array => array('kind' => 'style', 'offset' => $style['offset'], 'attributes' => $style['attributes'], 'content' => $style['content']),
+            StyleTagScanner::scan($html)
+        );
+        if ( preg_match_all('/<link\b[^>]*>/i', $html, $linkMatches, PREG_OFFSET_CAPTURE) ) {
+            foreach ($linkMatches[0] as $linkMatch) {
+                $tags[] = array('kind' => 'link', 'offset' => $linkMatch[1], 'tag' => $linkMatch[0]);
+            }
+        }
+        usort($tags, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
+        foreach ( $tags as $tagRecord ) {
+            if ( 'style' === $tagRecord['kind'] ) {
+                $attributes = $tagRecord['attributes'];
+                if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
-                if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                if ( '' === trim($tagRecord['content']) ) {
                     continue;
                 }
-                $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
-                $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
-                $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
-                $file = $byPath[$path] ?? null;
-                if ( is_array($file) && ! isset($seenPaths[$path]) ) {
-                    $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
-                    $seenPaths[$path] = true;
+                ++$inlineIndex;
+                $file = $inline[$inlineIndex] ?? null;
+                if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
+                    $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
+                    $seenPaths[$file['path']] = true;
                 }
+                continue;
+            }
+            $tag = $tagRecord['tag'];
+            if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+                continue;
+            }
+            $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
+            $linkOccurrences[$sourcePathForLink] = ($linkOccurrences[$sourcePathForLink] ?? 0) + 1;
+            $path = $occurrencePaths[$sourcePathForLink][$linkOccurrences[$sourcePathForLink]] ?? '';
+            $file = $byPath[$path] ?? null;
+            if ( is_array($file) && ! isset($seenPaths[$path]) ) {
+                $assets[] = array( 'path' => $path, 'source_path' => $file['stylesheet_source_path'] ?? $sourcePathForLink, 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => $this->htmlAttribute((string) $tag, 'media'), 'type' => $this->htmlAttribute((string) $tag, 'type') );
+                $seenPaths[$path] = true;
             }
         }
         return $assets;
@@ -2489,6 +2532,7 @@ final class ArtifactCompiler
             $reserved[$path] = true;
         }
         $occurrences = array();
+        $variants = array();
         if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
             return $files;
         }
@@ -2509,8 +2553,16 @@ final class ArtifactCompiler
                 $files[$byPath[$originalPath]]['type'] = $type;
                 $files[$byPath[$originalPath]]['stylesheet_source_path'] = $originalPath;
                 $files[$byPath[$originalPath]]['stylesheet_occurrence'] = 1;
+                $variants[$originalPath][$media . "\0" . $type] = true;
                 continue;
             }
+            // Repeating one stylesheet under the same conditions applies it
+            // once, exactly as a browser resolves it. Only a differing media or
+            // type makes a later reference its own participant in the cascade.
+            if ( isset($variants[$originalPath][$media . "\0" . $type]) ) {
+                continue;
+            }
+            $variants[$originalPath][$media . "\0" . $type] = true;
             $alias = $this->allocateStylesheetOccurrencePath($this->stylesheetOccurrencePath($originalPath, $occurrence), $reserved);
             $aliasFile = $files[$byPath[$originalPath]];
             $aliasFile['path'] = $alias;
@@ -2599,6 +2651,27 @@ final class ArtifactCompiler
      */
     private function applyAuthorStylesheetProjections(array $files, array $projections, array $primaryProjections = array()): array
     {
+        $attributeStateMarkers = array();
+        foreach ($projections as $projection) {
+            $markers = $projection['attribute_state_markers'] ?? null;
+            if (!is_array($markers)) continue;
+            foreach ($markers as $selector => $marker) {
+                if (is_string($selector) && is_string($marker) && '' !== $marker) $attributeStateMarkers[$selector][$marker] = true;
+            }
+        }
+        $reconcileAttributeStateMarkers = static function (array $projection) use ($attributeStateMarkers): array {
+            $markers = $projection['attribute_state_markers'] ?? null;
+            if (!is_string($projection['content'] ?? null) || !is_array($markers)) return $projection;
+            foreach ($markers as $selector => $marker) {
+                $allMarkers = array_keys($attributeStateMarkers[$selector] ?? array());
+                if (!is_string($marker) || '' === $marker || count($allMarkers) < 2) continue;
+                $replacement = implode('', array_map(static fn(string $candidate): string => ':not(.' . $candidate . ')', $allMarkers));
+                $projection['content'] = str_replace(':not(.' . $marker . ')', $replacement, $projection['content']);
+            }
+            return $projection;
+        };
+        $projections = array_map($reconcileAttributeStateMarkers, $projections);
+        $primaryProjections = array_map($reconcileAttributeStateMarkers, $primaryProjections);
         $byPath = array();
         $primaryByPath = array();
         foreach ( $primaryProjections as $projection ) {
@@ -2623,7 +2696,13 @@ final class ArtifactCompiler
             }
             $authoritativeContent = array_keys($primaryByPath[$file['path'] ?? ''] ?? array());
             if ( array() === $authoritativeContent ) {
-                $authoritativeContent[] = (string) ($file['content'] ?? '');
+                if ( array() !== $pathProjections ) {
+                    $authoritativeProjection = array_key_last($pathProjections);
+                    $authoritativeContent[] = (string) $authoritativeProjection;
+                    unset($pathProjections[$authoritativeProjection]);
+                } else {
+                    $authoritativeContent[] = (string) ($file['content'] ?? '');
+                }
             }
             $preambles = array();
             $stylesheets = array();
@@ -2650,6 +2729,149 @@ final class ArtifactCompiler
         }
         unset($file);
         return $files;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @param array<int, array<string, mixed>> $projections
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyRuntimeScriptProjections(array $files, array $projections): array
+    {
+        $byPath = $this->runtimeScriptProjectionMap($projections, 'path');
+
+        foreach ( $files as &$file ) {
+            $pathProjection = $byPath[$file['path'] ?? ''] ?? null;
+            if ( ! is_array($pathProjection) || ! in_array($file['kind'] ?? '', array('js', 'mjs'), true) || ! is_string($file['content'] ?? null) ) {
+                continue;
+            }
+            $content = $this->projectRuntimeScriptContent($file['content'], $pathProjection);
+            if ( $content === $file['content'] ) {
+                continue;
+            }
+            $file['content'] = $content;
+            unset($file['content_base64']);
+            $file['bytes'] = strlen($content);
+            $file['encoding'] = 'text';
+            $file['binary'] = false;
+            $file['provenance']['projected_from_hash'] = $file['provenance']['hash'] ?? '';
+            $file['provenance']['hash'] = hash('sha256', $content);
+        }
+        unset($file);
+
+        return $files;
+    }
+
+    /** @param array<string, mixed> $package @param array<int, array<string, mixed>> $projections @return array<string, mixed> */
+    private function applyRuntimeScriptPackageProjections(array $package, array $projections): array
+    {
+        if ( ! is_array($package['islands'] ?? null) ) {
+            return $package;
+        }
+        foreach ( $package['islands'] as &$island ) {
+            if ( ! is_array($island['scripts'] ?? null) ) {
+                continue;
+            }
+            foreach ( $island['scripts'] as &$script ) {
+                if ( ! is_string($script['content'] ?? null) ) {
+                    continue;
+                }
+                $projection = $this->runtimeScriptProjectionForContent($script['content'], $projections);
+                if ( is_array($projection) ) {
+                    $script['content'] = $this->projectRuntimeScriptContent($script['content'], $projection);
+                }
+            }
+            unset($script);
+        }
+        unset($island);
+
+        return $package;
+    }
+
+    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, true>> */
+    private function runtimeScriptProjectionForContent(string $content, array $projections): array
+    {
+        $matched = array();
+        foreach ( $projections as $projection ) {
+            if ( ! is_array($projection) ) {
+                continue;
+            }
+            foreach ( $projection['selectors'] ?? array() as $selector => $markers ) {
+                if ( ! is_string($selector) || ! is_array($markers) || ! preg_match('~(?:querySelector(?:All)?|closest|matches)\s*\(\s*(["\'])' . preg_quote($selector, '~') . '\1~', $content) ) {
+                    continue;
+                }
+                foreach ( $markers as $marker ) {
+                    if ( is_string($marker) && '' !== $marker ) {
+                        $matched[$selector][$marker] = true;
+                    }
+                }
+            }
+            foreach ( $projection['superseded_ids'] ?? array() as $id ) {
+                if ( is_string($id) && '' !== $id && preg_match('~getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~', $content) ) {
+                    $matched['superseded_ids'][$id] = true;
+                }
+            }
+        }
+
+        return $matched;
+    }
+
+    /** @param array<int, array<string, mixed>> $projections @return array<string, array<string, array<string, true>>> */
+    private function runtimeScriptProjectionMap(array $projections, string $identityKey): array
+    {
+        $map = array();
+        foreach ( $projections as $projection ) {
+            if ( ! is_array($projection) ) {
+                continue;
+            }
+            $identity = $projection[$identityKey] ?? null;
+            if ( ! is_string($identity) || '' === $identity || ! is_array($projection['selectors'] ?? null) || ! is_array($projection['superseded_ids'] ?? null) ) {
+                continue;
+            }
+            foreach ( $projection['selectors'] as $selector => $markers ) {
+                if ( ! is_string($selector) || ! is_array($markers) ) {
+                    continue;
+                }
+                foreach ( $markers as $marker ) {
+                    if ( is_string($marker) && '' !== $marker ) {
+                        $map[$identity][$selector][$marker] = true;
+                    }
+                }
+            }
+            foreach ( $projection['superseded_ids'] as $id ) {
+                if ( is_string($id) && '' !== $id ) {
+                    $map[$identity]['superseded_ids'][$id] = true;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    /** @param array<string, array<string, true>> $projection */
+    private function projectRuntimeScriptContent(string $content, array $projection): string
+    {
+        foreach ( $projection as $selector => $markers ) {
+            if ( 'superseded_ids' === $selector ) {
+                continue;
+            }
+            $projectedSelector = implode(',', array_map(static fn (string $marker): string => '.' . $marker, array_keys($markers)));
+            $selectorPattern = preg_quote($selector, '~');
+            $content = preg_replace_callback(
+                '~((?:querySelector(?:All)?|closest|matches)\s*\(\s*)(["\'])' . $selectorPattern . '\2~',
+                static fn (array $match): string => $match[1] . $match[2] . $projectedSelector . $match[2],
+                $content
+            ) ?? $content;
+        }
+        foreach ( array_keys($projection['superseded_ids'] ?? array()) as $id ) {
+            $content = preg_replace_callback(
+                '~document\s*\.\s*getElementById\s*\(\s*(["\'])' . preg_quote($id, '~') . '\1\s*\)~',
+                static fn (array $match): string => '(' . $match[0] . " || document.createElement('div'))",
+                $content
+            ) ?? $content;
+        }
+
+        return $content;
     }
 
     /**
@@ -2716,7 +2938,7 @@ final class ArtifactCompiler
 		}
 		if ( $includeNavigationCompat ) {
 			$css = $this->themeStaticCss($files, false);
-			return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompatCss($css, $files);
+			return $this->themeStaticCssCache[$cacheKey] = $css . $this->wordpressCompat->css($css, $files, $this->allScriptContents($files));
 		}
         $blocks = array();
         foreach ( $files as $file ) {
@@ -2756,600 +2978,51 @@ final class ArtifactCompiler
         return self::sortedByPath($sources);
     }
 
-    private function navigationAnchorCompatCss(string $css): string
-    {
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
-            $body = $rule['body'];
-            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
-                    $mappedSelectors[$mappedSelector] = true;
-                }
-            }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
-        }
-
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
-    }
-
-    private function navigationStructureCompatCss(string $css): string
-    {
-        $rules = $this->navigationStructureCompatRules($css);
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: project source list navigation structure onto core/navigation markup */\n" . implode("\n", $rules);
-    }
-
     /**
-     * @return array<int, string>
-     */
-    private function navigationStructureCompatRules(string $css): array
-    {
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            $selectorList = trim($rule['selector']);
-            $body = $rule['body'];
-            if ( '' === $body ) {
-                continue;
-            }
-
-            if ( str_starts_with($selectorList, '@') ) {
-                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
-                    continue;
-                }
-                $nestedRules = $this->navigationStructureCompatRules($body);
-                if ( array() !== $nestedRules ) {
-                    $rules[] = $selectorList . ' {' . implode('', $nestedRules) . '}';
-                }
-                continue;
-            }
-            if ( str_contains(strtolower($body), 'url(') ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
-                foreach ( $this->mapNavigationStructureSelector($selector, $body) as $mappedSelector ) {
-                    $mappedSelectors[$mappedSelector] = true;
-                }
-            }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
-        }
-
-        return $rules;
-    }
-
-    private function navigationContainerCompatCss(string $css): string
-    {
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
-            $body = $rule['body'];
-            if ( '' === $body || str_contains(strtolower($body), 'url(') || ! preg_match('/(?:^|;)\s*display\s*:/i', $body) ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                $mapped = $this->mapNavigationContainerSelector($selector);
-                if ( null !== $mapped ) {
-                    $mappedSelectors[$mapped] = true;
-                }
-            }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
-        }
-
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: preserve source navigation container cascade against core/navigation */\n" . implode("\n", $rules);
-    }
-
-    private function mapNavigationContainerSelector(string $selector): ?string
-    {
-        if ( str_contains($selector, '.wp-block-navigation') || ! preg_match('/([^\s>+~]+)\s*$/', trim($selector), $match, PREG_OFFSET_CAPTURE) ) {
-            return null;
-        }
-
-        $compound = (string) ($match[1][0] ?? '');
-        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound)
-            || ! preg_match('/(?:^|[.#_-])(?:collapsed|mobile|drawer|overlay|offcanvas|responsive)(?:$|[.#_:-])/i', $compound) ) {
-            return null;
-        }
-
-        $pseudoOffset = false;
-        if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
-            $pseudoOffset = (int) $pseudoMatch[0][1];
-        }
-        $mappedCompound = false === $pseudoOffset
-            ? $compound . '.wp-block-navigation'
-            : substr($compound, 0, $pseudoOffset) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
-
-        return substr($selector, 0, (int) $match[1][1]) . $mappedCompound;
-    }
-
-    /** @param array<int, array<string, mixed>> $files */
-    private function rootStartupClassCompatCss(string $css, array $files): string
-    {
-        $classes = $this->rootStartupClassNames($files);
-        if ( array() === $classes ) {
-            return '';
-        }
-
-        $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
-            $body = $rule['body'];
-            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
-                continue;
-            }
-
-            $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                foreach ( $classes as $class ) {
-                    $mapped = preg_replace('/\b(body|html)\.' . preg_quote($class, '/') . '\b/', '$1', $selector, 1, $count);
-                    if ( 1 === $count && is_string($mapped) ) {
-                        $mappedSelectors[trim($mapped)] = true;
-                    }
-                }
-            }
-
-            if ( array() !== $mappedSelectors ) {
-                $rules[] = implode(', ', array_keys($mappedSelectors)) . ' { ' . $body . ' }';
-            }
-        }
-
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: materialize stable source startup root classes */\n" . implode("\n", $rules);
-    }
-
-    /**
+     * Linked stylesheets are projected after HtmlTransformer has emitted its
+     * per-document support assets, so scan their final runtime selectors here.
+     *
      * @param array<int, array<string, mixed>> $files
-     * @return array<int, string>
+     * @return array<string, mixed>|null
      */
-    private function rootStartupClassNames(array $files): array
+    private function projectedAdminBarAccommodationAsset(array $files): ?array
     {
-        $added = array();
-        $removed = array();
-        foreach ( $this->allScriptContents($files) as $script ) {
-            if ( preg_match_all('/\$\(\s*(["\'])(?:body|html)\1\s*\)\s*\.\s*addClass\s*\(\s*(["\'])([^"\']+)\2\s*\)/', $script, $matches) ) {
-                foreach ( $matches[3] as $classList ) {
-                    foreach ( preg_split('/\s+/', trim((string) $classList)) ?: array() as $class ) {
-                        if ( preg_match('/^[A-Za-z_][A-Za-z0-9_-]*$/', $class) ) {
-                            $added[$class] = true;
-                        }
-                    }
-                }
-            }
-            if ( preg_match_all('/document\s*\.\s*(?:body|documentElement)\s*\.\s*classList\s*\.\s*add\s*\(\s*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-                foreach ( $matches[2] as $class ) {
-                    $added[(string) $class] = true;
-                }
-            }
-            if ( preg_match_all('/(?:removeClass|toggleClass|classList\s*\.\s*(?:remove|toggle))\s*\([^)]*(["\'])([A-Za-z_][A-Za-z0-9_-]*)\1/', $script, $matches) ) {
-                foreach ( $matches[2] as $class ) {
-                    $removed[(string) $class] = true;
-                }
-            }
-        }
-
-        return array_values(array_diff(array_keys($added), array_keys($removed)));
-    }
-
-    /** @param array<int, array<string, mixed>> $files */
-    private function wordpressCompatCss(string $css, array $files): string
-    {
-		$cacheKey = hash('sha256', $css);
-		if ( array_key_exists($cacheKey, $this->wordpressCompatCssCache) ) {
-			return $this->wordpressCompatCssCache[$cacheKey];
-		}
-		return $this->wordpressCompatCssCache[$cacheKey] = $this->navigationContainerCompatCss($css)
-            . $this->navigationStructureCompatCss($css)
-            . $this->navigationAnchorCompatCss($css)
-            . $this->rootStartupClassCompatCss($css, $files)
-            . $this->coreRuntimeCompatCss($css, $files);
-    }
-
-    /** @param array<int, array<string, mixed>> $files */
-    private function coreRuntimeCompatCss(string $css, array $files): string
-    {
-        $rules = array();
-        foreach ( $files as $file ) {
-            if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
+        $css = array();
+        $accommodation = new AdminBarAccommodation();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? '') || !is_string($file['content'] ?? null)) {
                 continue;
             }
-            if ( preg_match('/\baria-current\s*=|\b(?:id|class)\s*=\s*(?:"[^"]*(?:active|current|selected)[^"]*"|\'[^\']*(?:active|current|selected)[^\']*\'|[^\s>]*(?:active|current|selected)[^\s>]*)/i', $file['content']) ) {
-                $rules['current-navigation'] = '.blocks-engine-current-navigation-underline>.wp-block-navigation-item__content { text-decoration:underline }';
-                break;
+            $supportCss = $accommodation->supportCss($file['content']);
+            if ('' !== $supportCss) {
+                $css[] = $supportCss;
             }
         }
-
-        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
-            if ( str_starts_with(trim($rule['selector']), '@') ) {
-                if ( '' !== $this->coreRuntimeCompatCss($rule['body'], array()) ) {
-                    $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
-                    break;
-                }
-                continue;
-            }
-            if ( str_contains($rule['selector'], '.search-icon')
-                && ! str_contains($rule['selector'], '.wp-block-search')
-                && preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $rule['body']) ) {
-                $rules['search-icon'] = '.wp-block-search.wp-block-search__icon-button .wp-block-search__button.has-icon>.search-icon { display:block!important;height:1.25em!important }';
-                break;
-            }
-        }
-
-        return array() === $rules
-            ? ''
-            : "\n\n/* wp-compat: protect core block runtime semantics from source selector collisions */\n" . implode("\n", $rules);
-    }
-
-    /** @param array<int, array<string, mixed>> $files @return array<string, mixed>|null */
-    private function wordpressCompatAsset(array $files): ?array
-    {
-        $css = trim($this->wordpressCompatCss($this->themeStaticCss($files, false), $files));
-        if ( '' === $css ) {
+        $content = trim(implode("\n", $css));
+        if ('' === $content) {
             return null;
         }
 
-        $hash = hash('sha256', $css);
-        $path = 'assets/css/wordpress-compat-' . substr($hash, 0, 16) . '.css';
+        $content .= "\n";
+        $hash = hash('sha256', $content);
+        $path = 'assets/css/engine-support-after-author-' . substr($hash, 0, 16) . '.css';
         return array(
-            'source'      => 'wordpress-compat',
-            'path'        => $path,
+            'source' => 'engine-support',
+            'path' => $path,
             'target_path' => $path,
-            'kind'        => 'css',
-            'role'        => 'stylesheet',
-            'intent'      => 'style',
-            'media_type'  => 'text/css',
-            'mime_type'   => 'text/css',
-            'bytes'       => strlen($css),
-            'binary'      => false,
-            'content'     => $css,
-            'hash'        => $hash,
+            'kind' => 'css',
+            'role' => 'stylesheet',
+            'stylesheet_placement' => 'after-author',
+            'stylesheet_target' => 'both',
+            'mime_type' => 'text/css',
+            'media_type' => 'text/css',
+            'bytes' => strlen($content),
+            'encoding' => 'utf-8',
+            'binary' => false,
+            'content' => $content,
+            'hash' => $hash,
+            'source_hash' => $hash,
         );
-    }
-
-    /** @return array<int, array{selector:string,body:string}> */
-    private function topLevelCssRules(string $css, bool $includeConditionalRules = false): array
-    {
-        $rules = array();
-        $length = strlen($css);
-        $start = 0;
-        for ( $index = 0; $index < $length; $index++ ) {
-            if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
-                $end = strpos($css, '*/', $index + 2);
-                $index = false === $end ? $length : $end + 1;
-                continue;
-            }
-            if ( in_array($css[$index], array('"', "'"), true) ) {
-                $quote = $css[$index];
-                while ( ++$index < $length ) {
-                    if ( '\\' === $css[$index] ) {
-                        $index++;
-                    } elseif ( $quote === $css[$index] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ( ';' === $css[$index] ) {
-                $start = $index + 1;
-                continue;
-            }
-            if ( '{' !== $css[$index] ) {
-                continue;
-            }
-
-            $selector = trim(substr($css, $start, $index - $start));
-            $bodyStart = $index + 1;
-            $depth = 1;
-            while ( ++$index < $length && $depth > 0 ) {
-                if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
-                    $end = strpos($css, '*/', $index + 2);
-                    $index = false === $end ? $length : $end + 1;
-                    continue;
-                }
-                if ( in_array($css[$index], array('"', "'"), true) ) {
-                    $quote = $css[$index];
-                    while ( ++$index < $length ) {
-                        if ( '\\' === $css[$index] ) {
-                            $index++;
-                        } elseif ( $quote === $css[$index] ) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if ( '{' === $css[$index] ) {
-                    $depth++;
-                } elseif ( '}' === $css[$index] ) {
-                    $depth--;
-                }
-            }
-            if ( '' !== $selector && ( $includeConditionalRules || ! str_starts_with($selector, '@') ) && 0 === $depth ) {
-                $closingBrace = $index - 1;
-                $rules[] = array(
-                    'selector' => $selector,
-                    'body'     => trim(substr($css, $bodyStart, $closingBrace - $bodyStart)),
-                );
-            }
-            $start = $index;
-            $index--;
-        }
-
-        return $rules;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function splitSelectorList(string $selectorList): array
-    {
-        $selectors = array();
-        $current = '';
-        $depth = 0;
-        $length = strlen($selectorList);
-        for ( $i = 0; $i < $length; $i++ ) {
-            $char = $selectorList[$i];
-            if ( '\\' === $char && $i + 1 < $length ) {
-                $current .= $char . $selectorList[++$i];
-                continue;
-            }
-            if ( '/' === $char && '*' === ($selectorList[$i + 1] ?? '') ) {
-                $end = strpos($selectorList, '*/', $i + 2);
-                if ( false === $end ) {
-                    $current .= substr($selectorList, $i);
-                    break;
-                }
-                $current .= substr($selectorList, $i, $end + 2 - $i);
-                $i = $end + 1;
-                continue;
-            }
-            if ( in_array($char, array( '"', "'" ), true) ) {
-                $quote = $char;
-                $current .= $char;
-                while ( ++$i < $length ) {
-                    $current .= $selectorList[$i];
-                    if ( '\\' === $selectorList[$i] && $i + 1 < $length ) {
-                        $current .= $selectorList[++$i];
-                        continue;
-                    }
-                    if ( $quote === $selectorList[$i] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ( '(' === $char || '[' === $char ) {
-                $depth++;
-            } elseif ( ')' === $char || ']' === $char ) {
-                $depth = max(0, $depth - 1);
-            }
-
-            if ( ',' === $char && 0 === $depth ) {
-                $selector = trim($current);
-                if ( '' !== $selector ) {
-                    $selectors[] = $selector;
-                }
-                $current = '';
-                continue;
-            }
-
-            $current .= $char;
-        }
-
-        $selector = trim($current);
-        if ( '' !== $selector ) {
-            $selectors[] = $selector;
-        }
-
-        return $selectors;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function mapNavigationAnchorSelector(string $selector): array
-    {
-        if ( ! preg_match('/(^|[\s>+~])a(?=$|[\s:.#\[])/', $selector, $anchorMatch, PREG_OFFSET_CAPTURE) ) {
-            return array();
-        }
-
-        $separator = (string) ($anchorMatch[1][0] ?? '');
-        $anchorStart = (int) $anchorMatch[0][1] + strlen($separator);
-        $prefix = substr($selector, 0, $anchorStart);
-        if ( 1 !== preg_match('/[.#\[]/', $prefix) ) {
-            return array();
-        }
-
-        $mapped = preg_replace('/(\s*[>+~]?\s*)a:first-child\b/', '$1.wp-block-navigation-item:first-child > .wp-block-navigation-item__content', $selector);
-        $mapped = preg_replace('/(\s*[>+~]?\s*)a:last-child\b/', '$1.wp-block-navigation-item:last-child > .wp-block-navigation-item__content', (string) $mapped);
-        $mapped = preg_replace('/(\s*[>+~]?\s*)a:nth-child\(([^)]*)\)/', '$1.wp-block-navigation-item:nth-child($2) > .wp-block-navigation-item__content', (string) $mapped);
-        $mapped = preg_replace('/(\s*[>+~]?\s*)a(?![A-Za-z0-9_-])/', '$1.wp-block-navigation-item__content', (string) $mapped);
-        $mapped = (string) $mapped;
-
-        $selectors = array();
-        $directWrapper = $this->addNavigationClassToLastPrefixCompound($mapped, $anchorStart);
-        if ( null !== $directWrapper ) {
-            $selectors[$directWrapper] = true;
-        }
-        $descendantWrapper = $this->insertNavigationDescendantWrapper($mapped, $prefix);
-        if ( null !== $descendantWrapper ) {
-            $selectors[$descendantWrapper] = true;
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function mapNavigationStructureSelector(string $selector, string $body): array
-    {
-        $selector = $this->selectorWithoutComments($selector);
-        if ( str_contains($selector, '.wp-block-navigation') ) {
-            return array();
-        }
-
-        $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)(?:ul|ol)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=$|[\s>+~:])/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
-        if ( 1 !== $hasListMatch ) {
-            $hasListMatch = preg_match('/(^|\s*[>+~]?\s*)((?:[.#][A-Za-z_][A-Za-z0-9_-]*)+)(?=\s+[^,{]*blocks-engine-source-li-)/', $selector, $listMatch, PREG_OFFSET_CAPTURE);
-        }
-        if ( 1 !== $hasListMatch ) {
-            return array();
-        }
-
-        $listClasses = (string) ($listMatch[2][0] ?? '');
-        if ( ! preg_match('/(?:nav|menu)/i', $listClasses) ) {
-            return array();
-        }
-
-        $matchStart = (int) ($listMatch[0][1] ?? 0);
-        $matchLength = strlen((string) ($listMatch[0][0] ?? ''));
-        $prefix = rtrim(substr($selector, 0, $matchStart));
-        $tail = substr($selector, $matchStart + $matchLength);
-        if ( '' === trim($tail) ) {
-            if ( ! preg_match('/(?:^|;)\s*(?:visibility\s*:\s*visible\b|opacity\s*:\s*1(?:\.0+)?\b|display\s*:\s*(?!none\b)[^;}]+)/i', $body)
-                || ! preg_match('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', $listClasses) ) {
-                return array();
-            }
-            $stableListClasses = preg_replace('/\.(?:is-)?(?:visible|shown|open|opened|active|ready|loaded|expanded)\b/i', '', $listClasses);
-            if ( ! is_string($stableListClasses) || $stableListClasses === $listClasses || ! preg_match('/(?:nav|menu)/i', $stableListClasses) ) {
-                return array();
-            }
-            $listClasses = $stableListClasses;
-        }
-        $tail = preg_replace(
-            '/:where\(\.blocks-engine-source-li-[A-Za-z0-9_-]+\):not\(blocks-engine-specificity-[A-Za-z0-9_-]+\)/',
-            '.wp-block-navigation-item',
-            $tail
-        ) ?? $tail;
-        $tail = preg_replace('/(^|[\s>+~])li(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item', $tail) ?? $tail;
-        $tail = preg_replace('/(^|[\s>+~])a(?=$|[\s>+~:.#\[])/', '$1.wp-block-navigation-item__content', $tail) ?? $tail;
-        $runtimeTail = ' .wp-block-navigation__container' . $tail;
-        $scope = $listClasses . '.wp-block-navigation';
-
-        $selectors = array();
-        if ( '' === $prefix ) {
-            $selectors[$scope . $runtimeTail] = true;
-            return array_keys($selectors);
-        }
-
-        $selectors[$prefix . ' ' . $scope . $runtimeTail] = true;
-        if ( preg_match('/([^\s>+~]+)$/', $prefix, $prefixMatch, PREG_OFFSET_CAPTURE) ) {
-            $compound = (string) ($prefixMatch[1][0] ?? '');
-            $offset = (int) ($prefixMatch[1][1] ?? 0);
-            $pseudoOffset = strpos($compound, ':');
-            $fused = false === $pseudoOffset
-                ? $compound . $listClasses . '.wp-block-navigation'
-                : substr($compound, 0, $pseudoOffset) . $listClasses . '.wp-block-navigation' . substr($compound, $pseudoOffset);
-            $selectors[substr($prefix, 0, $offset) . $fused . $runtimeTail] = true;
-        }
-
-        return array_keys($selectors);
-    }
-
-    private function selectorWithoutComments(string $selector): string
-    {
-        $result = '';
-        $length = strlen($selector);
-        for ( $index = 0; $index < $length; $index++ ) {
-            $char = $selector[$index];
-            if ( '\\' === $char && $index + 1 < $length ) {
-                $result .= $char . $selector[++$index];
-                continue;
-            }
-            if ( in_array($char, array( '"', "'" ), true) ) {
-                $quote = $char;
-                $result .= $char;
-                while ( ++$index < $length ) {
-                    $result .= $selector[$index];
-                    if ( '\\' === $selector[$index] && $index + 1 < $length ) {
-                        $result .= $selector[++$index];
-                        continue;
-                    }
-                    if ( $quote === $selector[$index] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ( '/' === $char && '*' === ($selector[$index + 1] ?? '') ) {
-                $end = strpos($selector, '*/', $index + 2);
-                if ( false === $end ) {
-                    break;
-                }
-                $index = $end + 1;
-                continue;
-            }
-            $result .= $char;
-        }
-
-        return trim($result);
-    }
-
-    private function addNavigationClassToLastPrefixCompound(string $selector, int $anchorStart): ?string
-    {
-        $prefix = substr($selector, 0, $anchorStart);
-        if ( ! preg_match('/([^\s>+~]+)(\s*[>+~]?\s*)$/', $prefix, $match, PREG_OFFSET_CAPTURE) ) {
-            return null;
-        }
-
-        $compound = (string) ($match[1][0] ?? '');
-        if ( str_contains($compound, '.wp-block-navigation') ) {
-            return $selector;
-        }
-
-        $pseudoOffset = false;
-        if ( preg_match('/:{1,2}/', $compound, $pseudoMatch, PREG_OFFSET_CAPTURE) ) {
-            $pseudoOffset = (int) $pseudoMatch[0][1];
-        }
-
-        $mappedCompound = false === $pseudoOffset
-            ? $compound . '.wp-block-navigation'
-            : substr($compound, 0, $pseudoOffset) . '.wp-block-navigation' . substr($compound, $pseudoOffset);
-        $mappedPrefix = substr($prefix, 0, (int) $match[1][1]) . $mappedCompound . (string) ($match[2][0] ?? '');
-
-        return $mappedPrefix . substr($selector, $anchorStart);
-    }
-
-    private function insertNavigationDescendantWrapper(string $selector, string $prefix): ?string
-    {
-        $parentPrefix = rtrim((string) preg_replace('/[\s>+~]+$/', '', $prefix));
-        if ( '' === $parentPrefix || str_contains($parentPrefix, '.wp-block-navigation') ) {
-            return null;
-        }
-
-        $tail = ltrim((string) preg_replace('/^[\s>+~]+/', '', substr($selector, strlen($prefix))));
-        if ( '' === $tail ) {
-            return null;
-        }
-
-        return $parentPrefix . ' .wp-block-navigation ' . $tail;
     }
 
     /**
@@ -3373,12 +3046,12 @@ final class ArtifactCompiler
         $controlSelectors = $this->formControlSelectors($html);
         $statusFeedbackSelectors = $this->formStatusFeedbackSelectors($html);
         foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
-            $runtimeControlSelectors = $this->scriptControlRuntimeSelectors($script);
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
-                if ( isset($controlSelectors[$selector]) && ! isset($runtimeControlSelectors[$selector]) ) {
+                if ( isset($controlSelectors[$selector]) && true !== $dependency['control_runtime'] ) {
                     continue;
                 }
                 $selectors[$selector] = true;
@@ -3386,11 +3059,34 @@ final class ArtifactCompiler
         }
 
         foreach ( $this->allScriptContents($files) as $script ) {
-            foreach ( $this->scriptDomSelectors($script) as $selector ) {
-                if ( $this->isPresentationOnlyScriptSelector($script, $selector) ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( true === $dependency['presentation_only'] ) {
                     continue;
                 }
                 if ( isset($statusFeedbackSelectors[$selector]) ) {
+                    $selectors[$selector] = true;
+                }
+            }
+        }
+
+        return array_keys($selectors);
+    }
+
+    /**
+     * Presentation-only scripts still need stable DOM identities when editable
+     * block serialization cannot retain their source data attributes.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, string>
+     */
+    private function runtimeProjectionSelectors(string $html, string $sourcePath, array $files): array
+    {
+        $selectors = array();
+        foreach ( $this->documentScriptContents($html, $sourcePath, $files) as $script ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['dependencies'] as $dependency ) {
+                $selector = (string) $dependency['selector'];
+                if ( str_contains($selector, '[data-') && true === $dependency['presentation_only'] ) {
                     $selectors[$selector] = true;
                 }
             }
@@ -3464,7 +3160,7 @@ final class ArtifactCompiler
         $selectors = array();
         $scripts = $this->documentScriptContents($html, $sourcePath, $files);
         foreach ( $scripts as $script ) {
-            foreach ( $this->scriptCanvasSelectors($script) as $selector ) {
+            foreach ( $this->runtimeScriptEvidenceAnalyzer->analyze($script)['canvas_selectors'] as $selector ) {
                 if ( isset($canvasSelectors[$selector]) ) {
                     $selectors[$selector] = true;
                 }
@@ -3503,49 +3199,6 @@ final class ArtifactCompiler
                 }
                 $selectors['' !== (string) ($assignment[3] ?? '') ? '#' . (string) $assignment[3] : (string) $assignment[5]] = true;
             }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptCanvasSelectors(string $script): array
-    {
-        $selectors = array();
-        $getContextPattern = '\.\s*getContext\s*\(';
-
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-
-        if ( preg_match_all('/document\s*\.\s*querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*' . $getContextPattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selectors[(string) $selector] = true;
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
-                    $selectors['#' . (string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $getContextPattern . '/', $script) ) {
-                    $selectors[(string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas', $getContextPattern) as $selector ) {
-            $selectors[$selector] = true;
         }
 
         return array_keys($selectors);
@@ -3672,272 +3325,12 @@ final class ArtifactCompiler
         return $scripts;
     }
 
-    /**
-     * @return array<int, string>
-     */
-    private function scriptDomSelectors(string $script): array
-    {
-        $cacheKey = hash('sha256', $script);
-        if ( isset($this->scriptDomSelectorCache[$cacheKey]) ) {
-            return $this->scriptDomSelectorCache[$cacheKey];
-        }
-
-        $selectors = array();
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        if ( preg_match_all('/\b(?!document\b)[A-Za-z_$][A-Za-z0-9_$]*\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-        foreach ( $this->scriptDataAttributeSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'canvas') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptScopedElementSelectors($script, 'svg') as $selector ) {
-            $selectors[$selector] = true;
-        }
-        foreach ( $this->scriptAppendedRootSelectors($script) as $selector ) {
-            $selectors[$selector] = true;
-        }
-        if ( preg_match_all('/\.\s*closest\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selector = $this->canonicalRuntimeSelector((string) $selector);
-                $selectors[$selector] = true;
-            }
-        }
-
-        return $this->scriptDomSelectorCache[$cacheKey] = array_keys($selectors);
-    }
-
-    private function isPresentationOnlyScriptSelector(string $script, string $selector): bool
-    {
-        if ( $this->isBehavioralRuntimeSelector($selector) ) {
-            return false;
-        }
-
-        $selectorPattern = preg_quote($selector, '/');
-        if ( preg_match_all('/\b(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:(?:document|[A-Za-z_$][A-Za-z0-9_$]*)\s*\.\s*)?querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ($assignments as $assignment) {
-                if (preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\b' . preg_quote((string) $assignment[1], '/') . '\s*\.\s*(?:textContent|innerHTML|outerHTML|value|checked|selectedIndex|hidden|disabled|style|dataset)\b/', $script)) {
-                    return false;
-                }
-            }
-        }
-        if ( ! preg_match_all('/querySelector(?:All)?\s*\(\s*(["\'])' . $selectorPattern . '\1\s*\)([^;]{0,700})/', $script, $matches) ) {
-            return false;
-        }
-
-        foreach ( $matches[2] as $tail ) {
-            if ( preg_match('/\b(?:addEventListener|appendChild|removeChild|replaceChildren|insertAdjacentHTML|innerHTML|outerHTML|textContent|value|checked|selectedIndex|setAttribute|removeAttribute|toggleAttribute|getContext|submit|fetch)\b|\.\s*(?:classList|hidden|disabled|style|dataset)\b/', (string) $tail) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private function isBehavioralRuntimeSelector(string $selector): bool
-    {
-        if ( $this->isPresentationalRuntimeSelector($selector) ) {
-            return false;
-        }
-
-        if ( str_contains($selector, '[') || in_array($selector, array('button', 'input', 'select', 'textarea', 'canvas', 'svg'), true) ) {
-            return true;
-        }
-
-        return (bool) preg_match('/(?:^|[^a-z0-9])(?:form|modal|drawer|cart|checkout|search|filter|tab|accordion|slider|carousel|canvas|stage|player|map|app|editor|playground|demo)(?:[^a-z0-9]|$)/i', $selector);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptDataAttributeSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( ! preg_match_all('/(?:querySelector(?:All)?|closest)\s*\(\s*(["\'`])(.{1,240}?)\1\s*\)/s', $script, $calls, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $calls as $call ) {
-            foreach ( $this->dataAttributeSelectorsFromCssSelector((string) $call[2]) as $selector ) {
-                $selectors[$selector] = true;
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function dataAttributeSelectorsFromCssSelector(string $selector): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/(?:^|[\s>+~,])([a-z][a-z0-9-]*)?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches, PREG_SET_ORDER) ) {
-            foreach ( $matches as $match ) {
-                $selector = strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:\s*[*^$|~]?=\s*(?:"[^"]{0,120}"|\'[^\']{0,120}\'|[^\]\s"\']{1,120}))?\]/', $selector, $matches) ) {
-            foreach ( $matches[1] as $attribute ) {
-                $selector = '[' . strtolower((string) $attribute) . ']';
-                if ( ! $this->isPresentationalRuntimeSelector($selector) ) {
-                    $selectors[$selector] = true;
-                }
-            }
-        }
-
-        return array_keys($selectors);
-    }
-
-    private function isPresentationalRuntimeSelector(string $selector): bool
-    {
-        $name = '';
-        if ( preg_match('/\[(data-[A-Za-z][A-Za-z0-9_-]*)/', $selector, $match) ) {
-            $name = substr(strtolower((string) $match[1]), 5);
-        } elseif ( preg_match('/^(?:[a-z][a-z0-9-]*\.|\.)([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        } elseif ( preg_match('/^#([A-Za-z][A-Za-z0-9_-]*)$/', $selector, $match) ) {
-            $name = strtolower((string) $match[1]);
-        }
-
-        if ( '' === $name ) {
-            return false;
-        }
-
-        foreach ( preg_split('/[^a-z0-9]+/', $name) ?: array() as $token ) {
-            if ( in_array($token, array( 'animate', 'animation', 'appear', 'count', 'counter', 'delay', 'fade', 'motion', 'parallax', 'reveal', 'scroll', 'stagger', 'transition' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * @return array<string, bool>
-     */
-    private function scriptControlRuntimeSelectors(string $script): array
-    {
-        $cacheKey = hash('sha256', $script);
-        if ( isset($this->scriptControlSelectorCache[$cacheKey]) ) {
-            return $this->scriptControlSelectorCache[$cacheKey];
-        }
-
-        $selectors = array();
-        $runtimeUsePattern = '\.\s*(?:addEventListener|value|checked|selectedIndex|selectedOptions|options|files|validity|setCustomValidity|focus|select|click|dispatchEvent)\b';
-
-        if ( preg_match_all('/document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $id ) {
-                $selectors['#' . (string) $id] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*(?:\.\s*[^;\n]*)?' . $runtimeUsePattern . '/', $script, $matches) ) {
-            foreach ( $matches[2] as $selector ) {
-                $selectors[(string) $selector] = true;
-            }
-        }
-        if ( preg_match_all('/document\s*\.\s*querySelectorAll\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\1\s*\)\s*\.\s*forEach\s*\(\s*(?:\(\s*)?([A-Za-z_$][A-Za-z0-9_$]*)(?:\s*\))?\s*=>\s*\{([\s\S]{0,2000}?)\n\s*\}\s*\)/', $script, $callbacks, PREG_SET_ORDER) ) {
-            foreach ( $callbacks as $callback ) {
-                if ( preg_match('/\b' . preg_quote((string) $callback[3], '/') . '\s*' . $runtimeUsePattern . '/', (string) $callback[4]) ) {
-                    $selectors[(string) $callback[2]] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
-                    $selectors['#' . (string) $assignment[3]] = true;
-                }
-            }
-        }
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*querySelector(?:All)?\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\2\s*\)/', $script, $assignments, PREG_SET_ORDER) ) {
-            foreach ( $assignments as $assignment ) {
-                if ( preg_match('/\b' . preg_quote((string) $assignment[1], '/') . '\s*' . $runtimeUsePattern . '/', $script) ) {
-                    $selectors[(string) $assignment[3]] = true;
-                }
-            }
-        }
-
-        return $this->scriptControlSelectorCache[$cacheKey] = $selectors;
-    }
-
     private function scriptSelectorPattern(): string
+
     {
-        $name = '[A-Za-z][A-Za-z0-9_-]*';
-        return '(?:[#.]' . $name . '|' . $name . '\\.' . $name . '|\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|' . $name . '\\[data-' . $name . '(?:=["\'][^"\']{1,80}["\'])?\\]|canvas|svg|' . implode('|', self::RUNTIME_TAG_SELECTORS) . ')';
-    }
 
-    private function canonicalRuntimeSelector(string $selector): string
-    {
-        $selector = trim($selector);
-        if ( preg_match('/^(?:([a-z][a-z0-9-]*))?\[(data-[A-Za-z][A-Za-z0-9_-]*)(?:=["\'][^"\']{1,80}["\'])?\]$/', $selector, $match) ) {
-            return strtolower((string) ($match[1] ?? '')) . '[' . strtolower((string) $match[2]) . ']';
-        }
+        return RuntimeSelectorVocabulary::scriptSelectorPattern();
 
-        return $selector;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptScopedElementSelectors(string $script, string $tag, string $usePattern = ''): array
-    {
-        $selectors = array();
-        if ( ! preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER) ) {
-            return array();
-        }
-
-        foreach ( $roots as $root ) {
-            $rootVar = (string) $root[1];
-            $childPattern = '/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\b' . preg_quote($rootVar, '/') . '\s*\.\s*querySelector\s*\(\s*(["\'])' . preg_quote($tag, '/') . '\2\s*\)/';
-            if ( ! preg_match_all($childPattern, $script, $children, PREG_SET_ORDER) ) {
-                continue;
-            }
-
-            foreach ( $children as $child ) {
-                $childVar = (string) $child[1];
-                if ( '' === $usePattern || preg_match('/\b' . preg_quote($childVar, '/') . '\s*' . $usePattern . '/', $script) ) {
-                    $selectors[] = $tag;
-                }
-            }
-        }
-
-        return array_values(array_unique($selectors));
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function scriptAppendedRootSelectors(string $script): array
-    {
-        $selectors = array();
-        if ( preg_match_all('/(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*document\s*\.\s*(?:getElementById\s*\(\s*(["\'])([A-Za-z][A-Za-z0-9_-]*)\2\s*\)|querySelector\s*\(\s*(["\'])(' . $this->scriptSelectorPattern() . ')\4\s*\))/', $script, $roots, PREG_SET_ORDER) ) {
-            foreach ( $roots as $root ) {
-                if ( preg_match('/\b' . preg_quote((string) $root[1], '/') . '\s*\.\s*appendChild\s*\(/', $script) ) {
-                    $selectors[] = '' !== (string) ($root[3] ?? '') ? '#' . (string) $root[3] : (string) $root[5];
-                }
-            }
-        }
-
-        return array_values(array_unique($selectors));
     }
 
     private function htmlAttribute(string $tag, string $name): string
@@ -4018,13 +3411,157 @@ final class ArtifactCompiler
     }
 
     /**
+     * Compile route-shared nested shell landmarks in isolation so generated
+     * support classes and CSS are canonical rather than page-seeded.
+     *
+     * @param array<int,array<string,mixed>> $files
+     * @return array{artifacts:array<int,array<string,mixed>>,assets:array<int,array<string,mixed>>}
+     */
+    private function compileSharedInlineShells(array $files, string $entryPath, string $generatedBlockNamespace): array
+    {
+        $documents = array();
+        foreach ($files as $file) {
+            if ('html' !== ($file['kind'] ?? null) || $this->isTemplatePartFile($file) || !is_string($file['content'] ?? null) || '' === trim($file['content'])) continue;
+            $dom = new \DOMDocument();
+            $loaded = self::loadUtf8Html($dom, (string) $file['content']);
+            if (!$loaded) continue;
+            $rows = array('header' => array(), 'footer' => array());
+            $body = $dom->getElementsByTagName('body')->item(0);
+            if (!$body instanceof \DOMElement) continue;
+            $walk = static function (\DOMElement $parent, bool $insideContent = false) use (&$walk, &$rows, $dom): void {
+                foreach ($parent->childNodes as $child) {
+                    if (!$child instanceof \DOMElement) continue;
+                    $tag = strtolower($child->tagName);
+                    $content = $insideContent || in_array($tag, array('main', 'article', 'section', 'aside'), true);
+                    $area = ShellLandmarkPolicy::landmarkKind($tag, trim($child->getAttribute('role')));
+                    if (!$content && isset($rows[$area])) {
+                        $markup = $dom->saveHTML($child);
+                        if (is_string($markup) && '' !== $markup) $rows[$area][] = array('markup' => $markup, 'identity' => self::normalizeSourceShellIdentity($markup));
+                    }
+                    $walk($child, $content);
+                }
+            };
+            $walk($body);
+            $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
+        }
+        if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array());
+
+        $artifacts = array();
+        $assets = array();
+        foreach (array('header', 'footer') as $area) {
+            $variantCount = null; $canonicalMarkups = array();
+            $sourcePath = isset($documents[$entryPath]) ? $entryPath : (string) array_key_first($documents);
+            foreach ($documents as $document) {
+                $count = count($document['rows'][$area]);
+                if (0 === $count || (null !== $variantCount && $variantCount !== $count)) { $variantCount = null; break; }
+                $variantCount = $count;
+            }
+            if (null === $variantCount) continue;
+            for ($variant = 0; $variant < $variantCount; ++$variant) {
+                $identities = self::normalizeSourceShellRootClasses(array_map(static fn(array $document): string => $document['rows'][$area][$variant]['identity'], $documents));
+                if (1 !== count(array_unique($identities))) continue 2;
+                $canonicalMarkups[$variant] = $identities[$sourcePath];
+            }
+            $head = preg_match('/<head\b[^>]*>(.*?)<\/head>/is', $documents[$sourcePath]['content'], $headMatch) ? $headMatch[1] : '';
+            foreach ($documents[$sourcePath]['rows'][$area] as $variant => $row) {
+                $synthetic = '<!doctype html><html><head>' . $head . '</head><body>' . $canonicalMarkups[$variant] . '</body></html>';
+                $compiled = $this->compileHtmlDocumentBlocks($synthetic, $sourcePath, $files, 'artifact-shared-shell', $generatedBlockNamespace, true);
+                $shell = current(array_filter($compiled['shell_artifacts'], static fn(array $candidate): bool => $area === ($candidate['area'] ?? null)));
+                if (!is_array($shell)) { $artifacts = array(); $assets = array(); break 2; }
+                $slug = 1 === $variantCount ? $area : $area . '-' . ($variant + 1);
+                $artifacts[] = array_merge($shell, array(
+                    'slug' => $slug,
+                    'source_path' => $sourcePath . '#' . $slug,
+                    'source_paths' => array_keys($documents),
+                    'source_hash' => hash('sha256', $canonicalMarkups[$variant]),
+                    'variant' => $variant + 1,
+                    'placement' => array('kind' => 'inline_shared_shell', 'source_path' => 'wordpress-site-plan/shared/' . $slug, 'source_paths' => array_keys($documents), 'variant' => $variant + 1),
+                ));
+                foreach ($compiled['assets'] as $asset) {
+                    if (!is_array($asset)) continue;
+                    $asset['compilation'] = array('scope' => 'shared');
+                    $assets[] = $asset;
+                }
+            }
+        }
+        return array('artifacts' => $artifacts, 'assets' => $assets);
+    }
+
+    /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
+    private function compileSharedInlineShellReduction(array $partition, array $artifact): array
+    {
+        $files = array_merge($partition['shared'], ...array_values($partition['pages']));
+        $files = self::sortedBySourcePaths($files, $partition['source_paths']);
+        $entryPath = (string) ($partition['entrypoints'][0] ?? '');
+        $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
+        $this->indexFiles($files);
+        return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
+    }
+
+    private static function normalizeSourceShellIdentity(string $markup): string
+    {
+        $dom = new \DOMDocument();
+        $loaded = self::loadUtf8Html($dom, '<body>' . $markup . '</body>');
+        if (!$loaded) return $markup;
+        $xpath = new \DOMXPath($dom);
+        $currentNodes = array();
+        foreach ($xpath->query('//*[@aria-current] | //*[contains(concat(" ", normalize-space(@data-state), " "), " selected ")]') ?: array() as $node) if ($node instanceof \DOMElement) $currentNodes[] = $node;
+        foreach ($currentNodes as $node) {
+            for ($cursor = $node; $cursor instanceof \DOMElement; $cursor = $cursor->parentNode) {
+                if ($cursor->hasAttribute('data-state')) $cursor->setAttribute('data-state', preg_replace('/\bselected\b/', 'false', $cursor->getAttribute('data-state')) ?? $cursor->getAttribute('data-state'));
+                $classes = preg_split('/\s+/', trim($cursor->getAttribute('class'))) ?: array();
+                if (array() !== $classes && $cursor->parentNode instanceof \DOMElement) {
+                    $siblingClasses = array();
+                    foreach ($cursor->parentNode->childNodes as $sibling) {
+                        if (!$sibling instanceof \DOMElement || $sibling === $cursor || $sibling->tagName !== $cursor->tagName) continue;
+                        foreach (preg_split('/\s+/', trim($sibling->getAttribute('class'))) ?: array() as $class) $siblingClasses[$class] = true;
+                    }
+                    if (array() !== $siblingClasses) $cursor->setAttribute('class', implode(' ', array_values(array_filter($classes, static fn(string $class): bool => isset($siblingClasses[$class])))));
+                }
+                if ('nav' === strtolower($cursor->tagName) || 'navigation' === strtolower($cursor->getAttribute('role'))) break;
+            }
+        }
+        foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
+        $body = $dom->getElementsByTagName('body')->item(0);
+        $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
+        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+    }
+
+    private static function loadUtf8Html(\DOMDocument $dom, string $html): bool
+    {
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+        libxml_clear_errors(); libxml_use_internal_errors($previous);
+        return $loaded;
+    }
+
+    /** @param array<int,string> $markups @return array<int,string> */
+    private static function normalizeSourceShellRootClasses(array $markups): array
+    {
+        $classSets = array();
+        foreach ($markups as $markup) {
+            preg_match('/^<[^>]+\sclass="([^"]*)"/i', $markup, $match);
+            $classSets[] = array_values(array_filter(preg_split('/\s+/', trim($match[1] ?? '')) ?: array()));
+        }
+        if (count($markups) < 3 && 1 !== count(array_unique(array_map(static fn(array $classes): string => implode("\0", $classes), $classSets)))) return $markups;
+        $counts = array(); $order = array();
+        foreach ($classSets as $classes) foreach (array_unique($classes) as $class) {
+            if (!isset($counts[$class])) $order[] = $class;
+            $counts[$class] = ($counts[$class] ?? 0) + 1;
+        }
+        $threshold = intdiv(count($markups), 2) + 1;
+        $consensus = array_values(array_filter($order, static fn(string $class): bool => ($counts[$class] ?? 0) >= $threshold));
+        return array_map(static fn(string $markup): string => preg_replace('/^(<[^>]+\sclass=")[^"]*(")/i', '$1' . implode(' ', $consensus) . '$2', $markup, 1) ?? $markup, $markups);
+    }
+
+    /**
      * @param array{files: array<int, array<string, mixed>>, bytes: int, source_hash: string} $artifact
      * @param array<int, array<string, mixed>> $documents
      * @param array<int, array<string, mixed>> $assets
      * @param array<int, array<string, mixed>> $blockTypes
      * @return array<string, mixed>
      */
-    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array()): array
+    private function compiledSiteReport(array $artifact, string $entryPath, array $documents, array &$assets, array $blockTypes, string $serializedBlocks, array $entryShellArtifacts = array(), array $compiledHtmlDocuments = array(), array $inlineShellArtifacts = array()): array
     {
         $pages = array();
         $assetPayloadsByPath = array();
@@ -4070,7 +3607,7 @@ final class ArtifactCompiler
                     'source_path'    => $path,
                     'kind'           => 'html',
                     'role'           => $file['role'] ?? 'document',
-                    'entrypoint'     => $path === $entryPath || ! empty($file['entrypoint']),
+                    'entrypoint'     => $path === $entryPath,
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
@@ -4145,6 +3682,7 @@ final class ArtifactCompiler
             'pages'       => $pages,
             'assets'      => $this->compiledSiteAssets($assets),
             'template_parts' => $templateParts,
+            'inline_shell_artifacts' => $inlineShellArtifacts,
             'visual_repair' => $this->compiledSiteVisualRepair($assets, $artifact['files']),
             'runtime_declarations' => $artifact['runtime_declarations'],
             'theme'       => array_filter(
@@ -4265,6 +3803,33 @@ final class ArtifactCompiler
         }
 
         return $this->dedupeRows($metadata);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array{path: string, content: string}>
+     */
+    private function runtimeProjectionScriptAssetsForSource(string $html, string $sourcePath, array $files): array
+    {
+        if ( ! preg_match_all('/<script\b([^>]*)>(.*?)<\/script>/is', $html, $matches, PREG_SET_ORDER) ) {
+            return array();
+        }
+
+        $assets = array();
+        $scriptIndex = 0;
+        foreach ( $matches as $match ) {
+            ++$scriptIndex;
+            $src = $this->htmlAttribute((string) $match[1], 'src');
+            $asset = '' === $src
+                ? $this->findInlineScriptAsset($sourcePath, $scriptIndex, $files)
+                : $this->findAssetByHtmlReference($src, $sourcePath, $files);
+            if ( ! is_array($asset) || ! $this->isMaterializedScriptAsset($asset) || ! is_string($asset['path'] ?? null) || ! is_string($asset['content'] ?? null) ) {
+                continue;
+            }
+            $assets[] = array('path' => $asset['path'], 'content' => $asset['content']);
+        }
+
+        return $this->dedupeRows($assets);
     }
 
     /**
@@ -4447,7 +4012,7 @@ final class ArtifactCompiler
             }
         }
         $staticCss = $this->themeStaticCss($files, false);
-        $navigationCompatCss = $this->wordpressCompatCss($staticCss, $files);
+        $navigationCompatCss = $this->wordpressCompat->css($staticCss, $files, $this->allScriptContents($files));
         if ( '' !== $navigationCompatCss ) {
             $css .= ('' === $css ? '' : "\n") . $navigationCompatCss;
         }
@@ -5010,8 +4575,7 @@ final class ArtifactCompiler
         $this->filesByPath = array();
         $this->imageFiles = array();
         $this->scriptContents = array();
-        $this->scriptDomSelectorCache = array();
-        $this->scriptControlSelectorCache = array();
+        $this->runtimeScriptEvidenceAnalyzer->resetCache();
 
         foreach ( $files as $file ) {
             if ( ! is_array($file) ) {

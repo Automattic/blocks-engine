@@ -41,6 +41,8 @@ $cssFor = static function (array $result, string $source, ?string $placement = n
 $specificity = static function (string $selector): array {
     // :where() and its arguments always contribute zero specificity.
     $selector = preg_replace('/:where\([^)]*\)/', '', $selector) ?? $selector;
+    // :not() contributes its argument rather than an additional pseudo-class.
+    $selector = preg_replace('/:not\(([^)]*)\)/', ' $1', $selector) ?? $selector;
     $ids = preg_match_all('/#[A-Za-z0-9_-]+/', $selector);
     $classes = preg_match_all('/\.[A-Za-z0-9_-]+|\[[^\]]+\]|:(?!:)[A-Za-z0-9_-]+(?:\([^)]*\))?/', $selector);
     $withoutWeightedTokens = preg_replace('/#[A-Za-z0-9_-]+|\.[A-Za-z0-9_-]+|\[[^\]]+\]|::?[A-Za-z0-9_-]+(?:\([^)]*\))?|[>+~*]/', ' ', $selector) ?? $selector;
@@ -80,6 +82,10 @@ $layoutRules = array(
     'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
     'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
 );
+$editorWrapperRules = array(
+    ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks' => array( 0, 2, 0 ),
+    ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout' => array( 0, 3, 0 ),
+);
 
 foreach ( $layoutRules as $name => $rule ) {
     $selector = substr($rule, 0, (int) strpos($rule, '{'));
@@ -87,6 +93,11 @@ foreach ( $layoutRules as $name => $rule ) {
     $assert(array( 0, 1, 0 ) === $specificity($selector), 'C2: ' . $name . ' reset has specificity (0,1,0)');
     $assert(! str_contains($rule, '!important'), 'C3: ' . $name . ' reset does not use !important');
 }
+foreach ( $editorWrapperRules as $selector => $expectedSpecificity ) {
+    $assert(str_contains($beforeCss, $selector), 'C2: Gutenberg editor wrapper bridge is emitted for CSS-owned layouts');
+    $assert($expectedSpecificity === $specificity($selector), 'C2: Gutenberg editor wrapper bridge outranks the corresponding core wrapper rule');
+}
+$assert(! str_contains($beforeCss, '.block-editor-inner-blocks{display:contents!important}'), 'C3: editor wrapper transparency does not require !important');
 
 $authorAssets = $sourceAssets($authorMargin, 'author-css');
 $supportAssets = array_values(array_filter(
@@ -105,16 +116,18 @@ foreach ( $orderedAssets as $index => $asset ) {
     }
 }
 $authorCss = $cssFor($authorMargin, 'author-css');
-$authorSelector = '.authored-margin';
+$authorSelector = preg_match('/(\.authored-margin:not\(\.blocks-engine-specificity-class-[^)]+\))\{/', $authorCss, $authorSelectorMatch) === 1
+    ? $authorSelectorMatch[1]
+    : '';
 $assert(
     str_contains((string) ($authorMargin['serialized_blocks'] ?? ''), 'blocks-engine-css-owned-flow')
         && str_contains((string) ($authorMargin['serialized_blocks'] ?? ''), 'authored-margin'),
     'C3: authored margin and layout reset target the same generated flow child'
 );
 $assert(1 === count($supportAssets) && 1 === count($authorAssets) && is_int($supportIndex) && is_int($authorIndex) && $supportIndex < $authorIndex, 'C3: engine reset precedes author CSS');
-$assert(array( 0, 1, 0 ) === $specificity($authorSelector), 'C3: authored margin selector matches reset specificity (0,1,0)');
-$assert(str_contains($authorCss, '.authored-margin{margin-top:27px;margin-bottom:9px;margin-block-start:31px;margin-block-end:11px}'), 'C3: later author CSS retains its physical and logical margin declarations');
-$assert(! str_contains($beforeCss, 'margin-block-start:0!important') && ! str_contains($beforeCss, 'margin-block-end:0!important'), 'C3: normal authored margin can win the equal-specificity source-order tie');
+$assert(array( 0, 2, 0 ) === $specificity($authorSelector), 'C3: authored margin selector outranks the core reset specificity (0,1,0)');
+$assert(str_contains($authorCss, $authorSelector . '{margin-top:27px;margin-bottom:9px;margin-block-start:31px;margin-block-end:11px}'), 'C3: authored CSS retains its physical and logical margin declarations behind a non-matching specificity shim');
+$assert(! str_contains($beforeCss, 'margin-block-start:0!important') && ! str_contains($beforeCss, 'margin-block-end:0!important'), 'C3: normal authored margin wins without relying on source order or !important');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Engine support CSS specificity contract: {$failures} failed, {$passes} passed\n");

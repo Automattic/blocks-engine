@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/quote", "attrs": { "className": "ethos-quote", "citation": "The distiller" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "We do not invent scent.<br>We <em>listen</em> to the garden,<br>then carry it carefully into glass." } }
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "We do not invent scent.<br>We <em>listen</em> to the garden,<br>then carry it carefully into glass.", "className": "blocks-engine-synthetic-paragraph" } }
   ],
   "expected_fallbacks": [],
   "expect": [

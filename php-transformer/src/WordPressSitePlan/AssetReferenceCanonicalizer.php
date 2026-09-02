@@ -89,12 +89,17 @@ final class AssetReferenceCanonicalizer
         // RichText image attributes inside serialized block JSON use escaped
         // quotes, so they are not parsed as ordinary HTML tags above.
         if (str_contains($content, '\\"')) {
-            $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3], $content) ?? $content;
-            $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")([^"\\\\]*)(\\\\")~is', static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\b(?:src|href|poster)\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], $replace) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\bsrcset\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, $replace)) . $match[3], $content) ?? $content;
+            $content = preg_replace_callback('~(\bstyle\s*=\s*\\\\")((?:\\\\/|[^"\\\\])*)(\\\\")~is', static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3], $content) ?? $content;
         }
         if (str_contains($content, '\\u0022')) {
-            $content = self::replaceWhenChanged('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . $replace($match[2]) . $match[3]);
-            $content = self::replaceWhenChanged('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::srcset($match[2], $replace) . $match[3]);
+            $content = self::replaceWhenChanged('~(\b(?:src|href|poster)\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], $replace) . $match[3]);
+            $content = self::replaceWhenChanged('~(\bsrcset\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::srcset($value, $replace)) . $match[3]);
+            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~is', $content, static fn(array $match): string => $match[1] . self::escapedJsonValue($match[2], static fn(string $value): string => self::css($value, $replace)) . $match[3]);
+        }
+        if (str_contains($content, '\\u003c')) {
+            $content = self::replaceWhenChanged('~(\bstyle\s*=\s*([\'\"]))(.*?)\2~is', $content, static fn(array $match): string => $match[1] . self::css($match[3], $replace) . $match[2]);
         }
         if (false !== stripos($content, '<style')) {
             $content = preg_replace_callback('~<style\b[^>]*>(.*?)</style\s*>~is', static function (array $match) use ($replace): string {
@@ -140,14 +145,18 @@ final class AssetReferenceCanonicalizer
     private static function json(string $comment, callable $replace): string
     {
         return preg_replace_callback('~((?:"|\\\\u0022)(url|src|href|poster|action|srcset)(?:"|\\\\u0022)\s*:\s*(?:"|\\\\u0022))(.*?)(?:"|\\\\u0022)~is', static function (array $match) use ($replace): string {
-            $jsonReplace = static function (string $reference) use ($replace): string {
-                $normalized = str_replace('\\/', '/', $reference);
-                $value = $replace($normalized);
-                return $normalized === $value ? $reference : $value;
-            };
+            $jsonReplace = static fn(string $reference): string => self::escapedJsonValue($reference, $replace);
             $value = 'srcset' === strtolower($match[2]) ? self::srcset($match[3], $jsonReplace) : $jsonReplace($match[3]);
             return $match[1] . $value . (str_contains($match[0], '\\u0022') ? '\\u0022' : '"');
         }, $comment) ?? $comment;
+    }
+
+    /** @param callable(string):string $rewrite */
+    private static function escapedJsonValue(string $value, callable $rewrite): string
+    {
+        $normalized = str_replace('\\/', '/', $value);
+        $rewritten = $rewrite($normalized);
+        return $normalized === $rewritten ? $value : $rewritten;
     }
 
     /** @param callable(string):string $replace */

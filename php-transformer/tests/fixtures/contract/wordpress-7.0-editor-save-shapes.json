@@ -1,0 +1,26 @@
+{
+    "schema": "blocks-engine/php-transformer/wordpress-editor-save-shapes/v1",
+    "source": "WordPress/wordpress-develop@7.0.4 wp.blocks.getSaveContent",
+    "cases": [
+        {
+            "name": "button-legacy-width-attribute",
+            "block_name": "core/button",
+            "attributes": {
+                "width": 100,
+                "text": "Start free",
+                "url": "/pricing"
+            },
+            "expected_inner_html": "<div class=\"wp-block-button\"><a class=\"wp-block-button__link wp-element-button\" href=\"/pricing\">Start free</a></div>"
+        },
+        {
+            "name": "image-percentage-width",
+            "block_name": "core/image",
+            "attributes": {
+                "url": "/image.jpg",
+                "alt": "Responsive image",
+                "width": "100%"
+            },
+            "expected_inner_html": "<figure class=\"wp-block-image is-resized\"><img src=\"/image.jpg\" alt=\"Responsive image\" style=\"width:100%\"/></figure>"
+        }
+    ]
+}

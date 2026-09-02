@@ -143,23 +143,15 @@ final class TransformerResult
         }
 
         $artifactLike = isset($sourceReports['artifact']) || isset($sourceReports['compiled_site']) || 'artifact' === ($conversionReport['source_format'] ?? null);
-        if ( $requireMaterializationPlan || $artifactLike ) {
-            $materializationPlan = $sourceReports['materialization_plan'] ?? null;
-            if ( ! is_array($materializationPlan) ) {
-                throw new InvalidArgumentException('Canonical artifact result is missing source_reports.materialization_plan.');
+        if ($requireMaterializationPlan) {
+            throw new InvalidArgumentException('Materialization-plan validation was removed; consume wordpress_site_plan/v2 instead.');
+        }
+        if ($artifactLike) {
+            if (!is_array($sourceReports['compiled_site'] ?? null)) {
+                throw new InvalidArgumentException('Canonical artifact result is missing source_reports.compiled_site.');
             }
-
-            if ( 'blocks-engine/php-transformer/materialization-plan/v1' !== ($materializationPlan['schema'] ?? null) ) {
-                throw new InvalidArgumentException('Canonical artifact result has an unsupported materialization plan schema.');
-            }
-
-            foreach ( array( 'pages', 'routes', 'navigation_links', 'menus', 'template_parts', 'template_part_writes', 'assets', 'theme', 'asset_rewrite_candidates', 'rewrite_candidates', 'totals' ) as $key ) {
-                if ( ! array_key_exists($key, $materializationPlan) || ! is_array($materializationPlan[$key]) ) {
-                    throw new InvalidArgumentException(sprintf('Canonical artifact result materialization plan %s must be an array.', $key));
-                }
-            }
-            if ( isset($materializationPlan['template_surfaces']) && !is_array($materializationPlan['template_surfaces']) ) {
-                throw new InvalidArgumentException('Canonical artifact result materialization plan template_surfaces must be an array when present.');
+            if (isset($sourceReports['font_materialization']) && !is_array($sourceReports['font_materialization'])) {
+                throw new InvalidArgumentException('Canonical artifact result font materialization must be an array.');
             }
 
             $wordpressSitePlan = $sourceReports['wordpress_site_plan'] ?? null;

@@ -3,35 +3,36 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
-final class PlaceholderMediaPattern
+/** @internal Pattern recognizers are implementation details of HtmlTransformer. */
+final class PlaceholderMediaPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
 
-    /**
-     * @param callable(DOMElement): array<string, mixed> $presentationAttributes
-     * @param callable(string): string $escapeHtml
-     * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
-     * @return array<string, mixed>|null
-     */
-    public function match(DOMElement $element, callable $presentationAttributes, callable $escapeHtml, callable $createBlock): ?array
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         if ( ! $this->isPlaceholderMediaElement($element) ) {
             return null;
         }
 
-        $attrs = $presentationAttributes($element);
+        $markup = $context->markupContext();
+        if ( null === $markup ) {
+            return null;
+        }
+
+        $attrs = $context->presentationAttributes($element);
         // The aspect ratio rides on the preserved placeholder/ratio classNames and
         // companion-plugin CSS; a raw inline `style` string would invalidate the
         // core/group block, so it is intentionally not emitted here (#261).
-        $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
+        $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), 'blocks-engine-placeholder-media');
         unset($attrs['style']);
 
         $label = $this->placeholderLabel($element);
-        $children = '' !== $label ? array( $createBlock('core/paragraph', array( 'content' => $escapeHtml($label) ), array(), null) ) : array();
+        $children = '' !== $label ? array( $context->createBlock('core/paragraph', array( 'content' => $markup->escapeHtml($label) )) ) : array();
 
-        return $createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element);
+        return new PatternRecognitionResult($context->createBlock('core/group', array_filter($attrs, static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $element));
     }
 
     private function isPlaceholderMediaElement(DOMElement $element): bool
@@ -75,19 +76,5 @@ final class PlaceholderMediaPattern
 
         $directText = trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
         return strlen($directText) <= 80 ? $directText : '';
-    }
-
-    private function mergeClassNames(string ...$classNames): string
-    {
-        $classes = array();
-        foreach ( $classNames as $className ) {
-            foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
-                if ( '' !== $class && ! in_array($class, $classes, true) ) {
-                    $classes[] = $class;
-                }
-            }
-        }
-
-        return implode(' ', $classes);
     }
 }

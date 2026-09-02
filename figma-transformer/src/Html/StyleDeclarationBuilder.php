@@ -6,18 +6,14 @@ namespace Automattic\BlocksEngine\FigmaTransformer\Html;
 
 /**
  * Builds focused CSS declaration groups for emitted Figma nodes.
+ *
+ * @internal
  */
 final class StyleDeclarationBuilder
 {
-    /**
-     * @param callable(float): string $numberFormatter
-     * @param callable(array<int, mixed>): array{css: string, gradient: bool}|null $firstCssPaint
-     * @param callable(mixed, mixed=): ?string $color
-     */
     public function __construct(
-        private readonly mixed $numberFormatter,
-        private readonly mixed $firstCssPaint,
-        private readonly mixed $color,
+        private readonly StaticHtmlValueFormatter $formatter,
+        private readonly PaintStackResolver $paintStackResolver,
     ) {
     }
 
@@ -319,16 +315,16 @@ final class StyleDeclarationBuilder
      */
     private function firstCssPaint(array $paints): ?array
     {
-        return ($this->firstCssPaint)($paints);
+        return $this->paintStackResolver->firstCssPaint($paints);
     }
 
     private function color(mixed $value, mixed $opacity = null): ?string
     {
-        return ($this->color)($value, $opacity);
+        return $this->formatter->color($value, $opacity);
     }
 
     private function number(float $value): string
     {
-        return ($this->numberFormatter)($value);
+        return $this->formatter->number($value);
     }
 }

@@ -95,8 +95,15 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     }
     $assert('single' === ($singleHtmlFile['page_type'] ?? null), 'single-template-html-file-carries-page-type');
     $assert('single' === ($singleHtmlFile['template_slug'] ?? null), 'single-template-html-file-carries-template-slug');
-    $singleSurface = $singleHtmlFile['metadata']['template_surface'] ?? array();
-    $assert('blocks-engine/template-surface/v1' === ($singleSurface['schema'] ?? null) && 'single:single' === ($singleSurface['logical_surface_id'] ?? null) && 'template:single' === ($singleSurface['responsive_variant_id'] ?? null) && 'artifact_metadata' === ($singleSurface['declaration_provenance']['kind'] ?? null) && 'single.html' === ($singleSurface['declaration_provenance']['source_path'] ?? null), 'single-template-html-file-carries-versioned-template-surface-declaration');
+    $singleSourceFile = null;
+    foreach ( $templateArtifactResult['files'] ?? array() as $file ) {
+        if ( is_array($file) && 'blog-post-desktop.html' === ($file['path'] ?? null) ) {
+            $singleSourceFile = $file;
+            break;
+        }
+    }
+    $singleSurface = $singleSourceFile['metadata']['template_surface'] ?? array();
+    $assert('blocks-engine/template-surface/v1' === ($singleSurface['schema'] ?? null) && 'single:single' === ($singleSurface['logical_surface_id'] ?? null) && 'template:single' === ($singleSurface['responsive_variant_id'] ?? null) && 'artifact_metadata' === ($singleSurface['declaration_provenance']['kind'] ?? null) && 'blog-post-desktop.html' === ($singleSurface['declaration_provenance']['source_path'] ?? null) && !isset($singleHtmlFile['metadata']['template_surface']), 'single-template-route-source-carries-versioned-template-surface-declaration');
     $assert('single.html' === ($singleHtmlFile['canonical_template_path'] ?? null), 'single-template-html-file-carries-canonical-template-path');
     $assert('template:single' === ($singleHtmlFile['source_frame_identity']['primary_frame_id'] ?? null), 'single-template-html-file-carries-source-frame-identity');
     $reportedTemplatePaths = array();
@@ -3352,6 +3359,7 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
                                 'height'   => 160,
                                 'children' => array(
                                     array('id' => 'token-scope:home:display', 'type' => 'TEXT', 'name' => 'Display', 'characters' => 'Display', 'fontSize' => 72, 'fontWeight' => 700),
+                                    array('id' => 'token-scope:home:subtitle', 'type' => 'TEXT', 'name' => 'Subtitle', 'characters' => 'Subtitle', 'fontSize' => 36, 'fontWeight' => 600),
                                     array('id' => 'token-scope:home:body', 'type' => 'TEXT', 'name' => 'Body', 'characters' => 'Body', 'fontSize' => 18, 'fontWeight' => 400),
                                 ),
                             ),
@@ -3384,6 +3392,8 @@ function blocks_engine_figma_transformer_run_site_generation_planning_contract(c
     $multiPageTokenScopeCss = $fileContent($multiPageTokenScopeResult, 'style.css');
     $assert(! str_contains($multiPageTokenScopeCss, ':root{--'), 'multi-page-design-tokens-not-global-root');
     $assert(str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-home-home{--') && str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-about-about{--'), 'multi-page-design-tokens-scoped-to-page-roots');
+    $assert(str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-home-subtitle-subtitle{position:absolute;font-size:var(--font-size-heading-2)'), 'multi-page-home-text-uses-home-token-map');
+    $assert(str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-about-display-display{position:absolute;font-size:var(--font-size-heading-1)') && ! str_contains($multiPageTokenScopeCss, '.figma-node-token-scope-about-display-display{position:absolute;font-size:var(--font-size-heading-2)'), 'multi-page-about-text-uses-about-token-map');
     $assert('selected_frames' === ($multiPageTransformDiagnostics['selection']['mode'] ?? null), 'multi-page-transform-diagnostics-selection-mode');
     $assert('frame:home' === ($multiPageTransformDiagnostics['selection']['selected_frames'][0]['frame_id'] ?? null), 'multi-page-transform-diagnostics-entry-frame-selection');
     $assert('about.html' === ($multiPageTransformDiagnostics['selection']['selected_frames'][1]['path'] ?? null), 'multi-page-transform-diagnostics-about-selection-path');

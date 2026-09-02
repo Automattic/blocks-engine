@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-visually-hidden-toggle-label-drop",
+  "description": "Tianna-shaped mobile navigation: a source button has an accessible aria-label and a descendant label hidden by source display state. The hidden label is not visibly rendered, so the redundant source toggle is removed while core/navigation emits the single native responsive opener and its mobile overlay links.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-visually-hidden-toggle-label-drop.json",
+    "notes": "Covers source-resolved descendant display:none independently of vendor classes or IDs, while preserving visibly labeled controls as the conservative detection boundary."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><button aria-label=\"Open Site Navigation\" aria-expanded=\"false\"><span class=\"screen-reader-label\">Open Site Navigation</span><svg aria-hidden=\"true\"><path></path></svg></button><nav aria-label=\"Main navigation\"><ul><li><a href=\"/\">HOME</a></li><li><a href=\"/about\">ABOUT</a></li><li><a href=\"/portfolio\">PORTFOLIO</a></li></ul></nav></header>",
+    "options": { "static_css": ".screen-reader-label{display:none}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "HOME", "url": "/", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "Open Site Navigation" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"HOME\",\"url\":\"/\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"ABOUT\",\"url\":\"/about\",\"kind\":\"custom\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"PORTFOLIO\",\"url\":\"/portfolio\",\"kind\":\"custom\"} -->" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

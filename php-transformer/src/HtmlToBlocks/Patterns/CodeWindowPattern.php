@@ -3,11 +3,31 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
-final class CodeWindowPattern
+final class CodeWindowPattern implements PatternRecognizerInterface
 {
     use PatternDomHelpersTrait;
+
+    public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
+    {
+        $codeWindow = $context->codeWindowContext();
+        if ( null === $codeWindow ) {
+            return null;
+        }
+
+        $block = $this->match(
+            $element,
+            $context->presentationAttributes(...),
+            SourceDom::innerHtml(...),
+            fn (DOMElement $pre, DOMElement $code): array => $codeWindow->presentationAttributes($pre, $code),
+            fn (DOMElement $code): string => $codeWindow->content($code),
+            $context->createBlock(...)
+        );
+
+        return null === $block ? null : new PatternRecognitionResult($block);
+    }
 
     /**
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes

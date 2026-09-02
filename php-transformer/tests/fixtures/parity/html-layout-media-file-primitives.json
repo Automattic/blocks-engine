@@ -22,7 +22,7 @@
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/separator", "attrs": { "className": "is-style-wide" } },
     { "path": "blocks.1", "name": "core/video", "attrs": { "src": "/movie.mp4", "poster": "/poster.jpg", "width": "640", "controls": true } },
     { "path": "blocks.2", "name": "core/audio", "attrs": { "src": "/clip.mp3", "controls": true } },
-    { "path": "blocks.3", "name": "core/file", "attrs": { "href": "/docs/menu.pdf", "url": "/docs/menu.pdf", "text": "Menu PDF", "showDownloadButton": true } }
+    { "path": "blocks.3", "name": "core/file", "attrs": { "href": "/docs/menu.pdf", "fileName": "Menu PDF", "textLinkHref": "/docs/menu.pdf", "showDownloadButton": true } }
   ],
   "expected_fallbacks": [],
   "expect": [

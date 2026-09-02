@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\FallbackFindingNormalizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackFindingNormalizer;
 
 $assert = static function (bool $condition, string $message, string $detail = ''): void {
     if ( ! $condition ) {
@@ -39,5 +39,14 @@ $runtimeIsland = FallbackFindingNormalizer::normalize(array(
 
 $assert('inline_semantic_html' === ($runtimeIsland['pattern_family'] ?? ''), 'semantic inline runtime islands get their own family');
 $assert('preserve_runtime_island' === ($runtimeIsland['suggested_generic_repair_class'] ?? ''), 'semantic inline runtime islands preserve runtime repair guidance');
+
+$iframeGap = FallbackFindingNormalizer::normalize(array(
+    'diagnostic_code' => 'html_iframe_surface_capability_gap',
+    'reason'          => 'source_runtime_only_iframe',
+    'tag'             => 'vendor-iframe',
+    'suggested_repair_class' => 'record_iframe_capability_gap',
+));
+$assert('iframe_surface' === ($iframeGap['pattern_family'] ?? ''), 'custom iframe capability gaps cluster as iframe surfaces');
+$assert('record_iframe_capability_gap' === ($iframeGap['suggested_generic_repair_class'] ?? ''), 'custom iframe capability gaps keep their repair class');
 
 echo "fallback-finding-normalizer ok\n";

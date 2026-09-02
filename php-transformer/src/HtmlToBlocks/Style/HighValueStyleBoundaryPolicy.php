@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 final class HighValueStyleBoundaryPolicy
@@ -25,16 +26,16 @@ final class HighValueStyleBoundaryPolicy
         }
 
         if ( '' === trim($element->textContent ?? '') && in_array($tagName, array( 'span', 'i', 'b' ), true) && $element->parentNode instanceof DOMElement ) {
-            $parentTokens = strtolower($this->attr($element->parentNode, 'class') . ' ' . $this->attr($element->parentNode, 'id'));
+            $parentTokens = strtolower(SourceDom::attr($element->parentNode, 'class') . ' ' . SourceDom::attr($element->parentNode, 'id'));
             if ( preg_match('/(?:^|[^a-z0-9])(?:dots?|icons?|badges?|chips?|pills?|indicators?|markers?|orbs?)(?:[^a-z0-9]|$)/', $parentTokens) ) {
                 return true;
             }
         }
 
         $tokens = strtolower(trim(implode(' ', array(
-            $this->attr($element, 'class'),
-            $this->attr($element, 'id'),
-            $this->attr($element, 'role'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'role'),
         ))));
 
         if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|logo|brand|branding|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|badge|chip|pill|status|indicator|marker|dot|orb|media|image|photo|gallery|cover|thumb|thumbnail|art|artwork|illustration)(?:[^a-z0-9]|$)/', $tokens) ) {
@@ -48,10 +49,5 @@ final class HighValueStyleBoundaryPolicy
         }
 
         return false;
-    }
-
-    private function attr(DOMElement $element, string $name): string
-    {
-        return $element->hasAttribute($name) ? $element->getAttribute($name) : '';
     }
 }

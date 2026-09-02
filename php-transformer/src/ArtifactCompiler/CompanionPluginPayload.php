@@ -4,16 +4,10 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
 /**
- * Producer for the companion-plugin payload consumed by Static Site Importer.
+ * Producer for the WordPress companion-plugin payload.
  *
- * This is the producer half of the companion-plugin / plugin-materialization
- * keystone (issue #491). Slice 1 (SSI #492) built the consumer:
- * Static_Site_Importer_Companion_Plugin::scaffold() turns a payload into an
- * installable, theme-independent plugin that houses generated custom blocks
- * (registered from their own block.json) and preserved island JS. This class is
- * the producer seam: it packages the generated block definitions the artifact
- * already carries (block.json + render + view JS + assets) into a payload whose
- * shape exactly matches what scaffold() consumes.
+ * Packages generated block definitions into a product-neutral payload that a
+ * WordPress materializer can turn into a theme-independent plugin.
  *
  * Contract (consumed by scaffold(), keys it reads):
  *   - site_slug   (string)  per-site naming; SSI may override at install time.
@@ -36,12 +30,9 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 final class CompanionPluginPayload
 {
     /**
-     * Shared contract identifier. Mirrors the consumer schema declared by
-     * Static_Site_Importer_Companion_Plugin::PAYLOAD_SCHEMA so SSI can assert
-     * conformance. scaffold() does not require it, but stamping it makes the
-     * producer<->consumer contract explicit and greppable across repos.
+     * Product-neutral contract identifier owned by Blocks Engine.
      */
-    public const SCHEMA = 'static-site-importer/companion-plugin/v1';
+    public const SCHEMA = 'blocks-engine/wordpress-companion-plugin/v1';
 
     /**
      * Build the companion-plugin payload from detected generated blocks.
@@ -212,7 +203,13 @@ final class CompanionPluginPayload
         if ( is_array($block['assets'] ?? null) && array() !== $block['assets'] ) {
             $normalized['assets'] = $block['assets'];
         }
-        $scriptDependencies = $this->normalizeScriptDependencies($block['script_dependencies'] ?? null, $normalized['assets'] ?? array());
+        // The view module is carried in its own slot and lands as `view.js`
+        // beside the declared assets, so it can be depended on by that name.
+        $dependencyAssets = $normalized['assets'] ?? array();
+        if ( isset($normalized['view_js']) ) {
+            $dependencyAssets['view.js'] = $normalized['view_js'];
+        }
+        $scriptDependencies = $this->normalizeScriptDependencies($block['script_dependencies'] ?? null, $dependencyAssets);
         if ( array() !== $scriptDependencies ) {
             $normalized['script_dependencies'] = $scriptDependencies;
         }
@@ -241,7 +238,10 @@ final class CompanionPluginPayload
 
             $validHandles = array();
             foreach ( $handles as $handle ) {
-                if ( ! is_string($handle) || 1 !== preg_match('/^[A-Za-z0-9_-]+$/', $handle) || isset($validHandles[$handle]) ) {
+                // A classic script states a handle; a script module states its
+                // import specifier, which is how `@wordpress/interactivity`
+                // reaches the generated asset manifest.
+                if ( ! is_string($handle) || 1 !== preg_match('#^(?:@[a-z0-9][a-z0-9._-]*/)?[A-Za-z0-9][A-Za-z0-9._-]*$#', $handle) || isset($validHandles[$handle]) ) {
                     continue;
                 }
                 $validHandles[$handle] = true;

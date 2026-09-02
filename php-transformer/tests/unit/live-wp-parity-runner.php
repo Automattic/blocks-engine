@@ -110,6 +110,31 @@ $assert(
     '2: external entry reproduces the render-free proxy when fed the proxy candidate + same CSS'
 );
 
+$socialProxy = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks(
+    '<!-- wp:social-links --><ul class="wp-block-social-links"><!-- wp:social-link {"url":"#","service":"github","label":"GitHub","className":"source-item"} /--></ul><!-- /wp:social-links -->'
+);
+$assert(
+    str_contains($socialProxy, '<li class="wp-social-link wp-social-link-github source-item">')
+        && str_contains($socialProxy, '<a href="#" class="wp-block-social-link-anchor">')
+        && str_contains($socialProxy, '<svg width="24" height="24"')
+        && str_contains($socialProxy, '>GitHub</span>'),
+    '2b: render-free proxy materializes the stable structure of dynamic social-link children'
+);
+
+$navigationProxy = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks(
+    '<!-- wp:navigation {"className":"main-nav"} --><!-- wp:navigation-submenu {"className":"main-nav__item","label":"Platform \\u003cspan class=\\u0022caret\\u0022\\u003e↓\\u003c/span\\u003e","url":"/platform"} --><!-- wp:navigation-link {"className":"mega-link","label":"Supplier 360\\u003cspan class=\\u0022description\\u0022\\u003eUnified record\\u003c/span\\u003e","url":"/platform#supplier"} /--><!-- /wp:navigation-submenu --><!-- /wp:navigation -->'
+);
+$assert(
+    str_contains($navigationProxy, '<nav class="wp-block-navigation main-nav"><ul class="wp-block-navigation__container wp-block-navigation main-nav">')
+        && str_contains($navigationProxy, '<li class="wp-block-navigation-item main-nav__item has-child">')
+        && str_contains($navigationProxy, '<a class="wp-block-navigation-item__content" href="/platform">')
+        && str_contains($navigationProxy, '<span class="caret">↓</span>')
+        && str_contains($navigationProxy, '<li class="wp-block-navigation-item mega-link">')
+        && str_contains($navigationProxy, '<span class="description">Unified record</span>')
+        && str_ends_with($navigationProxy, '</li></ul></li></ul></nav>'),
+    '2c: render-free proxy materializes nested dynamic navigation block structure'
+);
+
 // ---------------------------------------------------------------------------
 // 3. Faithful live render scores perfectly (parity == 1.0, no findings).
 // ---------------------------------------------------------------------------

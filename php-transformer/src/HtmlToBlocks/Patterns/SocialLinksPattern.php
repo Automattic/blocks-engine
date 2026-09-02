@@ -24,6 +24,19 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         'x.com' => 'x', 'youtube.com' => 'youtube', 'youtu.be' => 'youtube',
     );
 
+    /** @var array<string,string> */
+    private const LABEL_SERVICES = array(
+        'behance' => 'behance', 'bluesky' => 'bluesky', 'discord' => 'discord',
+        'dribbble' => 'dribbble', 'facebook' => 'facebook', 'github' => 'github',
+        'gitlab' => 'gitlab', 'instagram' => 'instagram', 'linkedin' => 'linkedin',
+        'mastodon' => 'mastodon', 'pinterest' => 'pinterest', 'reddit' => 'reddit',
+        'soundcloud' => 'soundcloud', 'spotify' => 'spotify', 'telegram' => 'telegram',
+        'threads' => 'threads', 'tiktok' => 'tiktok', 'tumblr' => 'tumblr',
+        'twitch' => 'twitch', 'twitter' => 'twitter', 'vimeo' => 'vimeo',
+        'whatsapp' => 'whatsapp', 'x' => 'x', 'x twitter' => 'x',
+        'youtube' => 'youtube', 'email' => 'mail', 'mail' => 'mail',
+    );
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         // A source navigation landmark carries menu semantics that core/social-links
@@ -38,12 +51,11 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
         $links = array();
         $showLabels = false;
+        $iconOnly = true;
+        $structuralItems = true;
+        $explicit = self::isExplicitSocialCluster($element);
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
-            if ( '' === $url ) {
-                return null;
-            }
-
             $label = trim($this->attr($anchor, 'aria-label'));
             if ( '' === $label ) {
                 $label = trim($this->attr($anchor, 'title'));
@@ -52,29 +64,57 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             if ( '' === $label ) {
                 $label = $text;
             }
+            $service = $this->service($url) ?? $this->serviceFromLabel($label);
+            $labeledPlaceholder = $explicit
+                && $this->isLocalPlaceholderUrl($url)
+                && null !== $service;
+            if ( '' === $url || (! $this->isUsableSocialUrl($url) && ! $labeledPlaceholder) ) {
+                continue;
+            }
             $showLabels = $showLabels || '' !== $text;
-            $links[] = $context->createBlockCallback()('core/social-link', array_filter(array(
+            $iconOnly = $iconOnly && '' === $text && $this->hasIcon($anchor);
+            $sourceElement = $this->structuralItem($anchor, $element);
+            $structuralItems = $structuralItems && ! $sourceElement->isSameNode($anchor);
+            $links[] = $context->createBlock('core/social-link', array_merge(
+                $context->presentationAttributes($sourceElement),
+                array_filter(array(
                 'url' => $url,
-                'service' => $this->service($url) ?? 'chain',
+                'service' => $service ?? 'chain',
                 'label' => $label,
-            ), static fn(string $value): bool => '' !== $value), array(), $anchor);
+                ), static fn(string $value): bool => '' !== $value)
+            ), array(), $sourceElement);
         }
 
-        $attrs = $context->presentationAttributesCallback()($element);
+        if ( array() === $links ) {
+            return null;
+        }
+
+        $attrs = $context->presentationAttributes($element);
+        for ( $carrier = $element; $carrier instanceof DOMElement && 'body' !== strtolower($carrier->tagName); $carrier = $carrier->parentNode ) {
+            if ( preg_match('/(?:^|;)\s*text-align\s*:\s*(left|center|right)\b/i', $this->attr($carrier, 'style'), $alignment) ) {
+                $attrs['justifyContent'] = strtolower($alignment[1]);
+                break;
+            }
+        }
         if ( $showLabels ) {
             $attrs['showLabels'] = true;
         }
+        if ( $iconOnly ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' is-style-logos-only');
+            $attrs['size'] = $this->iconSize($anchors) ?? 'small';
+        }
+        if ( $structuralItems ) {
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-source-social-item-spacing');
+        }
         return new PatternRecognitionResult(
-            $context->createBlockCallback()('core/social-links', $attrs, $links, $element)
+            $context->createBlock('core/social-links', $attrs, $links, $element)
         );
     }
 
     /** @param array<int,DOMElement> $anchors */
     private function isSocialCluster(DOMElement $element, array $anchors): bool
     {
-        $identity = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label') . ' ' . $this->attr($element, 'role'));
-        $explicit = 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
-        if ( $explicit ) {
+        if ( self::isExplicitSocialCluster($element) ) {
             return true;
         }
 
@@ -87,6 +127,12 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return true;
+    }
+
+    public static function isExplicitSocialCluster(DOMElement $element): bool
+    {
+        $identity = strtolower($element->getAttribute('class') . ' ' . $element->getAttribute('aria-label') . ' ' . $element->getAttribute('role'));
+        return 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
     }
 
     /** @return array<int,DOMElement> */
@@ -113,8 +159,22 @@ final class SocialLinksPattern implements PatternRecognizerInterface
         return $anchors;
     }
 
+    private function isUsableSocialUrl(string $url): bool
+    {
+        if ( str_starts_with(strtolower($url), 'mailto:') ) {
+            return true;
+        }
+
+        $resolved = str_contains($url, '://') ? $url : (str_starts_with($url, '//') ? 'https:' . $url : 'https://' . $url);
+        return '' !== strtolower((string) parse_url($resolved, PHP_URL_HOST));
+    }
+
     private function service(string $url): ?string
     {
+        if ( str_starts_with(strtolower($url), 'mailto:') ) {
+            return 'mail';
+        }
+
         $host = strtolower((string) parse_url(str_contains($url, '://') ? $url : 'https://' . $url, PHP_URL_HOST));
         foreach ( self::HOST_SERVICES as $domain => $service ) {
             if ( $host === $domain || str_ends_with($host, '.' . $domain) ) {
@@ -122,5 +182,71 @@ final class SocialLinksPattern implements PatternRecognizerInterface
             }
         }
         return null;
+    }
+
+    private function serviceFromLabel(string $label): ?string
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', ' ', $label)));
+        $normalized = preg_replace('/^(?:follow us on|follow|visit)\s+/', '', $normalized) ?? $normalized;
+        return self::LABEL_SERVICES[$normalized] ?? null;
+    }
+
+    private function isLocalPlaceholderUrl(string $url): bool
+    {
+        return str_starts_with(ltrim(trim($url), '/'), '#');
+    }
+
+    private function structuralItem(DOMElement $anchor, DOMElement $cluster): DOMElement
+    {
+        $parent = $anchor->parentNode;
+        return $parent instanceof DOMElement
+            && $parent->parentNode instanceof DOMElement
+            && $parent->parentNode->isSameNode($cluster)
+            && 'li' === strtolower($parent->tagName)
+                ? $parent
+                : $anchor;
+    }
+
+    private function hasIcon(DOMElement $anchor): bool
+    {
+        if ( 0 < $anchor->getElementsByTagName('img')->length || 0 < $anchor->getElementsByTagName('svg')->length ) {
+            return true;
+        }
+
+        return '' === trim((string) $anchor->textContent) && 0 < $anchor->getElementsByTagName('span')->length;
+    }
+
+    /** @param array<int,DOMElement> $anchors */
+    private function iconSize(array $anchors): ?string
+    {
+        $dimensions = array();
+        foreach ( $anchors as $anchor ) {
+            foreach ( array( 'img', 'svg' ) as $tagName ) {
+                $icon = $anchor->getElementsByTagName($tagName)->item(0);
+                if ( ! $icon instanceof DOMElement ) {
+                    continue;
+                }
+                $width = (float) $this->attr($icon, 'width');
+                $height = (float) $this->attr($icon, 'height');
+                if ( 0 < $width && 0 < $height ) {
+                    $dimensions[] = min($width, $height);
+                }
+                break;
+            }
+        }
+        if ( array() === $dimensions ) {
+            return null;
+        }
+
+        sort($dimensions, SORT_NUMERIC);
+        $sourceSize = $dimensions[(int) floor((count($dimensions) - 1) / 2)];
+        $presets = array( 'small' => 16.0, 'normal' => 24.0, 'large' => 36.0, 'huge' => 48.0 );
+        $closest = 'normal';
+        foreach ( $presets as $preset => $pixels ) {
+            if ( abs($sourceSize - $pixels) < abs($sourceSize - $presets[ $closest ]) ) {
+                $closest = $preset;
+            }
+        }
+        return $closest;
     }
 }
