@@ -41,6 +41,7 @@ final class FlowContainerElementContext
         private readonly Closure $visualTextWrapperBlock,
         private readonly Closure $standaloneSearchBlock,
         private readonly Closure $readableFormControlBlock,
+        private readonly Closure $cssAuthoredMarqueeBlock,
         private readonly Closure $authoredCarouselBlock,
         private readonly Closure $generatedComponentBlock,
         private readonly Closure $textFlowBlock,
@@ -102,6 +103,8 @@ final class FlowContainerElementContext
     public function standaloneSearchBlock(DOMElement $element): ?array { return ($this->standaloneSearchBlock)($element); }
     /** @return array<string, mixed>|null */
     public function readableFormControlBlock(DOMElement $element): ?array { return ($this->readableFormControlBlock)($element); }
+    /** @return array<string, mixed>|null */
+    public function cssAuthoredMarqueeBlock(DOMElement $element): ?array { return ($this->cssAuthoredMarqueeBlock)($element); }
     /** @return array<string, mixed>|null */
     public function authoredCarouselBlock(DOMElement $element): ?array { return ($this->authoredCarouselBlock)($element); }
     /** @return array<string, mixed>|null */

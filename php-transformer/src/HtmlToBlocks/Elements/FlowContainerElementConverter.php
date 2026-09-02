@@ -48,6 +48,11 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        $marquee = $this->context->cssAuthoredMarqueeBlock($element);
+        if ( null !== $marquee ) {
+            return ConversionOutcome::handled($marquee);
+        }
+
         $this->context->capturePseudoFormFallback($element, $fallbacks);
         $block = $this->context->recognizePatterns($element, $fallbacks, array( SpacerPattern::class ));
         if ( null !== $block ) {

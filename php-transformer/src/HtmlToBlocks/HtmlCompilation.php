@@ -119,6 +119,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -810,6 +811,7 @@ final class HtmlCompilation
             visualTextWrapperBlock: fn (DOMElement $element): ?array => $this->visualTextWrapperBlockFromElement($element),
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
+            cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->cssAuthoredMarqueeBlock($element),
             authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselBlock($element),
             generatedComponentBlock: function (DOMElement $element): ?array {
                 $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
@@ -9948,6 +9950,229 @@ final class HtmlCompilation
             }
         }
         return $depth;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function cssAuthoredMarqueeBlock(DOMElement $element): ?array
+    {
+        if ( ! $this->sourceElementClassifier->hasMotionStructureToken($element) ) {
+            return null;
+        }
+
+        $children = array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+        $half = intdiv(count($children), 2);
+        if ( 2 > $half || 0 !== count($children) % 2 ) {
+            return null;
+        }
+
+        $signature = static function (DOMElement $item): string {
+            return strtolower($item->tagName) . "\0" . trim($item->getAttribute('class')) . "\0" . trim($item->textContent ?? '');
+        };
+        for ( $index = 0; $index < $half; ++$index ) {
+            if ( 0 !== $children[$index]->childElementCount
+                || 0 !== $children[$index + $half]->childElementCount
+                || $signature($children[$index]) !== $signature($children[$index + $half])
+            ) {
+                return null;
+            }
+        }
+
+        $motion = $this->authoredMarqueeMotion($element);
+        if ( null === $motion ) {
+            return null;
+        }
+
+        $items = array();
+        foreach ( array_slice($children, 0, $half) as $item ) {
+            $text = trim($item->textContent ?? '');
+            if ( '' === $text ) {
+                return null;
+            }
+            $items[] = array(
+                'content' => $this->runtime->escapeHtml($text),
+                'className' => trim($this->attr($item, 'class')),
+                'marker' => trim($this->attr($item, 'data-blocks-engine-richtext-marker')),
+            );
+        }
+
+        $generator = new AuthoredMarqueeBlockGenerator();
+        $this->generatedBlocks()->register(AuthoredMarqueeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $attributes = array(
+            'items' => $items,
+            'direction' => $motion['direction'],
+            'duration' => $motion['duration'],
+            'decorative' => $this->hasAriaHiddenAncestor($element),
+        );
+        $markup = $generator->markup($attributes);
+
+        return array(
+            'blockName' => $this->generatedBlocks()->blockName(AuthoredMarqueeBlockGenerator::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /** @return array{direction: string, duration: float}|null */
+    private function authoredMarqueeMotion(DOMElement $element): ?array
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->authorStyles()->styleRules() as $rule ) {
+            foreach ( $rule['selectors'] ?? array() as $selector ) {
+                $value = (string) ($selector['selector'] ?? '');
+                if ( '' !== $value && $this->styleResolver->matchesCssSelector($element, $value) ) {
+                    $this->applyAuthoredAnimationCascade(
+                        $cascade,
+                        $rule['declarations'] ?? array(),
+                        CssSelectorMatcher::specificity($selector['parsed'] ?? array()),
+                        $sequence
+                    );
+                    break;
+                }
+            }
+        }
+        $this->applyAuthoredAnimationCascade(
+            $cascade,
+            $this->styleResolver->cssDeclarations($this->attr($element, 'style')),
+            PHP_INT_MAX,
+            $sequence
+        );
+        $declarations = array_map(static fn (array $fact): string => (string) $fact['value'], $cascade);
+        $name = trim((string) ($declarations['animation-name'] ?? ''));
+        $duration = trim((string) ($declarations['animation-duration'] ?? ''));
+        $direction = strtolower(trim((string) ($declarations['animation-direction'] ?? 'normal')));
+        $iteration = strtolower(trim((string) ($declarations['animation-iteration-count'] ?? '1')));
+        $timing = strtolower(trim((string) ($declarations['animation-timing-function'] ?? 'ease')));
+
+        if ( '' === $name || 'infinite' !== $iteration || 'linear' !== $timing || ! in_array($direction, array( 'normal', 'reverse' ), true) ) {
+            return null;
+        }
+        $keyframeDirection = null;
+        ( new CssStylesheetTransformer() )->visitKeyframeRules(
+            $this->authorStyles()->combinedCss(),
+            function (string $keyframeName, string $body) use ($name, &$keyframeDirection): void {
+                if ( 0 === strcasecmp(trim($keyframeName), trim($name)) ) {
+                    $keyframeDirection = $this->marqueeKeyframeDirection($body);
+                }
+            }
+        );
+        if ( null === $keyframeDirection || ! preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower($duration), $durationMatch) ) {
+            return null;
+        }
+        $seconds = (float) $durationMatch[1] * ('ms' === $durationMatch[2] ? 0.001 : 1);
+        $resolvedDirection = 'reverse' === $direction
+            ? ('left' === $keyframeDirection ? 'right' : 'left')
+            : $keyframeDirection;
+
+        return array(
+            'direction' => $resolvedDirection,
+            'duration' => min(600, max(1, $seconds)),
+        );
+    }
+
+    /** @param array<string, array<string, mixed>> $cascade @param array<string, string> $declarations */
+    private function applyAuthoredAnimationCascade(array &$cascade, array $declarations, int $specificity, int &$sequence): void
+    {
+        $properties = array( 'animation-name', 'animation-duration', 'animation-timing-function', 'animation-iteration-count', 'animation-direction' );
+        foreach ( $declarations as $property => $rawValue ) {
+            if ( 'animation' !== $property && ! in_array($property, $properties, true) ) {
+                continue;
+            }
+            $important = (bool) preg_match('/!\s*important\s*$/i', $rawValue);
+            $value = trim((string) preg_replace('/!\s*important\s*$/i', '', $rawValue));
+            $values = 'animation' === $property ? $this->marqueeAnimationShorthand($value) : array( $property => $value );
+            if ( null === $values ) {
+                $values = array( 'animation-name' => 'none' );
+            }
+            foreach ( $values as $name => $resolved ) {
+                CssCascade::apply($cascade, $name, array(
+                    'value' => $resolved,
+                    'important' => $important,
+                    'specificity' => $specificity,
+                    'order' => $sequence,
+                ));
+            }
+            ++$sequence;
+        }
+    }
+
+    /** @return array<string, string>|null */
+    private function marqueeAnimationShorthand(string $animation): ?array
+    {
+        $layers = CssValueSplitter::splitTopLevel($animation, array( ',' ));
+        if ( 1 !== count($layers) ) {
+            return null;
+        }
+        $resolved = array(
+            'animation-name' => 'none',
+            'animation-duration' => '0s',
+            'animation-timing-function' => 'ease',
+            'animation-iteration-count' => '1',
+            'animation-direction' => 'normal',
+        );
+        $times = 0;
+        foreach ( CssValueSplitter::splitTopLevelWhitespace($layers[0]) as $token ) {
+            $lower = strtolower($token);
+            if ( preg_match('/^[0-9]+(?:\.[0-9]+)?m?s$/', $lower) ) {
+                if ( 0 === $times++ ) {
+                    $resolved['animation-duration'] = $lower;
+                }
+            } elseif ( 'infinite' === $lower || is_numeric($lower) ) {
+                $resolved['animation-iteration-count'] = $lower;
+            } elseif ( in_array($lower, array( 'normal', 'reverse', 'alternate', 'alternate-reverse' ), true) ) {
+                $resolved['animation-direction'] = $lower;
+            } elseif ( 'linear' === $lower || str_starts_with($lower, 'cubic-bezier(') || str_starts_with($lower, 'steps(') || str_starts_with($lower, 'ease') ) {
+                $resolved['animation-timing-function'] = $lower;
+            } elseif ( ! in_array($lower, array( 'none', 'forwards', 'backwards', 'both', 'running', 'paused' ), true) ) {
+                $resolved['animation-name'] = $token;
+            }
+        }
+        return $resolved;
+    }
+
+    private function marqueeKeyframeDirection(string $body): ?string
+    {
+        $frames = array( 'start' => null, 'end' => null );
+        ( new CssStylesheetTransformer() )->visitStyleRules($body, function (string $prelude, string $declarations) use (&$frames): void {
+            $transform = $this->styleResolver->cssDeclarations($declarations)['transform'] ?? '';
+            $offsets = CssStylesheetTransformer::splitSelectorList($prelude) ?? array();
+            foreach ( $offsets as $offset ) {
+                $offset = strtolower(trim($offset));
+                if ( 'from' === $offset || '0%' === $offset ) {
+                    $frames['start'] = $this->marqueeTranslationPercentage($transform);
+                } elseif ( 'to' === $offset || '100%' === $offset ) {
+                    $frames['end'] = $this->marqueeTranslationPercentage($transform);
+                }
+            }
+        });
+        if ( 0.0 === $frames['start'] && -50.0 === $frames['end'] ) {
+            return 'left';
+        }
+        return -50.0 === $frames['start'] && 0.0 === $frames['end'] ? 'right' : null;
+    }
+
+    private function marqueeTranslationPercentage(string $transform): ?float
+    {
+        if ( ! preg_match('/translateX\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
+            return null;
+        }
+        $value = (float) $match[1];
+        return '%' === $match[2] || 0.0 === $value ? $value : null;
+    }
+
+    private function hasAriaHiddenAncestor(DOMElement $element): bool
+    {
+        for ( $candidate = $element; $candidate instanceof DOMElement; $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null ) {
+            if ( 'true' === strtolower(trim($this->attr($candidate, 'aria-hidden'))) ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return array<string, mixed>|null */
