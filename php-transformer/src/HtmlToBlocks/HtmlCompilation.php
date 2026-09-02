@@ -10254,13 +10254,19 @@ final class HtmlCompilation
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
                 continue;
             }
-            $identity = strtolower(implode(' ', array(
+            $metadataIdentity = strtolower(implode(' ', array(
                 $this->attr($candidate, 'aria-label'),
                 $this->attr($candidate, 'title'),
                 $this->attr($candidate, 'class'),
                 $this->attr($candidate, 'data-hook'),
-                $candidate->textContent ?? '',
             )));
+            $text = strtolower(trim($candidate->textContent ?? ''));
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+                && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
+            ) {
+                continue;
+            }
+            $identity = $metadataIdentity . ' ' . $text;
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
@@ -10367,7 +10373,7 @@ final class HtmlCompilation
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
             'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
-            'wrap' => true,
+            'wrap' => $hasPrevious && $hasNext,
             'presentation' => $presentation,
             'slideCount' => count($slides),
             'initialSlide' => $initialSlide,
