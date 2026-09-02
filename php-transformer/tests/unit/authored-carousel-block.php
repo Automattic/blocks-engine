@@ -59,4 +59,15 @@ $assert(720 === ($slideshow['attrs']['viewportHeight'] ?? null) && 500 === ($sli
 $assert(1 === ($slideshow['attrs']['initialSlide'] ?? null) && true === ($slideshow['attrs']['showDots'] ?? null) && true === ($slideshow['attrs']['fullBleed'] ?? null), 'active slide, dot navigation, and viewport breakout survive conversion');
 $assert(str_contains($slideshowMarkup, '--slideshow') && 2 === substr_count($slideshowMarkup, 'data-carousel-index=') && str_contains($slideshowMarkup, '--blocks-engine-carousel-height:720px'), 'slideshow markup carries stacked presentation, indexed dots, and source height');
 
+$boundaryRailSource = '<div class="pro-gallery slider"><div role="region"><div class="gallery-horizontal-scroll"><div class="gallery-horizontal-scroll-inner"><div data-hook="group-view" aria-hidden="false"><div data-idx="0" data-hook="item-container"><img src="award-one.jpg" alt="Award one"></div></div><div data-hook="group-view" aria-hidden="false"><div data-idx="1" data-hook="item-container"><img src="award-two.jpg" alt="Award two"></div></div></div></div><button data-hook="nav-arrow-next" aria-label="Next Item"></button></div></div>';
+$boundaryRailResult = (new HtmlTransformer())->transform($boundaryRailSource)->toArray();
+$boundaryRail = $boundaryRailResult['blocks'][0] ?? array();
+$assert(
+    'custom/authored-carousel' === ($boundaryRail['blockName'] ?? null)
+        && 2 === count($boundaryRail['innerBlocks'] ?? array())
+        && 'track' === ($boundaryRail['attrs']['presentation'] ?? null)
+        && 0 === ($boundaryRail['attrs']['initialSlide'] ?? null),
+    'a repeated scroll rail with one boundary-state direction lowers to an editable track carousel'
+);
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

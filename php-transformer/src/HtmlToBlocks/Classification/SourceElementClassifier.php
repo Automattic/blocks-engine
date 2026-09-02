@@ -496,8 +496,21 @@ final class SourceElementClassifier
 
     public function isCarouselList(DOMElement $element): bool
     {
-        return 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
-            || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
+        if ( 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || in_array(strtolower($element->tagName), array('ol', 'ul'), true)
+        ) {
+            return true;
+        }
+
+        $identity = strtolower(implode(' ', array(
+            $element->tagName,
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'data-hook'),
+            SourceDom::attr($element, 'data-testid'),
+        )));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity);
     }
 
     public function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool
