@@ -28,6 +28,7 @@ $style = (string) ($definition['assets']['style.css'] ?? '');
 $assert(str_contains($editor, 'RichText') && str_contains($editor, 'authoredItems.map') && str_contains($editor, 'allowedFormats: []'), 'the companion edits each authored item without duplicating editor content');
 $assert(!str_contains($editor, 'RawHTML') && str_contains($editor, 'RichText.Content') && str_contains($editor, "'aria-hidden': hidden ? true") && str_contains($editor, "inert: hidden ? ''"), 'the static save shape escapes RichText content and makes the continuous-motion duplicate inert and hidden');
 $assert(str_contains($style, 'overflow-x:clip') && str_contains($style, 'max-width:100%'), 'the static stylesheet clips the duplicate track in narrow viewports');
+$assert(str_contains($style, 'content--items{min-height:1lh'), 'item sequences preserve the source inline formatting context line box');
 $assert(str_contains($style, 'prefers-reduced-motion:reduce') && str_contains($style, 'animation:none') && str_contains($style, 'display:none'), 'reduced motion leaves one readable static track');
 $assert(str_contains((string) ($result['serialized_blocks'] ?? ''), '--blocks-engine-marquee-duration:17.5s') && str_contains((string) ($result['serialized_blocks'] ?? ''), 'data-direction="left"'), 'static block markup preserves bounded duration and authored direction');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? null), 'static marquee serialization is editor-valid');
