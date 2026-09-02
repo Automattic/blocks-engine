@@ -45,7 +45,7 @@ final class ResponsiveMediaBlockGenerator
         ) : null;
         return createElement( element.Fragment, {}, inspector,
             createElement( 'div', blockEditor.useBlockProps(),
-                createElement( ServerSideRender, { block: '__BLOCK_NAME__', attributes: props.attributes } )
+                createElement( ServerSideRender, { block: '__BLOCK_NAME__', attributes: props.attributes, httpMethod: 'POST' } )
             )
         );
     }

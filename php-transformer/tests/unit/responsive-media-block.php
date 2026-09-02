@@ -26,7 +26,7 @@ $assert(ResponsiveMediaBlockGenerator::RENDERER === ($definition['renderer'] ?? 
 $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array($definition));
 $assert(ResponsiveMediaBlockGenerator::RENDERER === ($payload['blocks'][0]['renderer'] ?? null) && !isset($payload['blocks'][0]['render']), 'the audited renderer identifier survives companion payload normalization');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
-$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, 'ServerSideRender') && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor presents an audited preview and keeps captured HTML controls in the inspector');
+$assert(str_contains($editor, "registerBlockType( 'ssi-example/responsive-media'") && str_contains($editor, 'ServerSideRender') && str_contains($editor, "httpMethod: 'POST'") && str_contains($editor, 'InspectorControls') && str_contains($editor, 'TextareaControl') && str_contains($editor, 'save: function() { return null; }') && !str_contains($editor, "display: 'none'") && !str_contains($editor, 'RawHTML'), 'the editor presents an audited preview over POST and keeps captured HTML controls in the inspector');
 $editorSchemaRunner = <<<'JS'
 const vm = require( 'node:vm' );
 let settings;
@@ -47,7 +47,7 @@ $assert('string' === ($definition['block_json']['attributes']['kind']['type'] ??
 $layoutDefinition = ( new ResponsiveLayoutBlockGenerator() )->definition('ssi-example');
 $assert('ssi-example/responsive-layout' === ($layoutDefinition['block_json']['name'] ?? null), 'one namespaced responsive-layout block type is defined');
 $layoutEditor = (string) ($layoutDefinition['assets']['index.js'] ?? '');
-$assert(str_contains($layoutEditor, 'ServerSideRender') && str_contains($layoutEditor, 'InspectorControls') && str_contains($layoutEditor, 'TextareaControl') && !str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout presents an audited preview and keeps captured HTML controls in the inspector');
+$assert(str_contains($layoutEditor, 'ServerSideRender') && str_contains($layoutEditor, "httpMethod: 'POST'") && str_contains($layoutEditor, 'InspectorControls') && str_contains($layoutEditor, 'TextareaControl') && !str_contains($layoutEditor, "display: 'none'") && !str_contains($layoutEditor, 'RawHTML'), 'responsive layout presents an audited preview over POST and keeps captured HTML controls in the inspector');
 $assert(array('wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element', 'wp-server-side-render') === ($layoutDefinition['script_dependencies']['index.js'] ?? null), 'responsive layout declares its preview dependency');
 $assert(array('content') === array_keys($layoutDefinition['block_json']['attributes'] ?? array()), 'responsive layout declares a dedicated content-only schema');
 $assert(ResponsiveLayoutBlockGenerator::RENDERER === ($layoutDefinition['renderer'] ?? null), 'responsive layout delegates rendering through its producer-owned capability');
