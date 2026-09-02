@@ -350,6 +350,11 @@ final class AuthorStylesheetProjector
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
             if ( array() === $matches ) {
+                $dormantControls = $this->projectDormantAncestorControlSelector($selector, $parsed, $context, $controlWrapper);
+                if ( array() !== $dormantControls ) {
+                    array_push($rewritten, ...$dormantControls);
+                    continue;
+                }
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
                 continue;
             }
@@ -458,6 +463,35 @@ final class AuthorStylesheetProjector
             }
         }
         return implode(',', $rewritten);
+    }
+
+    /** @param array<string, mixed> $parsed @return list<string> */
+    private function projectDormantAncestorControlSelector(
+        string $selector,
+        array $parsed,
+        AuthorStylesheetProjectionContext $context,
+        bool $wrapper
+    ): array {
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        if ( ! is_array($rightmost) || 0 === (int) $rightmost['start'] ) {
+            return array();
+        }
+
+        $leafSelector = substr($selector, (int) $rightmost['start']);
+        $leafParsed = $context->sourceStyles->parsedSelector($leafSelector);
+        if ( ! $leafParsed['supported'] ) {
+            return array();
+        }
+
+        $projected = array();
+        foreach ( $this->matchingSourceElements($leafSelector, $leafParsed, $context) as $element ) {
+            $marker = $context->selectorProjections->controlMarker($element->getNodePath() ?? '');
+            if ( '' !== $marker ) {
+                $projected[] = substr($selector, 0, (int) $rightmost['start'])
+                    . $this->projectControlSelector($leafSelector, $leafParsed, $marker, $context, $wrapper);
+            }
+        }
+        return array_values(array_unique($projected));
     }
 
     /** @return list<string> */

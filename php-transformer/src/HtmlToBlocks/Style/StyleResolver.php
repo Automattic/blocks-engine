@@ -2462,10 +2462,10 @@ final class StyleResolver
 
     /**
      * The subset of a declaration map needed to resolve values outside the
-     * classification allow-list: inheritable SVG paint and custom properties.
-     * Keeping this stream separate lets SVG materialization and structural
-     * `var()` resolution share the real matched cascade without changing
-     * general classification.
+     * classification allow-list: inheritable SVG paint, animation identity,
+     * and custom properties. Keeping this stream separate lets SVG
+     * materialization and structural `var()` resolution share the real matched
+     * cascade without changing general classification.
      *
      * @param array<string, string> $declarations
      * @return array<string, string>
@@ -2479,6 +2479,8 @@ final class StyleResolver
             'stroke' => true,
             'stroke-opacity' => true,
             'stroke-width' => true,
+            'animation' => true,
+            'animation-name' => true,
         );
 
         $filtered = array();

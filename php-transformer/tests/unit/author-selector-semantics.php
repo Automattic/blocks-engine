@@ -61,6 +61,10 @@ $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding
 $controlCss = $css($controls);
 $assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
 
+$dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
+$dormantAncestorStateCss = $css($dormantAncestorState);
+$assert(str_contains($dormantAncestorStateCss, '.nav.scrolled :where(.blocks-engine-control-') && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
+
 $order = $transform('<style>a.cta:hover{color:red}a.cta:hover{color:blue}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $orderCss = $css($order);
 $assert(strpos($orderCss, 'color:red') < strpos($orderCss, 'color:blue'), 'projected selectors preserve authored rule order for cascade precedence');

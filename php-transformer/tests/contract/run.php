@@ -627,6 +627,11 @@ $assert(array( '#', '#', '#', '#' ) === $placeholderSocialUrls, 'social placehol
 $assert(array( 'LinkedIn', 'X / Twitter', 'YouTube', 'GitHub' ) === $placeholderSocialLabels, 'social placeholder accessible labels survive', json_encode($placeholderSocialLabels));
 $assert(str_contains((string) ($placeholderSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'labeled SVG placeholders retain logos-only presentation');
 
+$descriptiveSocialSource = '<div class="footer-socials"><a href="#" aria-label="Driftwood Roasters on Instagram"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on X / Twitter"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on Facebook"><svg><path d="M0 0h1v1z"/></svg></a></div>';
+$descriptiveSocialResult = ( new HtmlTransformer() )->transform($descriptiveSocialSource)->toArray();
+$descriptiveSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $descriptiveSocialResult['blocks'][0]['innerBlocks'] ?? array());
+$assert(array( 'instagram', 'x', 'facebook' ) === $descriptiveSocialServices, 'descriptive accessible labels resolve complete social service tokens, including one-character aliases', json_encode($descriptiveSocialServices));
+
 $unknownPlaceholderSocial = ( new HtmlTransformer() )->transform('<div class="footer-social"><a href="#" aria-label="Community"><svg aria-hidden="true"></svg></a></div>')->toArray();
 $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockName'] ?? null), 'unknown placeholder labels do not fabricate social services');
 
@@ -1132,6 +1137,13 @@ $assert(str_contains($inlineSvgMarkup, 'class="wp-block-image is-resized album-a
 $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful inline SVG artwork maps accessible label to image alt text');
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
+
+$externallyAnimatedSvg = ( new HtmlTransformer() )->transform(
+    '<style>.steam{animation:steamRise 3s infinite}@keyframes steamRise{to{transform:translateY(-10px);opacity:0}}</style><svg viewBox="0 0 20 20" aria-hidden="true"><path class="steam" d="M10 18V2"/></svg>'
+)->toArray();
+$externallyAnimatedSvgMarkup = (string) ($externallyAnimatedSvg['serialized_blocks'] ?? '');
+$externallyAnimatedSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $externallyAnimatedSvg['assets'] ?? array()));
+$assert('core/html' === ($externallyAnimatedSvg['blocks'][0]['blockName'] ?? '') && str_contains($externallyAnimatedSvgMarkup, '<path class="steam"') && str_contains($externallyAnimatedSvgCss, '.steam{animation:steamRise 3s infinite}'), 'page-CSS animated SVG descendants remain sanitized inline DOM in the parent document');
 
 $exportedSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg version="1.1" class="quote-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 25.666 20.188" enable-background="new 0 0 25.666 20.188" xml:space="preserve"><g><path d="M9.33,9.33H4.814V0h9.33V9.33z"></path></g></svg></main>'

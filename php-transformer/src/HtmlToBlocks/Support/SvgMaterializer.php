@@ -714,6 +714,22 @@ final class SvgMaterializer implements SvgElementMaterializer
             return false;
         }
 
+        // A materialized image is a separate document, so page CSS cannot reach
+        // animated descendants such as steam paths or illustrated particles.
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            $declarations = $this->styleResolver->matchedCascadedDeclarations($descendant);
+            foreach ( array( 'animation', 'animation-name' ) as $property ) {
+                $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+                $value = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
+                if ( '' !== $value && 1 !== preg_match('/^(?:none|initial|inherit|unset|revert)(?:\s|$)/', $value) ) {
+                    return false;
+                }
+            }
+        }
+
         // The materialized SVG renders in a separate image document. Paint and
         // content custom properties must be resolved, but root box geometry is
         // transferred to the native image carrier and may retain author vars.
