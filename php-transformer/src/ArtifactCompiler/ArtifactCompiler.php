@@ -256,6 +256,7 @@ final class ArtifactCompiler
             'summary' => array('file_count' => count($normalized['files']), 'bytes' => $normalized['bytes'], 'rejected_count' => $normalized['rejected_count']),
             'compiler_options' => $this->receiptCompilerOptions(),
             'output_schema' => TransformerResult::SCHEMA,
+            'layout_geometry_proof' => $this->pageLayoutGeometryProof($partition['layout_geometry_proof'], $pageArtifact['files']),
         );
         $plan['digest'] = $this->planDigest($this->pagePlanDigestInput($plan));
         return $plan;
@@ -330,6 +331,11 @@ final class ArtifactCompiler
             ? array_merge($sharedPlan['artifact'], array('files' => $this->sharedReductionFiles($sharedPlan, $payloadReader)))
             : $this->materializePlanArtifact($sharedPlan['artifact'], $payloadReader);
         $pageArtifact = $this->materializePlanArtifact($pagePlan['artifact'], $payloadReader);
+        $pageLayoutGeometryProof = is_array($pagePlan['layout_geometry_proof'] ?? null) ? $pagePlan['layout_geometry_proof'] : array();
+        foreach ($pageArtifact['files'] as &$pageFile) {
+            if ('html' === ($pageFile['kind'] ?? null)) $pageFile['layout_geometry_proof'] = $pageLayoutGeometryProof;
+        }
+        unset($pageFile);
         $files = self::sortedByPath(array_merge($sharedArtifact['files'], $pageArtifact['files']));
 
         $entryPath = (string) ($sharedPlan['analysis']['entry_path'] ?? '');
@@ -995,7 +1001,7 @@ final class ArtifactCompiler
      * Partition an envelope before normalization so preparing one stage never
      * parses, expands, or transforms payloads owned by another stage.
      *
-     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
+     * @return array{shared:array<int,array<string,mixed>>,pages:array<string,array<int,array<string,mixed>>>,entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>,identity:array<string,string>,source_paths:array<int,string>}
      */
     private function stagePartition(array $artifact, string $scope, string $pageId = ''): array
     {
@@ -1041,6 +1047,7 @@ final class ArtifactCompiler
             'entrypoints' => $normalized['entrypoints'],
             'limits' => $normalized['limits'],
             'runtime_declarations' => $normalized['runtime_declarations'],
+            'layout_geometry_proof' => $normalized['layout_geometry_proof'],
             'schema' => is_string($artifact['schema'] ?? null) ? $artifact['schema'] : '',
             'input_keys' => array_values(array_filter(array_keys($artifact), 'is_string')),
             'identity' => $identity,
@@ -1316,7 +1323,7 @@ final class ArtifactCompiler
     }
 
     /**
-     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,schema:string,input_keys:array<int,string>} $partition
+     * @param array{entrypoints:array<int,string>,limits:array<string,int>,runtime_declarations:array<int,array<string,mixed>>,layout_geometry_proof:array<string,mixed>,schema:string,input_keys:array<int,string>} $partition
      * @param array<int,array<string,mixed>> $files
      * @return array<string,mixed>
      */
@@ -1336,6 +1343,20 @@ final class ArtifactCompiler
         }
         foreach (is_array($partition['identity'] ?? null) ? $partition['identity'] : array() as $key => $value) $artifact[$key] = $value;
         return $artifact;
+    }
+
+    /** @param array<string,mixed> $proof @param array<int,array<string,mixed>> $files @return array<string,mixed> */
+    private function pageLayoutGeometryProof(array $proof, array $files): array
+    {
+        $paths = array_fill_keys(array_map(
+            static fn(array $file): string => (string) ($file['path'] ?? ''),
+            array_filter($files, static fn(array $file): bool => 'html' === ($file['kind'] ?? null))
+        ), true);
+        $reductions = array_values(array_filter(
+            is_array($proof['reductions'] ?? null) ? $proof['reductions'] : array(),
+            static fn(array $reduction): bool => isset($paths[(string) ($reduction['source_path'] ?? '')])
+        ));
+        return array() === $reductions ? array() : array('schema' => LayoutGeometryProof::SCHEMA, 'reductions' => $reductions);
     }
 
     /** @param array<string,mixed> $artifact */
@@ -1421,6 +1442,7 @@ final class ArtifactCompiler
             $plan['shared_digest'] = $sharedDigest;
             $plan['page_id'] = $pageId;
             $plan['output_schema'] = TransformerResult::SCHEMA;
+            $plan['layout_geometry_proof'] = $this->pageLayoutGeometryProof($partition['layout_geometry_proof'], $planArtifact['files']);
         }
         foreach ($plan['artifact']['files'] as &$file) {
             if (!isset($references[$file['path']])) continue;
@@ -1590,6 +1612,7 @@ final class ArtifactCompiler
     private function pagePlanDigestInput(array $pagePlan): array
     {
         $input = array('shared_digest' => $pagePlan['shared_digest'], 'page_id' => $pagePlan['page_id'], 'artifact' => $pagePlan['artifact']);
+        if (array_key_exists('layout_geometry_proof', $pagePlan)) $input['layout_geometry_proof'] = $pagePlan['layout_geometry_proof'];
         if (isset($pagePlan['compiled_documents'])) {
             $input['receipt_schema'] = $pagePlan['receipt_schema'] ?? null;
             $input['compiled_documents'] = $pagePlan['compiled_documents'];

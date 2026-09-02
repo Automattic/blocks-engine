@@ -29,6 +29,14 @@ $assert(preg_match('/be-layout-proof-[a-f0-9]{32}/', $markup, $carrier) && str_c
 $applied = $coalesced['source_reports']['layout_geometry_proof'] ?? array();
 $assert(1 === count($applied) && 'main:nth-of-type(1) > div:nth-of-type(1)' === ($applied[0]['wrapper_selector'] ?? null), 'Applied proof provenance retains the stable source-node identity.');
 
+$stagedArtifact = array('entrypoint' => 'index.html', 'files' => array('index.html' => $html), 'layout_geometry_proof' => $proof);
+$stagedCompiler = new ArtifactCompiler();
+$stagedShared = $stagedCompiler->prepareShared($stagedArtifact);
+$stagedPages = $stagedCompiler->preparePages($stagedArtifact, $stagedShared);
+$stagedReceipts = $stagedCompiler->compilePreparedPages($stagedShared, array_values($stagedPages));
+$stagedResult = $stagedCompiler->compose($stagedShared, array_values($stagedReceipts))->toArray();
+$assert('core/image' === ($stagedResult['blocks'][0]['blockName'] ?? null) && 1 === count($stagedResult['source_reports']['layout_geometry_proof'] ?? array()), 'Digest-bound staged page plans preserve validated layout geometry proof during worker compilation.');
+
 $exact = $proof;
 $exact['nodes'][0]['boxes'][0]['simulated']['width'] = 24;
 $exact['nodes'][0]['boxes'][1]['simulated']['width'] = 24;
