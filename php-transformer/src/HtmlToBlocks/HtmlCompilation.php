@@ -574,7 +574,7 @@ final class HtmlCompilation
             function (string $text): void {
                 $this->transformationEvidence()->recordFormControlEcho($text);
             },
-            fn (string $text): string => $this->runtime->escapeHtml($text),
+            $this->runtime,
             fn (string $id): string => $this->safeAnchor($id)
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
@@ -1044,7 +1044,7 @@ final class HtmlCompilation
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (string $text): array => $this->convertText($text),
-            fn (string $html): string => $this->runtime->stripAllTags($html),
+            $this->runtime,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
                 return $this->convertChildren($element, $fallbacks, $captureUnsupported);
             }
@@ -1063,8 +1063,7 @@ final class HtmlCompilation
             fn (DOMElement $element, array $excludedProperties, array $excludedGeometryProperties): array => $this->styleResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties),
             fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => $this->createBlock($name, $attributes, $innerBlocks, $sourceElement),
             fn (DOMElement $element, array $excludedTags): string => $this->richTextContentWithMaterializedInlineStyles($element, $excludedTags),
-            fn (string $html): string => $this->runtime->stripAllTags($html),
-            fn (string $text): string => $this->runtime->escapeHtml($text),
+            $this->runtime,
             fn (DOMElement $pre, DOMElement $code): array => $this->codePresentationAttributes($pre, $code),
             fn (DOMElement $code): string => $this->codeContent($code),
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -2582,7 +2581,7 @@ final class HtmlCompilation
             ),
             new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-                fn (string $text): string => $this->runtime->escapeHtml($text)
+                $this->runtime
             ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
@@ -2599,7 +2598,7 @@ final class HtmlCompilation
             new QuotePatternContext(
                 $this->sourceElementClassifier,
                 fn (DOMElement $sourceElement): string => $this->citationFromElement($sourceElement),
-                fn (string $html): string => $this->runtime->stripAllTags($html)
+                $this->runtime
             ),
             new CodeWindowPatternContext(
                 fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),
@@ -2654,7 +2653,7 @@ final class HtmlCompilation
             ),
             markupContext: new MarkupPatternContext(
                 fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
-                fn (string $text): string => $this->runtime->escapeHtml($text)
+                $this->runtime
             ),
             codeWindowContext: new CodeWindowPatternContext(
                 fn (DOMElement $sourcePre, DOMElement $sourceCode): array => $this->codePresentationAttributes($sourcePre, $sourceCode),

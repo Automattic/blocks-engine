@@ -11,6 +11,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MathPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MarkupPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
 $assertSame = static function (mixed $expected, mixed $actual, string $message) use (&$failures): void {
@@ -101,7 +102,7 @@ $directContext = new PatternContext(
     $createBlock,
     markupContext: new MarkupPatternContext(
         static fn (DOMElement $source): string => $source->ownerDocument?->saveHTML($source) ?: '',
-        static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+        new Runtime()
     )
 );
 $overlap = PatternRecognizerRegistry::createDefault()->firstMatch($elementFromHtml('<div class="placeholder media math" style="aspect-ratio: 16 / 9">$x$</div>'), $directContext);

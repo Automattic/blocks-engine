@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
@@ -31,7 +32,6 @@ final class RichTextElementContext
      * @param Closure(DOMElement): bool                                                                      $hasBoxChromeWrapperStyling
      * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
-     * @param Closure(string): string                                                                        $stripAllTags
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      */
     public function __construct(
@@ -48,7 +48,7 @@ final class RichTextElementContext
         private readonly Closure $hasBoxChromeWrapperStyling,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $convertText,
-        private readonly Closure $stripAllTags,
+        private readonly Runtime $runtime,
         private readonly Closure $convertChildren
     ) {
     }
@@ -142,7 +142,7 @@ final class RichTextElementContext
 
     public function stripAllTags(string $html): string
     {
-        return ($this->stripAllTags)($html);
+        return $this->runtime->stripAllTags($html);
     }
 
     /**

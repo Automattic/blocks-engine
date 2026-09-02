@@ -15,6 +15,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures   = array();
@@ -44,7 +45,6 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'hasBoxChromeWrapperStyling'        => static fn (DOMElement $e): bool => false,
         'isRuntimeDomTarget'                => static fn (DOMElement $e): bool => false,
         'convertText'                       => static fn (string $t): array => '' === $t ? array() : array(array('blockName' => 'core/paragraph', 'attrs' => array('content' => $t))),
-        'stripAllTags'                      => static fn (string $h): string => strip_tags($h),
         'convertChildren'                   => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
         },
@@ -66,7 +66,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['hasBoxChromeWrapperStyling'],
         $c['isRuntimeDomTarget'],
         $c['convertText'],
-        $c['stripAllTags'],
+        new Runtime(),
         $c['convertChildren']
     ));
 };
@@ -160,7 +160,6 @@ $assert(null === $emptyParagraph->convert($elementFrom('<p></p>'), 'p', $fallbac
 // Empty rich text that still carries a native SVG image object stays a paragraph.
 $svgOnly = $makeConverter(array(
     'richTextContent'              => static fn (DOMElement $e, array $x): string => '<img src="i.svg">',
-    'stripAllTags'                 => static fn (string $h): string => '',
     'containsNativeSvgImageObject' => static fn (string $c): bool => true,
 ));
 $assert('core/paragraph' === ($svgOnly->convert($elementFrom('<p><svg></svg></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'svg-only-paragraph-survives');

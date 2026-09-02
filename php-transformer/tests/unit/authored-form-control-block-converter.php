@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures = array();
@@ -45,7 +46,7 @@ $converter = new AuthoredFormControlBlockConverter(
     static function (string $text) use (&$echoes): void {
         $echoes[] = $text;
     },
-    static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+    new Runtime(),
     static fn (string $id): string => 'safe-' . $id
 );
 

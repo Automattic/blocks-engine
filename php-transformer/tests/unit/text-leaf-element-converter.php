@@ -15,6 +15,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures   = array();
@@ -37,8 +38,6 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
             'innerBlocks' => $i,
         ),
         'richTextContent'               => static fn (DOMElement $e, array $x): string => (string) $e->textContent,
-        'stripAllTags'                  => static fn (string $h): string => strip_tags($h),
-        'escapeHtml'                    => static fn (string $t): string => htmlspecialchars($t, ENT_QUOTES),
         'firstChildElement'             => static function (DOMElement $e, string $tag): ?DOMElement {
             foreach ($e->childNodes as $child) {
                 if ($child instanceof DOMElement && strtolower($child->tagName) === $tag) {
@@ -61,8 +60,7 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
         $c['presentationAttributes'],
         $c['createBlock'],
         $c['richTextContent'],
-        $c['stripAllTags'],
-        $c['escapeHtml'],
+        new Runtime(),
         $c['codePresentationAttributes'],
         $c['codeContent'],
         $c['convertChildren']

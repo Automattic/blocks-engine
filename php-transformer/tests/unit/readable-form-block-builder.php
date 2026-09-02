@@ -59,7 +59,7 @@ $authoredConverter = new AuthoredFormControlBlockConverter(
     static function (string $text) use (&$echoes): void {
         $echoes[] = $text;
     },
-    static fn (string $text): string => htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+    new Runtime(),
     static fn (string $id): string => $id
 );
 $controlConverter = new ReadableFormControlBlockConverter(
