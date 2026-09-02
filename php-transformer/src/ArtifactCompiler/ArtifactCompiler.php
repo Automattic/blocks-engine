@@ -624,8 +624,14 @@ final class ArtifactCompiler
         $inlineShellCompilation = is_array($reduction['inline_shell_compilation'] ?? null)
             ? $reduction['inline_shell_compilation']
             : $this->compileSharedInlineShells($normalized['files'], $entryPath, $companionPluginPayloadBuilder->blockNamespace($artifact));
-        $authorStylesheetProjections = $entryBlocks['author_stylesheet_projections'];
-        $runtimeScriptProjections = $entryBlocks['runtime_script_projections'];
+        $authorStylesheetProjections = array_merge(
+            $entryBlocks['author_stylesheet_projections'],
+            $inlineShellCompilation['author_stylesheet_projections'] ?? array()
+        );
+        $runtimeScriptProjections = array_merge(
+            $entryBlocks['runtime_script_projections'],
+            $inlineShellCompilation['runtime_script_projections'] ?? array()
+        );
         $allDiagnostics = $this->entryTransformDiagnostics($entryBlocks['diagnostics'], $entryPath);
         $allFallbacks = $entryBlocks['fallbacks'];
         $allGeneratedBlocks = $entryBlocks['generated_blocks'];
@@ -977,7 +983,7 @@ final class ArtifactCompiler
             'block_types' => $this->dedupeRows($blockTypes),
             'entry_blocks' => $entryBlocks,
             'compiled_documents' => array_filter($compiledDocuments, fn(string $path): bool => $path !== ($sharedPlan['analysis']['entry_path'] ?? ''), ARRAY_FILTER_USE_KEY),
-            'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array()),
+            'inline_shell_compilation' => $sharedReduction['inline_shell_compilation'] ?? array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array()),
             'captured_dialogs' => $sharedPlan['analysis']['captured_dialogs'] ?? array('diagnostics' => array(), 'projected_count' => 0),
         );
     }
@@ -3439,7 +3445,7 @@ final class ArtifactCompiler
      * support classes and CSS are canonical rather than page-seeded.
      *
      * @param array<int,array<string,mixed>> $files
-     * @return array{artifacts:array<int,array<string,mixed>>,assets:array<int,array<string,mixed>>}
+     * @return array{artifacts:array<int,array<string,mixed>>,assets:array<int,array<string,mixed>>,author_stylesheet_projections:array<int,array<string,mixed>>,runtime_script_projections:array<int,array<string,mixed>>}
      */
     private function compileSharedInlineShells(array $files, string $entryPath, string $generatedBlockNamespace): array
     {
@@ -3468,10 +3474,12 @@ final class ArtifactCompiler
             $walk($body);
             $documents[(string) $file['path']] = array('content' => (string) $file['content'], 'rows' => $rows);
         }
-        if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array());
+        if (count($documents) < 2) return array('artifacts' => array(), 'assets' => array(), 'author_stylesheet_projections' => array(), 'runtime_script_projections' => array());
 
         $artifacts = array();
         $assets = array();
+        $authorStylesheetProjections = array();
+        $runtimeScriptProjections = array();
         foreach (array('header', 'footer') as $area) {
             $variantCount = null; $canonicalMarkups = array();
             $sourcePath = isset($documents[$entryPath]) ? $entryPath : (string) array_key_first($documents);
@@ -3506,9 +3514,16 @@ final class ArtifactCompiler
                     $asset['compilation'] = array('scope' => 'shared');
                     $assets[] = $asset;
                 }
+                $authorStylesheetProjections = array_merge($authorStylesheetProjections, $compiled['author_stylesheet_projections']);
+                $runtimeScriptProjections = array_merge($runtimeScriptProjections, $compiled['runtime_script_projections']);
             }
         }
-        return array('artifacts' => $artifacts, 'assets' => $assets);
+        return array(
+            'artifacts' => $artifacts,
+            'assets' => $assets,
+            'author_stylesheet_projections' => $authorStylesheetProjections,
+            'runtime_script_projections' => $runtimeScriptProjections,
+        );
     }
 
     /** @param array<string,mixed> $partition @param array<string,mixed> $artifact */
