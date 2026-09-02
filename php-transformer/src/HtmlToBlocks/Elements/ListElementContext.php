@@ -89,9 +89,9 @@ final class ListElementContext
     }
 
     /** @return array<string, mixed> */
-    public function presentationAttributes(DOMElement $element): array
+    public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
     {
-        return $this->presentationResolver->presentationAttributes($element);
+        return $this->presentationResolver->presentationAttributes($element, $excludedGeometryProperties, $forcedGeometryProperties);
     }
 
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */

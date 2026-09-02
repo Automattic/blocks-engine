@@ -29,6 +29,14 @@ $assert(preg_match('/be-layout-proof-[a-f0-9]{32}/', $markup, $carrier) && str_c
 $applied = $coalesced['source_reports']['layout_geometry_proof'] ?? array();
 $assert(1 === count($applied) && 'main:nth-of-type(1) > div:nth-of-type(1)' === ($applied[0]['wrapper_selector'] ?? null), 'Applied proof provenance retains the stable source-node identity.');
 
+$stagedArtifact = array('entrypoint' => 'index.html', 'files' => array('index.html' => $html), 'layout_geometry_proof' => $proof);
+$stagedCompiler = new ArtifactCompiler();
+$stagedShared = $stagedCompiler->prepareShared($stagedArtifact);
+$stagedPages = $stagedCompiler->preparePages($stagedArtifact, $stagedShared);
+$stagedReceipts = $stagedCompiler->compilePreparedPages($stagedShared, array_values($stagedPages));
+$stagedResult = $stagedCompiler->compose($stagedShared, array_values($stagedReceipts))->toArray();
+$assert('core/image' === ($stagedResult['blocks'][0]['blockName'] ?? null) && 1 === count($stagedResult['source_reports']['layout_geometry_proof'] ?? array()), 'Digest-bound staged page plans preserve validated layout geometry proof during worker compilation.');
+
 $exact = $proof;
 $exact['nodes'][0]['boxes'][0]['simulated']['width'] = 24;
 $exact['nodes'][0]['boxes'][1]['simulated']['width'] = 24;
@@ -65,6 +73,16 @@ $deepProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
 ), 'reductions' => array(array('wrapper' => 'deep-wrapper', 'target' => 'deep-target', 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array()))));
 $deep = (new ArtifactCompiler())->compile(array('entrypoint' => 'deep.html', 'files' => array('deep.html' => $deepHtml), 'layout_geometry_proof' => $deepProof))->toArray();
 $assert(1 === count($deep['source_reports']['layout_geometry_proof'] ?? array()) && !str_contains((string) ($deep['serialized_blocks'] ?? ''), '"kind":"layout"'), 'Explicit measured reductions take precedence over a coarse captured-media layout boundary.');
+
+$boundaryHtml = '<main>' . str_repeat('<div>', 21) . '<p>Editable copy</p>' . str_repeat('</div>', 21) . '</main>';
+$boundaryHash = hash('sha256', $boundaryHtml);
+$boundaryWrapper = 'main:nth-of-type(1)' . str_repeat(' > div:nth-of-type(1)', 20);
+$boundaryProof = array('schema' => LayoutGeometryProof::SCHEMA, 'nodes' => array(
+    array('id' => 'boundary-wrapper', 'source_path' => 'boundary.html', 'source_hash' => $boundaryHash, 'selector' => $boundaryWrapper, 'boxes' => $boxes()),
+    array('id' => 'boundary-target', 'source_path' => 'boundary.html', 'source_hash' => $boundaryHash, 'selector' => $boundaryWrapper . ' > div:nth-of-type(1)', 'boxes' => $boxes()),
+), 'reductions' => array(array('wrapper' => 'boundary-wrapper', 'target' => 'boundary-target', 'invariants' => array('selectors' => true, 'runtime' => true, 'semantics' => true, 'viewports' => true), 'corrective_css' => array('declarations' => array()))));
+$boundary = (new ArtifactCompiler())->compile(array('entrypoint' => 'boundary.html', 'files' => array('boundary.html' => $boundaryHtml), 'layout_geometry_proof' => $boundaryProof))->toArray();
+$assert(!str_contains((string) ($boundary['serialized_blocks'] ?? ''), 'responsive-layout') && str_contains((string) ($boundary['serialized_blocks'] ?? ''), '<!-- wp:paragraph'), 'Proof attached to a deep boundary itself takes precedence over opaque responsive-layout preservation.');
 
 $providerChain = '<main>' . str_repeat('<provider-frame>', 24) . '<img src="hero.jpg" alt="Copy">' . str_repeat('</provider-frame>', 24) . '</main>';
 $providerHash = hash('sha256', $providerChain);

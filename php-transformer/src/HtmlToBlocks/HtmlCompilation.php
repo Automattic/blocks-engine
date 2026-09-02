@@ -3305,11 +3305,64 @@ final class HtmlCompilation implements SourceBlockCreator
             return $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
         }
 
+        if ( $this->hasAuthorSemanticMarker($element)
+            || $this->hasAuthorSemanticMarker($children[0])
+            || array() !== $this->styleResolver->presentationAttributes($children[0])
+        ) {
+            return $this->layoutShellBlockForElements(array( $element, $children[0] ), $converted, $element);
+        }
+
         if ( 1 === count($converted) && array() === $this->styleResolver->presentationAttributes($element) ) {
             return $converted[0];
         }
 
         return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $converted, $element);
+    }
+
+    /**
+     * Preserve a static source wrapper chain around editable inner blocks.
+     *
+     * @param list<DOMElement> $elements
+     * @param list<array<string, mixed>> $innerBlocks
+     * @return array<string, mixed>
+     */
+    private function layoutShellBlockForElements(array $elements, array $innerBlocks, DOMElement $sourceElement): array
+    {
+        $wrappers = array_map(function (DOMElement $element): array {
+            $sourceTagName = strtolower($element->tagName);
+            $tagName = str_contains($sourceTagName, '-') ? 'div' : $sourceTagName;
+            $attributes = $this->htmlAttributes($element);
+            $opening = '<' . $tagName;
+            foreach ( $attributes as $name => $value ) {
+                if ( ! preg_match('/^[a-z_:][a-z0-9_.:-]*$/i', $name) ) {
+                    continue;
+                }
+                $opening .= ' ' . $name . '="' . htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+            $opening .= '>';
+
+            return array(
+                'tagName' => $tagName,
+                'attributes' => $attributes,
+                'opening' => $opening,
+                'closing' => '</' . $tagName . '>',
+            );
+        }, $elements);
+        $blockName = $this->generatedBlocks()->blockName('layout-shell');
+        $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
+        $block = $this->createBlock(
+            $blockName,
+            array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
+            $innerBlocks,
+            $sourceElement
+        );
+        $opening = implode('', array_column($wrappers, 'opening'));
+        $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+        $block['innerHTML'] = $opening . $closing;
+        $block['innerContent'] = array_merge(array($opening), array_fill(0, count($innerBlocks), null), array($closing));
+        $block['_layout_shell_wrappers'] = $wrappers;
+
+        return $block;
     }
 
     private function isSafeTransparentCustomElement(DOMElement $element): bool
@@ -4028,9 +4081,13 @@ final class HtmlCompilation implements SourceBlockCreator
     }
 
     /** @return array<string, mixed> */
-    private function cssOwnedGroupAttributes(DOMElement $element): array
+    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false): array
     {
-        $attrs = $this->styleResolver->presentationAttributes($element);
+        $attrs = $this->styleResolver->presentationAttributes(
+            $element,
+            array(),
+            $carryOwnTextAlignment ? array( 'text-align' ) : array()
+        );
         $layout = $attrs['layout'] ?? null;
         if ( is_array($layout) && 'grid' === (string) ($layout['type'] ?? '') && '' !== (string) ($layout['minimumColumnWidth'] ?? '') ) {
             // The source track list is exactly expressible as native grid
@@ -8686,7 +8743,10 @@ final class HtmlCompilation implements SourceBlockCreator
 
         return $this->createBlock(
             'core/group',
-            array_merge($this->cssOwnedGroupAttributes($list), array( 'tagName' => strtolower($list->tagName) )),
+            // This list is already materializing as a Group, so carrying its own
+            // alignment cannot introduce the extra topology avoided by the
+            // generic presentation resolver's text-align gate.
+            array_merge($this->cssOwnedGroupAttributes($list, true), array( 'tagName' => strtolower($list->tagName) )),
             $items,
             $list
         );
@@ -9908,9 +9968,11 @@ final class HtmlCompilation implements SourceBlockCreator
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
     {
-        $prefix = $this->elementSelector($element) . ' > ';
+        $selector = $this->elementSelector($element);
+        $prefix = $selector . ' > ';
         foreach ( $this->layoutGeometry()->proofReductions() as $proof ) {
-            if ( is_array($proof) && str_starts_with((string) ($proof['wrapper_selector'] ?? ''), $prefix) ) {
+            $wrapperSelector = is_array($proof) ? (string) ($proof['wrapper_selector'] ?? '') : '';
+            if ( $selector === $wrapperSelector || str_starts_with($wrapperSelector, $prefix) || str_starts_with($selector, $wrapperSelector . ' > ') ) {
                 return true;
             }
         }

@@ -288,7 +288,7 @@ $v2Receipts = array();
 foreach ($pageIds as $pageId) {
     $v2Page = $compiler->preparePage($artifact, $v2Shared, $pageId);
     $v2Page['compiler_options']['compiled_page_schema'] = ArtifactCompiler::COMPILED_RECEIPT_SCHEMA;
-    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
+    $v2Page['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $v2Page['shared_digest'], 'page_id' => $v2Page['page_id'], 'artifact' => $v2Page['artifact'], 'layout_geometry_proof' => $v2Page['layout_geometry_proof'], 'compiler_options' => $v2Page['compiler_options'], 'output_schema' => $v2Page['output_schema']));
     $v2Receipts[] = $compiler->compilePreparedPage($v2Shared, $v2Page);
 }
 $v2Result = $compiler->compose($v2Shared, array_reverse($v2Receipts))->toArray();
@@ -302,7 +302,7 @@ $legacyReceipts = array();
 foreach ($pageIds as $pageId) {
     $legacyPage = $compiler->preparePage($artifact, $legacyShared, $pageId);
     $legacyPage['compiler_options']['compiled_page_schema'] = ArtifactCompiler::PAGE_RECEIPT_SCHEMA;
-    $legacyPage['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $legacyPage['shared_digest'], 'page_id' => $legacyPage['page_id'], 'artifact' => $legacyPage['artifact'], 'compiler_options' => $legacyPage['compiler_options'], 'output_schema' => $legacyPage['output_schema']));
+    $legacyPage['digest'] = RuntimeDeclarations::hash(array('shared_digest' => $legacyPage['shared_digest'], 'page_id' => $legacyPage['page_id'], 'artifact' => $legacyPage['artifact'], 'layout_geometry_proof' => $legacyPage['layout_geometry_proof'], 'compiler_options' => $legacyPage['compiler_options'], 'output_schema' => $legacyPage['output_schema']));
     $legacyReceipts[] = $compiler->compilePreparedPage($legacyShared, $legacyPage);
 }
 $legacyResult = $compiler->compose($legacyShared, array_reverse($legacyReceipts))->toArray();

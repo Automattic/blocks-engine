@@ -147,6 +147,19 @@ $assert(
         && array() === ($customImageResult['fallbacks'] ?? array()),
     'image-only custom elements should lower to core/image while retaining lazy image and CSS identity'
 );
+$selectorBoundaryCustomElementResult = ( new HtmlTransformer() )->transform(
+    '<style>.menu-host .menu-nav .menu-items{width:100%}.menu-items li{display:inline-block}</style><menu-host class="menu-host" data-mode="desktop"><nav class="menu-nav"><ul class="menu-items" style="text-align:right"><li>Home</li><li>About</li></ul></nav></menu-host>'
+)->toArray();
+$selectorBoundaryCustomElementMarkup = (string) ($selectorBoundaryCustomElementResult['serialized_blocks'] ?? '');
+$selectorBoundaryCustomElementCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $selectorBoundaryCustomElementResult['assets'] ?? array()));
+$assert(
+    str_contains($selectorBoundaryCustomElementMarkup, '<!-- wp:custom/layout-shell')
+        && str_contains($selectorBoundaryCustomElementMarkup, '<div class="menu-host" data-mode="desktop"><nav class="menu-nav">')
+        && str_contains($selectorBoundaryCustomElementMarkup, '<!-- wp:list')
+        && str_contains($selectorBoundaryCustomElementCss, 'text-align:right')
+        && ! str_contains($selectorBoundaryCustomElementMarkup, '<!-- wp:html'),
+    'static custom-element wrappers retain block display, selector boundaries, and alignment around editable blocks'
+);
 $dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<media-image><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></media-image>')->toArray();
 $assert(
     str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'style="object-fit:cover;width:320px;height:281px"')
