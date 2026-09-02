@@ -917,6 +917,11 @@ $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
+$nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
+$nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$nestedFormBinding = $nestedFormDeclaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] ?? '';
+$assert(is_string($nestedFormBinding) && str_contains($nestedFormBinding, '<!-- wp:') && !str_contains($nestedFormBinding, '<!-- wp:html'), 'nested form binding slot uses the normal native converter instead of preserved HTML');
+$assert(0 === substr_count((string) ($nestedControlSlot['serialized_blocks'] ?? ''), '<!-- wp:html'), 'nested form controls and bounded iframe avoid core/html fallbacks');
 $requiredFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form><input name="email" required><textarea name="message" aria-required="true"></textarea><button type="submit">Send</button></form></main>')))->toArray();
 $requiredFormDeclarations = array_values(array_filter($requiredFormPlan['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['controls'] ?? array();
