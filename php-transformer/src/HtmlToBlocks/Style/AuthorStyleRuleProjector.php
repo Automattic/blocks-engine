@@ -33,15 +33,38 @@ final class AuthorStyleRuleProjector
         SourceStyleResolutionState $sourceStyles,
         TransformationEvidenceState $evidence
     ): string {
-        $body = $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $authorStyles, $sourceStyles, $evidence);
-        $body = $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $authorStyles, $sourceStyles, $evidence);
-        $body = $this->projectSourceContentBoxSizing($prelude, $body, $authorStyles, $sourceStyles);
-        return $this->projectIntrinsicGridRowTracks($prelude, $body, $authorStyles, $sourceStyles);
+        return $this->projectWithDeclarations($prelude, $body, $authorStyles, $sourceStyles, $evidence)['body'];
     }
 
-    private function projectSourceContentBoxSizing(string $prelude, string $body, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
-    {
+    /** @return array{body: string, declarations: array<string, string>} */
+    public function projectWithDeclarations(
+        string $prelude,
+        string $body,
+        AuthorStyleAnalysis $authorStyles,
+        SourceStyleResolutionState $sourceStyles,
+        TransformationEvidenceState $evidence
+    ): array {
         $declarations = $this->styleResolver->cssDeclarations($body);
+        $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
+        $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
+        $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles));
+        $this->acceptProjectedBody($body, $declarations, $this->projectIntrinsicGridRowTracks($prelude, $body, $declarations, $authorStyles, $sourceStyles));
+        return array('body' => $body, 'declarations' => $declarations);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function acceptProjectedBody(string &$body, array &$declarations, string $projected): void
+    {
+        if ( $projected === $body ) {
+            return;
+        }
+        $body = $projected;
+        $declarations = $this->styleResolver->cssDeclarations($body);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function projectSourceContentBoxSizing(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
+    {
         if ( isset($declarations['box-sizing'])
             || ! isset($declarations['width'])
             || ! CssValueInspector::hasDefiniteWidth('width:' . $declarations['width'])
@@ -121,14 +144,15 @@ final class AuthorStyleRuleProjector
         return $this->universalBorderBoxResets[$authorStyles] = $usesBorderBox;
     }
 
+    /** @param array<string, string> $declarations */
     private function projectResponsiveCanvasMinimumWidth(
         string $prelude,
         string $body,
+        array $declarations,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
         TransformationEvidenceState $evidence
     ): string {
-        $declarations = $this->styleResolver->cssDeclarations($body);
         $minimumWidth = (string) ($declarations['min-width'] ?? '');
         if ( '' === $minimumWidth ) {
             return $body;
@@ -176,9 +200,9 @@ final class AuthorStyleRuleProjector
         return implode(';', $retained);
     }
 
-    private function projectIntrinsicGridRowTracks(string $prelude, string $body, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
+    /** @param array<string, string> $declarations */
+    private function projectIntrinsicGridRowTracks(string $prelude, string $body, array $declarations, AuthorStyleAnalysis $authorStyles, SourceStyleResolutionState $sourceStyles): string
     {
-        $declarations = $this->styleResolver->cssDeclarations($body);
         $rows = (string) ($declarations['grid-template-rows'] ?? '');
         if ( ! $this->gridTemplateRowsContainFractionalTrack($rows) ) {
             return $body;
@@ -526,14 +550,15 @@ final class AuthorStyleRuleProjector
         return $pixels >= 640;
     }
 
+    /** @param array<string, string> $declarations */
     private function projectAutoSizedStructuralPercentageHeight(
         string $prelude,
         string $body,
+        array $declarations,
         AuthorStyleAnalysis $authorStyles,
         SourceStyleResolutionState $sourceStyles,
         TransformationEvidenceState $evidence
     ): string {
-        $declarations = $this->styleResolver->cssDeclarations($body);
         $height = (string) ($declarations['height'] ?? '');
         if ( '100%' !== strtolower(CssValueInspector::withoutImportant($height)) ) {
             return $body;

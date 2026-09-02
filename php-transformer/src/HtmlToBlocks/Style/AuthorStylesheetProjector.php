@@ -22,14 +22,15 @@ final class AuthorStylesheetProjector
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
             function (string $prelude, string $body) use ($context): string {
-                $body = $this->ruleBodyProjector->project(
+                $projection = $this->ruleBodyProjector->projectWithDeclarations(
                     $prelude,
                     $body,
                     $context->authorStyles,
                     $context->sourceStyles,
                     $context->evidence
                 );
-                $declarations = $this->styleResolver->cssDeclarations($body);
+                $body = $projection['body'];
+                $declarations = $projection['declarations'];
                 $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
                 $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context);
                 $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
