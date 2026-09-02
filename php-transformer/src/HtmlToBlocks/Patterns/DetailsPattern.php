@@ -13,7 +13,7 @@ final class DetailsPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $converter = $context->recursiveConverter();
-        if ( ! $converter instanceof PatternRecursiveConverter ) {
+        if ( ! $converter instanceof PatternTreeConverter ) {
             return null;
         }
 

@@ -270,7 +270,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternRecursiveConverter $converter, ?NavigationPatternContext $navigationContext): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext): ?array
     {
         if ( null === $converter ) {
             return null;
