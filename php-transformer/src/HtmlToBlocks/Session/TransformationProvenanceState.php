@@ -110,6 +110,11 @@ final class TransformationProvenanceState
         unset($this->formControlSlotTokens[$path]);
     }
 
+    public function restoreFormControlSlot(string $path, string $token): void
+    {
+        $this->formControlSlotTokens[$path] = $token;
+    }
+
     public function formControlSlotToken(string $path): ?string
     {
         return $this->formControlSlotTokens[$path] ?? null;

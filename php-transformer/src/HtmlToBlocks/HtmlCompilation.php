@@ -2960,7 +2960,16 @@ final class HtmlCompilation
 
         $formControlSlotToken = $this->transformationProvenance()->formControlSlotToken($element->getNodePath());
         if ( null !== $formControlSlotToken ) {
-            $block = $this->htmlPreservationBlock($element);
+            $path = $element->getNodePath();
+            $this->transformationProvenance()->releaseFormControlSlot($path);
+            try {
+                $block = $this->convertElement($element, $fallbacks, $captureUnsupported);
+            } finally {
+                $this->transformationProvenance()->restoreFormControlSlot($path, $formControlSlotToken);
+            }
+            if ( null === $block ) {
+                return null;
+            }
             $block['_binding_token'] = $formControlSlotToken;
             return $block;
         }
