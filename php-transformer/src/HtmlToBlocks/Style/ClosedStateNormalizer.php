@@ -114,6 +114,10 @@ final class ClosedStateNormalizer
 
     public function isDecorativeHiddenElement(DOMElement $element, callable $attr): bool
     {
+        if ( $this->isAccessibilityBoundaryMarker($element, $attr) ) {
+            return true;
+        }
+
         if ( in_array(strtolower(trim((string) $attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
             return true;
         }
@@ -132,6 +136,26 @@ final class ClosedStateNormalizer
         }
 
         return true;
+    }
+
+    private function isAccessibilityBoundaryMarker(DOMElement $element, callable $attr): bool
+    {
+        $boundary = $element;
+        if ( 'region' !== strtolower(trim((string) $attr($boundary, 'role'))) ) {
+            $boundary = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
+        }
+        if (
+            ! $boundary instanceof DOMElement
+            || 'region' !== strtolower(trim((string) $attr($boundary, 'role')))
+            || '-1' !== trim((string) $attr($boundary, 'tabindex'))
+        ) {
+            return false;
+        }
+
+        $normalize = static fn (string $value): string => strtolower(trim((string) preg_replace('/\s+/', ' ', $value)));
+        $label = $normalize((string) $attr($boundary, 'aria-label'));
+
+        return '' !== $label && $label === $normalize($boundary->textContent ?? '');
     }
 
     /**
