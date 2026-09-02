@@ -1474,6 +1474,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( $list instanceof DOMElement ) {
             $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
         }
+        if ( 'vertical' === ($attrs['layout']['orientation'] ?? '') && '' === (string) ($attrs['layout']['justifyContent'] ?? '') ) {
+            // Core centers a vertical navigation by default, while an authored
+            // flex column uses start alignment unless the source says otherwise.
+            $attrs['layout']['justifyContent'] = 'left';
+        }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             return $attrs;
         }

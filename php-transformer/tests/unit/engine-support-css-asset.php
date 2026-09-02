@@ -164,7 +164,7 @@ $beforeFamilies = array(
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation base' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}',
-    'list-navigation container direction' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;flex-wrap:wrap;list-style:none}',
+    'list-navigation container layout' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}',
     'nativeSearchTriggerCssRules' => 'flex:0 0 24px!important;width:24px!important;height:80px!important',
 );
 $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), '<figure class="wp-block-image blocks-engine-synthetic-image-figure"><img src="portrait.jpg" alt="Portrait"/></figure>'), 'direct source images mark their introduced core/image figure for margin normalization');
