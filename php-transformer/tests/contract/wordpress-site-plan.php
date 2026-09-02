@@ -133,6 +133,9 @@ $recipe89Markup = $recipe89Artifact['source_reports']['wordpress_site_plan']['pa
 $assert(!isset($recipe89Artifact['source_reports']['wordpress_site_plan_diagnostics']) && str_contains($recipe89Markup, WordPressSitePlan::TOKEN_PREFIX), 'Fixture 89 recipe-shaped base64 website artifact tokenizes Gutenberg image URLs when the referenced image payload is declared.');
 $stagedCss = (new AssetReferenceCanonicalizer(array(array('source_path' => 'images.squarespace-cdn.com/hero.svg', 'token' => 'asset-0123456789abcdef'))))->content('main { a:url(_external/images.squarespace-cdn.com/hero.svg); b:url(/_external/images.squarespace-cdn.com/hero.svg); }', 'website/style.css');
 $assert(2 === substr_count($stagedCss, WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}'), 'Transport-prefixed and root-prefixed external CSS URLs canonicalize to matching artifact asset tokens.');
+$entitySrcsetToken = 'asset-fedcba9876543210';
+$entitySrcset = (new AssetReferenceCanonicalizer(array(array('source_path' => "website/external/Happy Women's Day.jpg", 'token' => $entitySrcsetToken)), 'website'))->content('<img srcset="/external/Happy%20Women&#039;s%20Day.jpg 1x">', 'website/index.html');
+$assert(str_contains($entitySrcset, WordPressSitePlan::TOKEN_PREFIX . $entitySrcsetToken . '}} 1x'), 'Entity-escaped srcset paths canonicalize to declared assets without changing candidate descriptors.');
 $escapedStyleCanonicalizer = new AssetReferenceCanonicalizer($plan['reference_tokens']);
 $escapedStyleToken = $escapedStyleCanonicalizer->reference('assets/logo.svg', 'index.html');
 $escapedQuoteStyle = $escapedStyleCanonicalizer->content('<!-- wp:blocks-engine/collection {"content":"<div title=\\"Fish &amp; Chips\\" style=\\"background-image:url(&quot;assets/logo.svg&quot;)\\"></div>"} /-->', 'index.html');

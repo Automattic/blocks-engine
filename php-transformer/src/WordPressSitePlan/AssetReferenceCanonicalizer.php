@@ -33,7 +33,8 @@ final class AssetReferenceCanonicalizer
         if ('' === trim($reference) || preg_match('~^(?:[a-z][a-z0-9+.-]*:|//|#|\?)~i', $reference)) {
             return null;
         }
-        preg_match('/^([^?#]*)(.*)$/s', $reference, $parts);
+        $decodedReference = html_entity_decode($reference, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        preg_match('/^([^?#]*)(.*)$/s', $decodedReference, $parts);
         $path = $parts[1] ?? '';
         $suffix = $parts[2] ?? '';
         if ('' === $path || preg_match('~%2f|%5c|%2e~i', $path)) {
