@@ -1175,22 +1175,6 @@ final class StyleResolver
         return $className;
     }
 
-    /**
-     * core/image has no attribute for `object-position`. Carry an authored
-     * focal point onto the generated <img> the same way {@see injectedFigureHeightClassName}
-     * carries a percentage height: as a generated rule scoped to the figure's
-     * own carrier class, targeting the direct <img> child rather than the
-     * figure itself (object-position only affects a replaced element).
-     */
-    public function injectedFigureImageObjectPositionClassName(DOMElement $image, string $objectPosition): string
-    {
-        $rule = 'object-position:' . $objectPosition;
-        $className = $this->context->layoutGeometry()->allocateCarrier('figure-object-position' . "\n" . $this->geometryStructuralPath($image) . "\n" . $rule);
-        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '>img{' . $rule . '}');
-
-        return $className;
-    }
-
     private function authorStylesDriveImageHeight(DOMElement $image): bool
     {
         $declarations = $this->structuralPresentationDeclarations($image);
@@ -2471,10 +2455,6 @@ final class StyleResolver
             'table-layout',
             'width',
             'z-index',
-            '--transitionduration',
-            '--slideshow-transition-duration',
-            '--autoplay-interval',
-            '--slideshow-interval',
         ));
 
         return array_intersect_key($declarations, $safe);
@@ -2943,7 +2923,7 @@ final class StyleResolver
      *
      * @return array<string, string>
      */
-    public function svgCascadeDeclarations(DOMElement $element): array
+    public function unfilteredCascadeDeclarations(DOMElement $element): array
     {
         $declarations = array();
         foreach ( $this->styleRuleCandidates($element, 'svg-paint') as $rule ) {
@@ -2959,15 +2939,15 @@ final class StyleResolver
     }
 
     /**
-     * Custom properties visible to `$element` through the same unfiltered
-     * paint cascade, scoped by ancestry rather than limited to `:root`/`html`
+     * Custom properties visible to `$element` through the unfiltered cascade,
+     * scoped by ancestry rather than limited to `:root`/`html`.
      * — an id- or class-scoped `--token` an ancestor declares is a legitimate
-     * source for `var()` in SVG paint, even though it is invisible to the
-     * general (`:root`/`html`-only) custom-property dictionary.
+     * This supports any property that needs an element-scoped `var()` value,
+     * including SVG paint and structural layout declarations.
      *
      * @return array<string, string>
      */
-    public function svgCascadeCustomProperties(DOMElement $element): array
+    public function cascadedCustomProperties(DOMElement $element): array
     {
         $customProperties = $this->context->sourceStyles()->customProperties();
         $ancestors = array();
@@ -2975,7 +2955,7 @@ final class StyleResolver
             $ancestors[] = $current;
         }
         foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $this->svgCascadeDeclarations($ancestor) as $name => $propertyValue ) {
+            foreach ( $this->unfilteredCascadeDeclarations($ancestor) as $name => $propertyValue ) {
                 if ( str_starts_with($name, '--') ) {
                     $customProperties[$name] = $propertyValue;
                 }
@@ -2995,29 +2975,21 @@ final class StyleResolver
      */
     public function resolvedSvgCascadeValue(DOMElement $element, string $property): ?string
     {
-        $declared = trim((string) ($this->svgCascadeDeclarations($element)[$property] ?? ''));
+        $declared = trim((string) ($this->unfilteredCascadeDeclarations($element)[$property] ?? ''));
         if ( '' === $declared ) {
             return null;
         }
 
         return false === strpos($declared, 'var(')
             ? $declared
-            : $this->expandCssVariableReferences($declared, $this->svgCascadeCustomProperties($element));
+            : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
     }
 
     /**
      * Expand `var()` in an arbitrary structural declaration value (e.g.
      * `display`, `align-self`) against the unfiltered custom-property cascade
-     * {@see svgCascadeCustomProperties()} tracks. That cascade -- despite its
-     * SVG-paint-focused name -- captures every `--token` declared on any
-     * matched rule regardless of whether that rule also carries paint, so it
-     * is the one place in this resolver already bookkeeping custom properties
-     * without {@see safeVisualDeclarations()}'s finite classification
-     * allow-list. Reused here rather than duplicating that tracking, for
-     * resolving id/class-scoped design-system tokens that gate structural
-     * properties (a common page-builder "override hook" pattern) the same way
-     * {@see resolveCssVariablesInValue()} only resolves `:root`/`html`-scoped
-     * ones plus whatever the classification allow-list happens to expose.
+     * {@see cascadedCustomProperties()} tracks. This avoids duplicating the
+     * element-scoped custom-property cascade for structural declarations.
      */
     public function resolveStructuralCssVariablesInValue(string $value, DOMElement $element): string
     {
@@ -3025,6 +2997,6 @@ final class StyleResolver
             return $value;
         }
 
-        return $this->expandCssVariableReferences($value, $this->svgCascadeCustomProperties($element));
+        return $this->expandCssVariableReferences($value, $this->cascadedCustomProperties($element));
     }
 }

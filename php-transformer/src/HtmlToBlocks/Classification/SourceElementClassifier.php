@@ -494,20 +494,6 @@ final class SourceElementClassifier
         return 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $identity);
     }
 
-    /** A navigationless rail needs an explicit semantic or data slideshow identity. */
-    public function hasExplicitSlideshowIdentity(DOMElement $element): bool
-    {
-        $identity = strtolower(implode(' ', array(
-            $element->tagName,
-            SourceDom::attr($element, 'id'),
-            SourceDom::attr($element, 'role'),
-            SourceDom::attr($element, 'data-hook'),
-            SourceDom::attr($element, 'data-testid'),
-        )));
-
-        return 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $identity);
-    }
-
     public function isCarouselList(DOMElement $element): bool
     {
         return 'list' === strtolower(trim(SourceDom::attr($element, 'role')))

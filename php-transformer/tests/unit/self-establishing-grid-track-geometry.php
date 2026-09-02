@@ -118,12 +118,6 @@ $assert(
     ! str_contains($resolvedBlocks, '<!-- wp:html'),
     'the slide subtree produces zero core/html fallback blocks'
 );
-$assert(
-    (bool) preg_match('/\.[a-z0-9-]+>img\{object-position:51% 42%\}/', $resolvedCss),
-    'the authored per-slide object-position focal point is carried into the generated CSS unaffected by the height fix',
-    $resolvedCss
-);
-
 // Same chain, but `#comp-motpujyc3`'s own `min-height` is a real, non-zero
 // intrinsic-sizing keyword rather than a literal zero: it genuinely
 // disqualifies the chain, and the collapse must still occur exactly as

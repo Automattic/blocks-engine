@@ -154,33 +154,4 @@ $assert(
     $optedOutCss
 );
 
-// The per-instance inline `object-position` on the source <img> -- a common
-// carrier for an authored focal point -- has no core/image attribute to ride
-// on and must survive as a generated rule targeting the <img> itself.
-$objectPositionCss = $css($resolved);
-$assert(
-    (bool) preg_match('/\.[a-z0-9-]+>img\{object-position:51% 42%\}/', $objectPositionCss),
-    'an authored object-position focal point is carried onto the generated <img> via a targeted rule',
-    $objectPositionCss
-);
-$assert(
-    str_contains($resolvedBlocks, 'style="object-fit:cover;width:100%"'),
-    'the generated <img> tag itself carries no literal object-position (it rides the generated rule instead), matching how object-fit/width already serialize'
-);
-
-// The CSS initial value (`50% 50%`/`center`) is not carried forward via the
-// dedicated carrier this fix adds: doing so would only add generated-CSS
-// noise for the common, unauthored case. (Matches the source structure that
-// actually motivated this fix: an <img> reached through a <picture> wrapper,
-// same as `convertPictureElement()` routes a plain, unselected-source
-// <picture><img></picture> pair.)
-$defaultObjectPosition = ( new HtmlTransformer() )->transform(
-    '<main><picture><img src="photo.jpg" alt="Photo" style="object-position: 50% 50%; width: 100%;"></picture></main>'
-)->toArray();
-$assert(
-    ! preg_match('/>img\{object-position:/', $css($defaultObjectPosition)),
-    'the CSS initial object-position value is not carried into the targeted <img> rule',
-    $css($defaultObjectPosition)
-);
-
 fwrite(STDOUT, 'Stretch-derived image geometry unit tests: ' . $assertions . " passed\n");
