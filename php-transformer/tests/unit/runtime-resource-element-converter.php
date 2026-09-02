@@ -42,7 +42,7 @@ $session->fallbackEmitter()->configure(array(), array(), $selectors);
 
 $preserved = 0;
 $converter = new RuntimeResourceElementConverter(
-    static fn (): HtmlTransformerSession => $session,
+    $session,
     static function (DOMElement $element) use (&$preserved): array {
         ++$preserved;
         return array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved:' . $element->tagName ) );

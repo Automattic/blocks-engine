@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Closure;
 use DOMElement;
 
@@ -12,14 +12,13 @@ use DOMElement;
 final class FormCompositionPlanner
 {
     /**
-     * @param Closure(): TransformationProvenanceState                                                     $transformationProvenance
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, DOMElement): bool                                                         $elementContains
      */
     public function __construct(
-        private readonly Closure $transformationProvenance,
+        private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
         private readonly Closure $presentationAttributes,
         private readonly Closure $createBlock,
@@ -39,7 +38,7 @@ final class FormCompositionPlanner
         }
 
         $path = $slot->getNodePath();
-        $provenance = ($this->transformationProvenance)();
+        $provenance = $this->session->transformationProvenanceState();
         $token = $provenance->reserveFormControlSlot($path);
         try {
             $children = ($this->convertChildren)($form, $fallbacks, true);
