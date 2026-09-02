@@ -12,6 +12,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternConversi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecursiveConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -27,7 +28,7 @@ if ( ! $spacerElement instanceof DOMElement ) {
 }
 $spacerContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array( 'style' => array( 'dimensions' => array( 'minHeight' => '1rem' ) ) ),
-    static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children )
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ))
 );
 $spacerResult = (new PatternRecognizerRegistry(array( new SpacerPattern() )))->firstMatch($spacerElement, $spacerContext, array( SpacerPattern::class ));
 $assert('core/spacer' === ($spacerResult?->block()['blockName'] ?? null), 'Spacer is dispatched directly by class through the pattern registry.');
@@ -133,7 +134,7 @@ $innerHtml = static function (DOMElement $element): string {
     }
     return $html;
 };
-$createBlock = static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children );
+$createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs = array(), array $children = array(), ?DOMElement $source = null): array => array( 'blockName' => $name, 'attrs' => $attrs, 'innerBlocks' => $children ));
 $recursiveCalls = 0;
 $navigationConverter = new PatternRecursiveConverter(
     static fn (DOMElement $source, bool $captureUnsupported): PatternConversionResult => new PatternConversionResult(array()),

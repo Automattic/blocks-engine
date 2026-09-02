@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -40,12 +41,12 @@ $context = new InlineContentElementContext(
     static fn (DOMElement $element): bool => false,
     static fn (string $content): bool => false,
     static fn (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array => array(),
-    static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    ),
+    )),
     static fn (DOMElement $element): string => '',
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): ?string => null,

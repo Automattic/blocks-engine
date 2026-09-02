@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -21,7 +22,6 @@ final class ButtonLinkDispatchContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $linkedSvgLogoBlockFromAnchor
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromAnchor
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $convertLinkWrapperGroup
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): string                                                                        $safeLinkUrl
      */
     public function __construct(
@@ -34,7 +34,7 @@ final class ButtonLinkDispatchContext
         private readonly Closure $imageBlockFromAnchor,
         private readonly Closure $convertLinkWrapperGroup,
         private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $safeLinkUrl
     ) {
     }
@@ -110,7 +110,7 @@ final class ButtonLinkDispatchContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     public function safeLinkUrl(string $href): string

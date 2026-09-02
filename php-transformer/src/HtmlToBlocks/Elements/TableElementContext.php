@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -22,7 +23,6 @@ final class TableElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $mediaLayoutTableColumnsBlock
      * @param Closure(DOMElement): array<string, mixed>                                                       $htmlPreservationBlock
      * @param Closure(DOMElement): array<string, mixed>                                                       $tableAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
         private readonly TableClassificationPolicy $classificationPolicy,
@@ -31,7 +31,7 @@ final class TableElementContext
         private readonly Closure $htmlPreservationBlock,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $tableAttributes,
-        private readonly Closure $createBlock
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -91,6 +91,6 @@ final class TableElementContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -20,7 +21,6 @@ final class ListElementContext
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $listItems
      * @param Closure(DOMElement): bool $isCssOwnedGridElement
      * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
         private readonly Closure $recognizePatterns,
@@ -33,7 +33,7 @@ final class ListElementContext
         private readonly Closure $isCssOwnedGridElement,
         private readonly Closure $cssOwnedGridAttributes,
         private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $createBlock
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -97,6 +97,6 @@ final class ListElementContext
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
     public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 }

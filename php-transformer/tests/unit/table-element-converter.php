@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -47,7 +48,7 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         'preserve'    => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
         'presentation' => static fn (DOMElement $e, array $p, array $g): array => array('className' => 'pres'),
         'tableAttrs'  => static fn (DOMElement $e): array => array('hasFixedLayout' => true),
-        'createBlock' => static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a),
+        'createBlock' => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a)),
     );
     $c = array_merge($defaults, $overrides);
 

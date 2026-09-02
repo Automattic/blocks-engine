@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -16,7 +17,6 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -26,7 +26,7 @@ final class ReadableFormBlockBuilder
         private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -47,7 +47,7 @@ final class ReadableFormBlockBuilder
             }
 
             if ( FormControlClassifier::isSubmitLikeControl($control) ) {
-                $buttonBlocks[] = ($this->createBlock)('core/button', array_merge(($this->presentationAttributes)($control), array(
+                $buttonBlocks[] = $this->createBlock->createBlock('core/button', array_merge(($this->presentationAttributes)($control), array(
                     'text' => $this->runtime->escapeHtml($this->metadataBuilder->submitText($control, 'Submit')),
                 )), array(), $control);
                 continue;
@@ -73,17 +73,17 @@ final class ReadableFormBlockBuilder
             $fieldBlocks[] = $readableControlBlock;
             $contentBlocks[] = ( 1 === count($fieldBlocks) && AuthoredInputBlockGenerator::NAME !== ($readableControlBlock['blockName'] ?? '') )
                 ? $fieldBlocks[0]
-                : ($this->createBlock)('core/group', array(), $fieldBlocks, $control);
+                : $this->createBlock->createBlock('core/group', array(), $fieldBlocks, $control);
         }
 
         if ( array() !== $buttonBlocks ) {
-            $contentBlocks[] = ($this->createBlock)('core/buttons', array(), $buttonBlocks, $form);
+            $contentBlocks[] = $this->createBlock->createBlock('core/buttons', array(), $buttonBlocks, $form);
         }
 
         if ( array() === $contentBlocks ) {
             return null;
         }
 
-        return ($this->createBlock)('core/group', ($this->presentationAttributes)($form), $contentBlocks, $form);
+        return $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($form), $contentBlocks, $form);
     }
 }

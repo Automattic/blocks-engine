@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -19,7 +20,6 @@ final class FigureElementContext
      * @param Closure(DOMElement, string): ?DOMElement $mediaElement
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $convertGeneric
      * @param Closure(string): bool $hasVisibleText
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
         private readonly Closure $mediaGalleryBlock,
@@ -31,7 +31,7 @@ final class FigureElementContext
         private readonly Closure $convertGeneric,
         private readonly Closure $hasVisibleText,
         private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $createBlock
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -97,6 +97,6 @@ final class FigureElementContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 }

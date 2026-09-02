@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -18,7 +19,6 @@ final class DescriptionListElementContext
      * @param Closure(DOMElement): bool $isCssOwnedGridElement
      * @param Closure(DOMElement): array<string, mixed> $cssOwnedGridAttributes
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement): string $richTextContent
      * @param Closure(string): bool $hasVisibleText
      */
@@ -31,7 +31,7 @@ final class DescriptionListElementContext
         private readonly Closure $cssOwnedGridAttributes,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly Closure $convertChildren,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $richTextContent,
         private readonly Closure $hasVisibleText
     ) {
@@ -81,7 +81,7 @@ final class DescriptionListElementContext
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
     public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     public function richTextContent(DOMElement $element): string

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Closure;
 use DOMElement;
@@ -14,14 +15,13 @@ final class FormCompositionPlanner
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, DOMElement): bool                                                         $elementContains
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $convertChildren,
         private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $elementContains
     ) {
     }
@@ -51,7 +51,7 @@ final class FormCompositionPlanner
         }
 
         return array(
-            'block' => ($this->createBlock)('core/group', ($this->presentationAttributes)($form), $children, $form),
+            'block' => $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($form), $children, $form),
             'slot'  => $slotBlock,
         );
     }

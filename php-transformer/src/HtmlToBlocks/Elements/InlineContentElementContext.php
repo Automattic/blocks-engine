@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -20,7 +21,6 @@ final class InlineContentElementContext
      * @param Closure(DOMElement): bool $hasAuthorSemanticMarker
      * @param Closure(string): bool $richTextContentHasStructuralHtml
      * @param Closure(DOMElement, array<int, array<string, mixed>>&, bool): array<int, array<string, mixed>> $convertChildren
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement): string $richTextMarker
      * @param Closure(DOMElement): array<string, string> $richTextInlineVisualDeclarations
      * @param Closure(DOMElement): ?string $dynamicTextContent
@@ -40,7 +40,7 @@ final class InlineContentElementContext
         private readonly Closure $hasAuthorSemanticMarker,
         private readonly Closure $richTextContentHasStructuralHtml,
         private readonly Closure $convertChildren,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $richTextMarker,
         private readonly Closure $richTextInlineVisualDeclarations,
         private readonly Closure $dynamicTextContent,
@@ -66,7 +66,7 @@ final class InlineContentElementContext
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks): array { return ($this->convertChildren)($element, $fallbacks, true); }
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array { return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement); }
+    public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array { return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement); }
     public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
     public function hasBlockContentChildren(DOMElement $element): bool { return $this->sourceElementClassifier->hasBlockContentChildren($element); }
     /** @return array<string, string> */

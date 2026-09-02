@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -12,12 +13,11 @@ final class RuntimeResourceElementConverter implements ElementConverter
 {
     /**
      * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement): array<string, mixed> $createBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $htmlPreservationBlock,
-        private readonly Closure $createBlock
+        private readonly SourceBlockCreator $createBlock
     ) {
     }
 
@@ -126,7 +126,7 @@ final class RuntimeResourceElementConverter implements ElementConverter
         }
         $body = str_replace('</script', '<\/script', (string) ($metadata['body'] ?? ''));
 
-        return ($this->createBlock)(
+        return $this->createBlock->createBlock(
             'core/html',
             array( 'content' => '<script' . $attributeHtml . '>' . $body . '</script>' ),
             array(),

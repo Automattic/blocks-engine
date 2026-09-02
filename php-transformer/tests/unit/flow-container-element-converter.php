@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -52,13 +53,13 @@ $operations = array(
     'proofBackedWrapperCoalescing' => $null,
     'shouldPreserveEmptyVisualElement' => static fn (): bool => 'visual-empty' === $state->mode,
     'emptyVisualElementAttributes' => static fn (): array => array(),
-    'createBlock' => static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    'createBlock' => new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    ),
-    'patternContext' => new PatternContext($null, $null),
+    )),
+    'patternContext' => new PatternContext($null, new SourceBlockCreatorFixture(static fn (): array => array())),
     'shouldDeferNavigationPatternToChildren' => $false,
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,

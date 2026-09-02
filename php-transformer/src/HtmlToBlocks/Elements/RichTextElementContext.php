@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -20,7 +21,6 @@ use DOMElement;
 final class RichTextElementContext
 {
     /**
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement, array<int, string>): string                                                $richTextContent
      * @param Closure(string): string                                                                        $headingRichTextContent
      * @param Closure(DOMElement, string): ?string                                                            $richTextWithMaterializedSvgImages
@@ -36,7 +36,7 @@ final class RichTextElementContext
      */
     public function __construct(
         private readonly ElementPresentationResolver $presentationResolver,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $richTextContent,
         private readonly Closure $headingRichTextContent,
         private readonly Closure $richTextWithMaterializedSvgImages,
@@ -70,7 +70,7 @@ final class RichTextElementContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     /**

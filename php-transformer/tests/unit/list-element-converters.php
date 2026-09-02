@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionList
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -28,12 +29,12 @@ $elementFrom = static function (string $html): DOMElement {
     }
     throw new RuntimeException('No element parsed');
 };
-$createBlock = static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
+$createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
     'blockName' => $name,
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
     'sourceTag' => $source?->tagName,
-);
+));
 
 $state = (object) array( 'mode' => 'native' );
 $listContext = new ListElementContext(

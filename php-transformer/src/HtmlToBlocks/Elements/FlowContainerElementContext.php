@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
@@ -30,7 +31,7 @@ final class FlowContainerElementContext
         private readonly Closure $proofBackedWrapperCoalescing,
         private readonly Closure $shouldPreserveEmptyVisualElement,
         private readonly Closure $emptyVisualElementAttributes,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly PatternContext $patternContext,
         private readonly Closure $shouldDeferNavigationPatternToChildren,
         private readonly Closure $rememberAccordionDisclosureRoot,
@@ -84,7 +85,7 @@ final class FlowContainerElementContext
     /** @return array<string, mixed> */
     public function emptyVisualElementAttributes(DOMElement $element): array { return ($this->emptyVisualElementAttributes)($element); }
     /** @param array<string, mixed> $attributes @param array<int, array<string, mixed>> $innerBlocks @return array<string, mixed> */
-    public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array { return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement); }
+    public function createBlock(string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array { return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement); }
     public function patternContext(): PatternContext { return $this->patternContext; }
     public function shouldDeferNavigationPatternToChildren(DOMElement $element): bool { return ($this->shouldDeferNavigationPatternToChildren)($element); }
     /** @param array<string, mixed> $block @return array<string, mixed> */
