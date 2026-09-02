@@ -10,7 +10,7 @@ use Throwable;
 /**
  * @internal Bundled adapters are implementation details of FormatBridge.
  */
-final class MarkdownAdapter implements FormatAdapterInterface
+final class MarkdownAdapter implements FormatAdapterInterface, HtmlInterchangeAdapterInterface
 {
     public function __construct(
         private readonly HtmlAdapter $htmlAdapter = new HtmlAdapter(),
@@ -44,7 +44,7 @@ final class MarkdownAdapter implements FormatAdapterInterface
             return array();
         }
 
-        $html = $this->markdownToHtml($content);
+        $html = $this->toHtml($content, $options);
         if ( '' === trim($html) ) {
             return array();
         }
@@ -68,7 +68,7 @@ final class MarkdownAdapter implements FormatAdapterInterface
         }
 
         $html = $this->normalizePreBlocks($html);
-        $markdown = $this->htmlToMarkdown($html, $options);
+        $markdown = $this->fromHtml($html, $options);
         $placeholders = $this->emptyDynamicBlockPlaceholders($blocks);
         if ( array() !== $placeholders ) {
             $markdown = trim($markdown . "\n\n" . implode("\n\n", $placeholders));
@@ -82,10 +82,11 @@ final class MarkdownAdapter implements FormatAdapterInterface
         return (bool) preg_match('/(^|\n)\s*(#{1,6}\s+|[-*+]\s+\S|\d+\.\s+\S|>\s+\S|```)/', $content);
     }
 
-    private function markdownToHtml(string $markdown): string
+    /** @param array<string, mixed> $options */
+    public function toHtml(string $content, array $options = array()): string
     {
         try {
-            return (string) (new GithubFlavoredMarkdownConverter())->convert($markdown);
+            return (string) (new GithubFlavoredMarkdownConverter())->convert($content);
         } catch ( Throwable ) {
             return '';
         }
@@ -94,7 +95,7 @@ final class MarkdownAdapter implements FormatAdapterInterface
     /**
      * @param array<string, mixed> $options
      */
-    private function htmlToMarkdown(string $html, array $options): string
+    public function fromHtml(string $html, array $options = array()): string
     {
         $converterOptions = array_replace(
             array(

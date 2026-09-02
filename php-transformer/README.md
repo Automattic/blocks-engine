@@ -15,7 +15,7 @@ For local WordPress consumers, the same directory can also be installed as a plu
 PHP Transformer owns reusable transformation primitives:
 
 - HTML to parsed WordPress block arrays.
-- Markdown, HTML, and blocks conversion through a block-array pivot.
+- Markdown, HTML, and blocks conversion with HTML as the canonical interchange contract. Markdown converts directly to and from HTML; block conversions compose across that HTML boundary.
 - Generated website artifact normalization.
 - Serializable block output, document output, asset manifests, diagnostics, fallbacks, and provenance.
 - Generic per-call context and provenance metadata for downstream wrappers.
@@ -40,8 +40,9 @@ Consumers should treat these classes and interface as the public entrypoints for
 - `Contract\TransformerResult` - stable result envelope. Use `toArray()` for complete compatibility boundaries or `toWordPressSitePlanView()` for bounded WordPress materialization handoffs.
 - `AssetAnalysis\SrcsetParser` - parses, lists, and rewrites `srcset` candidates while preserving URL-internal commas and descriptors.
 - `HtmlToBlocks\HtmlTransformer` - converts supported HTML elements into WordPress block arrays and serialized block markup. Unsupported top-level HTML is reported in `fallbacks`.
-- `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`. Markdown support is optional: the adapter registers only when `league/commonmark` + `league/html-to-markdown` are loadable (vendored copies may omit them and `FormatBridge/MarkdownAdapter.php` entirely), otherwise markdown conversion fails cleanly as `unsupported_source_format` and `supportedFormats()` omits `markdown`.
+- `FormatBridge\FormatBridge` - normalizes and converts declared `html`, `markdown`, and serialized `blocks` content through `convertResult()`, using HTML as the direct interchange contract for Markdown. Markdown support is optional: the adapter registers only when `league/commonmark` + `league/html-to-markdown` are loadable (vendored copies may omit them and `FormatBridge/MarkdownAdapter.php` entirely), otherwise markdown conversion fails cleanly as `unsupported_source_format` and `supportedFormats()` omits `markdown`.
 - `FormatBridge\FormatAdapterInterface` - adapter contract for adding formats to `FormatBridge` when a consumer genuinely needs a package-level extension point.
+- `FormatBridge\HtmlInterchangeAdapterInterface` - optional adapter capability for direct conversion across the canonical HTML boundary without a lossy block round trip.
 - `ArtifactCompiler\ArtifactCompiler` - normalizes generated website artifact bundles into the shared result envelope, including block markup, source reports, assets, components, documents, and block type artifacts.
 - `WordPressSitePlan\WordPressSitePlan` - projects an artifact result to the self-contained v2 block-theme plan.
 - `WordPressSitePlan\WordPressSitePlanView` - exposes the self-contained WordPress site plan and required ancillary materialization contracts without duplicating legacy compiler projections.
