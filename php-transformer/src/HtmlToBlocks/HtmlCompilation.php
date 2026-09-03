@@ -1982,10 +1982,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $layoutShellBlockName = $this->generatedBlocks()->blockName('layout-shell');
         if ( str_contains($serializedBlocks, '<!-- wp:' . $layoutShellBlockName) ) {
             // A layout shell preserves the source wrapper chain. Gutenberg's
-            // InnerBlocks wrappers must not become grid or flex items within it.
+            // InnerBlocks wrappers live below that chain, not directly below the
+            // shell root. Target the explicit owning-layer marker so their boxes
+            // cannot become an absolute-position containing block or change the
+            // authored sibling topology. Do not flatten nested native blocks.
             $layoutShellClass = 'wp-block-' . str_replace('/', '-', $layoutShellBlockName);
-            $beforeAuthorCssParts[] = ':root :where(.' . $layoutShellClass . ')>.block-editor-inner-blocks,'
-                . ':root :where(.' . $layoutShellClass . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}';
+            $layoutShellEditorInnerBlocksClass = 'blocks-engine-layout-shell-editor-inner-blocks';
+            $beforeAuthorCssParts[] = ':root :where(.' . $layoutShellClass . ') .' . $layoutShellEditorInnerBlocksClass . '{display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';

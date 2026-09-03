@@ -14,6 +14,7 @@ final class LayoutShellBlockGenerator
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
     var useBlockProps = blockEditor.useBlockProps;
+    var useInnerBlocksProps = blockEditor.useInnerBlocksProps;
     function reactStyle( value ) {
         var style = {};
         var declaration = '';
@@ -120,7 +121,10 @@ final class LayoutShellBlockGenerator
     function savedContent( wrappers ) { return wrappedContent( wrappers, createElement( InnerBlocks.Content ) ); }
     function edit( props ) {
         var wrappers = props.attributes.wrappers || [];
-        var content = createElement( InnerBlocks );
+        // This marker identifies the one Gutenberg-owned layer inside the
+        // authored wrapper chain; nested native blocks must retain their own
+        // editor topology.
+        var content = createElement( 'div', useInnerBlocksProps( { className: 'blocks-engine-layout-shell-editor-inner-blocks' } ) );
         if ( wrappers.length ) { content = wrappedContent( wrappers, content ); }
         return createElement( 'div', useBlockProps( { style: { display: 'contents' } } ), content );
     }

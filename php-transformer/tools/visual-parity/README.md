@@ -119,3 +119,15 @@ The JSON report includes normalized config, source and target probe snapshots, a
 ```sh
 npm test
 ```
+
+The suite includes an anchor-paired layout-shell regression. It compiles the
+engine's editor CSS, renders the source and the stable Gutenberg `InnerBlocks`
+wrapper topology in Chromium, then compares bounding boxes and computed
+positioning for an absolute-background/content sibling pair. This catches
+catastrophic editor geometry without relying on screenshots.
+
+It is not a disposable-WordPress integration harness: Gutenberg bootstrapping,
+plugin registration, and editor-canvas loading remain an integration boundary.
+The test deliberately keeps that boundary small while exercising the generated
+CSS in a browser against the exact wrapper topology the compatibility layer
+owns.
