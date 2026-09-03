@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -924,7 +925,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this,
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
             fn (DOMElement $element): string => $this->safeFallbackHtml($element),
-            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element)
+            fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
+            fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
         );
     }
 
@@ -2059,9 +2061,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+            $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
                 . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}';
+                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
         }
         $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();
         if ( '' !== $nativeSearchTriggerCss ) {
@@ -9603,6 +9606,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
             array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
+            array(),
+            $element
+        );
+    }
+
+    /** @return array<string, mixed> */
+    private function svgArtworkBlock(DOMElement $element, string $svg): array
+    {
+        $generator = new SvgArtworkBlockGenerator();
+        $this->generatedBlocks()->register(SvgArtworkBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+
+        return $this->createBlock(
+            $this->generatedBlocks()->blockName(SvgArtworkBlockGenerator::LOCAL_NAME),
+            array( 'svg' => $svg ),
             array(),
             $element
         );

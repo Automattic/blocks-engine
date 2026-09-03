@@ -66,7 +66,7 @@ final class FontMaterializationPlanBuilder
         // their concrete typefaces before parsing so the plan captures the real
         // family — never a literal `var(--font-body)` token, which would corrupt
         // the materialized Google Fonts request and the body role.
-        $imports = $this->webFontImports($css, $cssSources);
+        $imports = array_merge($this->linkedWebFontImports($html), $this->webFontImports($css, $cssSources));
         $directFaces = $this->directFontFaces($css, $cssSources);
         foreach ( $directFaces as $directFace ) {
             $imports[] = array(
@@ -251,6 +251,33 @@ final class FontMaterializationPlanBuilder
         }
 
         return $usage;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function linkedWebFontImports(string $html): array
+    {
+        if ( '' === trim($html) || ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) return array();
+
+        $imports = array();
+        $seen = array();
+        foreach ( $matches[0] as $index => $tag ) {
+            $href = $this->htmlAttributeValue((string) $tag, 'href');
+            if ( '' === $href || isset($seen[$href]) ) continue;
+            $usage = $this->fontUsageFromFontHref($href);
+            if ( array() === $usage ) continue;
+            $seen[$href] = true;
+            $imports[] = array(
+                'id' => 'webfont-import-' . substr(hash('sha256', "html:inline\n" . ($index + 1) . "\n" . $href), 0, 20),
+                'href' => $href,
+                'href_hash' => hash('sha256', $href),
+                'provider' => 'google_fonts',
+                'supported' => true,
+                'font_usage' => $usage,
+                'faces' => $this->fontFacesFromFontHref($href),
+                'provenance' => array('source_kind' => 'html_link', 'source_path' => 'html:inline', 'source_hash' => hash('sha256', $html), 'selector' => 'html:link(' . ($index + 1) . ')'),
+            );
+        }
+        return $imports;
     }
 
     /**

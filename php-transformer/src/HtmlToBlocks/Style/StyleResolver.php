@@ -2465,10 +2465,10 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * The subset of a declaration map needed to resolve values outside the
-     * classification allow-list: SVG paint/layout and custom properties.
-     * Keeping this stream separate lets SVG materialization and structural
-     * `var()` resolution share the real matched cascade without changing
-     * general classification.
+     * classification allow-list: SVG paint/layout, animation identity, and
+     * custom properties. Keeping this stream separate lets SVG materialization
+     * and structural `var()` resolution share the real matched cascade without
+     * changing general classification.
      *
      * @param array<string, string> $declarations
      * @return array<string, string>
@@ -2482,6 +2482,8 @@ final class StyleResolver implements ElementPresentationResolver
             'stroke' => true,
             'stroke-opacity' => true,
             'stroke-width' => true,
+            'animation' => true,
+            'animation-name' => true,
         );
 
         $filtered = array();

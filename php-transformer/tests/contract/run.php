@@ -640,6 +640,11 @@ $assert(array( '#', '#', '#', '#' ) === $placeholderSocialUrls, 'social placehol
 $assert(array( 'LinkedIn', 'X / Twitter', 'YouTube', 'GitHub' ) === $placeholderSocialLabels, 'social placeholder accessible labels survive', json_encode($placeholderSocialLabels));
 $assert(str_contains((string) ($placeholderSocialBlock['attrs']['className'] ?? ''), 'is-style-logos-only'), 'labeled SVG placeholders retain logos-only presentation');
 
+$descriptiveSocialSource = '<div class="footer-socials"><a href="#" aria-label="Driftwood Roasters on Instagram"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on X / Twitter"><svg><path d="M0 0h1v1z"/></svg></a><a href="#" aria-label="Driftwood Roasters on Facebook"><svg><path d="M0 0h1v1z"/></svg></a></div>';
+$descriptiveSocialResult = ( new HtmlTransformer() )->transform($descriptiveSocialSource)->toArray();
+$descriptiveSocialServices = array_map(static fn(array $link): string => (string) ($link['attrs']['service'] ?? ''), $descriptiveSocialResult['blocks'][0]['innerBlocks'] ?? array());
+$assert(array( 'instagram', 'x', 'facebook' ) === $descriptiveSocialServices, 'descriptive accessible labels resolve complete social service tokens, including one-character aliases', json_encode($descriptiveSocialServices));
+
 $unknownPlaceholderSocial = ( new HtmlTransformer() )->transform('<div class="footer-social"><a href="#" aria-label="Community"><svg aria-hidden="true"></svg></a></div>')->toArray();
 $assert('core/social-links' !== ($unknownPlaceholderSocial['blocks'][0]['blockName'] ?? null), 'unknown placeholder labels do not fabricate social services');
 
@@ -1146,6 +1151,13 @@ $assert(str_contains($inlineSvgMarkup, 'alt="Album art"'), 'passive meaningful i
 $inlineSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $inlineSvgArtwork['assets'] ?? array()));
 $assert(str_contains($inlineSvgMarkup, 'be-inline-geometry-') && ! str_contains($inlineSvgMarkup, 'line-height:0') && str_contains($inlineSvgCss, '>img{display:inline;vertical-align:baseline}'), 'default-inline SVG core/image restores the source baseline over WordPress image alignment');
 
+$externallyAnimatedSvg = ( new HtmlTransformer() )->transform(
+    '<style>.steam{animation:steamRise 3s infinite}@keyframes steamRise{to{transform:translateY(-10px);opacity:0}}</style><svg viewBox="0 0 20 20" aria-hidden="true"><path class="steam" d="M10 18V2"/></svg>'
+)->toArray();
+$externallyAnimatedSvgMarkup = (string) ($externallyAnimatedSvg['serialized_blocks'] ?? '');
+$externallyAnimatedSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $externallyAnimatedSvg['assets'] ?? array()));
+$assert('custom/svg-artwork' === ($externallyAnimatedSvg['blocks'][0]['blockName'] ?? '') && str_contains((string) ($externallyAnimatedSvg['blocks'][0]['attrs']['svg'] ?? ''), '<path class="steam"') && ! str_contains($externallyAnimatedSvgMarkup, '<!-- wp:html') && str_contains($externallyAnimatedSvgCss, '.steam{animation:steamRise 3s infinite}'), 'page-CSS animated SVG descendants use a typed SVG artwork block in the parent document');
+
 $exportedSvgArtwork = ( new HtmlTransformer() )->transform(
     '<main><svg version="1.1" class="quote-icon" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 25.666 20.188" enable-background="new 0 0 25.666 20.188" xml:space="preserve"><g><path d="M9.33,9.33H4.814V0h9.33V9.33z"></path></g></svg></main>'
 )->toArray();
@@ -1320,6 +1332,9 @@ $assert(str_contains($outlineButtonCss, 'background-color:transparent'), 'outlin
 $assert(! str_contains($outlineButtonCss, 'border-radius:0'), 'outline button does not infer a square radius from its border declarations');
 $assert(! str_contains($outlineButtonMarkup, '<div class="wp-block-button btn btn-secondary'), 'outline button with native styles avoids duplicating source button chrome on the outer wrapper');
 $assert(! str_contains($outlineButtonMarkup, '<span>Tickets</span>'), 'button label unwraps presentational span to avoid nested default styling');
+$squareDefaultAnchor = ( new HtmlTransformer() )->transform('<style>.btn{display:inline-flex;padding:1rem 2rem}.btn-fire{background:#d24a24;color:white}</style><a class="btn btn-fire" href="/menu">Menu</a>')->toArray();
+$squareDefaultAnchorCss = implode("\n", array_column($squareDefaultAnchor['assets'] ?? array(), 'content'));
+$assert(str_contains($squareDefaultAnchorCss, 'border-radius:0!important'), 'direct button-like anchors suppress native theme rounding when the source declares no radius');
 
 $descendantSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;box-sizing:border-box;min-width:170px;padding:22px 26px;background:#fff;color:#000;font:700 16px/16px Montserrat}</style><div style="text-align:center"><a class="cta" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
@@ -2400,7 +2415,8 @@ $assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), 
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:row;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container stays a row without !important');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'), 'list-navigation restores the source flex alignment default');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container follows the authored host layout without !important');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -4226,7 +4242,7 @@ $assert(array('Inter', 'Oswald') === $webFontFamilies, 'web-font detection captu
 $assert(array(400, 500, 600, 700) === ($webFontPlan['fonts'][1]['weights'] ?? null), 'web-font detection parses :wght@ axis weights');
 $assert('Oswald' === ($webFontPlan['roles']['heading'] ?? null), 'web-font detection maps heading typeface from font-family declaration');
 $assert('Inter' === ($webFontPlan['roles']['body'] ?? null), 'web-font detection maps body typeface from font-family declaration');
-$assert('@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Oswald:wght@400;500;600;700&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection materializes deterministic google fonts css');
+$assert('@import url("https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap");' === ($webFontPlan['css'] ?? null), 'web-font detection preserves the linked provider request');
 $importantWebFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins&family=Quicksand&family=Muli">', 'body{font-family:"Poppins",sans-serif}h2{font-family:"Quicksand" !important}.menu{font-family:"Muli" !IMPORTANT}');
 $assert(array('Muli', 'Poppins', 'Quicksand') === array_column($importantWebFontPlan['fonts'] ?? array(), 'family'), 'web-font detection strips CSS important priority from family names');
 $assert(array('heading' => 'Quicksand', 'body' => 'Poppins') === ($importantWebFontPlan['roles'] ?? null), 'web-font role discovery strips CSS important priority from family names');
@@ -4320,7 +4336,8 @@ $rangeFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     'body { font-family: "Crimson Pro", Georgia, serif; } .mono { font-family: "JetBrains Mono", monospace; }'
 );
 $assert(array(300, 400, 500, 600, 700, 800, 900) === ($rangeFontPlan['fonts'][0]['weights'] ?? null), 'web-font detection expands css2 font-weight ranges');
-$assert('@import url("https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400&display=swap");' === ($rangeFontPlan['css'] ?? null), 'web-font detection preserves ranged google font weights deterministically');
+$assert(str_contains((string) ($rangeFontPlan['css'] ?? ''), 'family=Crimson+Pro:ital,wght@0,300..900;1,300..900'), 'web-font detection preserves linked italic and ranged axes');
+$assert(1 === count(array_filter($rangeFontPlan['face_records'] ?? array(), static fn (array $face): bool => 'italic' === ($face['style'] ?? null))), 'linked web-font contracts retain declared italic faces');
 
 // Legacy css (v1) link syntax with `|`-separated families and comma weight lists.
 $legacyFontPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(

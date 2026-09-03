@@ -25,6 +25,7 @@ final class SvgMaterializationContext
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
+     * @param Closure(DOMElement, string): array<string, mixed>                                     $svgArtworkBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -32,7 +33,8 @@ final class SvgMaterializationContext
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
-        private readonly Closure $sanitizeInlineSvgMarkup
+        private readonly Closure $sanitizeInlineSvgMarkup,
+        private readonly Closure $svgArtworkBlock
     ) {
     }
 
@@ -84,6 +86,12 @@ final class SvgMaterializationContext
     public function sanitizeInlineSvgMarkup(DOMElement $element): string
     {
         return ($this->sanitizeInlineSvgMarkup)($element);
+    }
+
+    /** @return array<string, mixed> */
+    public function svgArtworkBlock(DOMElement $element, string $svg): array
+    {
+        return ($this->svgArtworkBlock)($element, $svg);
     }
 
     public function transformationEvidence(): TransformationEvidenceState

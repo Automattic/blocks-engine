@@ -132,7 +132,7 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     public static function isExplicitSocialCluster(DOMElement $element): bool
     {
         $identity = strtolower($element->getAttribute('class') . ' ' . $element->getAttribute('aria-label') . ' ' . $element->getAttribute('role'));
-        return 1 === preg_match('/(?:^|[^a-z])social(?:[^a-z]|$)/', $identity);
+        return 1 === preg_match('/(?:^|[^a-z])socials?(?:[^a-z]|$)/', $identity);
     }
 
     /** @return array<int,DOMElement> */
@@ -188,7 +188,18 @@ final class SocialLinksPattern implements PatternRecognizerInterface
     {
         $normalized = strtolower(trim((string) preg_replace('/[^a-z0-9]+/i', ' ', $label)));
         $normalized = preg_replace('/^(?:follow us on|follow|visit)\s+/', '', $normalized) ?? $normalized;
-        return self::LABEL_SERVICES[$normalized] ?? null;
+        if ( isset(self::LABEL_SERVICES[$normalized]) ) {
+            return self::LABEL_SERVICES[$normalized];
+        }
+
+        $aliases = array_keys(self::LABEL_SERVICES);
+        usort($aliases, static fn (string $left, string $right): int => strlen($right) <=> strlen($left));
+        foreach ( $aliases as $alias ) {
+            if ( 1 === preg_match('/(?:^|\s)' . preg_quote($alias, '/') . '(?:\s|$)/', $normalized) ) {
+                return self::LABEL_SERVICES[$alias];
+            }
+        }
+        return null;
     }
 
     private function isLocalPlaceholderUrl(string $url): bool

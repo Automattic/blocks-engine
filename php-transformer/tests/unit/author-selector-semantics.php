@@ -61,6 +61,10 @@ $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding
 $controlCss = $css($controls);
 $assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
 
+$dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
+$dormantAncestorStateCss = $css($dormantAncestorState);
+$assert(str_contains($dormantAncestorStateCss, '.nav.scrolled :where(.blocks-engine-control-') && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');
+
 $order = $transform('<style>a.cta:hover{color:red}a.cta:hover{color:blue}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a>');
 $orderCss = $css($order);
 $assert(strpos($orderCss, 'color:red') < strpos($orderCss, 'color:blue'), 'projected selectors preserve authored rule order for cascade precedence');
@@ -511,7 +515,7 @@ $assert(str_contains($linkedRichTextMarkerMarkup, '<a href="/"><mark class="labe
 
 $resetRoleButton = ( new HtmlTransformer() )->transform('<style>a{background:0 0;border:0}.label{font-size:25px}</style><a role="button"><span class="label">Contact</span></a>')->toArray();
 $resetRoleButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $resetRoleButton['assets'] ?? array()));
-$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && ! str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection carries only the properties reset by the source border declaration past later theme defaults');
+$assert(str_contains($resetRoleButtonCss, 'background-color:transparent!important') && str_contains($resetRoleButtonCss, 'border-style:none!important') && str_contains($resetRoleButtonCss, 'border-width:0!important') && str_contains($resetRoleButtonCss, 'border-radius:0!important'), 'native button protection suppresses theme paint absent from the source anchor');
 $assert(str_contains($selectorIdentityMarkup, '<a href="/plain">Plain link</a>') && ! str_contains($selectorIdentityMarkup, '<a class="" href="/plain"'), 'plain links remain native links without invented source identity');
 $emptyAccessibleLink = $transform('<a class="logo-link" id="site-logo" data-kind="brand" href="/" aria-label="Home"></a>');
 $emptyAccessibleLinkMarkup = (string) ($emptyAccessibleLink['serialized_blocks'] ?? '');

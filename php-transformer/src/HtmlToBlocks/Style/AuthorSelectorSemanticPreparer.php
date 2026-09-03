@@ -127,8 +127,19 @@ final class AuthorSelectorSemanticPreparer
             if ( ! $parsed['supported'] ) {
                 continue;
             }
+            $matches = $this->matchingSourceElements($authorStyles, $selector, $parsed);
+            if ( array() === $matches ) {
+                $rightmost = $parsed['rightmost_compound_span'] ?? null;
+                if ( is_array($rightmost) ) {
+                    $leafSelector = substr($selector, (int) $rightmost['start']);
+                    $leafParsed = CssSelectorMatcher::parse($leafSelector);
+                    if ( $leafParsed['supported'] ) {
+                        $matches = $this->matchingSourceElements($authorStyles, $leafSelector, $leafParsed);
+                    }
+                }
+            }
             $controls = array_filter(
-                $this->matchingSourceElements($authorStyles, $selector, $parsed),
+                $matches,
                 static fn (DOMElement $element): bool => in_array(strtolower($element->tagName), array( 'a', 'button' ), true)
             );
             foreach ( $controls as $control ) {
