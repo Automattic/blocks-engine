@@ -40,6 +40,7 @@ $operations = array(
     },
     'flankedSeparatorBlock' => $null,
     'capturedMediaLayoutBlock' => $null,
+    'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),
     'isDirectChildOfAuthorOwnedLayout' => $false,

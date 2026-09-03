@@ -78,6 +78,23 @@ $assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
 
+$maskedVideoSource = '<div class="masked-video"><svg viewBox="0 0 600 120"><defs><clipPath id="clip-masked-video"><text x="0" y="0">LET&apos;S TALK</text></clipPath></defs></svg><div class="fill-layers-wrapper" style="clip-path:url(&quot;#clip-masked-video&quot;)"><video src="footer.mp4" autoplay muted loop></video></div></div>';
+$maskedVideo = ( new HtmlTransformer() )->transform($maskedVideoSource)->toArray();
+$maskedVideoBlock = $maskedVideo['blocks'][0] ?? array();
+$maskedVideoContent = (string) ($maskedVideoBlock['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($maskedVideoBlock['blockName'] ?? null), 'a Wix-style video and sibling SVG clip definition remain in one captured media boundary');
+$assert(str_contains($maskedVideoContent, '<clippath id="clip-masked-video">') && str_contains($maskedVideoContent, '<video src="footer.mp4" autoplay muted loop>'), 'the captured boundary preserves the SVG definition and media consumer');
+$assert(! str_contains((string) ($maskedVideo['serialized_blocks'] ?? ''), '<!-- wp:html') && 'pass' === ($maskedVideo['source_reports']['wp_block_validity']['status'] ?? null), 'the dependent composition remains valid generated-block markup');
+
+$nestedMask = ( new HtmlTransformer() )->transform('<div><div><svg><defs><clipPath id="nested-mask"><rect width="10" height="10"></rect></clipPath></defs></svg></div><video src="nested.mp4" style="clip-path:url(#nested-mask)"></video></div>')->toArray();
+$assert('custom/responsive-media' === ($nestedMask['blocks'][0]['blockName'] ?? null), 'a nested definition is discovered within the bounded component');
+
+$localMask = ( new HtmlTransformer() )->transform('<div><svg><defs><clipPath id="local-mask"><rect width="10" height="10"></rect></clipPath></defs><g clip-path="url(#local-mask)"></g></svg><video src="plain.mp4"></video></div>')->toArray();
+$assert('custom/responsive-media' !== ($localMask['blocks'][0]['blockName'] ?? null), 'an SVG-local fragment stays on native image materialization');
+
+$mismatchedMask = ( new HtmlTransformer() )->transform('<div><svg><defs><clipPath id="defined-mask"><rect width="10" height="10"></rect></clipPath></defs></svg><video src="plain.mp4" style="clip-path:url(#other-mask)"></video></div>')->toArray();
+$assert('custom/responsive-media' !== ($mismatchedMask['blocks'][0]['blockName'] ?? null), 'a mismatched fragment stays on native conversion paths');
+
 $layoutHtml = '<main class="puffin-story"><div class="shell">';
 for ($depth = 0; $depth < 21; ++$depth) $layoutHtml .= '<div class="layer-' . $depth . '">';
 $layoutHtml .= '<h1>Deep story</h1><section data-hook="post-list" style="padding:20px"><ol><li><button type="button">Read more</button><a href="/story" aria-label="Story">Read the story</a></li></ol><wow-image data-hook="image"><img src="story.jpg" alt="Story" fetchpriority="high"></wow-image><svg viewBox="0 0 10 10" role="img" aria-label="Mark"><defs><link rel="stylesheet" href="/layout.css"><path id="mark" d="M0 0L10 10"></path></defs><use href="#mark"></use></svg></section>';
