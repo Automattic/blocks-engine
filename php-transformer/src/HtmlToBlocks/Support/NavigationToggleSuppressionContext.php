@@ -20,15 +20,13 @@ use DOMElement;
 final class NavigationToggleSuppressionContext
 {
     /**
-     * @param Closure(DOMElement): bool            $sourceElementStartsHidden
-     * @param Closure(): PatternRecognizerRegistry $patternRecognizers
-     * @param Closure(): PatternContext            $probePatternContext
+     * @param Closure(DOMElement): bool $sourceElementStartsHidden
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly Closure $sourceElementStartsHidden,
-        private readonly Closure $patternRecognizers,
-        private readonly Closure $probePatternContext
+        private readonly PatternRecognizerRegistry $patternRecognizers,
+        private readonly PatternContext $probePatternContext
     ) {
     }
 
@@ -49,11 +47,11 @@ final class NavigationToggleSuppressionContext
 
     public function patternRecognizers(): PatternRecognizerRegistry
     {
-        return ($this->patternRecognizers)();
+        return $this->patternRecognizers;
     }
 
     public function probePatternContext(): PatternContext
     {
-        return ($this->probePatternContext)();
+        return $this->probePatternContext;
     }
 }
