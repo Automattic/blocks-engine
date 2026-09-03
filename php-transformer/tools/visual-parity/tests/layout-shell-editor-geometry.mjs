@@ -11,7 +11,7 @@ $html = '<section class="hero"><div class="background"></div><div class="content
 for ($depth = 0; $depth < 8; ++$depth) $html = '<div id="shell-' . $depth . '" class="shell-' . $depth . ' blocks-engine-source-div-fixture-3">' . $html . '</div>';
 $html = '<style>.hero{position:relative;width:600px;height:220px}.background{position:absolute;inset:0}.content{position:relative;padding:40px}</style>' . $html;
 $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform($html)->toArray();
-echo json_encode(array('css' => implode("\\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array()))));
+echo json_encode(array('css' => implode("\\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $result['assets'] ?? array())), 'serializedBlocks' => (string) ($result['serialized_blocks'] ?? '')));
 `, transformerRoot], { encoding: 'utf8' }));
 
 const shellClass = generated.css.match(/wp-block-[a-z0-9-]*layout-shell/)?.[0];
@@ -25,16 +25,19 @@ const authorCss = `
   .background { position:absolute; inset:0; background:#222 }
   .content { position:relative; padding:40px; color:white }
 `;
-// This is the owning Gutenberg editor layer. Before the compat rule reaches it,
-// it becomes the positioned containing block and shrinks the absolute sibling.
-const editorCss = '.blocks-engine-layout-shell-editor-inner-blocks{position:relative;width:360px}';
+const coreEditorCss = '.block-editor-block-list__layout .block-editor-block-list__block{position:relative}';
+const withoutEditorPositionProjection = generated.css.replace(/:root \.editor-styles-wrapper [^{]+\{position:[^}]+\}/g, '');
+assert.notEqual(withoutEditorPositionProjection, generated.css, 'the fixture must compile editor-scoped authored position rules');
+assert.doesNotMatch(generated.serializedBlocks, /blocks-engine-layout-shell-editor-inner-blocks/, 'editor-only markers are absent from saved frontend block markup');
 
 const browser = await chromium.launch({ headless: true });
 try {
   const source = await browser.newPage({ viewport: { width: 900, height: 400 } });
   const editor = await browser.newPage({ viewport: { width: 900, height: 400 } });
+  const withoutProjection = await browser.newPage({ viewport: { width: 900, height: 400 } });
   await source.setContent(`<style>${authorCss}</style>${sourceMarkup}`);
-  await editor.setContent(`<style>${authorCss}${editorCss}${generated.css}</style>${editorMarkup}`);
+  await editor.setContent(`<style>*{box-sizing:border-box}body{margin:0}${generated.css}${coreEditorCss}</style><div class="editor-styles-wrapper">${editorMarkup}</div>`);
+  await withoutProjection.setContent(`<style>*{box-sizing:border-box}body{margin:0}${withoutEditorPositionProjection}${coreEditorCss}</style><div class="editor-styles-wrapper">${editorMarkup}</div>`);
 
   const capture = (page) => page.locator('[data-anchor]').evaluateAll((elements) => Object.fromEntries(elements.map((element) => {
     const rect = element.getBoundingClientRect();
@@ -47,17 +50,20 @@ try {
   })));
   const sourceGeometry = await capture(source);
   const editorGeometry = await capture(editor);
+  const withoutProjectionGeometry = await capture(withoutProjection);
   const editorLayer = await editor.locator('.blocks-engine-layout-shell-editor-inner-blocks').evaluate((element) => ({
     display: getComputedStyle(element).display,
     position: getComputedStyle(element).position,
   }));
 
   assert.deepEqual(editorGeometry, sourceGeometry, 'editor anchors preserve frontend geometry for an absolute background/content sibling pair');
-  assert.deepEqual(editorLayer, { display: 'contents', position: 'relative' }, 'the owning editor layer is box-neutral while retaining Gutenberg computed styles');
+  assert.deepEqual(editorLayer, { display: 'contents', position: 'static' }, 'the owning editor layer remains box-neutral rather than establishing a positioning box');
+  assert.equal(withoutProjectionGeometry.background.position, 'relative', 'the Gutenberg child-carrier default wins when the production editor position projection is absent');
+  assert.notDeepEqual(withoutProjectionGeometry, sourceGeometry, 'the regression fails without the production editor position projection');
   assert.equal(editorGeometry.background.display, 'block', 'native child block carriers retain authored boxes');
   assert.equal(editorGeometry.content.display, 'block', 'native child layout carriers are not mistaken for editor wrappers');
-  assert.equal(editorGeometry.background.position, 'absolute');
-  assert.equal(editorGeometry.content.position, 'relative');
+  assert.equal(editorGeometry.background.position, 'absolute', 'the editor-scoped authored absolute position defeats the Gutenberg child-carrier default');
+  assert.equal(editorGeometry.content.position, 'relative', 'the editor-scoped authored relative position is retained on the content carrier');
 } finally {
   await browser.close();
 }
