@@ -2954,9 +2954,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        // Client-side routers add an empty, visually clipped live region to
-        // announce navigation. It has no editable static content to retain.
-        if ( $this->isInertRouteAnnouncerScaffolding($element) ) {
+        // Empty, visually clipped live regions are runtime accessibility
+        // scaffolding with no editable static content to retain.
+        if ( $this->isInertLiveRegionScaffolding($element) ) {
             return null;
         }
 
@@ -3447,12 +3447,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return true;
     }
 
-    private function isInertRouteAnnouncerScaffolding(DOMElement $element): bool
+    private function isInertLiveRegionScaffolding(DOMElement $element): bool
     {
-        if ( ! str_ends_with(strtolower($element->tagName), '-route-announcer')
+        if ( ! str_contains(strtolower($element->tagName), '-')
             || '' !== trim($element->textContent ?? '')
             || ! $this->isSafeTransparentCustomElement($element)
-            || array() !== $this->safeDataAttributes($element) ) {
+            || 0 !== $element->attributes->length ) {
             return false;
         }
 
@@ -3465,6 +3465,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || ! $this->isVisuallyClippedLiveRegion($liveRegion)
             || array() !== $this->safeDataAttributes($liveRegion) ) {
             return false;
+        }
+
+        $allowedAttributes = array( 'aria-atomic', 'aria-live', 'class', 'id', 'role', 'style' );
+        foreach ( $liveRegion->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), $allowedAttributes, true) ) {
+                return false;
+            }
         }
 
         return true;
