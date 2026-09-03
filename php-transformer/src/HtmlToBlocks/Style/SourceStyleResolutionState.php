@@ -3,6 +3,9 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+
 /** Per-transform source stylesheet matching and declaration state. */
 final class SourceStyleResolutionState
 {

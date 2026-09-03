@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
+
 
 /** Extract selector compounds and top-level combinators without normalization. */
 final class CssSelectorTokenizer

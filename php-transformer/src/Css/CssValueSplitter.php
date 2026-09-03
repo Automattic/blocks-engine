@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /**
  * Syntax-aware splitting for CSS declaration lists and values.

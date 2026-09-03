@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EmittedCoreBlockContracts;
 use RuntimeException;
 
 /**
@@ -30,7 +30,7 @@ final class CoreBlockCapabilityMatrix
         foreach (self::RUNTIME_ONLY as $name) $blocks[$name] = $this->entry('runtime_only', 'not_implemented', 'not_verified');
         foreach (self::VERSION_GATED as $name) $blocks[$name] = $this->entry('version_gated', 'not_implemented', 'not_verified', '7.1', 'https://github.com/Automattic/blocks-engine/issues/924');
         foreach (self::NON_TARGETED as $name) $blocks[$name] = $this->entry('intentionally_non_targeted', 'not_applicable', 'not_applicable');
-        foreach (HtmlTransformer::emittedCoreBlockContracts() as $name => $contract) {
+        foreach (EmittedCoreBlockContracts::map() as $name => $contract) {
             if (!isset($blocks[$name])) {
                 throw new RuntimeException('HTML transformer emitter has no core metadata classification: ' . $name);
             }
@@ -88,7 +88,7 @@ final class CoreBlockCapabilityMatrix
     /** @param array<string,array<string,mixed>> $matrix @return array<int,string> */
     private function supportedBlocks(array $matrix): array
     {
-        return array_values(array_filter(array_keys(HtmlTransformer::emittedCoreBlockContracts()), static fn(string $name): bool => 'implemented' === ($matrix[$name]['implementation'] ?? null) && 'contract_tested' === ($matrix[$name]['verification'] ?? null)));
+        return array_values(array_filter(array_keys(EmittedCoreBlockContracts::map()), static fn(string $name): bool => 'implemented' === ($matrix[$name]['implementation'] ?? null) && 'contract_tested' === ($matrix[$name]['verification'] ?? null)));
     }
 
     /** @return array<int,string> */

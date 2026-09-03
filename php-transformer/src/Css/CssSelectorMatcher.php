@@ -1,8 +1,10 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorTokenizer;
 use DOMElement;
 use DOMNode;
 

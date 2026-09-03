@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 
 $failures = 0;
 $passes = 0;
