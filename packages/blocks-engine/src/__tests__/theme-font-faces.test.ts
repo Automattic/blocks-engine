@@ -86,6 +86,25 @@ describe('parseFontFaces', () => {
 
     expect(parseFontFaces(block, block)).toHaveLength(1);
   });
+
+  it('uses the same extensionless format-qualified source in analysis and capture', () => {
+    const css = `@font-face {
+      font-family: "Acme";
+      src: url("https://cdn.example/fonts/acme?id=42") format("woff2"), url(data:font/woff2;base64,abc) format("woff2");
+      font-weight: bold;
+      font-style: italic;
+    }`;
+    const expected = [{
+      family: 'Acme',
+      src: 'https://cdn.example/fonts/acme?id=42',
+      format: 'woff2',
+      weight: '700',
+      style: 'italic',
+    }];
+
+    expect(parseFontFaces(css)).toEqual(expected);
+    expect(parseCapturedFontFaces(css)).toEqual(expected);
+  });
 });
 
 describe('stripUnusedFontFaces', () => {
