@@ -2977,6 +2977,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        // Empty, visually clipped live regions are runtime accessibility
+        // scaffolding with no editable static content to retain.
+        if ( $this->isInertLiveRegionScaffolding($element) ) {
+            return null;
+        }
+
         // A direct phrasing child participates in its parent's flex or grid
         // layout. Preserve that source element as the editable leaf rather
         // than introducing a paragraph wrapper with core paragraph margins.
@@ -3469,6 +3475,56 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return true;
+    }
+
+    private function isInertLiveRegionScaffolding(DOMElement $element): bool
+    {
+        if ( ! str_contains(strtolower($element->tagName), '-')
+            || '' !== trim($element->textContent ?? '')
+            || ! $this->isSafeTransparentCustomElement($element)
+            || 0 !== $element->attributes->length ) {
+            return false;
+        }
+
+        $liveRegion = $this->soleElementChild($element);
+        if ( ! $liveRegion instanceof DOMElement
+            || 0 !== $this->childElementCount($liveRegion)
+            || ! in_array(strtolower($liveRegion->tagName), array( 'div', 'p', 'span' ), true)
+            || ! in_array(strtolower(trim($this->attr($liveRegion, 'role'))), array( 'alert', 'log', 'status' ), true)
+            || ! in_array(strtolower(trim($this->attr($liveRegion, 'aria-live'))), array( 'assertive', 'polite' ), true)
+            || ! $this->isVisuallyClippedLiveRegion($liveRegion)
+            || array() !== $this->safeDataAttributes($liveRegion) ) {
+            return false;
+        }
+
+        $allowedAttributes = array( 'aria-atomic', 'aria-live', 'class', 'id', 'role', 'style' );
+        foreach ( $liveRegion->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), $allowedAttributes, true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isVisuallyClippedLiveRegion(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        $width = trim((string) ($declarations['width'] ?? ''));
+        $height = trim((string) ($declarations['height'] ?? ''));
+        $clip = strtolower(trim((string) ($declarations['clip'] ?? '')));
+        $clipPath = strtolower(trim((string) ($declarations['clip-path'] ?? '')));
+
+        return 'absolute' === strtolower(trim((string) ($declarations['position'] ?? '')))
+            && 'hidden' === strtolower(trim((string) ($declarations['overflow'] ?? '')))
+            && $this->isAtMostOnePixelLength($width)
+            && $this->isAtMostOnePixelLength($height)
+            && (str_starts_with($clip, 'rect(') || str_starts_with($clipPath, 'inset('));
+    }
+
+    private function isAtMostOnePixelLength(string $value): bool
+    {
+        return 1 === preg_match('/^(?:0|1)px$/i', $value);
     }
 
     /**

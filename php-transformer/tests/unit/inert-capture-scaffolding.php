@@ -20,6 +20,19 @@ $assert(array() === ($inertIframe['fallbacks'] ?? array()), 'hidden sourceless i
 $assert(array() === ($inertIframe['source_reports']['runtime_islands'] ?? array()), 'hidden sourceless iframe emits no runtime island');
 $assert(str_contains((string) ($inertIframe['serialized_blocks'] ?? ''), 'Visible copy') && ! str_contains((string) ($inertIframe['serialized_blocks'] ?? ''), 'archetype'), 'hidden sourceless iframe emits no block');
 
+$inertLiveRegions = $transform('<main><capture-shell><p aria-live="assertive" id="captured-live-region" role="alert" style="border:0;clip:rect(0 0 0 0);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px;word-wrap:normal"></p></capture-shell><next-route-announcer><p aria-live="assertive" id="__next-route-announcer__" role="alert" style="border:0;clip:rect(0 0 0 0);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px;word-wrap:normal"></p></next-route-announcer><h1>Visible heading</h1></main>');
+$assert(array() === ($inertLiveRegions['fallbacks'] ?? array()), 'empty visually clipped custom-element live regions emit no fallback regardless of wrapper name');
+$assert(str_contains((string) ($inertLiveRegions['serialized_blocks'] ?? ''), 'Visible heading') && ! str_contains((string) ($inertLiveRegions['serialized_blocks'] ?? ''), 'capture-shell') && ! str_contains((string) ($inertLiveRegions['serialized_blocks'] ?? ''), 'next-route-announcer'), 'inert live-region scaffolding emits no editable block');
+
+$liveRegionWithContent = $transform('<main><capture-shell><p aria-live="assertive" role="alert" style="clip:rect(0 0 0 0);height:1px;overflow:hidden;position:absolute;width:1px">Page changed</p></capture-shell></main>');
+$assert(str_contains((string) ($liveRegionWithContent['serialized_blocks'] ?? ''), 'Page changed'), 'live regions with captured content remain editable');
+
+$namedWrapper = $transform('<main><capture-shell aria-label="Notifications"><p aria-live="polite" role="status" style="clip-path:inset(50%);height:1px;overflow:hidden;position:absolute;width:1px"></p></capture-shell></main>');
+$assert('capture-shell' === ($namedWrapper['fallbacks'][0]['tag'] ?? ''), 'semantically named custom wrappers remain explicit fallbacks');
+
+$customElement = $transform('<main><custom-widget aria-label="Custom control"></custom-widget></main>');
+$assert('custom-widget' === ($customElement['fallbacks'][0]['tag'] ?? ''), 'unrelated custom elements remain explicit fallbacks');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');
