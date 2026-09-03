@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -172,6 +173,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
+    private string $capturedRootTheme = '';
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -1178,6 +1180,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
         $staticCss = (string) ($options['static_css'] ?? '');
+        $this->capturedRootTheme = $this->documentRootTheme($html);
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
@@ -2430,6 +2433,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->innerHtml($body);
     }
 
+    private function documentRootTheme(string $html): string
+    {
+        if ( ! preg_match('/<html\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $match) ) {
+            return '';
+        }
+        $classes = preg_split('/\s+/', trim(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))) ?: array();
+        if ( in_array('dark', $classes, true) ) {
+            return 'dark';
+        }
+        return in_array('light', $classes, true) ? 'light' : '';
+    }
+
     /** @return list<string> */
     private function documentBodyClassNames(string $html): array
     {
@@ -3022,6 +3037,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ('dialog' === $tagName && 'true' === $this->attr($element, 'data-blocks-engine-captured-dialog')) {
             return $this->capturedDialogBlock($element, $fallbacks);
+        }
+
+        if ( 'button' === $tagName ) {
+            $themeToggle = $this->themeToggleBlock($element);
+            if ( null !== $themeToggle ) {
+                return $themeToggle;
+            }
         }
 
         if ( $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
@@ -10151,6 +10173,78 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function themeToggleBlock(DOMElement $element): ?array
+    {
+        $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'data-testid')));
+        if ( 1 !== preg_match('/(?:^|[^a-z0-9])theme[-_ ]?toggle(?:[^a-z0-9]|$)/', $identity)
+            || 'toggle theme' !== strtolower(trim($this->attr($element, 'aria-label')))
+            || ! preg_match('/\.dark(?![-_a-z0-9])/i', $this->authorStyles()->combinedCss())
+            || ! preg_match('/:root\s*:\s*not\(\s*\.dark\s*\)/i', $this->authorStyles()->combinedCss())
+        ) {
+            return null;
+        }
+
+        $svg = null;
+        $label = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'svg' === strtolower($child->tagName) && null === $svg ) {
+                $svg = $child;
+            } elseif ( 'span' === strtolower($child->tagName) && null === $label && '' !== trim($child->textContent ?? '') ) {
+                $label = $child;
+            }
+        }
+        if ( ! $svg instanceof DOMElement || ! $label instanceof DOMElement || ! $this->svgHasDrawableContent($svg) ) {
+            return null;
+        }
+        if ( 1 !== preg_match('/(?:^|[^a-z0-9])theme[-_ ]?toggle[-_ ]?label(?:[^a-z0-9]|$)/', strtolower(trim($this->attr($label, 'class')))) ) {
+            return null;
+        }
+
+        $icon = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $icon || ! $this->isSafeSvgContent($icon) ) {
+            return null;
+        }
+        if ( ! in_array($this->capturedRootTheme, array( 'dark', 'light' ), true) ) {
+            return null;
+        }
+        $labelText = trim($label->textContent ?? '');
+        if ( 0 !== $label->childElementCount || 1 !== preg_match('/^(Light|Dark)\s+Mode$/i', $labelText, $labelMatch) ) {
+            return null;
+        }
+        $sourceOffersLight = 'light' === strtolower($labelMatch[1]);
+        $lightLabel = $sourceOffersLight ? $labelText : 'Light' . substr($labelText, strlen($labelMatch[1]));
+        $darkLabel = $sourceOffersLight ? 'Dark' . substr($labelText, strlen($labelMatch[1])) : $labelText;
+        $iconIdentity = strtolower($this->attr($svg, 'class') . ' ' . $this->attr($svg, 'data-lucide'));
+        $isSun = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?sun(?:[^a-z0-9]|$)/', $iconIdentity);
+        $isMoon = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?moon(?:[^a-z0-9]|$)/', $iconIdentity);
+        if ( ! $isSun && ! $isMoon ) {
+            return null;
+        }
+        $sunIcon = '<svg class="lucide lucide-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>';
+        $moonIcon = '<svg class="lucide lucide-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path></svg>';
+        $generator = new ThemeToggleBlockGenerator();
+        $this->generatedBlocks()->register(ThemeToggleBlockGenerator::class, $generator->definition());
+        $attributes = array(
+            'ariaLabel' => trim($this->attr($element, 'aria-label')),
+            'className' => trim($this->attr($element, 'class')),
+            'lightIcon' => $isSun ? $icon : $sunIcon,
+            'darkIcon' => $isMoon ? $icon : $moonIcon,
+            'lightLabel' => $lightLabel,
+            'darkLabel' => $darkLabel,
+            'labelClassName' => trim($this->attr($label, 'class')),
+            'labelMarker' => trim($this->attr($label, 'data-blocks-engine-richtext-marker')),
+            'rootClass' => 'dark',
+            'defaultTheme' => $this->capturedRootTheme,
+            'storageKey' => 'theme',
+        );
+        $markup = $generator->markup($attributes);
+        return array('blockName' => ThemeToggleBlockGenerator::NAME, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
     }
 
     /** @return array<string, mixed>|null */

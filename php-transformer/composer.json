@@ -75,6 +75,7 @@
        "php tests/unit/visual-iframe-block.php",
        "php tests/unit/authored-carousel-block.php",
        "php tests/unit/authored-marquee-block.php",
+       "php tests/unit/theme-toggle-block.php",
        "php tests/unit/responsive-document-variants.php",
        "php tests/unit/captured-dialog-projector.php",
        "php tests/unit/editability-report.php",
