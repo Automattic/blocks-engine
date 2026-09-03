@@ -258,7 +258,7 @@ $themeToggleSource = '<html class="dark"><body><button class="theme-toggle-btn" 
 $themeToggleResult = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}'))->toArray();
 $themeToggleDefinition = $themeToggleResult['source_reports']['generated_blocks'][0] ?? array();
 $assert(
-    'custom/theme-toggle' === ($themeToggleResult['blocks'][0]['blockName'] ?? null)
+    'blocks-engine/theme-toggle' === ($themeToggleResult['blocks'][0]['blockName'] ?? null)
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'theme-toggle-btn')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<svg')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<path d="M12 1v2"></path>')
@@ -268,7 +268,7 @@ $assert(
 );
 $themeToggleWithoutLightState = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}'))->toArray();
 $assert(
-    'custom/theme-toggle' !== ($themeToggleWithoutLightState['blocks'][0]['blockName'] ?? null),
+    'blocks-engine/theme-toggle' !== ($themeToggleWithoutLightState['blocks'][0]['blockName'] ?? null),
     'theme-looking buttons without both root CSS states remain ordinary buttons'
 );
 

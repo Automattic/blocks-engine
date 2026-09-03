@@ -10129,7 +10129,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $lightLabel = $sourceOffersLight ? $labelText : 'Light' . substr($labelText, strlen($labelMatch[1]));
         $darkLabel = $sourceOffersLight ? 'Dark' . substr($labelText, strlen($labelMatch[1])) : $labelText;
         $generator = new ThemeToggleBlockGenerator();
-        $this->generatedBlocks()->register(ThemeToggleBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
+        $this->generatedBlocks()->register(ThemeToggleBlockGenerator::class, $generator->definition());
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')),
             'className' => trim($this->attr($element, 'class')),
@@ -10141,7 +10141,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'defaultTheme' => $this->capturedRootTheme,
         );
         $markup = $generator->markup($attributes);
-        return array('blockName' => $this->generatedBlocks()->blockName(ThemeToggleBlockGenerator::LOCAL_NAME), 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        return array('blockName' => ThemeToggleBlockGenerator::NAME, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
     }
 
     /** @return array<string, mixed>|null */

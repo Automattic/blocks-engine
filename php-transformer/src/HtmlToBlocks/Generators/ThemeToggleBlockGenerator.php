@@ -7,11 +7,11 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 final class ThemeToggleBlockGenerator
 {
     public const LOCAL_NAME = 'theme-toggle';
+    public const NAME = 'blocks-engine/theme-toggle';
 
     /** @return array<string, mixed> */
-    public function definition(string $namespace): array
+    public function definition(): array
     {
-        $blockName = $namespace . '/' . self::LOCAL_NAME;
         $attributes = array(
             'ariaLabel' => array('type' => 'string', 'default' => 'Toggle theme'),
             'className' => array('type' => 'string', 'default' => ''),
@@ -43,7 +43,8 @@ const preferenceKey = 'blocks-engine-theme';
 const applyTheme = ( rootClass, dark ) => {
     const root = document.documentElement;
     root.classList.toggle( rootClass, dark );
-    root.classList.toggle( 'light', ! dark );
+        root.classList.toggle( 'light', ! dark );
+        root.style.colorScheme = dark ? 'dark' : 'light';
 };
 
 store( 'blocks-engine/theme-toggle', {
@@ -65,11 +66,13 @@ store( 'blocks-engine/theme-toggle', {
         init() {
             const context = getContext();
             const rootClass = context.rootClass || 'dark';
+            let dark = 'light' !== context.defaultTheme;
             try {
                 const preference = window.localStorage.getItem( preferenceKey );
-                context.dark = 'dark' === preference || ( 'light' !== preference && 'light' !== context.defaultTheme );
-                applyTheme( rootClass, context.dark );
+                dark = 'dark' === preference || ( 'light' !== preference && dark );
             } catch ( error ) {}
+            context.dark = dark;
+            applyTheme( rootClass, dark );
         },
     },
 } );
@@ -79,7 +82,7 @@ JS;
             'name' => self::LOCAL_NAME,
             'block_json' => array(
                 'apiVersion' => 3,
-                'name' => $blockName,
+                'name' => self::NAME,
                 'title' => 'Theme Toggle',
                 'category' => 'widgets',
                 'description' => 'Editable control for a captured light and dark theme contract.',
@@ -88,7 +91,7 @@ JS;
                 'attributes' => $attributes,
                 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true),
             ),
-            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor)),
+            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array(self::NAME, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor)),
             'view_js' => $view,
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element'), 'view.js' => array('@wordpress/interactivity')),
         );
