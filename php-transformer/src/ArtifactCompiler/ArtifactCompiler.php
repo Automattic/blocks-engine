@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetChunker;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -63,7 +64,10 @@ final class ArtifactCompiler
     /** Observational only: counts source stylesheet discovery passes. */
     private int $stylesheetAssetDiscoveryCount = 0;
 
-    public function __construct(private readonly bool $cacheHtmlAnalysis = true)
+    public function __construct(
+        private readonly bool $cacheHtmlAnalysis = true,
+        private readonly int $stylesheetSelectorBudget = CssStylesheetChunker::MAX_SELECTOR_RECORDS
+    )
     {
         $this->wordpressCompat = new WordPressCompatCss();
         $this->runtimeScriptEvidenceAnalyzer = new RuntimeScriptEvidenceAnalyzer();
@@ -649,6 +653,14 @@ final class ArtifactCompiler
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
+        $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
+        foreach ($normalized['files'] as $file) {
+            if ($entryPath === ($file['path'] ?? null) && is_string($file['content'] ?? null)) {
+                $html = $file['content'];
+                break;
+            }
+        }
+        $this->indexFiles($normalized['files']);
         $normalized['files'] = $this->applyRuntimeScriptProjections($normalized['files'], $runtimeScriptProjections);
         $runtimeIslandPackage = $this->applyRuntimeScriptPackageProjections(
             ( new RuntimeIslandPackageBuilder() )->fromRuntimeIslands($entryBlocks['runtime_islands'], $normalized['files'], $entryPath),
@@ -2758,6 +2770,103 @@ final class ArtifactCompiler
         }
         unset($file);
         return $files;
+    }
+
+    /**
+     * Keep transformed selector records below browser engine limits while
+     * retaining the source stylesheet's cascade position and link contract.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return array<int, array<string, mixed>>
+     */
+    private function chunkProjectedStylesheets(array $files): array
+    {
+        $reserved = array_fill_keys(array_column($files, 'path'), true);
+        $chunkPaths = array();
+        $chunker = new CssStylesheetChunker();
+        $output = array();
+        foreach ($files as $file) {
+            if ('css' !== ($file['kind'] ?? null) || !is_string($file['content'] ?? null)) {
+                $output[] = $file;
+                continue;
+            }
+            $chunks = $chunker->chunk($file['content'], $this->stylesheetSelectorBudget);
+            if (count($chunks) < 2) {
+                $output[] = $file;
+                continue;
+            }
+            $paths = array((string) $file['path']);
+            for ($index = 1; $index < count($chunks); ++$index) {
+                $paths[] = $this->stylesheetChunkPath((string) $file['path'], $index + 1, $reserved);
+            }
+            $chunkPaths[(string) $file['path']] = $paths;
+            foreach ($chunks as $index => $content) {
+                $chunk = $file;
+                $chunk['path'] = $paths[$index];
+                $chunk['content'] = $content;
+                unset($chunk['content_base64']);
+                $chunk['bytes'] = strlen($content);
+                $chunk['encoding'] = 'text';
+                $chunk['binary'] = false;
+                $chunk['provenance']['hash'] = hash('sha256', $content);
+                $output[] = $chunk;
+            }
+        }
+        if (array() === $chunkPaths) {
+            return $output;
+        }
+        foreach ($output as &$file) {
+            if ('html' === ($file['kind'] ?? null) && is_string($file['content'] ?? null)) {
+                $file['content'] = $this->withChunkedStylesheetLinks($file['content'], (string) $file['path'], $chunkPaths);
+                $file['bytes'] = strlen($file['content']);
+                $file['provenance']['hash'] = hash('sha256', $file['content']);
+            }
+        }
+        unset($file);
+        return $output;
+    }
+
+    /** @param array<string, true> $reserved */
+    private function stylesheetChunkPath(string $path, int $index, array &$reserved): string
+    {
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+        $base = '' === $extension ? $path : substr($path, 0, -strlen($extension) - 1);
+        $candidate = $base . '.chunk-' . $index . ('' === $extension ? '' : '.' . $extension);
+        $suffix = 2;
+        while (isset($reserved[$candidate])) {
+            $candidate = $base . '.chunk-' . $index . '-' . $suffix++ . ('' === $extension ? '' : '.' . $extension);
+        }
+        $reserved[$candidate] = true;
+        return $candidate;
+    }
+
+    /** @param array<string, list<string>> $chunkPaths */
+    private function withChunkedStylesheetLinks(string $html, string $sourcePath, array $chunkPaths): string
+    {
+        return preg_replace_callback('/<link\b[^>]*>/i', function (array $match) use ($sourcePath, $chunkPaths): string {
+            $tag = $match[0];
+            if (!preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute($tag, 'rel'))) {
+                return $tag;
+            }
+            $href = $this->htmlAttribute($tag, 'href');
+            $path = $this->stylesheetPathFromHref($href, $sourcePath);
+            $paths = $chunkPaths[$path] ?? array();
+            if (count($paths) < 2) {
+                return $tag;
+            }
+            $tags = array($tag);
+            foreach (array_slice($paths, 1) as $chunkPath) {
+                $tags[] = preg_replace_callback('/\bhref\s*=\s*(["\'])(.*?)\1/i', static function (array $hrefMatch) use ($chunkPath): string {
+                    $href = $hrefMatch[2];
+                    $suffixOffset = strcspn($href, '?#');
+                    $suffix = substr($href, $suffixOffset);
+                    $base = substr($href, 0, $suffixOffset);
+                    $replacement = preg_replace('~[^/]+$~', basename($chunkPath), $base);
+                    return 'href=' . $hrefMatch[1] . $replacement . $suffix . $hrefMatch[1];
+                }, $tag, 1) ?? $tag;
+            }
+            return implode("\n", $tags);
+        }, $html) ?? $html;
     }
 
     /**
