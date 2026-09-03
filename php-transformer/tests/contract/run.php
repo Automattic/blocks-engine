@@ -1958,12 +1958,13 @@ $assert('core/preformatted' === ($preAndCodeBlocks[1]['blockName'] ?? ''), 'ordi
 $assert('core/code' === ($preAndCodeBlocks[2]['blockName'] ?? ''), 'ordinary pre/code content remains code');
 
 $syntaxCodeResult = ( new HtmlTransformer() )->transform(
-    '<style>.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}</style><pre><code><span class="token comment"># npm</span> <span class="token function">install</span></code></pre>'
+    '<style>code{font-family:ui-monospace,monospace}.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}</style><pre><code><span class="token comment"># npm</span> <span class="token function">install</span></code></pre>'
 )->toArray();
 $syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
 $syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
 $assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
 $assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
+$assert(1 === preg_match('/code:not\(\.blocks-engine-specificity-class-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
 $assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(

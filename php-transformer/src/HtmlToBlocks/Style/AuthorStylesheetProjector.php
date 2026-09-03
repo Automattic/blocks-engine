@@ -809,6 +809,8 @@ final class AuthorStylesheetProjector
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
+            } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }
         }
         if ( '' !== $rightmostInsertion ) {

@@ -2008,9 +2008,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
-            // carried grid geometry (gap) owns the spacing between items. The
-            // carrier rides groups and lists, so the reset is class-scoped.
-            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            // carried grid geometry (gap) owns the spacing between items. Native
+            // headings retain their source browser-default margins unless the
+            // author stylesheet overrides them.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
+            // Core makes the inner code element a full-width break-spaces block.
+            // Source pre/code is inline and inherits the preformatted whitespace
+            // contract; restore that shape while authored code rules remain free
+            // to choose typography.
+            $beforeAuthorCssParts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_INLINE_FLOW_CLASS) ) {
             // Block delimiters may acquire whitespace when Gutenberg saves the

@@ -15,7 +15,7 @@
   "input": {
     "content": "<pre><code><span class=\"token comment\"># npm</span> <span class=\"token function\">install</span></code></pre>",
     "options": {
-      "static_css": ".token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}"
+      "static_css": "code{font-family:ui-monospace,monospace}.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}"
     }
   },
   "expected_blocks": [
