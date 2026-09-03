@@ -60,9 +60,8 @@ export {
 } from './source-assets.js';
 export {
   buildRevealNeutralizerCss,
-  REVEAL_NEUTRALIZER_CSS,
-  REVEAL_NEUTRALIZER_SELECTORS,
 } from './reveal-neutralizer.js';
+export { themeAssetUrl } from './theme-asset-url.js';
 export { extractGoogleFontCssUrls } from './google-fonts.js';
 export {
   absolutizeFontUrl,

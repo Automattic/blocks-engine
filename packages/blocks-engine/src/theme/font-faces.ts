@@ -1,9 +1,9 @@
 export interface ParsedFontFace {
   family: string;
   src: string;
-  format?: string;
-  weight?: string;
-  style?: string;
+  format: string;
+  weight: string;
+  style: string;
 }
 
 const FONT_EXTENSIONS = new Set(['woff2', 'woff', 'ttf', 'otf', 'eot', 'svg']);

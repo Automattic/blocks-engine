@@ -15,7 +15,8 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
-import { REVEAL_NEUTRALIZER_CSS } from './reveal-neutralizer.js';
+import { buildRevealNeutralizerCss } from './reveal-neutralizer.js';
+import { themeAssetUrl } from './theme-asset-url.js';
 
 /** Neutralize WP-injected wrappers so source layout selectors keep working.
  * Prepended (lowest precedence) — source rules always win over it. */
@@ -71,7 +72,7 @@ nav.wp-block-navigation ul, nav.wp-block-navigation li { display: contents; }
   color: inherit;
   text-decoration: none;
 }
-${REVEAL_NEUTRALIZER_CSS}`;
+`;
 
 const GOOGLE_IMPORT_RE = /@import\s+url\(\s*['"]?https:\/\/fonts\.googleapis\.com[^)]*\)\s*;?/g;
 
@@ -277,7 +278,7 @@ export function collectHtmlImages(
 export function rewriteHtmlImageSrcs(html: string, refs: ImgAssetRef[], themeSlug: string): string {
   let out = html;
   for (const { ref, themeRel } of refs) {
-    const themeUrl = `/wp-content/themes/${themeSlug}/${themeRel}`;
+    const themeUrl = themeAssetUrl(themeSlug, themeRel);
     out = out.split(`"${ref}"`).join(`"${themeUrl}"`).split(`'${ref}'`).join(`'${themeUrl}'`);
   }
   return out;
@@ -410,7 +411,12 @@ export function collectSourceAssets(
   // startsWith(WP_COMPAT_CSS) is preserved; Google imports only exist in cssParts.
   const { parts: localizedParts, mediaAssets } = localizeCssImages(cssParts, dir);
   const sourceCss = localizedParts.join('\n\n').replace(GOOGLE_IMPORT_RE, '');
-  const baseCss = WP_COMPAT_CSS + sourceCss + buildNavigationAnchorCompatCss(sourceCss);
+  const revealCss = buildRevealNeutralizerCss(
+    sourceCss,
+    pageHtmls.map((page) => page.html),
+    jsParts.join('\n\n'),
+  );
+  const baseCss = WP_COMPAT_CSS + revealCss + sourceCss + buildNavigationAnchorCompatCss(sourceCss);
   // Append admin-bar accommodation LAST: scan the assembled source CSS for
   // top-anchored fixed/sticky chrome and shift it below the WP admin bar for
   // logged-in viewers (the bar otherwise overlays a `position:fixed; top:0`

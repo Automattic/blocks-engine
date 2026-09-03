@@ -10,7 +10,6 @@ import {
   collectSourceAssets,
   buildNavigationAnchorCompatCss,
   localizeCssImages,
-  REVEAL_NEUTRALIZER_CSS,
   rewriteHtmlImageSrcs,
   WP_COMPAT_CSS,
 } from '../theme/index.js';
@@ -67,7 +66,7 @@ nav.wp-block-navigation ul, nav.wp-block-navigation li { display: contents; }
   color: inherit;
   text-decoration: none;
 }
-${REVEAL_NEUTRALIZER_CSS}`;
+`;
 
 function withTempDir<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), 'blocks-engine-source-assets-'));

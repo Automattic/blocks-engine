@@ -1,16 +1,7 @@
-/** One normalized `@font-face` rule extracted from source CSS. */
-export interface ParsedFontFace {
-  /** Declared font-family name, unquoted (e.g. "Larsseit"). */
-  family: string;
-  /** Absolute (or protocol-relative) URL of the first usable font file. */
-  src: string;
-  /** Lowercased file extension without the dot, e.g. "woff" / "woff2" / "ttf". */
-  format: string;
-  /** font-weight value as written (e.g. "400", "700", "normal", "bold"). */
-  weight: string;
-  /** font-style value as written (e.g. "normal", "italic"). */
-  style: string;
-}
+import { parseFontFaces as parseAllFontFaces } from './font-faces.js';
+import type { ParsedFontFace } from './font-faces.js';
+
+export type { ParsedFontFace } from './font-faces.js';
 
 /** A captured font with a resolved LOCAL asset path inside the theme. */
 export interface LocalFontFace extends ParsedFontFace {
@@ -18,106 +9,13 @@ export interface LocalFontFace extends ParsedFontFace {
   localPath: string;
 }
 
-const FONT_EXTENSIONS = new Set(['woff2', 'woff', 'ttf', 'otf', 'eot', 'svg']);
-
-const GENERIC_FAMILIES = new Set([
-  'serif',
-  'sans-serif',
-  'monospace',
-  'cursive',
-  'fantasy',
-  'system-ui',
-  'ui-sans-serif',
-  'ui-serif',
-  'ui-monospace',
-  'inherit',
-  'initial',
-]);
-
 /** Substrings in a font URL that mark third-party widget fonts (not the site's own). */
 const THIRD_PARTY_FONT_HOST_HINTS = ['klaviyo.com', 'gstatic.com', 'typekit.net', 'use.typekit'];
 
 export function parseFontFaces(...cssOrHtml: string[]): ParsedFontFace[] {
-  const faces: ParsedFontFace[] = [];
-  const seen = new Set<string>();
-
-  for (const input of cssOrHtml) {
-    if (!input) continue;
-    const blockRe = /@font-face\s*\{([^}]*)\}/gi;
-    let block: RegExpExecArray | null;
-    while ((block = blockRe.exec(input)) !== null) {
-      const body = block[1];
-
-      const family = readDeclaration(body, 'font-family');
-      if (!family) continue;
-      const familyClean = family.replace(/^["']|["']$/g, '').trim();
-      if (!familyClean || GENERIC_FAMILIES.has(familyClean.toLowerCase())) continue;
-
-      const srcDecl = readDeclaration(body, 'src');
-      if (!srcDecl) continue;
-      const picked = pickBestFontUrl(srcDecl);
-      if (!picked) continue;
-      if (THIRD_PARTY_FONT_HOST_HINTS.some((h) => picked.url.toLowerCase().includes(h))) continue;
-
-      const weight = normalizeWeight(readDeclaration(body, 'font-weight') ?? '400');
-      const style = normalizeStyle(readDeclaration(body, 'font-style'));
-
-      const key = `${familyClean.toLowerCase()}|${weight}|${style}|${picked.url}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      faces.push({ family: familyClean, src: picked.url, format: picked.format, weight, style });
-    }
-  }
-
-  return faces;
-}
-
-function readDeclaration(body: string, prop: string): string | null {
-  const re = new RegExp(`${prop}\\s*:\\s*([^;]+)`, 'i');
-  const m = re.exec(body);
-  return m ? m[1].trim() : null;
-}
-
-function pickBestFontUrl(srcDecl: string): { url: string; format: string } | null {
-  const urlRe = /url\(\s*(['"]?)([^'")]+)\1\s*\)/gi;
-  const candidates: { url: string; format: string }[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = urlRe.exec(srcDecl)) !== null) {
-    const url = m[2].trim();
-    const ext = fontExtension(url);
-    if (ext) candidates.push({ url, format: ext });
-  }
-  if (candidates.length === 0) return null;
-  const byPref = (c: { format: string }): number =>
-    c.format === 'woff2' ? 0 : c.format === 'woff' ? 1 : 2;
-  candidates.sort((a, b) => byPref(a) - byPref(b));
-  return candidates[0];
-}
-
-function fontExtension(url: string): string | null {
-  // Strip query string + fragment before reading the extension.
-  const clean = url.split('?')[0].split('#')[0];
-  const dot = clean.lastIndexOf('.');
-  if (dot < 0) return null;
-  const ext = clean.slice(dot + 1).toLowerCase();
-  return FONT_EXTENSIONS.has(ext) ? ext : null;
-}
-
-function normalizeWeight(raw: string): string {
-  const v = raw.trim().toLowerCase();
-  if (v === 'normal') return '400';
-  if (v === 'bold') return '700';
-  // Weight ranges ("400 700") - keep the first.
-  const num = /\d{3}/.exec(v);
-  return num ? num[0] : '400';
-}
-
-function normalizeStyle(raw: string | null): string {
-  const v = (raw ?? '').trim().toLowerCase();
-  if (v === 'italic') return 'italic';
-  if (v.startsWith('oblique')) return 'oblique';
-  return 'normal';
+  return parseAllFontFaces(...cssOrHtml).filter(
+    (face) => !THIRD_PARTY_FONT_HOST_HINTS.some((host) => face.src.toLowerCase().includes(host)),
+  );
 }
 
 export function absolutizeFontUrl(src: string, baseUrl?: string): string {
@@ -143,6 +41,14 @@ export function fontFilename(face: ParsedFontFace): string {
   const familySlug = face.family.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const italic = face.style === 'italic' ? '-italic' : '';
   return `${familySlug}-${face.weight}${italic}.${face.format}`;
+}
+
+function fontExtension(url: string): string | null {
+  const clean = url.split('?')[0].split('#')[0];
+  const dot = clean.lastIndexOf('.');
+  if (dot < 0) return null;
+  const ext = clean.slice(dot + 1).toLowerCase();
+  return ['woff2', 'woff', 'ttf', 'otf', 'eot', 'svg'].includes(ext) ? ext : null;
 }
 
 export function buildFontFaceCss(faces: LocalFontFace[]): string {
