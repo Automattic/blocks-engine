@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\AssetMaterializationState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
@@ -21,7 +22,6 @@ use DOMElement;
 final class SvgMaterializationContext
 {
     /**
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(DOMElement): ?string                                                         $reusableComponentFingerprintFor
      * @param Closure(DOMElement): string                                                          $safeFallbackHtml
      * @param Closure(DOMElement): string                                                          $sanitizeInlineSvgMarkup
@@ -30,7 +30,7 @@ final class SvgMaterializationContext
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $reusableComponentFingerprintFor,
         private readonly Closure $safeFallbackHtml,
         private readonly Closure $sanitizeInlineSvgMarkup,
@@ -50,7 +50,7 @@ final class SvgMaterializationContext
         ?DOMElement $sourceElement = null,
         ?DOMElement $logicalSourceElement = null
     ): array {
-        return ($this->createBlock)($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement);
+        return $this->createBlock->createBlock($name, $attrs, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
     public function isInlineContentElement(string $tagName): bool

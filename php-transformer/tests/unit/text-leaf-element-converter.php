@@ -15,6 +15,9 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -32,11 +35,11 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
         'presentationAttributes'        => static fn (DOMElement $e, array $p, array $g): array => array(),
         'innerHtml'                     => static fn (DOMElement $e): string => (string) $e->textContent,
         'innerHtmlPreservingWhitespace' => static fn (DOMElement $e): string => (string) $e->textContent,
-        'createBlock'                   => static fn (string $n, array $a, array $i, ?DOMElement $s): array => array(
+        'createBlock'                   => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array(
             'blockName'   => $n,
             'attrs'       => $a,
             'innerBlocks' => $i,
-        ),
+        )),
         'richTextContent'               => static fn (DOMElement $e, array $x): string => (string) $e->textContent,
         'firstChildElement'             => static function (DOMElement $e, string $tag): ?DOMElement {
             foreach ($e->childNodes as $child) {
@@ -57,9 +60,9 @@ $makeConverter = static function (array $overrides = array()): TextLeafElementCo
 
     return new TextLeafElementConverter(new TextLeafElementContext(
         new SourceElementClassifier(),
-        $c['presentationAttributes'],
+        new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
-        $c['richTextContent'],
+        new RichTextMaterializationFixture(array( 'content' => $c['richTextContent'] )),
         new Runtime(),
         $c['codePresentationAttributes'],
         $c['codeContent'],

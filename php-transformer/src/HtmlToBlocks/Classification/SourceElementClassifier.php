@@ -30,6 +30,8 @@ use DOMElement;
  */
 final class SourceElementClassifier
 {
+    private const MAX_SVG_FRAGMENT_DEPENDENCY_CANDIDATES = 512;
+
     public function hasRepeatedDirectChildTags(DOMElement $element): bool
     {
         $counts = array();
@@ -112,6 +114,91 @@ final class SourceElementClassifier
         }
 
         return $items >= 2;
+    }
+
+    public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool
+    {
+        $candidates = array($element);
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement ) {
+                $candidates[] = $candidate;
+                if ( count($candidates) > self::MAX_SVG_FRAGMENT_DEPENDENCY_CANDIDATES ) {
+                    return false;
+                }
+            }
+        }
+
+        $definitions = array();
+        $definitionSvgs = array();
+        $ambiguousIds = array();
+        foreach ( $candidates as $svg ) {
+            if ( 'svg' !== strtolower($svg->tagName) ) {
+                continue;
+            }
+            foreach ( $svg->getElementsByTagName('*') as $definition ) {
+                if ( ! $definition instanceof DOMElement ) {
+                    continue;
+                }
+                $id = trim(SourceDom::attr($definition, 'id'));
+                if ( '' === $id || isset($ambiguousIds[$id]) ) {
+                    continue;
+                }
+                if ( isset($definitions[$id]) ) {
+                    unset($definitions[$id], $definitionSvgs[$id]);
+                    $ambiguousIds[$id] = true;
+                    continue;
+                }
+                $definitions[$id] = $definition;
+                $definitionSvgs[$id] = $svg;
+            }
+        }
+
+        foreach ( $candidates as $candidate ) {
+            if ( $this->nearestAncestorSvg($candidate) instanceof DOMElement ) {
+                continue;
+            }
+            $references = array();
+            foreach ( array('clip-path', 'filter', 'fill', 'mask', 'marker', 'marker-end', 'marker-mid', 'marker-start', 'stroke', 'style') as $attributeName ) {
+                $references = array_merge($references, $this->localSvgFragmentReferences(SourceDom::attr($candidate, $attributeName)));
+            }
+            foreach ( array_unique($references) as $id ) {
+                if ( isset($definitions[$id]) && $this->lowestCommonElementAncestor($definitions[$id], $candidate) === $element ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** @return array<int, string> */
+    private function localSvgFragmentReferences(string $value): array
+    {
+        $count = preg_match_all('/url\(\s*["\']?#([A-Za-z_][A-Za-z0-9_.:-]*)["\']?\s*\)/i', $value, $matches);
+        return false === $count || 0 === $count ? array() : $matches[1];
+    }
+
+    private function nearestAncestorSvg(DOMElement $element): ?DOMElement
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode ) {
+            if ( 'svg' === strtolower($current->tagName) ) {
+                return $current;
+            }
+        }
+        return null;
+    }
+
+    private function lowestCommonElementAncestor(DOMElement $left, DOMElement $right): ?DOMElement
+    {
+        $leftAncestors = array();
+        for ( $current = $left; $current instanceof DOMElement; $current = $current->parentNode ) {
+            $leftAncestors[spl_object_id($current)] = true;
+        }
+        for ( $current = $right; $current instanceof DOMElement; $current = $current->parentNode ) {
+            if ( isset($leftAncestors[spl_object_id($current)]) ) {
+                return $current;
+            }
+        }
+        return null;
     }
 
     /** @param array<string, string> $declarations */
@@ -496,8 +583,21 @@ final class SourceElementClassifier
 
     public function isCarouselList(DOMElement $element): bool
     {
-        return 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
-            || in_array(strtolower($element->tagName), array('ol', 'ul'), true);
+        if ( 'list' === strtolower(trim(SourceDom::attr($element, 'role')))
+            || in_array(strtolower($element->tagName), array('ol', 'ul'), true)
+        ) {
+            return true;
+        }
+
+        $identity = strtolower(implode(' ', array(
+            $element->tagName,
+            SourceDom::attr($element, 'id'),
+            SourceDom::attr($element, 'class'),
+            SourceDom::attr($element, 'data-hook'),
+            SourceDom::attr($element, 'data-testid'),
+        )));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?|slides?)(?:[^a-z0-9]|$)/', $identity);
     }
 
     public function isExpandedCarouselState(DOMElement $element, DOMElement $root): bool

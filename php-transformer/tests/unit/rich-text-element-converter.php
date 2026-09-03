@@ -15,6 +15,9 @@ require __DIR__ . '/../../vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
@@ -29,11 +32,11 @@ $assert     = static function (bool $condition, string $label, string $detail = 
 $makeConverter = static function (array $overrides = array()): RichTextElementConverter {
     $defaults = array(
         'presentationAttributes'            => static fn (DOMElement $e, array $p, array $g): array => array(),
-        'createBlock'                       => static fn (string $n, array $a, array $i, ?DOMElement $s): array => array(
+        'createBlock'                       => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array(
             'blockName'   => $n,
             'attrs'       => $a,
             'innerBlocks' => $i,
-        ),
+        )),
         'richTextContent'                   => static fn (DOMElement $e, array $x): string => (string) $e->textContent,
         'headingRichTextContent'            => static fn (string $c): string => $c,
         'richTextWithMaterializedSvgImages' => static fn (DOMElement $e, string $c): ?string => null,
@@ -53,13 +56,15 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
     $c = array_merge($defaults, $overrides);
 
     return new RichTextElementConverter(new RichTextElementContext(
-        $c['presentationAttributes'],
+        new ElementPresentationResolverFixture($c['presentationAttributes']),
         $c['createBlock'],
-        $c['richTextContent'],
-        $c['headingRichTextContent'],
-        $c['richTextWithMaterializedSvgImages'],
-        $c['requiresHtmlFallback'],
-        $c['containsNativeSvgImageObject'],
+        new RichTextMaterializationFixture(array(
+            'content' => $c['richTextContent'],
+            'headingContent' => $c['headingRichTextContent'],
+            'contentWithMaterializedSvgImages' => $c['richTextWithMaterializedSvgImages'],
+            'requiresHtmlFallback' => $c['requiresHtmlFallback'],
+            'containsNativeSvgImageObject' => $c['containsNativeSvgImageObject'],
+        )),
         $c['htmlPreservationBlock'],
         $c['authoredMarqueeBlock'],
         $c['hasEmptyVisualInlineChild'],

@@ -98,4 +98,40 @@ $currentColorAssets = $inlineSvgAssets($currentColorResult);
 $assert(1 === count($currentColorAssets), 'A currentColor shape materializes one asset.');
 $assert(str_contains((string) ($currentColorAssets[0]['content'] ?? ''), '#123456') && ! str_contains((string) ($currentColorAssets[0]['content'] ?? ''), 'currentColor'), 'currentColor is resolved against the ancestor-declared color and baked in, rather than left to fail closed in the isolated asset document.');
 
+$textBaseline = '<style>.text-mask text{dominant-baseline:text-before-edge}</style>
+<main><svg class="text-mask" viewBox="0 0 165 140"><defs><clipPath id="label"><text x="0" y="0em">Let’s</text><text x="0" y="1em">talk</text></clipPath></defs><g><text x="0" y="0em">Let’s</text><text x="0" y="1em">talk</text></g></svg></main>';
+$textBaselineResult = (new HtmlTransformer())->transform($textBaseline)->toArray();
+$textBaselineAssets = $inlineSvgAssets($textBaselineResult);
+$textBaselineContent = (string) ($textBaselineAssets[0]['content'] ?? '');
+$assert(1 === count($textBaselineAssets) && 'core/image' === ($textBaselineResult['blocks'][0]['blockName'] ?? null), 'A stylesheet-positioned text SVG remains an editor-native materialized image.');
+$assert(4 === substr_count($textBaselineContent, 'dominant-baseline:text-before-edge'), 'Resolved text baseline layout is baked into every matching node in the standalone SVG asset.');
+
+$inheritedBaseline = (new HtmlTransformer())->transform('<style>.text-mask{dominant-baseline:hanging}</style><svg class="text-mask" viewBox="0 0 20 20"><text y="0">Label</text></svg>')->toArray();
+$inheritedBaselineContent = (string) ($inlineSvgAssets($inheritedBaseline)[0]['content'] ?? '');
+$assert(str_contains($inheritedBaselineContent, '<text y="0" style="dominant-baseline:hanging">'), 'An inherited baseline declaration is carried from the source SVG root to its standalone text node.');
+
+$specificBaseline = (new HtmlTransformer())->transform('<style>#mask text{dominant-baseline:alphabetic}.late text{dominant-baseline:hanging}</style><svg id="mask" class="late" viewBox="0 0 20 20"><text y="0">Label</text></svg>')->toArray();
+$specificBaselineContent = (string) ($inlineSvgAssets($specificBaseline)[0]['content'] ?? '');
+$assert(str_contains($specificBaselineContent, 'dominant-baseline:alphabetic') && ! str_contains($specificBaselineContent, 'dominant-baseline:hanging'), 'The strongest matching baseline selector wins regardless of source order.');
+
+$importantBaseline = (new HtmlTransformer())->transform('<style>.late text{dominant-baseline:hanging!important}#mask text{dominant-baseline:alphabetic}</style><svg id="mask" class="late" viewBox="0 0 20 20"><text y="0">Label</text></svg>')->toArray();
+$importantBaselineContent = (string) ($inlineSvgAssets($importantBaseline)[0]['content'] ?? '');
+$assert(str_contains($importantBaselineContent, 'dominant-baseline:hanging') && ! str_contains($importantBaselineContent, 'dominant-baseline:alphabetic'), 'An important baseline declaration wins before selector specificity.');
+
+$explicitBaseline = (new HtmlTransformer())->transform('<style>.mask{dominant-baseline:hanging}</style><svg class="mask" viewBox="0 0 20 20"><text y="0" dominant-baseline="alphabetic">Label</text></svg>')->toArray();
+$explicitBaselineContent = (string) ($inlineSvgAssets($explicitBaseline)[0]['content'] ?? '');
+$assert(str_contains($explicitBaselineContent, 'dominant-baseline="alphabetic"') && ! str_contains($explicitBaselineContent, 'dominant-baseline:hanging'), 'A descendant presentation attribute wins over an inherited baseline declaration.');
+
+$variableBaseline = (new HtmlTransformer())->transform('<style>#mask{--baseline:alphabetic}.late{--baseline:hanging}.late text{dominant-baseline:var(--baseline)}</style><svg id="mask" class="late" viewBox="0 0 20 20"><text y="0">Label</text></svg>')->toArray();
+$variableBaselineContent = (string) ($inlineSvgAssets($variableBaseline)[0]['content'] ?? '');
+$assert(! str_contains($variableBaselineContent, 'dominant-baseline:'), 'An unresolved custom-property cascade is not baked as an incorrect baseline winner.');
+
+$blockedInheritance = (new HtmlTransformer())->transform('<style>.mask{dominant-baseline:hanging}</style><svg class="mask" viewBox="0 0 20 20"><text y="0" style="dominant-baseline:var(--baseline)">Label</text></svg>')->toArray();
+$blockedInheritanceContent = (string) ($inlineSvgAssets($blockedInheritance)[0]['content'] ?? '');
+$assert(! str_contains($blockedInheritanceContent, 'dominant-baseline:hanging'), 'An unresolved descendant declaration blocks an ancestor baseline from being baked over it.');
+
+$pageInheritedBaseline = (new HtmlTransformer())->transform('<style>main{dominant-baseline:hanging}</style><main><svg viewBox="0 0 20 20"><text y="0">Label</text></svg></main>')->toArray();
+$pageInheritedBaselineContent = (string) ($inlineSvgAssets($pageInheritedBaseline)[0]['content'] ?? '');
+$assert(str_contains($pageInheritedBaselineContent, 'dominant-baseline:hanging'), 'Baseline inheritance from outside the SVG is baked into the standalone text node.');
+
 fwrite(STDOUT, 'SVG materialized paint cascade tests: ' . $assertions . " passed\n");

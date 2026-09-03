@@ -13,7 +13,7 @@ use DOMElement;
  *
  * Extracted verbatim from HtmlTransformer::columnsBlockFromElement() and its
  * private helpers. The matcher keeps its frozen callback contract while the
- * registry supplies recursive conversion through PatternRecursiveConverter:
+ * registry supplies recursive conversion through PatternTreeConverter:
  *   - $convertChildren: convertChildren($child, $fallbacks, true) for wrapper
  *     columns (recursion that may emit fallbacks).
  *   - $convertElement:  convertElement($child, $fallbacks, true) for non-wrapper

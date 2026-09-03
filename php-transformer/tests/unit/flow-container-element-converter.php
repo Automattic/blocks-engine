@@ -8,6 +8,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FlowContainerElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -40,6 +42,7 @@ $operations = array(
     },
     'flankedSeparatorBlock' => $null,
     'capturedMediaLayoutBlock' => $null,
+    'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),
     'isDirectChildOfAuthorOwnedLayout' => $false,
@@ -51,13 +54,13 @@ $operations = array(
     'proofBackedWrapperCoalescing' => $null,
     'shouldPreserveEmptyVisualElement' => static fn (): bool => 'visual-empty' === $state->mode,
     'emptyVisualElementAttributes' => static fn (): array => array(),
-    'createBlock' => static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
+    'createBlock' => new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $sourceElement?->tagName,
-    ),
-    'patternContext' => new PatternContext($null, $null),
+    )),
+    'patternContext' => new PatternContext($null, new SourceBlockCreatorFixture(static fn (): array => array())),
     'shouldDeferNavigationPatternToChildren' => $false,
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,
@@ -84,7 +87,7 @@ $operations = array(
     'backgroundImageBlock' => $null,
     'coalescedSingleGroupWrapper' => $null,
     'shouldPreserveWrapper' => $false,
-    'presentationAttributes' => static fn (): array => array( 'className' => 'flow' ),
+    'presentationResolver' => new ElementPresentationResolverFixture(static fn (): array => array( 'className' => 'flow' )),
     'emptyVisualSpacerBlock' => static fn (): array => array( 'blockName' => 'core/spacer' ),
 );
 $converter = new FlowContainerElementConverter(new FlowContainerElementContext(...$operations));

@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeResource
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -47,11 +48,11 @@ $converter = new RuntimeResourceElementConverter(
         ++$preserved;
         return array( 'blockName' => 'core/html', 'attrs' => array( 'content' => 'preserved:' . $element->tagName ) );
     },
-    static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
+    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
-    )
+    ))
 );
 $fallbacks = array();
 

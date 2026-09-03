@@ -15,6 +15,8 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -52,7 +54,7 @@ $makeDispatcher = static function (array $overrides = array()): ButtonLinkDispat
             return null;
         },
         'presentation'     => static fn (DOMElement $e, array $p, array $g): array => array(),
-        'createBlock'      => static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a),
+        'createBlock'      => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a)),
         'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
         'outerHtml'        => static fn (DOMElement $e): string => $e->ownerDocument->saveHTML($e),
         'safeLinkUrl'      => static fn (string $h): string => str_starts_with($h, 'javascript:') ? '' : $h,
@@ -70,10 +72,9 @@ $makeDispatcher = static function (array $overrides = array()): ButtonLinkDispat
         $c['linkedLogo'],
         $c['linkedImage'],
         $c['linkWrapper'],
-        $c['presentation'],
+        new ElementPresentationResolverFixture($c['presentation'], structuralPresentationDeclarations: $c['structural']),
         $c['createBlock'],
-        $c['safeLinkUrl'],
-        $c['structural']
+        $c['safeLinkUrl']
     ));
 };
 

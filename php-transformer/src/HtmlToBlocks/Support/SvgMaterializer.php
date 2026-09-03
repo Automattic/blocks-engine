@@ -61,7 +61,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         $html = $this->cssOwnsMediaBox($element)
             ? $this->ensureInlineSvgBoxStyle($html, $element)
             : $this->ensureInlineSvgSizing($html, $element);
-        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element));
+        $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
+        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -228,7 +229,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         $html = $this->cssOwnsMediaBox($element)
             ? $this->ensureInlineSvgBoxStyle($html, $element)
             : $this->ensureInlineSvgSizing($html, $element);
-        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($this->resolveMaterializedSvgColors($html, $element), $element));
+        $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
+        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
         $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $html, true);
         if ( null === $attrs ) {
             return null;
@@ -547,6 +549,85 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return array() === $paint ? $html : $this->mergeSvgRootStyleDeclarations($html, $paint);
+    }
+
+    /**
+     * Text baseline rules from the host stylesheet cannot cross the standalone
+     * SVG image boundary. Preserve the resolved per-node layout in source order.
+     */
+    private function bakeCascadedSvgTextLayout(string $html, DOMElement $element): string
+    {
+        $sourceTexts = array_values(array_filter(
+            iterator_to_array($element->getElementsByTagName('text')),
+            static fn (DOMNode $node): bool => $node instanceof DOMElement
+        ));
+        if ( array() === $sourceTexts || false === stripos($html, '<text') ) {
+            return $html;
+        }
+
+        $index = 0;
+        return preg_replace_callback('/<text\b[^>]*>/i', function (array $match) use ($element, $sourceTexts, &$index): string {
+            $source = $sourceTexts[$index++] ?? null;
+            if ( ! $source instanceof DOMElement ) {
+                return $match[0];
+            }
+
+            $declarations = array();
+            foreach ( array('dominant-baseline', 'alignment-baseline', 'baseline-shift') as $property ) {
+                $value = $this->resolvedCascadedSvgTextLayout($source, $property);
+                if ( '' !== $value && 1 !== preg_match('/(?:var\s*\(|url\s*\(|[<>])/i', $value) ) {
+                    $declarations[$property] = $value;
+                }
+            }
+
+            return array() === $declarations ? $match[0] : $this->mergeSvgTagStyleDeclarations($match[0], $declarations);
+        }, $html) ?? $html;
+    }
+
+    private function resolvedCascadedSvgTextLayout(DOMElement $element, string $property): string
+    {
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $value = trim((string) ($this->styleResolver->specificityResolvedSvgCascadeValue($current, $property) ?? ''));
+            if ( '' !== $value ) {
+                if ( false !== strpos($value, 'var(') ) {
+                    return '';
+                }
+                $keyword = strtolower($value);
+                if ( in_array($keyword, array('inherit', 'unset'), true) ) {
+                    continue;
+                }
+                return in_array($keyword, array('initial', 'revert', 'revert-layer'), true) ? '' : $value;
+            }
+            $attribute = trim(SourceDom::attr($current, $property));
+            if ( '' !== $attribute ) {
+                if ( $current->isSameNode($element) ) {
+                    return '';
+                }
+                $keyword = strtolower($attribute);
+                if ( in_array($keyword, array('inherit', 'unset'), true) ) {
+                    continue;
+                }
+                return in_array($keyword, array('initial', 'revert', 'revert-layer'), true) ? '' : $attribute;
+            }
+        }
+
+        return '';
+    }
+
+    /** @param array<string, string> $declarations */
+    private function mergeSvgTagStyleDeclarations(string $tag, array $declarations): string
+    {
+        $existing = '';
+        if ( preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $tag, $styleMatch) ) {
+            $existing = html_entity_decode($styleMatch[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations($existing), $declarations));
+        $escaped = htmlspecialchars($style, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+        return preg_match('/\sstyle\s*=\s*(["\'])(.*?)\1/i', $tag)
+            ? (preg_replace('/(\sstyle\s*=\s*)(["\'])(.*?)\2/i', '$1$2' . $escaped . '$2', $tag, 1) ?? $tag)
+            : (preg_replace('/>$/', ' style="' . $escaped . '">', $tag, 1) ?? $tag);
     }
 
     private function resolvedCascadedSvgPaint(DOMElement $element, string $property): ?string

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Closure;
 use DOMElement;
 
@@ -10,8 +11,7 @@ final class PatternContext
 {
     /**
      * @param Closure(DOMElement, array<int, string>): array<string, mixed> $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null, DOMElement|null): array<string, mixed> $createBlock
-     * @param PatternRecursiveConverter|null $recursiveConverter
+     * @param PatternTreeConverter|null $recursiveConverter
      * @param NavigationPatternContext|null $navigationContext
      * @param MediaPatternContext|null $mediaContext
      * @param ColumnsPatternContext|null $columnsContext
@@ -24,8 +24,8 @@ final class PatternContext
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock,
-        private readonly ?PatternRecursiveConverter $recursiveConverter = null,
+        private readonly SourceBlockCreator $createBlock,
+        private readonly ?PatternTreeConverter $recursiveConverter = null,
         private readonly ?NavigationPatternContext $navigationContext = null,
         private readonly ?MediaPatternContext $mediaContext = null,
         private readonly ?ColumnsPatternContext $columnsContext = null,
@@ -54,10 +54,10 @@ final class PatternContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null, ?DOMElement $logicalSourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement, $logicalSourceElement);
     }
 
-    public function recursiveConverter(): ?PatternRecursiveConverter { return $this->recursiveConverter; }
+    public function recursiveConverter(): ?PatternTreeConverter { return $this->recursiveConverter; }
     public function navigationContext(): ?NavigationPatternContext { return $this->navigationContext; }
     public function mediaContext(): ?MediaPatternContext { return $this->mediaContext; }
     public function columnsContext(): ?ColumnsPatternContext { return $this->columnsContext; }

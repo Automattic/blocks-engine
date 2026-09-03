@@ -8,6 +8,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionList
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\DescriptionListElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ListElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\RichTextMaterializationFixture;
 
 $assertions = 0;
 $failures = array();
@@ -27,12 +30,12 @@ $elementFrom = static function (string $html): DOMElement {
     }
     throw new RuntimeException('No element parsed');
 };
-$createBlock = static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
+$createBlock = new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
     'blockName' => $name,
     'attrs' => $attrs,
     'innerBlocks' => $innerBlocks,
     'sourceTag' => $source?->tagName,
-);
+));
 
 $state = (object) array( 'mode' => 'native' );
 $listContext = new ListElementContext(
@@ -45,7 +48,7 @@ $listContext = new ListElementContext(
     static fn (DOMElement $element, array &$fallbacks): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/list-item' ) ),
     static fn (DOMElement $element): bool => 'grid' === $state->mode,
     static fn (DOMElement $element): array => array( 'className' => 'grid-list' ),
-    static fn (DOMElement $element): array => array( 'className' => 'presented-list' ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-list' )),
     $createBlock
 );
 $listConverter = new ListElementConverter($listContext);
@@ -80,10 +83,10 @@ $descriptionContext = new DescriptionListElementContext(
     static fn (DOMElement $element): array => 'items' === $state->mode ? array( array( 'blockName' => 'core/list-item' ) ) : array(),
     static fn (DOMElement $element): bool => 'grid-items' === $state->mode,
     static fn (DOMElement $element): array => array( 'className' => 'grid-description' ),
-    static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) ),
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'presented-' . strtolower($element->tagName) )),
     static fn (DOMElement $element, array &$fallbacks, bool $capture): array => 'empty' === $state->mode ? array() : array( array( 'blockName' => 'core/paragraph' ) ),
     $createBlock,
-    static fn (DOMElement $element): string => $element->textContent ?? '',
+    new RichTextMaterializationFixture(array( 'content' => static fn (DOMElement $element): string => $element->textContent ?? '' )),
     static fn (string $text): bool => '' !== trim(strip_tags($text))
 );
 $descriptionConverter = new DescriptionListElementConverter($descriptionContext);

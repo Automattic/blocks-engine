@@ -105,6 +105,19 @@ $sourceResponsiveResult = (new ArtifactCompiler())->compile(array('entrypoint' =
 $sourceResponsiveArtifacts = $sourceResponsiveResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(array('header-1', 'header-2', 'footer-1', 'footer-2') === array_column($sourceResponsiveArtifacts, 'slug'), 'Source-identical nested shell variants are compiled once before route-specific page projection.');
 $assert(array() === array_filter($sourceResponsiveArtifacts, static fn(array $artifact): bool => array('index.html', 'about.html') !== ($artifact['source_paths'] ?? array())), 'Canonical source-level shell artifacts retain every contributing route.');
+$styledShellHtml = static fn(string $title): string => '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><div><header><p>Shared header</p></header><main><h1>' . $title . '</h1></main><footer><p>Shared footer</p></footer></div></body></html>';
+$styledShellResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $styledShellHtml('Home'),
+    'about.html' => $styledShellHtml('About'),
+    'site.css' => 'p{margin:0}',
+)))->toArray();
+$styledShellParts = $styledShellResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
+$styledShellClasses = array();
+foreach ($styledShellParts as $part) {
+    if (preg_match_all('/blocks-engine-source-p-[a-f0-9]+-\d+/', (string) ($part['block_markup'] ?? ''), $matches)) $styledShellClasses = array_merge($styledShellClasses, $matches[0]);
+}
+$styledShellCss = implode("\n", array_map(static fn(array $asset): string => 'css' === ($asset['kind'] ?? null) ? (string) ($asset['content'] ?? '') : '', $styledShellResult['source_reports']['wordpress_site_plan']['assets'] ?? array()));
+$assert(array() !== $styledShellClasses && array() === array_filter(array_unique($styledShellClasses), static fn(string $class): bool => !str_contains($styledShellCss, '.' . $class)), 'Shared-shell selector projections are materialized for the native classes emitted inside extracted template parts.');
 $sourceDivergentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $sourceResponsiveHtml('Home'), 'about.html' => str_replace('Mobile header', 'Different mobile header', $sourceResponsiveHtml('About')))))->toArray();
 $sourceDivergentArtifacts = $sourceDivergentResult['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(!array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'header' === ($artifact['area'] ?? null)) && 2 === count(array_filter($sourceDivergentArtifacts, static fn(array $artifact): bool => 'footer' === ($artifact['area'] ?? null))), 'A divergent source variant rejects the complete area bundle while an independently shared area remains canonical.');

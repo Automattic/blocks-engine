@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
@@ -17,7 +18,6 @@ final class ReadableFormControlBlockConverter
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $htmlPreservationBlock
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): void                                                                         $registerEcho
      */
     public function __construct(
@@ -29,7 +29,7 @@ final class ReadableFormControlBlockConverter
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $htmlPreservationBlock,
         private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $registerEcho
     ) {
     }
@@ -85,7 +85,7 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
-        return ($this->createBlock)('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $summary )), array(), $element);
+        return $this->createBlock->createBlock('core/paragraph', array_merge(($this->presentationAttributes)($element), array( 'content' => $summary )), array(), $element);
     }
 
     /** @return array<string, mixed>|null */
@@ -106,7 +106,7 @@ final class ReadableFormControlBlockConverter
 
                 $summary = $this->controlText($control);
                 if ( '' !== $summary ) {
-                    $blocks[] = ($this->createBlock)('core/paragraph', array( 'content' => $summary ), array(), $control);
+                    $blocks[] = $this->createBlock->createBlock('core/paragraph', array( 'content' => $summary ), array(), $control);
                 }
             }
 
@@ -115,7 +115,7 @@ final class ReadableFormControlBlockConverter
             }
 
             return array() !== $blocks
-                ? ($this->createBlock)('core/group', ($this->presentationAttributes)($element), $blocks, $element)
+                ? $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($element), $blocks, $element)
                 : null;
         }
 
@@ -125,7 +125,7 @@ final class ReadableFormControlBlockConverter
         }
 
         return '' !== $label
-            ? ($this->createBlock)('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element)
+            ? $this->createBlock->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($label) ), array(), $element)
             : null;
     }
 

@@ -14,6 +14,8 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures   = array();
@@ -46,7 +48,7 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         'preserve'    => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
         'presentation' => static fn (DOMElement $e, array $p, array $g): array => array('className' => 'pres'),
         'tableAttrs'  => static fn (DOMElement $e): array => array('hasFixedLayout' => true),
-        'createBlock' => static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a),
+        'createBlock' => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a)),
     );
     $c = array_merge($defaults, $overrides);
 
@@ -55,7 +57,7 @@ $makeConverter = static function (array $overrides = array()): TableElementConve
         $c['nested'],
         $c['media'],
         $c['preserve'],
-        $c['presentation'],
+        new ElementPresentationResolverFixture($c['presentation']),
         $c['tableAttrs'],
         $c['createBlock']
     ));

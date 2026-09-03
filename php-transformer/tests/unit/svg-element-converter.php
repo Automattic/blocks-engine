@@ -7,6 +7,8 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceEle
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SvgElementMaterializer;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -36,13 +38,13 @@ $context = new SvgElementContext(
     static fn (DOMElement $element): string => '<svg viewbox="0 0 1 1"></svg>',
     static fn (string $html): bool => 'runtime-safe' === $state->mode,
     static fn (DOMElement $element): bool => str_starts_with($state->mode, 'drawable-'),
-    static fn (DOMElement $element): array => array( 'className' => 'visual-svg' ),
-    static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'visual-svg' )),
+    new SourceBlockCreatorFixture(static fn (string $name, array $attrs, array $innerBlocks, ?DOMElement $source): array => array(
         'blockName' => $name,
         'attrs' => $attrs,
         'innerBlocks' => $innerBlocks,
         'sourceTag' => $source?->tagName,
-    ),
+    )),
     static function (DOMElement $element, array &$fallbacks) use (&$fallbackCaptures): void {
         ++$fallbackCaptures;
         $fallbacks[] = array( 'diagnostic_code' => 'html_inline_svg_fallback' );

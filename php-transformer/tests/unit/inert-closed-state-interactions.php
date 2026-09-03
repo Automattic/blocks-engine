@@ -320,6 +320,21 @@ $assert(
     $emptyMarkup
 );
 
+$boundaryMarker = <<<'HTML'
+<style>.boundary-label { display: none; }</style>
+<div id="scroll-top" role="region" tabindex="-1" aria-label="top of page">
+  <span class="boundary-label">top of page</span>
+</div>
+HTML;
+
+$boundaryMarkerResult = ( new HtmlTransformer() )->transform($boundaryMarker)->toArray();
+$boundaryMarkerAfterAuthor = $cssContent($boundaryMarkerResult, 'after-author', 'both');
+$assert(
+    ! str_contains($boundaryMarkerAfterAuthor, '.boundary-label{display:revert!important}'),
+    'a hidden accessibility boundary label stays out of layout',
+    $boundaryMarkerAfterAuthor
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "inert closed-state interactions: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -6,6 +6,8 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
 $assertions = 0;
 $failures = array();
@@ -39,12 +41,12 @@ $converter = new ButtonElementConverter(new ButtonElementContext(
         $fallbacks[] = array( 'image' => true );
         return 'image' === $mode ? array( array( 'blockName' => 'core/image' ) ) : array();
     },
-    static fn (DOMElement $element): array => array( 'className' => 'carrier' ),
-    static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
+    new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'carrier' )),
+    new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
         'innerBlocks' => $innerBlocks,
-    ),
+    )),
     static function (DOMElement $element) use (&$genericCalls, &$genericBlock): ?array {
         ++$genericCalls;
         return $genericBlock;

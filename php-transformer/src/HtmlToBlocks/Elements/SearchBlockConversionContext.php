@@ -4,9 +4,11 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Closure;
 use DOMElement;
 
@@ -14,18 +16,14 @@ use DOMElement;
 final class SearchBlockConversionContext
 {
     /**
-     * @param Closure(DOMElement): array<string, mixed>                                              $presentationAttributes
-     * @param Closure(DOMElement): array<string, string>                                             $presentationDeclarations
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
      * @param Closure(string): string                                                                $restoreSvgCasing
      * @param Closure(DOMElement): bool                                                              $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                              $htmlPreservationBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
-        private readonly Closure $presentationAttributes,
-        private readonly Closure $presentationDeclarations,
-        private readonly Closure $createBlock,
+        private readonly ElementPresentationResolver $presentationResolver,
+        private readonly SourceBlockCreator $createBlock,
         private readonly Closure $restoreSvgCasing,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $htmlPreservationBlock
@@ -56,13 +54,13 @@ final class SearchBlockConversionContext
     /** @return array<string, mixed> */
     public function presentationAttributes(DOMElement $element): array
     {
-        return ($this->presentationAttributes)($element);
+        return $this->presentationResolver->presentationAttributes($element);
     }
 
     /** @return array<string, string> */
     public function presentationDeclarations(DOMElement $element): array
     {
-        return ($this->presentationDeclarations)($element);
+        return $this->presentationResolver->presentationDeclarations($element);
     }
 
     /**
@@ -72,7 +70,7 @@ final class SearchBlockConversionContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     public function restoreSvgCasing(string $html): string

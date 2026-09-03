@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMaterialization;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
@@ -19,18 +22,15 @@ use DOMElement;
 final class TextLeafElementContext
 {
     /**
-     * @param Closure(DOMElement, array<int, string>, array<int, string>): array<string, mixed> $presentationAttributes
-     * @param Closure(string, array<string, mixed>, array<int, array<string, mixed>>, ?DOMElement): array<string, mixed> $createBlock
-     * @param Closure(DOMElement, array<int, string>): string                                  $richTextContent
      * @param Closure(DOMElement, DOMElement): array<string, mixed>                            $codePresentationAttributes
      * @param Closure(DOMElement): string                                                      $codeContent
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>> $convertChildren
      */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly Closure $presentationAttributes,
-        private readonly Closure $createBlock,
-        private readonly Closure $richTextContent,
+        private readonly ElementPresentationResolver $presentationResolver,
+        private readonly SourceBlockCreator $createBlock,
+        private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Runtime $runtime,
         private readonly Closure $codePresentationAttributes,
         private readonly Closure $codeContent,
@@ -45,7 +45,7 @@ final class TextLeafElementContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
     {
-        return ($this->presentationAttributes)($element, $excludedProperties, $excludedGeometryProperties);
+        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
     }
 
     /**
@@ -55,7 +55,7 @@ final class TextLeafElementContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
-        return ($this->createBlock)($name, $attributes, $innerBlocks, $sourceElement);
+        return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     /**
@@ -63,7 +63,7 @@ final class TextLeafElementContext
      */
     public function richTextContent(DOMElement $element, array $excludedTags = array()): string
     {
-        return ($this->richTextContent)($element, $excludedTags);
+        return $this->richTextMaterializer->content($element, $excludedTags);
     }
 
     public function stripAllTags(string $html): string
