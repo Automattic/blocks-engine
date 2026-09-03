@@ -1005,6 +1005,30 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Author-declared values from conditional rules, such as media queries.
+     *
+     * @param array<int, string> $properties
+     * @return array<string, array<int, string>>
+     */
+    public function conditionalAuthorDeclaredPropertyValues(DOMElement $element, array $properties): array
+    {
+        sort($properties, SORT_STRING);
+        $wanted = array_fill_keys($properties, true);
+        $declared = array();
+        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            foreach ( $rule['declarations'] as $property => $value ) {
+                if ( isset($wanted[ strtolower((string) $property) ]) ) {
+                    $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
+                }
+            }
+        }
+        return $declared;
+    }
+
+    /**
      * One `text-align` declaration on a container carrier restores its whole
      * subtree, which is the source's own inheritance semantics: it covers block
      * types with no `align` support at all (core/list, core/group) and emits one
