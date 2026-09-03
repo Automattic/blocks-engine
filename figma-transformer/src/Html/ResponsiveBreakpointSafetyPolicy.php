@@ -40,6 +40,16 @@ final class ResponsiveBreakpointSafetyPolicy
         $chromeRole = $this->layoutIntentClassifier->chromeGroupRole($node, $parentNode, $depth);
         $parentChromeRole = null === $parentNode ? null : $this->layoutIntentClassifier->chromeGroupRole($parentNode, $grandParentNode, max(1, $depth - 1));
 
+        if ( null !== $parentNode && (LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $parentChromeRole || 'footer' === $parentName) ) {
+            if ( $this->isFooterInsetPanel($node, $parentNode) && null !== $width ) {
+                return array('reason_code' => 'responsive_footer_inset_panel_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'fixed'), array('height:auto', 'left:24px')));
+            }
+
+            if ( $this->isFooterBottomBand($node, $parentNode) ) {
+                return array('reason_code' => 'responsive_footer_bottom_band_safety', 'declarations' => array_merge(array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start'), $this->mobilePaddingClampDeclarations($baseMap)));
+            }
+        }
+
         $chromeDecision = $this->responsiveChromeFlowDecision($node, $parentNode, $baseMap, $variantNode, $name, $parentName, $isContainer, $chromeRole, $parentChromeRole);
         if ( '' !== $chromeDecision['reason_code'] ) {
             return $chromeDecision;
@@ -211,7 +221,7 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         if ( LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $parentChromeRole || 'footer' === $parentName ) {
-            if ( str_contains($name, 'newsletter signup') || 'frame 19' === $name || $this->isDecorativeFooterUnderlay($node, $baseMap) ) {
+            if ( $this->isDecorativeFooterUnderlay($node, $baseMap) ) {
                 return array('reason_code' => '', 'declarations' => array());
             }
 
@@ -245,18 +255,6 @@ final class ResponsiveBreakpointSafetyPolicy
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $chromeRole || 'navigation' === $name) && $isContainer ) {
             return array('reason_code' => 'responsive_navigation_chrome_safety', 'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'justify-content:flex-start', 'flex-wrap:wrap', 'gap:16px'));
-        }
-
-        if ( str_contains($name, 'newsletter signup') && $isContainer && 'absolute' === $positioning ) {
-            return array('reason_code' => 'responsive_absolute_newsletter_shell_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations(1216.0, $viewportWidth, 'fixed'), array('height:auto', 'left:24px')));
-        }
-
-        if ( 'frame 20' === $name && $isContainer && null !== $parentNode && str_contains($parentName, 'newsletter signup') ) {
-            return array('reason_code' => 'responsive_newsletter_inner_shell_safety', 'declarations' => array('height:auto', 'padding-top:56px', 'padding-right:24px', 'padding-bottom:48px', 'padding-left:24px', 'gap:24px'));
-        }
-
-        if ( 'frame 19' === $name && $isContainer && 'absolute' === $positioning ) {
-            return array('reason_code' => 'responsive_absolute_inner_shell_safety', 'declarations' => array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start', 'padding-top:32px', 'padding-right:24px', 'padding-bottom:32px', 'padding-left:24px'));
         }
 
         if ( ('featured preview' === $name || 'preview' === $name) && $isContainer && null !== $width && $width > 340.0 ) {
@@ -487,7 +485,7 @@ final class ResponsiveBreakpointSafetyPolicy
             }
 
             $childType = strtoupper((string) ($child['type'] ?? 'FRAME'));
-            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $box = $this->nodeBox($child);
             if ( in_array($childType, array('FRAME', 'GROUP', 'INSTANCE', 'COMPONENT', 'SYMBOL'), true)
                 && isset($box['width'])
                 && is_numeric($box['width'])
@@ -554,24 +552,7 @@ final class ResponsiveBreakpointSafetyPolicy
      */
     private function hasFooterResponsiveShell(array $node): bool
     {
-        $hasNewsletter = false;
-        $hasBottomRow = false;
-        $freeformParent = $this->isFreeformContainer($node);
-        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
-            if ( ! is_array($child) ) {
-                continue;
-            }
-            $name = strtolower(trim((string) ($child['name'] ?? '')));
-            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
-            if ( str_contains($name, 'newsletter signup') && ('absolute' === ($layout['positioning'] ?? null) || $freeformParent) ) {
-                $hasNewsletter = true;
-            }
-            if ( 'frame 19' === $name ) {
-                $hasBottomRow = true;
-            }
-        }
-
-        return $hasNewsletter && $hasBottomRow;
+        return null !== $this->footerInsetPanel($node) && null !== $this->footerBottomBand($node);
     }
 
     /**
@@ -589,22 +570,94 @@ final class ResponsiveBreakpointSafetyPolicy
     private function footerResponsiveMinHeight(array $node): float
     {
         $baseHeight = $this->nodeBoxHeight($node) ?? 0.0;
-        $newsletterHeight = 0.0;
-        $bottomRowHeight = 0.0;
-        foreach ( $this->nodeInspector->nodeList($node) as $child ) {
-            if ( ! is_array($child) ) {
+        $insetPanel = $this->footerInsetPanel($node);
+        $bottomBand = $this->footerBottomBand($node);
+
+        return max($baseHeight, ($this->nodeBoxHeight($insetPanel ?? array()) ?? 0.0) + ($this->nodeBoxHeight($bottomBand ?? array()) ?? 0.0));
+    }
+
+    /**
+     * A responsive footer shell has an inset primary panel above a full-width
+     * lower band. Both roles are derived from their layer geometry, not labels.
+     *
+     * @param array<string, mixed>      $footer
+     * @param array<string, mixed>|null $candidate
+     * @return array<string, mixed>|null
+     */
+    private function footerInsetPanel(array $footer, ?array $candidate = null): ?array
+    {
+        $footerWidth = $this->nodeBoxWidth($footer);
+        if ( null === $footerWidth || $footerWidth <= 0.0 ) {
+            return null;
+        }
+
+        foreach ( $this->nodeInspector->nodeList($footer) as $child ) {
+            if ( ! is_array($child) || (null !== $candidate && $child !== $candidate) || ! $this->isFooterLayer($child, $footer) ) {
                 continue;
             }
-            $name = strtolower(trim((string) ($child['name'] ?? '')));
-            if ( str_contains($name, 'newsletter signup') ) {
-                $newsletterHeight = max($newsletterHeight, $this->nodeBoxHeight($child) ?? 0.0);
+            $box = $this->nodeBox($child);
+            if ( ! is_numeric($box['x'] ?? null) || ! is_numeric($box['y'] ?? null) || ! is_numeric($box['width'] ?? null) || ! is_numeric($box['height'] ?? null) ) {
+                continue;
             }
-            if ( 'frame 19' === $name ) {
-                $bottomRowHeight = max($bottomRowHeight, $this->nodeBoxHeight($child) ?? 0.0);
+            $x = (float) $box['x'];
+            $y = (float) $box['y'];
+            $width = (float) $box['width'];
+            if ( $x > 0.0 && $y <= 1.0 && $width >= $footerWidth * 0.5 && $width < $footerWidth && $x + $width <= $footerWidth + 1.0 ) {
+                return $child;
             }
         }
 
-        return max($baseHeight, $newsletterHeight + $bottomRowHeight);
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed>      $footer
+     * @param array<string, mixed>|null $candidate
+     * @return array<string, mixed>|null
+     */
+    private function footerBottomBand(array $footer, ?array $candidate = null): ?array
+    {
+        $footerWidth = $this->nodeBoxWidth($footer);
+        $insetPanel = $this->footerInsetPanel($footer);
+        if ( null === $footerWidth || null === $insetPanel ) {
+            return null;
+        }
+        $insetBox = $this->nodeBox($insetPanel);
+        $insetBottom = (float) ($insetBox['y'] ?? 0.0) + (float) ($insetBox['height'] ?? 0.0);
+
+        foreach ( $this->nodeInspector->nodeList($footer) as $child ) {
+            if ( ! is_array($child) || $child === $insetPanel || (null !== $candidate && $child !== $candidate) || ! $this->isFooterLayer($child, $footer) ) {
+                continue;
+            }
+            $box = $this->nodeBox($child);
+            if ( ! is_numeric($box['y'] ?? null) || ! is_numeric($box['width'] ?? null) ) {
+                continue;
+            }
+            if ( (float) $box['y'] >= $insetBottom - 1.0 && (float) $box['width'] >= $footerWidth - 1.0 ) {
+                return $child;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isFooterInsetPanel(array $node, array $footer): bool
+    {
+        return null !== $this->footerInsetPanel($footer, $node) && null !== $this->footerBottomBand($footer);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isFooterBottomBand(array $node, array $footer): bool
+    {
+        return null !== $this->footerBottomBand($footer, $node);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function isFooterLayer(array $node, array $footer): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'absolute' === ($layout['positioning'] ?? null) || $this->isFreeformContainer($footer);
     }
 
     /**
@@ -673,11 +726,35 @@ final class ResponsiveBreakpointSafetyPolicy
      */
     private function nodeBoxHeight(array $node): ?float
     {
-        $box = is_array($node['box'] ?? null) ? $node['box'] : array();
+        $box = $this->nodeBox($node);
         if ( ! isset($box['height']) || ! is_numeric($box['height']) ) {
             return null;
         }
 
         return (float) $box['height'];
+    }
+
+    /** @param array<string, mixed> $node */
+    private function nodeBoxWidth(array $node): ?float
+    {
+        $box = $this->nodeBox($node);
+        if ( ! isset($box['width']) || ! is_numeric($box['width']) ) {
+            return null;
+        }
+
+        return (float) $box['width'];
+    }
+
+    /** @return array<string, mixed> */
+    private function nodeBox(array $node): array
+    {
+        if ( is_array($node['box'] ?? null) ) {
+            return $node['box'];
+        }
+        if ( is_array($node['figma_box'] ?? null) ) {
+            return $node['figma_box'];
+        }
+
+        return array_intersect_key($node, array_flip(array('x', 'y', 'width', 'height')));
     }
 }
