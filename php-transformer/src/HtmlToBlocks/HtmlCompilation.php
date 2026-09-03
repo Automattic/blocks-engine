@@ -518,10 +518,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->createNavigationStyleProjectionContext(),
             $this->styleResolver
         );
-        $this->navigationToggleSuppressor = new NavigationToggleSuppressor(
-            $this->createNavigationToggleSuppressionContext(),
-            $this->styleResolver
-        );
         $this->svgMaterializer = new SvgMaterializer(
             $this->createSvgMaterializationContext(),
             $this->styleResolver,
@@ -531,6 +527,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->patternContext = $this->createPatternContext(true);
         $this->patternContextWithoutRuntimeDomTarget = $this->createPatternContext(false);
         $this->patternProbeContext = $this->createProbePatternContext();
+        $this->navigationToggleSuppressor = new NavigationToggleSuppressor(
+            $this->createNavigationToggleSuppressionContext(),
+            $this->styleResolver
+        );
         $this->textLeafConverter = new TextLeafElementConverter($this->createTextLeafElementContext());
         $this->richTextConverter = new RichTextElementConverter($this->createRichTextElementContext());
         $svgConverter = new SvgElementConverter(new SvgElementContext(
@@ -911,8 +911,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new NavigationToggleSuppressionContext(
             $this->session,
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
-            fn (): PatternRecognizerRegistry => $this->patternRecognizers,
-            fn (): PatternContext => $this->probePatternContext()
+            $this->patternRecognizers,
+            $this->patternProbeContext
         );
     }
 
@@ -2645,15 +2645,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // child conversion diagnostics retain their exact order.
         $fallbacks = array_merge($fallbacks, $result->fallbacks());
         return $result->block();
-    }
-
-    /**
-     * A side-effect-free pattern context for probing whether an element would
-     * convert to a given block, without recording provenance or runtime islands.
-     */
-    private function probePatternContext(): PatternContext
-    {
-        return $this->patternProbeContext;
     }
 
     private function createProbePatternContext(): PatternContext
