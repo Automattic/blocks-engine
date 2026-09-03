@@ -255,6 +255,11 @@ final class SemanticParityReporter
                 continue;
             }
 
+            if ( 'core/group' === ($block['blockName'] ?? '') && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? '')) ) {
+                ++$counts['nav'];
+                continue;
+            }
+
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 ++$counts['nav'];
             }
@@ -601,9 +606,27 @@ final class SemanticParityReporter
             }
 
             $blockPath = $path . '.' . $index;
+            $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+            if ( 'core/group' === ($block['blockName'] ?? '')
+                && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+                && $this->containsBlockName($innerBlocks, 'core/list')
+                && ! $this->containsBlockName($innerBlocks, 'core/navigation')
+            ) {
+                $items = array();
+                $seen = array();
+                $this->collectBlockAnchorItems($innerBlocks, $items, $seen);
+                $menus[] = array(
+                    'block_path' => $blockPath,
+                    'represented_as_native_list_navigation' => true,
+                    'item_count' => count($items),
+                    'items' => $items,
+                );
+                continue;
+            }
+
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $items = array();
-                $this->collectBlockNavigationItems(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $items);
+                $this->collectBlockNavigationItems($innerBlocks, $items);
                 $menus[] = array(
                     'block_path' => $blockPath,
                     'represented_as_core_navigation' => true,
@@ -620,6 +643,24 @@ final class SemanticParityReporter
                 $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus, $childSiblings);
             }
         }
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function containsBlockName(array $blocks, string $name): bool
+    {
+        foreach ( $blocks as $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+            if ( $name === ($block['blockName'] ?? '') ) {
+                return true;
+            }
+            if ( is_array($block['innerBlocks'] ?? null) && $this->containsBlockName($block['innerBlocks'], $name) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -877,7 +918,9 @@ final class SemanticParityReporter
                 continue;
             }
 
-            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false) ) {
+            if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false)
+                && true !== ($blockMenu['represented_as_native_list_navigation'] ?? false)
+            ) {
                 $findings[] = array(
                     'code' => 'navigation_core_block_missing',
                     'severity' => 'warning',

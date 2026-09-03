@@ -4011,6 +4011,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
+        if ( $this->isAtomicDirectInlineLayoutItem($element) ) {
+            return true;
+        }
+
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
             return false;
@@ -4053,6 +4057,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // but a valid RichText paragraph carrier can host that box directly.
         // Avoid wrapping the paragraph in an otherwise redundant core/group.
         return $this->hasAuthorSemanticMarker($element);
+    }
+
+    private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'a' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+            return false;
+        }
+
+        $itemCount = 0;
+        $allowsAnchors = 'nav' === strtolower($parent->tagName);
+        foreach ( $parent->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || ( ( ! $allowsAnchors || 'a' !== strtolower($child->tagName) ) && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) )
+                || '' === trim($this->runtime->stripAllTags($this->innerHtml($child)))
+            ) {
+                return false;
+            }
+            ++$itemCount;
+        }
+
+        return 2 <= $itemCount;
     }
 
     /** @return array<string, mixed>|null */
@@ -6181,6 +6221,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return null;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return null;
+            }
         }
 
         $content = $this->richTextMaterializer->content($element);

@@ -1314,13 +1314,16 @@ $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps
 $assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
 
 $inlineBreadcrumb = ( new HtmlTransformer() )->transform(
-    '<style>.crumb{padding:20px 0 0}.crumb .sep{margin:0 .6rem}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
+    '<style>.crumb{display:flex;gap:.5rem;padding:20px 0 0}.crumb > a{color:blue}.crumb > .sep{color:#666}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
 )->toArray();
 $inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? '');
+$inlineBreadcrumbCss = implode("\n", array_column($inlineBreadcrumb['assets'] ?? array(), 'content'));
 $inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
-$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb"'), 'inline-only semantic navigation retains its nav group wrapper');
-$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<!-- wp:paragraph'), 'inline-only semantic navigation keeps one RichText flow instead of stacking each token');
+$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb '), 'inline-only semantic navigation retains its nav group wrapper');
+$assert(3 === substr_count($inlineBreadcrumbNavMarkup, '<p class="blocks-engine-inline-layout-carrier">'), 'authored flex navigation keeps each direct token as an atomic layout item');
 $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
+$assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
+$assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
@@ -2807,16 +2810,10 @@ $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();
 $unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
-$unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
-$unmappedNavigationFinding = $unmappedSemanticParity['findings'][1] ?? array();
-$assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
-$assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
-$assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
-$assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
-$assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
-$assert('navigation_menu_missing' === ($unmappedNavigationFinding['code'] ?? ''), 'semantic parity reports missing navigation menu diagnostics');
-$assert(array('label' => 'Home', 'url' => '/') === (($unmappedNavigationFinding['source_items'] ?? array())[0] ?? array()), 'semantic parity missing navigation diagnostics expose source nav items');
-$assert(array() === ($unmappedNavigationFinding['block_items'] ?? null), 'semantic parity missing navigation diagnostics expose empty generated nav items');
+$assert('pass' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity accepts a native list retained inside a nav-tagged Group');
+$assert(1 === ($unmappedSemanticParity['landmarks']['blocks']['nav'] ?? null), 'semantic parity recognizes a native nav-tagged Group landmark');
+$assert(true === ($unmappedSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_list_navigation'] ?? false), 'semantic parity identifies the native list navigation representation');
+$assert(array('label' => 'Home', 'url' => '/') === (($unmappedSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[0] ?? array()), 'semantic parity extracts native list navigation items');
 
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
