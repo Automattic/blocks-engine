@@ -1988,9 +1988,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // authored sibling topology. Do not flatten nested native blocks.
             $layoutShellClass = 'wp-block-' . str_replace('/', '-', $layoutShellBlockName);
             $layoutShellEditorInnerBlocksClass = 'blocks-engine-layout-shell-editor-inner-blocks';
-            $beforeAuthorCssParts[] = ':root :where(.' . $layoutShellClass . ')>.' . $layoutShellEditorInnerBlocksClass . ','
-                . ':root :where(.' . $layoutShellClass . ') .' . $layoutShellEditorInnerBlocksClass . ','
-                . ':root :where(.' . $layoutShellClass . ') .' . $layoutShellEditorInnerBlocksClass . '>.block-editor-block-list__layout{display:contents}';
+            $beforeAuthorCssParts[] = ':root :where(.' . $layoutShellClass . ') .' . $layoutShellEditorInnerBlocksClass . '{display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_FLOW_CLASS . '>p){margin-top:0;margin-bottom:0}';

@@ -127,7 +127,7 @@ $assert(
 
 $rootShells = $transform('<style>body > *{position:relative;z-index:1}</style><header><p>Header</p></header><main><p>Body</p></main><footer><p>Footer</p></footer>');
 $rootShellCss = $css($rootShells);
-$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 1 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while page content retains isolated marker identities');
+$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 2 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while their editor position projection retains isolated marker identities');
 
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);

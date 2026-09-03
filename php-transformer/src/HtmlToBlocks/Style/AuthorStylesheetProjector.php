@@ -42,18 +42,53 @@ final class AuthorStylesheetProjector
                     : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
                 $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
                 if ( array() === $margins ) {
-                    return $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
+                    $css = $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
+                    return $css . $this->editorPositionRules($css);
                 }
 
                 $inner = array_diff_key($declarations, $margins);
                 $rules = '' === $this->styleResolver->cssDeclarationString($inner)
                     ? ''
                     : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context);
-                return $rules
+                $css = $rules
                     . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
                     . $imageRule
                     . $svgImageRule
                     . $editorDocumentRootRule;
+                return $css . $this->editorPositionRules($css);
+            }
+        );
+    }
+
+    private function editorPositionRules(string $css): string
+    {
+        return ( new CssStylesheetTransformer() )->transformStyleRules(
+            $css,
+            function (string $prelude, string $body): string {
+                $position = trim((string) ($this->styleResolver->cssDeclarations($body)['position'] ?? ''));
+                $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+                if ( '' === $position || null === $selectors ) {
+                    return '';
+                }
+                $editorSelectors = array();
+                foreach ( $selectors as $selector ) {
+                    $selector = trim($selector);
+                    if ( '' === $selector || str_starts_with($selector, ':host') || str_contains($selector, '.editor-styles-wrapper') ) {
+                        continue;
+                    }
+                    if ( 1 === preg_match('/^body(?=$|[.#:\[])/', $selector) ) {
+                        $editorSelectors[] = preg_replace('/^body/', ':root body.editor-styles-wrapper', $selector, 1) ?? $selector;
+                        continue;
+                    }
+                    if ( 1 === preg_match('/^:root(?=$|[.#:\[])/', $selector) ) {
+                        $editorSelectors[] = preg_replace('/^:root/', ':root .editor-styles-wrapper', $selector, 1) ?? $selector;
+                        continue;
+                    }
+                    $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
+                }
+                return array() === $editorSelectors
+                    ? ''
+                    : implode(',', $editorSelectors) . '{position:' . $position . '}';
             }
         );
     }
