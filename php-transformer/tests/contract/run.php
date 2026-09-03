@@ -5217,7 +5217,7 @@ $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? 
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();
 $hiddenRichTextCss = implode("\n", array_column($hiddenRichTextMarker['assets'] ?? array(), 'content'));
-$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
+$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none!important}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'

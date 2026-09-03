@@ -118,6 +118,11 @@ final class ClosedStateNormalizer
             return true;
         }
 
+        $identity = strtolower((string) $attr($element, 'id') . ' ' . (string) $attr($element, 'class'));
+        if ( 1 === preg_match('/(?:a11y|accessib|screen[-_]?reader|sr[-_]?only|visually[-_]?hidden)/', $identity) ) {
+            return true;
+        }
+
         if ( in_array(strtolower(trim((string) $attr($element, 'role'))), array( 'presentation', 'none' ), true) ) {
             return true;
         }
