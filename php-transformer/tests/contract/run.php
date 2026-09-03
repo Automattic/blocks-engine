@@ -1429,6 +1429,16 @@ $assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? '')
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
 
+$responsiveFullWidthButton = ( new HtmlTransformer() )->transform(
+    '<style>.row{display:flex}.btn{display:flex;width:100%;padding:12px 20px;background:#fc0}@media(min-width:992px){.btn{width:auto;padding:8px 16px}}</style><main><div class="row"><a class="btn" href="/signup">Sign Up</a></div></main>'
+)->toArray();
+$responsiveFullWidthButtonMarkup = (string) ($responsiveFullWidthButton['serialized_blocks'] ?? '');
+$responsiveFullWidthButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $responsiveFullWidthButton['assets'] ?? array()));
+$responsiveFullWidthButtonMarker = preg_match('/\bblocks-engine-control-[^\s"]+/', $responsiveFullWidthButtonMarkup, $matches) ? $matches[0] : '';
+$assert(str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'width:auto'), 'responsive full-width button retains its desktop intrinsic-width author rule');
+$assert('' !== $responsiveFullWidthButtonMarker && ! str_contains($responsiveFullWidthButtonCss, ':where(.' . $responsiveFullWidthButtonMarker . '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}'), 'responsive full-width button does not emit an unconditional generated full-width wrapper bridge');
+$assert(str_contains($responsiveFullWidthButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($responsiveFullWidthButtonMarkup, 'wp-block-button blocks-engine-control-') && 'pass' === ($responsiveFullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'responsive full-width button keeps the canonical wrapper save shape and validity');
+
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;border-radius:0;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
 )->toArray();
