@@ -2008,9 +2008,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
-            // carried grid geometry (gap) owns the spacing between items. The
-            // carrier rides groups and lists, so the reset is class-scoped.
-            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            // carried grid geometry (gap) owns the spacing between items. Native
+            // headings retain their source browser-default margins unless the
+            // author stylesheet overrides them.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
+            // Core makes the inner code element a full-width break-spaces block.
+            // Source pre/code is inline and inherits the preformatted whitespace
+            // contract; restore that shape while authored code rules remain free
+            // to choose typography.
+            $beforeAuthorCssParts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_INLINE_FLOW_CLASS) ) {
             // Block delimiters may acquire whitespace when Gutenberg saves the
@@ -4011,6 +4019,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
+        if ( $this->isAtomicDirectInlineLayoutItem($element) ) {
+            return true;
+        }
+
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
             return false;
@@ -4022,6 +4034,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
                 return false;
             }
+        }
+
+        // A direct semantic format followed by a block starts an inline run in
+        // the parent's flow. Keep its paragraph carrier boxless so the following
+        // block retains the source line box and default margins.
+        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+            && $this->isDirectFormattingRunBeforeBlock($element)
+        ) {
+            return true;
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
@@ -4053,6 +4074,71 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // but a valid RichText paragraph carrier can host that box directly.
         // Avoid wrapping the paragraph in an otherwise redundant core/group.
         return $this->hasAuthorSemanticMarker($element);
+    }
+
+    private function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! in_array(strtolower($element->tagName), array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'kbd', 'mark', 'samp', 'small', 'strong', 'sub', 'sup', 'time', 'var' ), true)
+            || ! $parent instanceof DOMElement
+            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+        ) {
+            return false;
+        }
+
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $sibling->nodeType ) {
+                continue;
+            }
+
+            return $sibling instanceof DOMElement
+                && ! $this->sourceElementClassifier->isInlineSourceElement(strtolower($sibling->tagName));
+        }
+
+        return false;
+    }
+
+    private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'a' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+            return false;
+        }
+
+        $itemCount = 0;
+        $allowsAnchors = 'nav' === strtolower($parent->tagName);
+        $hasNonAnchor = false;
+        foreach ( $parent->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || ( ( ! $allowsAnchors || 'a' !== strtolower($child->tagName) ) && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) )
+                || '' === trim($this->runtime->stripAllTags($this->innerHtml($child)))
+            ) {
+                return false;
+            }
+            $hasNonAnchor = $hasNonAnchor || 'a' !== strtolower($child->tagName);
+            ++$itemCount;
+        }
+
+        // An all-anchor nav is represented by core/navigation. Only mixed-token
+        // navigation (for example breadcrumbs) needs atomic inline carriers.
+        return 2 <= $itemCount && ( ! $allowsAnchors || $hasNonAnchor );
     }
 
     /** @return array<string, mixed>|null */
@@ -6181,6 +6267,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return null;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return null;
+            }
         }
 
         $content = $this->richTextMaterializer->content($element);

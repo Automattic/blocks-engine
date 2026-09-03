@@ -1314,13 +1314,33 @@ $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps
 $assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
 
 $inlineBreadcrumb = ( new HtmlTransformer() )->transform(
-    '<style>.crumb{padding:20px 0 0}.crumb .sep{margin:0 .6rem}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
+    '<style>.crumb{display:flex;gap:.5rem;padding:20px 0 0}.crumb > a{color:blue}.crumb > .sep{color:#666}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
 )->toArray();
 $inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? '');
+$inlineBreadcrumbCss = implode("\n", array_column($inlineBreadcrumb['assets'] ?? array(), 'content'));
 $inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
-$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb"'), 'inline-only semantic navigation retains its nav group wrapper');
-$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<!-- wp:paragraph'), 'inline-only semantic navigation keeps one RichText flow instead of stacking each token');
+$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb '), 'inline-only semantic navigation retains its nav group wrapper');
+$assert(3 === substr_count($inlineBreadcrumbNavMarkup, '<p class="blocks-engine-inline-layout-carrier">'), 'authored flex navigation keeps each direct token as an atomic layout item');
 $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
+$assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
+$assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
+
+$anchorMenu = ( new HtmlTransformer() )->transform(
+    '<style>.site-header nav{display:flex}.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}</style><header class="site-header"><nav><a href="#pipeline">Pipeline</a><a class="nav-action" href="#maintenance">Maintenance</a></nav></header>'
+)->toArray();
+$anchorMenuMarkup = (string) ($anchorMenu['serialized_blocks'] ?? '');
+$anchorMenuCss = implode("\n", array_column($anchorMenu['assets'] ?? array(), 'content'));
+$assert(str_contains($anchorMenuMarkup, '<!-- wp:navigation '), 'all-anchor flex navigation remains a native navigation block');
+$assert(str_contains($anchorMenuCss, '.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}'), 'all-anchor navigation preserves class selectors on native navigation items');
+$assert(! str_contains($anchorMenuCss, 'blocks-engine-inline-layout-carrier > .nav-action'), 'all-anchor navigation selectors are not projected through absent inline carriers');
+
+$leadingFlowFormat = ( new HtmlTransformer() )->transform(
+    '<main><div class="callout"><strong>Private beta</strong><p>Use your workspace token.</p></div><p>Ordinary <strong>inline prose</strong> remains together.</p></main>'
+)->toArray();
+$leadingFlowFormatMarkup = (string) ($leadingFlowFormat['serialized_blocks'] ?? '');
+$assert(str_contains($leadingFlowFormatMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Private beta</strong></p>'), 'a leading semantic format before a block uses a boxless valid carrier');
+$assert(str_contains($leadingFlowFormatMarkup, '<p>Ordinary <strong>inline prose</strong> remains together.</p>'), 'ordinary inline prose remains one RichText flow');
+$assert('pass' === ($leadingFlowFormat['source_reports']['wp_block_validity']['status'] ?? ''), 'leading semantic flow carriers remain editor-valid');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
@@ -1945,6 +1965,16 @@ $preAndCodeBlocks = $preAndCodeResult['blocks'] ?? array();
 $assert('core/paragraph' === ($preAndCodeBlocks[0]['blockName'] ?? '') && str_contains((string) ($preAndCodeBlocks[0]['innerHTML'] ?? ''), '&lt;b&gt;ordinary text&lt;/b&gt;'), 'documents without plaintext preserve ordinary encoded content');
 $assert('core/preformatted' === ($preAndCodeBlocks[1]['blockName'] ?? ''), 'ordinary pre content remains preformatted');
 $assert('core/code' === ($preAndCodeBlocks[2]['blockName'] ?? ''), 'ordinary pre/code content remains code');
+
+$syntaxCodeResult = ( new HtmlTransformer() )->transform(
+    '<style>code{font-family:ui-monospace,monospace}.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}</style><pre><code><span class="token comment"># npm</span> <span class="token function">install</span></code></pre>'
+)->toArray();
+$syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
+$syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
+$assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
+$assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
+$assert(1 === preg_match('/code:not\(\.blocks-engine-specificity-class-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
     '<main><a class="site-logo" href="/">Mara Vale</a></main>'
@@ -2807,16 +2837,19 @@ $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();
 $unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
-$unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
-$unmappedNavigationFinding = $unmappedSemanticParity['findings'][1] ?? array();
-$assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
-$assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
-$assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
-$assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
-$assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
-$assert('navigation_menu_missing' === ($unmappedNavigationFinding['code'] ?? ''), 'semantic parity reports missing navigation menu diagnostics');
-$assert(array('label' => 'Home', 'url' => '/') === (($unmappedNavigationFinding['source_items'] ?? array())[0] ?? array()), 'semantic parity missing navigation diagnostics expose source nav items');
-$assert(array() === ($unmappedNavigationFinding['block_items'] ?? null), 'semantic parity missing navigation diagnostics expose empty generated nav items');
+$assert('pass' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity accepts a native list retained inside a nav-tagged Group');
+$assert(1 === ($unmappedSemanticParity['landmarks']['blocks']['nav'] ?? null), 'semantic parity recognizes a native nav-tagged Group landmark');
+$assert(true === ($unmappedSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_list_navigation'] ?? false), 'semantic parity identifies the native list navigation representation');
+$assert(array('label' => 'Home', 'url' => '/') === (($unmappedSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[0] ?? array()), 'semantic parity extracts native list navigation items');
+
+$breadcrumbNavigation = ( new HtmlTransformer() )->transform(
+    '<main><nav class="breadcrumbs" style="display:flex"><a href="/">Docs</a><span>/</span><a href="#guide">Guide</a><span>/</span><span>Current</span></nav><nav class="pagination"><a href="/">Previous</a><a href="#next">Next</a></nav></main>'
+)->toArray();
+$breadcrumbSemanticParity = $breadcrumbNavigation['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($breadcrumbSemanticParity['status'] ?? ''), 'semantic parity pairs a native breadcrumb nav Group independently from adjacent core navigation');
+$assert(2 === count($breadcrumbSemanticParity['navigation_menus']['blocks'] ?? array()), 'semantic parity inventories both breadcrumb and pagination navigation representations');
+$assert(true === ($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_group_navigation'] ?? false), 'semantic parity identifies a direct-anchor nav Group representation');
+$assert(array('label' => 'Guide', 'url' => '#guide') === (($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[1] ?? array()), 'semantic parity extracts direct-anchor nav Group items in document order');
 
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'

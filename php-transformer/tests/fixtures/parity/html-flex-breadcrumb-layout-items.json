@@ -1,0 +1,39 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-flex-breadcrumb-layout-items",
+  "description": "Preserves direct breadcrumb tokens as atomic items of their authored flex layout.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-flex-breadcrumb-layout-items.json",
+    "notes": "Generic direct phrasing-child flex coverage without broad standalone span promotion."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Atomic flex token carriers are an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<nav class=\"breadcrumbs\" aria-label=\"Breadcrumb\"><a href=\"/\">Docs</a><span>/</span><a href=\"#install\">Getting started</a><span>/</span><span>Integration guide</span></nav>",
+    "options": {
+      "static_css": ".breadcrumbs{display:flex;gap:.5rem;align-items:center;padding:1rem}.breadcrumbs>a{color:blue}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "breadcrumbs blocks-engine-css-owned-layout" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-inline-layout-carrier" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

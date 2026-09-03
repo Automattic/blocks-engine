@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-sectioned-list-navigation",
+  "description": "Preserves repeated heading and list navigation sections as native document lists instead of flattening them into one menu.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-sectioned-list-navigation.json",
+    "notes": "Generic coverage for documentation sidebars and other sectioned list navigation."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Sectioned native list navigation is an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<aside class=\"sidebar\"><nav aria-label=\"Documentation\"><h2>Start</h2><ul><li><a href=\"#install\">Install</a></li><li><a href=\"#configure\">Configure</a></li></ul><h2>Guides</h2><ul><li><a href=\"#tabs\">Client SDKs</a></li><li><a href=\"#webhooks\">Webhooks</a></li><li><a href=\"#limits\">Limits</a></li></ul></nav></aside>",
+    "options": {
+      "static_css": ".sidebar ul{padding-left:1rem}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/list" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/heading" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/list" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.semantic_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "serialized_blocks", "assert": "contains", "value": ">Start</h2>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": ">Guides</h2>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<ul class=\"wp-block-list\">" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:navigation" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

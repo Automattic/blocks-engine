@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-runtime-authored-search-input",
+  "description": "Keeps a styled, runtime-targeted search control editable while preserving its label shell and safe data selector.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-runtime-authored-search-input.json",
+    "notes": "Generic coverage for script-addressed authored inputs without raw HTML preservation."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Runtime-aware authored input lowering is an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><label class=\"search\">Search docs <input type=\"search\" placeholder=\"Search components\" data-search></label></main>",
+    "options": {
+      "static_css": ".search{display:grid;gap:8px}.search input{border:1px solid #ccc}",
+      "runtime_dom_selectors": ["[data-search]"]
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "blocks-engine/authored-input" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.html.runtime_islands", "assert": "count", "count": 1 },
+    { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "main:nth-of-type(1) > label:nth-of-type(1) > input:nth-of-type(1)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine/authored-input" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<label class=\"search\">Search docs<input type=\"search\" placeholder=\"Search components\" data-search=\"\"></label>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

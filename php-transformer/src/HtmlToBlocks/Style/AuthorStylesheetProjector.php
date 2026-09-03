@@ -461,7 +461,9 @@ final class AuthorStylesheetProjector
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
+                if ( $this->isPreservedCodeSyntaxElement($element) ) {
+                    $hasNonProjected = true;
+                } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
@@ -498,6 +500,20 @@ final class AuthorStylesheetProjector
             }
         }
         return implode(',', $rewritten);
+    }
+
+    private function isPreservedCodeSyntaxElement(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'code' !== strtolower($ancestor->tagName) ) {
+                continue;
+            }
+
+            return $ancestor->parentNode instanceof DOMElement
+                && 'pre' === strtolower($ancestor->parentNode->tagName);
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $parsed @return list<string> */
@@ -793,6 +809,8 @@ final class AuthorStylesheetProjector
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
+            } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }
         }
         if ( '' !== $rightmostInsertion ) {
