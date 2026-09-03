@@ -1,0 +1,38 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-leading-format-flow-carrier",
+  "description": "Preserves a leading semantic inline format before a block sibling without introducing paragraph geometry.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-leading-format-flow-carrier.json",
+    "notes": "Generic callout and labeled prose-flow coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Boxless semantic flow carriers are an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"callout\"><strong>Private beta</strong><p>Use your workspace token.</p></div><p>Ordinary <strong>inline prose</strong> remains together.</p></main>",
+    "options": {
+      "static_css": ".callout{padding:1rem;border-left:5px solid blue}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-inline-layout-carrier\"><strong>Private beta</strong></p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Ordinary <strong>inline prose</strong> remains together.</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

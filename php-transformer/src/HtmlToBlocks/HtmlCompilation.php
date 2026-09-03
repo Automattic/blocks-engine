@@ -4028,6 +4028,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        // A direct semantic format followed by a block starts an inline run in
+        // the parent's flow. Keep its paragraph carrier boxless so the following
+        // block retains the source line box and default margins.
+        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+            && $this->isDirectFormattingRunBeforeBlock($element)
+        ) {
+            return true;
+        }
+
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( 'block' === $display ) {
@@ -4057,6 +4066,31 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // but a valid RichText paragraph carrier can host that box directly.
         // Avoid wrapping the paragraph in an otherwise redundant core/group.
         return $this->hasAuthorSemanticMarker($element);
+    }
+
+    private function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! in_array(strtolower($element->tagName), array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'kbd', 'mark', 'samp', 'small', 'strong', 'sub', 'sup', 'time', 'var' ), true)
+            || ! $parent instanceof DOMElement
+            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+        ) {
+            return false;
+        }
+
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $sibling->nodeType ) {
+                continue;
+            }
+
+            return $sibling instanceof DOMElement
+                && ! $this->sourceElementClassifier->isInlineSourceElement(strtolower($sibling->tagName));
+        }
+
+        return false;
     }
 
     private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool

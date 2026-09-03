@@ -1325,6 +1325,14 @@ $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibition
 $assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
 $assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
 
+$leadingFlowFormat = ( new HtmlTransformer() )->transform(
+    '<main><div class="callout"><strong>Private beta</strong><p>Use your workspace token.</p></div><p>Ordinary <strong>inline prose</strong> remains together.</p></main>'
+)->toArray();
+$leadingFlowFormatMarkup = (string) ($leadingFlowFormat['serialized_blocks'] ?? '');
+$assert(str_contains($leadingFlowFormatMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Private beta</strong></p>'), 'a leading semantic format before a block uses a boxless valid carrier');
+$assert(str_contains($leadingFlowFormatMarkup, '<p>Ordinary <strong>inline prose</strong> remains together.</p>'), 'ordinary inline prose remains one RichText flow');
+$assert('pass' === ($leadingFlowFormat['source_reports']['wp_block_validity']['status'] ?? ''), 'leading semantic flow carriers remain editor-valid');
+
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
 )->toArray();
