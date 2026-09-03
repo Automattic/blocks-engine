@@ -16,6 +16,7 @@ import {
   hoistVariations,
   HOIST_MIN_INSTANCES,
   ingest,
+  jetpackFormMaterializer,
   landmarkRoleForHtmlRoot,
   planTemplates,
   reconstruct,
@@ -32,6 +33,7 @@ import {
   type FoundationAggregates,
   type FoundationTokens,
   type FormBlocksResult,
+  type FormMaterializer,
   type HoistedVariation,
   type HoistPage,
   type HoistResult,
@@ -712,6 +714,40 @@ describe('fallback diagnostics DLA parity', () => {
 });
 
 describe('formToBlocks DLA parity', () => {
+  it('lets a consumer supply a provider-neutral form materializer', () => {
+    const custom: FormMaterializer = {
+      name: 'custom-provider',
+      materialize: (form) => ({
+        markup: `<!-- wp:custom/form {"submit":"${form.submitLabel}"} /-->`,
+        unsupported: form.fields
+          .filter((field) => field.kind === 'file')
+          .map((field) => ({ kind: field.kind, label: field.label, reason: 'provider has no file control' })),
+        diagnostics: [],
+      }),
+    };
+
+    const result = custom.materialize(
+      sectionForm([formField({ kind: 'email', label: 'Email' }), formField({ kind: 'file', label: 'Resume' })]),
+    );
+
+    expect(result.markup).toContain('wp:custom/form');
+    expect(result.markup).not.toContain('jetpack/');
+    expect(result.unsupported).toEqual([
+      { kind: 'file', label: 'Resume', reason: 'provider has no file control' },
+    ]);
+  });
+
+  it('keeps Jetpack output behind an opt-in adapter with explicit unsupported-control diagnostics', () => {
+    const result = jetpackFormMaterializer.materialize(
+      sectionForm([formField({ kind: 'email', label: 'Email' }), formField({ kind: 'file', label: 'Resume' })]),
+    );
+
+    expect(result.markup).toContain('wp:jetpack/contact-form');
+    expect(result.unsupported).toEqual([
+      { kind: 'file', label: 'Resume', reason: 'has no Jetpack form equivalent' },
+    ]);
+  });
+
   it('exports the DLA form-blocks surface and emits jetpack/field-* blocks for every mapped field kind', () => {
     const formToBlocksType: (form: SectionSpecForm) => FormBlocksResult = formToBlocks;
     void formToBlocksType;

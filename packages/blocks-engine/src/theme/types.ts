@@ -3,6 +3,7 @@ import type { ConversionFinding, ConvertReportStatus } from '../report/schema.js
 import type { RegionSelectionReport } from './region-audit.js';
 import type { SectionSpec } from './section-spec.js';
 import type { FormRemainder, SectionRenderOptions } from './native-reconstruct-types.js';
+import type { FormMaterializer } from './form-blocks.js';
 import type { SourceCssCarryOptions } from './source-css-carry.js';
 
 export interface SiteModel {
@@ -128,6 +129,8 @@ export interface SiteToThemeOptions extends SourceCssCarryOptions {
   pool?: WorkerPool;
   sections?: Record<string, SectionSpec[]>;
   renderOptions?: Record<string, SectionRenderOptions>;
+  /** Defaults to source-form preservation; use an adapter such as Jetpack explicitly. */
+  formMaterializer?: FormMaterializer;
   variationHoist?: false;
   foundationAggregates?: FoundationAggregates;
   hooks?: SiteToThemeHooks;

@@ -2,7 +2,7 @@ import * as cheerio from 'cheerio';
 import { escapeHtmlAttr } from '../escape.js';
 import type { WorkerPool } from '../pool/types.js';
 import { buildFallbackDiagnostic } from './fallback-diagnostic.js';
-import { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
+import { jetpackFormMaterializer, type FormMaterializer } from './form-blocks.js';
 import { buildHtmlFallbackBlock, selectIslandSource, type HtmlFallbackOpts } from './html-fallback.js';
 import { hasUnmigratedRemoteAsset, scanForInjection } from './injection-scan.js';
 import { preserveDomStrategy } from './preserve-dom/strategy.js';
@@ -272,21 +272,31 @@ function normalizeSections(sections: SectionSpec[], options: SectionRenderOption
   });
 }
 
-function renderSectionForms(section: SectionSpec, expectedText: string[], flags: string[]): string {
+function renderSectionForms(
+  section: SectionSpec,
+  expectedText: string[],
+  flags: string[],
+  materializer: FormMaterializer,
+): string {
   if (!section.forms || section.forms.length === 0) return '';
   const parts: string[] = [];
   for (const form of section.forms) {
-    const formBlocks = formToBlocks(form);
-    parts.push(formBlocks.markup);
+    const materialized = materializer.materialize(form);
+    parts.push(materialized.markup);
     for (const field of form.fields) {
-      if (SKIPPED_FIELD_KINDS.has(field.kind)) continue;
+      if (materialized.unsupported.some((unsupported) => unsupported.kind === field.kind && unsupported.label === field.label)) {
+        continue;
+      }
       expectedText.push(field.label, ...(field.options ?? []));
     }
     expectedText.push(form.submitLabel);
-    for (const skipped of formBlocks.skipped) {
+    for (const unsupported of materialized.unsupported) {
       flags.push(
-        `form-field-skipped#${section.sectionIndex}: ${skipped.kind} field "${skipped.label}" has no Jetpack form equivalent`,
+        `form-field-skipped#${section.sectionIndex}: ${unsupported.kind} field "${unsupported.label}" ${unsupported.reason}`,
       );
+    }
+    for (const diagnostic of materialized.diagnostics) {
+      flags.push(`form-materialization#${section.sectionIndex} (${materializer.name}): ${diagnostic}`);
     }
   }
   return parts.join('\n');
@@ -506,7 +516,12 @@ function convertedDecision(
     bodyText.push(visibleText(match[1]));
   }
 
-  const formBlock = renderSectionForms(section, expectedText, provenanceFlags);
+  const formBlock = renderSectionForms(
+    section,
+    expectedText,
+    provenanceFlags,
+    options.formMaterializer ?? jetpackFormMaterializer,
+  );
   const blocks = formBlock ? `${markup}\n\n${formBlock}` : markup;
   return {
     spec: section,
@@ -526,7 +541,12 @@ function convertedDecision(
 function nativeDecision(section: SectionSpec, options: SectionRenderOptions, ctx: NativeRenderCtx): NativeSectionDecision | null {
   const renderSpec = suppressFormEchoes(section);
   const out = renderSection(renderSpec, ctx);
-  const formBlock = renderSectionForms(section, out.expectedText, out.flags);
+  const formBlock = renderSectionForms(
+    section,
+    out.expectedText,
+    out.flags,
+    options.formMaterializer ?? jetpackFormMaterializer,
+  );
   if (formBlock) {
     appendFormBlock(out, formBlock);
     if (section.forms) out.remainder = { forms: section.forms };

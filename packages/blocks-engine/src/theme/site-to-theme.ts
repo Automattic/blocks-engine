@@ -102,6 +102,7 @@ export async function siteToTheme(
         sourceMediaUrlMapsByPage[page.slug]
       );
       const renderOptions = {
+        ...(options?.formMaterializer ? { formMaterializer: options.formMaterializer } : {}),
         ...(baseRenderOptions ?? {}),
         ...(routingStrategy ? { strategy: routingStrategy } : {}),
         // Collect drained lib-i instance CSS from whichever strategy runs — the default
