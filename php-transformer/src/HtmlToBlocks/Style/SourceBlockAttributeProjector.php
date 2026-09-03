@@ -58,6 +58,9 @@ final class SourceBlockAttributeProjector
         if ( 'core/group' === $name && $facts->isAuthorLayoutItem ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_LAYOUT_ITEM_CLASS);
         }
+        if ( in_array($name, array( 'core/group', 'core/paragraph' ), true) && self::isHiddenAccessibilitySupportElement($sourceElement) ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::HIDDEN_RICH_TEXT_MARKER_CLASS);
+        }
         if ( 'core/group' === $name && $this->isAtomicInlineChildFlow($sourceElement, $innerBlocks) ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::CSS_OWNED_INLINE_FLOW_CLASS);
         }
@@ -88,6 +91,17 @@ final class SourceBlockAttributeProjector
             }
         }
         return $attrs;
+    }
+
+    private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool
+    {
+        $identity = strtolower(SourceDom::attr($element, 'id') . ' ' . SourceDom::attr($element, 'class'));
+        if ( 1 !== preg_match('/(?:a11y|accessib|screen[-_]?reader|sr[-_]?only|visually[-_]?hidden)/', $identity) ) {
+            return false;
+        }
+
+        $style = strtolower(SourceDom::attr($element, 'style'));
+        return 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:!important)?\s*(?:;|$)/', $style);
     }
 
     public function sourceProjectionClassName(DOMElement $element, SourceBlockAttributeProjectionContext $context, string $className = ''): string
