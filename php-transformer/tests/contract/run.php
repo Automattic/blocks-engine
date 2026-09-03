@@ -2833,6 +2833,15 @@ $assert(1 === ($unmappedSemanticParity['landmarks']['blocks']['nav'] ?? null), '
 $assert(true === ($unmappedSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_list_navigation'] ?? false), 'semantic parity identifies the native list navigation representation');
 $assert(array('label' => 'Home', 'url' => '/') === (($unmappedSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[0] ?? array()), 'semantic parity extracts native list navigation items');
 
+$breadcrumbNavigation = ( new HtmlTransformer() )->transform(
+    '<main><nav class="breadcrumbs" style="display:flex"><a href="/">Docs</a><span>/</span><a href="#guide">Guide</a><span>/</span><span>Current</span></nav><nav class="pagination"><a href="/">Previous</a><a href="#next">Next</a></nav></main>'
+)->toArray();
+$breadcrumbSemanticParity = $breadcrumbNavigation['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($breadcrumbSemanticParity['status'] ?? ''), 'semantic parity pairs a native breadcrumb nav Group independently from adjacent core navigation');
+$assert(2 === count($breadcrumbSemanticParity['navigation_menus']['blocks'] ?? array()), 'semantic parity inventories both breadcrumb and pagination navigation representations');
+$assert(true === ($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_group_navigation'] ?? false), 'semantic parity identifies a direct-anchor nav Group representation');
+$assert(array('label' => 'Guide', 'url' => '#guide') === (($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[1] ?? array()), 'semantic parity extracts direct-anchor nav Group items in document order');
+
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'
 )->toArray();

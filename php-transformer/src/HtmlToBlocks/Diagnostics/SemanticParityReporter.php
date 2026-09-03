@@ -624,6 +624,24 @@ final class SemanticParityReporter
                 continue;
             }
 
+            if ( 'core/group' === ($block['blockName'] ?? '')
+                && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+                && ! $this->containsBlockName($innerBlocks, 'core/navigation')
+            ) {
+                $items = array();
+                $seen = array();
+                $this->collectBlockAnchorItems($innerBlocks, $items, $seen);
+                if ( array() !== $items ) {
+                    $menus[] = array(
+                        'block_path' => $blockPath,
+                        'represented_as_native_group_navigation' => true,
+                        'item_count' => count($items),
+                        'items' => $items,
+                    );
+                    continue;
+                }
+            }
+
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $items = array();
                 $this->collectBlockNavigationItems($innerBlocks, $items);
@@ -920,6 +938,7 @@ final class SemanticParityReporter
 
             if ( true !== ($blockMenu['represented_as_core_navigation'] ?? false)
                 && true !== ($blockMenu['represented_as_native_list_navigation'] ?? false)
+                && true !== ($blockMenu['represented_as_native_group_navigation'] ?? false)
             ) {
                 $findings[] = array(
                     'code' => 'navigation_core_block_missing',
