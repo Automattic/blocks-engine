@@ -16,16 +16,14 @@ use DOMElement;
 final class SearchBlockConversionContext
 {
     /**
-     * @param Closure(string): string                                                                $restoreSvgCasing
-     * @param Closure(DOMElement): bool                                                              $isRuntimeDomTarget
-     * @param Closure(DOMElement): array<string, mixed>                                              $htmlPreservationBlock
+     * @param Closure(DOMElement): array<string, mixed> $htmlPreservationBlock
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
         private readonly ElementPresentationResolver $presentationResolver,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $restoreSvgCasing,
-        private readonly Closure $isRuntimeDomTarget,
+        private readonly SvgElementMaterializer $svgMaterializer,
+        private readonly RuntimeIslandAnalyzer $runtimeIslands,
         private readonly Closure $htmlPreservationBlock
     ) {
     }
@@ -75,7 +73,7 @@ final class SearchBlockConversionContext
 
     public function restoreSvgCasing(string $html): string
     {
-        return ($this->restoreSvgCasing)($html);
+        return $this->svgMaterializer->restoreSvgCasing($html);
     }
 
     public function generatedSupportStyles(): GeneratedSupportStylesheetState
@@ -85,7 +83,7 @@ final class SearchBlockConversionContext
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return ($this->isRuntimeDomTarget)($element);
+        return $this->runtimeIslands->isRuntimeDomTarget($element);
     }
 
     /** @return array<string, mixed> */

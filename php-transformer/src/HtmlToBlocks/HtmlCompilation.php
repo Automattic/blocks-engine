@@ -937,8 +937,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             $this->styleResolver,
             $this,
-            fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->svgMaterializer,
+            $this->runtimeIslands,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
