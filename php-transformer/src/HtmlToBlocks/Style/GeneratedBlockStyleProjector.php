@@ -174,6 +174,9 @@ final class GeneratedBlockStyleProjector
         $wrapperDeclarations = array();
         $outerWrapperDeclarations = array();
         $intrinsicWrapperDeclarations = array();
+        $responsiveAuthoredProperties = $sourceControl instanceof DOMElement
+            ? $this->responsiveAuthoredProperties($sourceControl)
+            : array();
         foreach ( array(
             'background-color' => $style['color']['background'] ?? '',
             'color' => $style['color']['text'] ?? '',
@@ -191,6 +194,9 @@ final class GeneratedBlockStyleProjector
             'padding-bottom' => $style['spacing']['padding']['bottom'] ?? '',
             'padding-left' => $style['spacing']['padding']['left'] ?? '',
         ) as $property => $value ) {
+            if ( isset($responsiveAuthoredProperties[$property]) ) {
+                continue;
+            }
             $value = trim((string) $value);
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $declarations[] = $property . ':' . $value . '!important';
@@ -275,6 +281,54 @@ final class GeneratedBlockStyleProjector
             ? ''
             : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
         $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
+    }
+
+    /**
+     * Block support values are resolved before responsive author CSS is replayed.
+     * Do not let the resolved value override a later authored breakpoint.
+     *
+     * @return array<string, true>
+     */
+    private function responsiveAuthoredProperties(DOMElement $sourceControl): array
+    {
+        $propertySources = array(
+            'background-color' => array( 'background', 'background-color' ),
+            'color' => array( 'color' ),
+            'border-color' => array( 'border', 'border-color' ),
+            'border-style' => array( 'border', 'border-style' ),
+            'border-width' => array( 'border', 'border-width' ),
+            'border-radius' => array( 'border-radius' ),
+            'font-size' => array( 'font-size' ),
+            'font-weight' => array( 'font-weight' ),
+            'letter-spacing' => array( 'letter-spacing' ),
+            'line-height' => array( 'line-height' ),
+            'text-transform' => array( 'text-transform' ),
+            'padding-top' => array( 'padding', 'padding-top' ),
+            'padding-right' => array( 'padding', 'padding-right' ),
+            'padding-bottom' => array( 'padding', 'padding-bottom' ),
+            'padding-left' => array( 'padding', 'padding-left' ),
+        );
+        $properties = array_values(array_unique(array_merge(...array_values($propertySources))));
+        $declared = $this->styleResolver->authorDeclaredPropertyValues(
+            $sourceControl,
+            $properties
+        );
+        $conditional = $this->styleResolver->conditionalAuthorDeclaredPropertyValues($sourceControl, $properties);
+        $responsive = array();
+        foreach ( $propertySources as $property => $sources ) {
+            $values = array();
+            $hasConditionalDeclaration = false;
+            foreach ( $sources as $source ) {
+                foreach ( $declared[$source] ?? array() as $value ) {
+                    $values[CssValueInspector::comparable($value)] = true;
+                }
+                $hasConditionalDeclaration = $hasConditionalDeclaration || isset($conditional[$source]);
+            }
+            if ( $hasConditionalDeclaration && count($values) > 1 ) {
+                $responsive[$property] = true;
+            }
+        }
+        return $responsive;
     }
 
     public function registerDirectFlexButton(string $marker, DOMElement $control, GeneratedSupportStylesheetState $generatedStyles): void

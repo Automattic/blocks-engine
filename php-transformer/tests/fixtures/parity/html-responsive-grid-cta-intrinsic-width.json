@@ -34,7 +34,7 @@
     { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-buttons{width:max-content;max-width:100%}" },
     { "path": "assets.2.content", "assert": "contains", "value": ".wp-block-button{width:max-content;max-width:100%}" },
     { "path": "assets.2.content", "assert": "contains", "value": "box-sizing:border-box;width:max-content;max-width:100%" },
-    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px;border-radius:50px" },
+    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px!important;border-radius:50px" },
     { "path": "assets.1.content", "assert": "contains", "value": "@media(min-width:601px){.mobile-variant{display:none}.desktop-variant{display:grid}}" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
