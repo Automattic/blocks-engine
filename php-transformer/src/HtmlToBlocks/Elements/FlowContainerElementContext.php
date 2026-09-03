@@ -20,6 +20,7 @@ final class FlowContainerElementContext
         private readonly Closure $recognizePatterns,
         private readonly Closure $flankedSeparatorBlock,
         private readonly Closure $capturedMediaLayoutBlock,
+        private readonly Closure $canCaptureExternalSvgFragmentDependency,
         private readonly SourceElementClassifier $sourceElementClassifier,
         private readonly Closure $responsiveMediaBlock,
         private readonly Closure $isDirectChildOfAuthorOwnedLayout,
@@ -67,6 +68,7 @@ final class FlowContainerElementContext
     public function flankedSeparatorBlock(DOMElement $element): ?array { return ($this->flankedSeparatorBlock)($element); }
     /** @return array<string, mixed>|null */
     public function capturedMediaLayoutBlock(DOMElement $element): ?array { return ($this->capturedMediaLayoutBlock)($element); }
+    public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
     public function hasResponsiveImageSources(DOMElement $element): bool { return $this->sourceElementClassifier->hasResponsiveImageSources($element); }
     public function hasGalleryMediaItems(DOMElement $element): bool { return $this->sourceElementClassifier->hasGalleryMediaItems($element); }
     /** @return array<string, mixed> */
