@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-code-syntax-token-styles",
+  "description": "Preserves sanitized syntax token markup and its authored selectors in a native Code block.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-code-syntax-token-styles.json",
+    "notes": "Generic server-rendered syntax highlighting coverage."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Syntax token selector retention is an upstream primitive with no legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<pre><code><span class=\"token comment\"># npm</span> <span class=\"token function\">install</span></code></pre>",
+    "options": {
+      "static_css": ".token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/code" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"token comment\"># npm</span>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<span class=\"token function\">install</span>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

@@ -1957,6 +1957,15 @@ $assert('core/paragraph' === ($preAndCodeBlocks[0]['blockName'] ?? '') && str_co
 $assert('core/preformatted' === ($preAndCodeBlocks[1]['blockName'] ?? ''), 'ordinary pre content remains preformatted');
 $assert('core/code' === ($preAndCodeBlocks[2]['blockName'] ?? ''), 'ordinary pre/code content remains code');
 
+$syntaxCodeResult = ( new HtmlTransformer() )->transform(
+    '<style>.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}</style><pre><code><span class="token comment"># npm</span> <span class="token function">install</span></code></pre>'
+)->toArray();
+$syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
+$syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
+$assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
+$assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
+$assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
+
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
     '<main><a class="site-logo" href="/">Mara Vale</a></main>'
 )->toArray();
