@@ -10128,17 +10128,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $sourceOffersLight = 'light' === strtolower($labelMatch[1]);
         $lightLabel = $sourceOffersLight ? $labelText : 'Light' . substr($labelText, strlen($labelMatch[1]));
         $darkLabel = $sourceOffersLight ? 'Dark' . substr($labelText, strlen($labelMatch[1])) : $labelText;
+        $iconIdentity = strtolower($this->attr($svg, 'class') . ' ' . $this->attr($svg, 'data-lucide'));
+        $isSun = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?sun(?:[^a-z0-9]|$)/', $iconIdentity);
+        $isMoon = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?moon(?:[^a-z0-9]|$)/', $iconIdentity);
+        if ( ! $isSun && ! $isMoon ) {
+            return null;
+        }
+        $sunIcon = '<svg class="lucide lucide-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>';
+        $moonIcon = '<svg class="lucide lucide-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9"></path></svg>';
         $generator = new ThemeToggleBlockGenerator();
         $this->generatedBlocks()->register(ThemeToggleBlockGenerator::class, $generator->definition());
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')),
             'className' => trim($this->attr($element, 'class')),
-            'icon' => $icon,
+            'lightIcon' => $isSun ? $icon : $sunIcon,
+            'darkIcon' => $isMoon ? $icon : $moonIcon,
             'lightLabel' => $lightLabel,
             'darkLabel' => $darkLabel,
             'labelClassName' => trim($this->attr($label, 'class')),
+            'labelMarker' => trim($this->attr($label, 'data-blocks-engine-richtext-marker')),
             'rootClass' => 'dark',
             'defaultTheme' => $this->capturedRootTheme,
+            'storageKey' => 'theme',
         );
         $markup = $generator->markup($attributes);
         return array('blockName' => ThemeToggleBlockGenerator::NAME, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));

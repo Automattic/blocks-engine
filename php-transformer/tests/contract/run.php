@@ -254,7 +254,7 @@ $assert(
     'custom/authored-carousel' !== ($staticGalleryResult['blocks'][0]['blockName'] ?? null),
     'an ordered image collection without previous and next controls is not promoted to an interactive carousel'
 );
-$themeToggleSource = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
+$themeToggleSource = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
 $themeToggleResult = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}'))->toArray();
 $themeToggleDefinition = $themeToggleResult['source_reports']['generated_blocks'][0] ?? array();
 $assert(
@@ -262,6 +262,7 @@ $assert(
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'theme-toggle-btn')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<svg')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<path d="M12 1v2"></path>')
+        && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'lucide-moon')
         && 'file:./view.js' === ($themeToggleDefinition['block_json']['viewScriptModule'] ?? null)
         && array('@wordpress/interactivity') === ($themeToggleDefinition['script_dependencies']['view.js'] ?? null),
     'corroborated dark-root theme controls lower to an editable companion with preserved authored markup and an Interactivity API runtime asset'
