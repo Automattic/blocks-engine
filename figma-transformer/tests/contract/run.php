@@ -7353,6 +7353,52 @@ $assert(
     ),
     'responsive-breakpoint-safety-policy-footer-underlay-preserved-seam'
 );
+$structuralFooter = static function (string $panelName, string $bandName): array {
+    return array(
+        'id' => 'policy:structural-footer',
+        'type' => 'FRAME',
+        'name' => 'Footer',
+        'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 483),
+        'children' => array(
+            array('id' => 'policy:structural-panel', 'type' => 'FRAME', 'name' => $panelName, 'box' => array('x' => 112, 'y' => 0, 'width' => 1216, 'height' => 352), 'layout' => array('positioning' => 'absolute')),
+            array('id' => 'policy:structural-band', 'type' => 'FRAME', 'name' => $bandName, 'box' => array('x' => 0, 'y' => 352, 'width' => 1440, 'height' => 131), 'layout' => array('positioning' => 'absolute')),
+        ),
+    );
+};
+$structuralPanelDecision = static function (array $footer) use ($responsiveBreakpointSafetyPolicy): array {
+    return $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+        $footer['children'][0],
+        $footer,
+        array('width' => '1216px', 'height' => '352px', 'position' => 'absolute'),
+        390.0,
+        2,
+        null,
+        null
+    );
+};
+$namedStructuralPanel = $structuralPanelDecision($structuralFooter('Newsletter Signup', 'Frame 19'));
+$renamedStructuralPanel = $structuralPanelDecision($structuralFooter('Signup Panel', 'Legal Row'));
+$assert('responsive_footer_inset_panel_safety' === ($namedStructuralPanel['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-footer-inset-panel-structural-decision');
+$assert($namedStructuralPanel === $renamedStructuralPanel, 'responsive-breakpoint-safety-policy-footer-inset-panel-decision-is-name-independent');
+$unstructuredFooter = array(
+    'id' => 'policy:unstructured-footer',
+    'type' => 'FRAME',
+    'name' => 'Footer',
+    'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 240),
+    'children' => array(
+        array('id' => 'policy:unstructured-panel', 'type' => 'FRAME', 'name' => 'Newsletter Signup', 'box' => array('x' => 0, 'y' => 0, 'width' => 1440, 'height' => 240), 'layout' => array('positioning' => 'absolute')),
+    ),
+);
+$unstructuredDecision = $responsiveBreakpointSafetyPolicy->responsiveSafetyDecision(
+    $unstructuredFooter['children'][0],
+    $unstructuredFooter,
+    array('width' => '1440px', 'height' => '240px', 'position' => 'absolute'),
+    390.0,
+    2,
+    null,
+    null
+);
+$assert('responsive_footer_inset_panel_safety' !== ($unstructuredDecision['reason_code'] ?? null), 'responsive-breakpoint-safety-policy-footer-panel-name-alone-does-not-trigger-inset-safety');
 $assert(
     array('width:calc(100% - 48px)', 'max-width:342px', 'left:24px', 'right:auto') === $responsiveBreakpointSafetyPolicy->mobileCenteredTextFallbackDecision(
         array('id' => 'policy:text', 'type' => 'TEXT', 'name' => 'Hero Title'),
