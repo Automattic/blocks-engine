@@ -58,6 +58,10 @@ $assert(
     array('website/assets/main.css') === $linkPaths && 4 === count($planAssets),
     'site-plan loading retains the source link while imported continuation assets remain packaged'
 );
+foreach ($assets as $asset) {
+    $content = (string) ($asset['content'] ?? '');
+    $assert(strlen($content) === ($asset['bytes'] ?? null) && hash('sha256', $content) === ($asset['provenance']['hash'] ?? null), 'chunk metadata identifies the exact emitted content, including continuation preambles');
+}
 
 if (0 < $failures) {
     exit(1);

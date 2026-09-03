@@ -2814,10 +2814,10 @@ final class ArtifactCompiler
                 $chunk['path'] = $paths[$index];
                 $chunk['content'] = 0 === $index ? $content : $continuationPreamble . $content;
                 unset($chunk['content_base64']);
-                $chunk['bytes'] = strlen($content);
+                $chunk['bytes'] = strlen($chunk['content']);
                 $chunk['encoding'] = 'text';
                 $chunk['binary'] = false;
-                $chunk['provenance']['hash'] = hash('sha256', $content);
+                $chunk['provenance']['hash'] = hash('sha256', $chunk['content']);
                 $output[] = $chunk;
             }
         }
