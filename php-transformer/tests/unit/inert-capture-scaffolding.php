@@ -20,6 +20,16 @@ $assert(array() === ($inertIframe['fallbacks'] ?? array()), 'hidden sourceless i
 $assert(array() === ($inertIframe['source_reports']['runtime_islands'] ?? array()), 'hidden sourceless iframe emits no runtime island');
 $assert(str_contains((string) ($inertIframe['serialized_blocks'] ?? ''), 'Visible copy') && ! str_contains((string) ($inertIframe['serialized_blocks'] ?? ''), 'archetype'), 'hidden sourceless iframe emits no block');
 
+$routeAnnouncers = $transform('<main><next-route-announcer><p aria-live="assertive" id="__next-route-announcer__" role="alert" style="border:0;clip:rect(0 0 0 0);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px;word-wrap:normal"></p></next-route-announcer><next-route-announcer><p aria-live="assertive" id="__next-route-announcer__" role="alert" style="border:0;clip:rect(0 0 0 0);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px;word-wrap:normal"></p></next-route-announcer><h1>Visible heading</h1></main>');
+$assert(array() === ($routeAnnouncers['fallbacks'] ?? array()), 'empty visually clipped route announcers emit no fallback');
+$assert(str_contains((string) ($routeAnnouncers['serialized_blocks'] ?? ''), 'Visible heading') && ! str_contains((string) ($routeAnnouncers['serialized_blocks'] ?? ''), 'next-route-announcer'), 'route announcers emit no editable block');
+
+$announcerWithContent = $transform('<main><next-route-announcer><p aria-live="assertive" role="alert" style="clip:rect(0 0 0 0);height:1px;overflow:hidden;position:absolute;width:1px">Page changed</p></next-route-announcer></main>');
+$assert(str_contains((string) ($announcerWithContent['serialized_blocks'] ?? ''), 'Page changed'), 'route announcers with captured content remain editable');
+
+$customElement = $transform('<main><custom-widget aria-label="Custom control"></custom-widget></main>');
+$assert('custom-widget' === ($customElement['fallbacks'][0]['tag'] ?? ''), 'unrelated custom elements remain explicit fallbacks');
+
 $unreferencedStore = $transform('<main><svg data-dom-store style="display:none"><defs><symbol id="unused"><path d="M0 0h1v1z"/></symbol></defs></svg><p>Visible copy</p></main>');
 $assert(array() === ($unreferencedStore['fallbacks'] ?? array()), 'hidden unreferenced SVG store emits no fallback');
 $assert(! str_contains((string) ($unreferencedStore['serialized_blocks'] ?? ''), 'unused'), 'hidden unreferenced SVG store emits no raw HTML');
