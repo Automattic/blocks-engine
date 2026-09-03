@@ -347,7 +347,7 @@ $hiddenNavigationSupportBeforeAuthor = $cssContent($hiddenNavigationSupportResul
 $assert(
     str_contains($hiddenNavigationSupportMarkup, 'Use tab to navigate through the menu items.')
         && str_contains($hiddenNavigationSupportMarkup, 'blocks-engine-hidden-richtext-marker')
-        && str_contains($hiddenNavigationSupportBeforeAuthor, ':where(.blocks-engine-hidden-richtext-marker){display:none}'),
+        && str_contains($hiddenNavigationSupportBeforeAuthor, ':where(.blocks-engine-hidden-richtext-marker){display:none!important}'),
     'an explicitly hidden navigation accessibility support group retains its hidden state',
     $hiddenNavigationSupportMarkup . "\n" . $hiddenNavigationSupportBeforeAuthor
 );
