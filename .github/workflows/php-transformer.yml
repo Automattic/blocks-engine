@@ -70,6 +70,10 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install PHP dependencies
+        working-directory: php-transformer
+        run: composer install --no-interaction --prefer-dist
+
       - name: Install dependencies
         run: npm ci
 
