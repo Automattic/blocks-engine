@@ -26,8 +26,15 @@ const authorCss = `
   .content { position:relative; padding:40px; color:white }
 `;
 const coreEditorCss = '.block-editor-block-list__layout .block-editor-block-list__block{position:relative}';
-const withoutEditorPositionProjection = generated.css.replace(/:root \.editor-styles-wrapper [^{]+\{position:[^}]+\}/g, '');
-assert.notEqual(withoutEditorPositionProjection, generated.css, 'the fixture must compile editor-scoped authored position rules');
+let removedEditorPositionRules = 0;
+const withoutEditorPositionProjection = generated.css.replace(/(:root \.editor-styles-wrapper [^{}]+)\{([^{}]+)\}/g, (rule, selector, declarations) => {
+  if (!/^position:[^;{}]+;?$/.test(declarations)) return rule;
+  removedEditorPositionRules++;
+  return '';
+});
+assert.ok(removedEditorPositionRules > 0, 'the fixture must compile standalone editor-scoped authored position rules');
+assert.match(withoutEditorPositionProjection, /inset:0/, 'the counterfactual retains authored background inset declarations');
+assert.match(withoutEditorPositionProjection, /padding:40px/, 'the counterfactual retains authored content padding declarations');
 assert.doesNotMatch(generated.serializedBlocks, /blocks-engine-layout-shell-editor-inner-blocks/, 'editor-only markers are absent from saved frontend block markup');
 
 const browser = await chromium.launch({ headless: true });
@@ -46,6 +53,8 @@ try {
       rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       position: style.position,
       display: style.display,
+      inset: style.inset,
+      paddingTop: style.paddingTop,
     }];
   })));
   const sourceGeometry = await capture(source);
@@ -59,6 +68,9 @@ try {
   assert.deepEqual(editorGeometry, sourceGeometry, 'editor anchors preserve frontend geometry for an absolute background/content sibling pair');
   assert.deepEqual(editorLayer, { display: 'contents', position: 'static' }, 'the owning editor layer remains box-neutral rather than establishing a positioning box');
   assert.equal(withoutProjectionGeometry.background.position, 'relative', 'the Gutenberg child-carrier default wins when the production editor position projection is absent');
+  assert.equal(withoutProjectionGeometry.background.inset, '0px', 'the counterfactual retains authored background inset geometry');
+  assert.equal(withoutProjectionGeometry.content.paddingTop, '40px', 'the counterfactual retains authored content padding geometry');
+  assert.deepEqual(withoutProjectionGeometry.hero.rect, sourceGeometry.hero.rect, 'the counterfactual retains authored shell geometry');
   assert.notDeepEqual(withoutProjectionGeometry, sourceGeometry, 'the regression fails without the production editor position projection');
   assert.equal(editorGeometry.background.display, 'block', 'native child block carriers retain authored boxes');
   assert.equal(editorGeometry.content.display, 'block', 'native child layout carriers are not mistaken for editor wrappers');
