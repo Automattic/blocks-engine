@@ -62,6 +62,12 @@ $assert('range' === ($inputBlock['attrs']['type'] ?? '') && true === ($inputBloc
 $assert('<input type="range" id="volume" value="4" min="1" max="9" step="2" required>' === ($inputBlock['innerHTML'] ?? ''), 'styled-input-emits-native-markup');
 $assert(isset($registered[AuthoredInputBlockGenerator::class]), 'styled-input-registers-generated-definition');
 
+$runtimeInput = $elementFrom('<label class="search">Search docs<input data-styled data-search data-wp-on--click="actions.search" type="search"></label>', 'input');
+$runtimeLabel = $runtimeInput->parentNode;
+$runtimeInputBlock = $converter->input($runtimeInput, $runtimeLabel instanceof DOMElement ? $runtimeLabel : null, true);
+$assert(array( 'data-search' => '', 'data-styled' => '' ) === ($runtimeInputBlock['attrs']['dataAttributes'] ?? array()), 'runtime-input-retains-safe-data-attributes-only');
+$assert('<label class="search">Search docs<input type="search" data-search="" data-styled=""></label>' === ($runtimeInputBlock['innerHTML'] ?? ''), 'runtime-input-retains-native-label-shell');
+
 $echoes = array();
 $plainSelect = $elementFrom('<select aria-label="Plan"><option value="basic">Basic</option><option selected>Pro &amp; Plus</option></select>', 'select');
 $selectFallback = $converter->select($plainSelect);

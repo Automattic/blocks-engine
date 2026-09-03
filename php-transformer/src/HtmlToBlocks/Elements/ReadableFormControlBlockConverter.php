@@ -49,6 +49,18 @@ final class ReadableFormControlBlockConverter
             return null;
         }
 
+        if ( ($this->isRuntimeDomTarget)($element) ) {
+            $this->runtimeIslandRecorder->recordControl($element);
+            if ( 'input' === $tagName ) {
+                $inputBlock = $this->authoredBlockConverter->input($element, null, true);
+                if ( null !== $inputBlock ) {
+                    return $inputBlock;
+                }
+            }
+
+            return ($this->htmlPreservationBlock)($element);
+        }
+
         if ( 'input' === $tagName && 'search' === FormControlClassifier::controlType($element) ) {
             $label = $this->metadataBuilder->label($element);
             if ( '' === $label ) {
@@ -58,11 +70,6 @@ final class ReadableFormControlBlockConverter
                 $label = 'Search';
             }
 
-            return ($this->htmlPreservationBlock)($element);
-        }
-
-        if ( ($this->isRuntimeDomTarget)($element) ) {
-            $this->runtimeIslandRecorder->recordControl($element);
             return ($this->htmlPreservationBlock)($element);
         }
 
@@ -101,6 +108,12 @@ final class ReadableFormControlBlockConverter
 
                 if ( ($this->isRuntimeDomTarget)($control) ) {
                     $this->runtimeIslandRecorder->recordControl($control);
+                    if ( 1 === count($controls) && 'input' === strtolower($control->tagName) ) {
+                        $inputBlock = $this->authoredBlockConverter->input($control, $element, true);
+                        if ( null !== $inputBlock ) {
+                            return $inputBlock;
+                        }
+                    }
                     return ($this->htmlPreservationBlock)($element);
                 }
 

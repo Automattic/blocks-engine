@@ -98,6 +98,13 @@ $assert('core/html' === ($runtimeLabel['blockName'] ?? ''), 'runtime-wrapped-con
 $assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'runtime-wrapped-control-records-island');
 
 $recorded = array();
+$styledRuntimeLabel = $converter->convert($elementFrom('<label class="search">Search docs<input data-styled data-runtime data-search type="search"></label>', 'label'));
+$assert(AuthoredInputBlockGenerator::NAME === ($styledRuntimeLabel['blockName'] ?? ''), 'styled-runtime-wrapped-control-uses-authored-input');
+$assert('Search docs' === ($styledRuntimeLabel['attrs']['label'] ?? ''), 'styled-runtime-wrapped-control-retains-label');
+$assert(array( 'data-runtime' => '', 'data-search' => '', 'data-styled' => '' ) === ($styledRuntimeLabel['attrs']['dataAttributes'] ?? array()), 'styled-runtime-wrapped-control-retains-data-selectors');
+$assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'styled-runtime-wrapped-control-records-island');
+
+$recorded = array();
 $search = $converter->convert($elementFrom('<input type="search" aria-label="Find">', 'input'));
 $assert('core/html' === ($search['blockName'] ?? ''), 'search-input-is-preserved');
 $assert(array() === $recorded, 'search-input-does-not-record-runtime-target');
