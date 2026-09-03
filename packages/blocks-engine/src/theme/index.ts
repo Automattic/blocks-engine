@@ -19,7 +19,11 @@ export { splitPageChrome } from './chrome-split.js';
 export { segmentPage } from './segment.js';
 export { foundation } from './foundation.js';
 export { buildFallbackDiagnostic, buildTriageRemovalDiagnostic } from './fallback-diagnostic.js';
-export { formToBlocks, SKIPPED_FIELD_KINDS } from './form-blocks.js';
+export {
+  formToBlocks,
+  jetpackFormMaterializer,
+  SKIPPED_FIELD_KINDS,
+} from './form-blocks.js';
 export { ingest } from './ingest.js';
 export { detectLayoutOffsetWrapper } from './layout-offset-wrapper.js';
 export { buildAdminBarAccommodationCss } from './admin-bar-accommodation.js';
@@ -126,7 +130,12 @@ export type {
   ThemeFontFamily,
 } from './font-capture.js';
 export type * from './font-faces.js';
-export type { FormBlocksResult } from './form-blocks.js';
+export type {
+  FormBlocksResult,
+  FormMaterialization,
+  FormMaterializer,
+  UnsupportedFormControl,
+} from './form-blocks.js';
 export type { FontFamilyToken } from './page-reconstruct-helpers.js';
 export type {
   ConvertedSectionInput,

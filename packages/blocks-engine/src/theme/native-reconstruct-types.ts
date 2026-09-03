@@ -2,6 +2,7 @@ import type { FallbackDiagnostic } from './fallback-diagnostic.js';
 import type { FontFamilyToken } from './page-reconstruct-helpers.js';
 import type { CoverageResult } from './section-coverage.js';
 import type { SectionSpec, SectionSpecForm } from './section-spec.js';
+import type { FormMaterializer } from './form-blocks.js';
 
 export interface FormRemainder {
   forms: SectionSpecForm[];
@@ -90,6 +91,8 @@ export interface SectionRenderOptions {
   sourceUrl?: string;
   slug?: string;
   strategy?: SectionStrategy;
+  /** Defaults to source-form preservation; consumers opt into provider adapters. */
+  formMaterializer?: FormMaterializer;
   /**
    * Sink for a strategy's deduped instance CSS (e.g. preserve-dom's content-addressed
    * lib-i rules). Called once per reconstruct with the drained rules so the caller can

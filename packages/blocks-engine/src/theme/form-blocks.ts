@@ -44,6 +44,24 @@
 //
 import type { SectionSpecForm, SectionSpecFormField } from './section-spec.js';
 
+export interface UnsupportedFormControl {
+  kind: SectionSpecFormField['kind'];
+  label: string;
+  reason: string;
+}
+
+export interface FormMaterialization {
+  markup: string;
+  unsupported: UnsupportedFormControl[];
+  diagnostics: string[];
+}
+
+/** Consumer-selected policy for turning captured forms into block markup. */
+export interface FormMaterializer {
+  name: string;
+  materialize(form: SectionSpecForm): FormMaterialization;
+}
+
 export interface FormBlocksResult {
   /** jetpack/contact-form block markup (wrapper + field blocks + submit button). */
   markup: string;
@@ -157,3 +175,19 @@ export function formToBlocks(form: SectionSpecForm): FormBlocksResult {
 
   return { markup, skipped };
 }
+
+/** Opt-in adapter for sites that provide Jetpack Forms. */
+export const jetpackFormMaterializer: FormMaterializer = {
+  name: 'jetpack',
+  materialize(form) {
+    const result = formToBlocks(form);
+    return {
+      markup: result.markup,
+      unsupported: result.skipped.map((field) => ({
+        ...field,
+        reason: 'has no Jetpack form equivalent',
+      })),
+      diagnostics: [],
+    };
+  },
+};
