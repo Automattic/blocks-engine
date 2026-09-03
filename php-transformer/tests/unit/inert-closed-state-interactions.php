@@ -335,6 +335,25 @@ $assert(
     $boundaryMarkerAfterAuthor
 );
 
+$hiddenNavigationSupport = <<<'HTML'
+<wix-dropdown-menu>
+  <nav><ul><li><a href="/">Home</a></li></ul><div id="menu-hiddenA11ySubMenuIndication" style="display:none">Use tab to navigate through the menu items.</div></nav>
+</wix-dropdown-menu>
+HTML;
+
+$hiddenNavigationSupportResult = ( new HtmlTransformer() )->transform($hiddenNavigationSupport)->toArray();
+$hiddenNavigationSupportMarkup = (string) ($hiddenNavigationSupportResult['serialized_blocks'] ?? '');
+$hiddenNavigationSupportBeforeAuthor = $cssContent($hiddenNavigationSupportResult, 'before-author', 'both');
+$hiddenNavigationSupportAfterAuthor = $cssContent($hiddenNavigationSupportResult, 'after-author', 'both');
+$assert(
+    str_contains($hiddenNavigationSupportMarkup, 'Use tab to navigate through the menu items.')
+        && str_contains($hiddenNavigationSupportMarkup, 'blocks-engine-hidden-richtext-marker')
+        && str_contains($hiddenNavigationSupportBeforeAuthor, ':where(.blocks-engine-hidden-richtext-marker){display:none!important}')
+        && ! str_contains($hiddenNavigationSupportAfterAuthor, 'display:revert!important'),
+    'an explicitly hidden navigation accessibility support group retains its hidden state',
+    $hiddenNavigationSupportMarkup . "\n" . $hiddenNavigationSupportBeforeAuthor . "\n" . $hiddenNavigationSupportAfterAuthor
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "inert closed-state interactions: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -937,8 +937,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             $this->styleResolver,
             $this,
-            fn (string $html): string => $this->svgMaterializer->restoreSvgCasing($html),
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            $this->svgMaterializer,
+            $this->runtimeIslands,
             fn (DOMElement $element): array => $this->htmlPreservationBlock($element)
         );
     }
@@ -1954,7 +1954,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
-            $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none}';
+            $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
         }
         if ( str_contains($serializedBlocks, self::SYNTHETIC_IMAGE_FIGURE_CLASS) ) {
             $beforeAuthorCssParts[] = '.' . self::SYNTHETIC_IMAGE_FIGURE_CLASS . '{margin:0}';

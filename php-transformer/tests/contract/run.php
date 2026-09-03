@@ -1700,6 +1700,12 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
+    array('runtime_dom_selectors' => array('.js-search'))
+)->toArray();
+$assert(! str_contains((string) ($runtimeTargetedSearch['serialized_blocks'] ?? ''), '<!-- wp:search') && str_contains((string) ($runtimeTargetedSearch['serialized_blocks'] ?? ''), '<input class="js-search"'), 'runtime-targeted standalone search input retains native markup instead of collapsing to core/search');
+
 $runtimeClockCss = '*{margin:0;padding:0}.site-footer{display:flex}.footer-left{display:flex;flex-direction:column}.clock-time{font-size:.75rem;font-weight:700}.clock-date{font-size:.7rem;min-height:1.2em}.blink-colon{animation:blink 1s infinite}#timezone{margin-left:.2rem;opacity:.6}';
 $runtimeClock = ( new HtmlTransformer() )->transform(
     '<footer class="site-footer"><div id="clock-container" class="footer-left"><div id="clock-time" class="clock-time"><!-- Initial State: 00:00 --><span id="hours">12</span><span id="colon" class="blink-colon">:</span><span id="minutes">28</span><span id="ampm">PM</span><span id="timezone">(GMT -4)</span></div><div id="clock-date" class="clock-date">Saturday</div></div></footer>',
@@ -2757,6 +2763,7 @@ $assert(str_contains($expandableHeaderSearchSerialized, '"showLabel":false') && 
 $assert(! str_contains($expandableHeaderSearchSerialized, '/apps/search') && ! str_contains($expandableHeaderSearchSerialized, 'name="q"'), 'native search migration removes provider-specific endpoint semantics');
 $assert(! str_contains($expandableHeaderSearchSerialized, '"className":"provider-search"') && str_contains($expandableHeaderSearchSerialized, 'search-icon blocks-engine-source-search-icon-') && ! str_contains($expandableHeaderSearchSerialized, 'search-close'), 'native search cluster absorbs provider wrappers while carrying the trigger presentation onto core search');
 $assert(str_contains($expandableHeaderSearchCss, 'flex:0 0 24px!important;width:24px!important;height:80px!important') && str_contains($expandableHeaderSearchCss, 'width:12px;height:13px') && str_contains($expandableHeaderSearchCss, 'data:image/svg+xml,'), 'native icon search replays the source trigger flex geometry and exact SVG artwork');
+$assert(str_contains($expandableHeaderSearchCss, 'viewBox%3D') && ! str_contains($expandableHeaderSearchCss, 'viewbox%3D'), 'native search icon data preserves case-sensitive SVG attribute names');
 
 $viewBoxOnlyHeaderSearch = ( new HtmlTransformer() )->transform(
     '<header><form role="search"><input name="s" type="search"></form><button class="search-trigger"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></button></header>'
@@ -5210,7 +5217,7 @@ $assert(str_contains((string) ($editorStaticStateResult['serialized_blocks'] ?? 
 
 $hiddenRichTextMarker = (new HtmlTransformer())->transform('<style>.scroll-target span{display:none}</style><div class="scroll-target"><span>Bottom of page</span></div>')->toArray();
 $hiddenRichTextCss = implode("\n", array_column($hiddenRichTextMarker['assets'] ?? array(), 'content'));
-$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
+$assert(str_contains((string) ($hiddenRichTextMarker['serialized_blocks'] ?? ''), 'blocks-engine-hidden-richtext-marker') && str_contains($hiddenRichTextCss, ':where(.blocks-engine-hidden-richtext-marker){display:none!important}'), 'hidden RichText selector carriers collapse their synthetic paragraph instead of adding an empty editable line');
 
 $hiddenEmptyResult = (new HtmlTransformer())->transform(
     '<main><div class="caption" style="display:none;font-size:90%"></div>'
