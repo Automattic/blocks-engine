@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+
 /** Shared predicates for comparing CSS values without changing their authored form. */
 final class CssValueInspector
 {

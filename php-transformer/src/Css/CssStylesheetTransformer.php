@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /**
  * Safely visits style-rule selector preludes without parsing or reserializing CSS.

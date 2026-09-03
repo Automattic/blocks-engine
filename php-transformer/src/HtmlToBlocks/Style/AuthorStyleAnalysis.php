@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use DOMElement;
 
 /** Per-transform author stylesheet inputs, source indexes, and selector state. */

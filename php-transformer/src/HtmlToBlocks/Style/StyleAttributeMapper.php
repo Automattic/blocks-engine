@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+
 /**
  * Translates a block element's resolved CSS declarations (inline style plus the
  * matched `<style>`/linked CSS rules the transformer already resolves) into the

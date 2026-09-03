@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
+namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
 /** Builds logged-in-only offsets for authored viewport-anchored layers. */
 final class AdminBarAccommodation

@@ -15,9 +15,11 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EmittedCoreBlockContracts;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
@@ -128,12 +130,12 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryStat
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\RevealAnimationSettler;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatcher;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssSelectorMatchCache;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssStylesheetTransformer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedBlockStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\GeneratedSupportStylesheetState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjectionContext;
@@ -185,45 +187,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public static function emittedCoreBlockContracts(): array
     {
-        return array(
-            'core/accordion' => 'html_transformer_contract',
-            'core/accordion-heading' => 'html_transformer_contract',
-            'core/accordion-item' => 'html_transformer_contract',
-            'core/accordion-panel' => 'html_transformer_contract',
-            'core/audio' => 'html_transformer_contract',
-            'core/button' => 'html_transformer_contract',
-            'core/buttons' => 'html_transformer_contract',
-            'core/code' => 'html_transformer_contract',
-            'core/column' => 'html_transformer_contract',
-            'core/columns' => 'html_transformer_contract',
-            'core/cover' => 'html_transformer_contract',
-            'core/details' => 'html_transformer_contract',
-            'core/embed' => 'html_transformer_contract',
-            'core/file' => 'html_transformer_contract',
-            'core/gallery' => 'html_transformer_contract',
-            'core/group' => 'html_transformer_contract',
-            'core/heading' => 'html_transformer_contract',
-            'core/image' => 'html_transformer_contract',
-            'core/list' => 'html_transformer_contract',
-            'core/list-item' => 'html_transformer_contract',
-            'core/math' => 'html_transformer_contract',
-            'core/media-text' => 'html_transformer_contract',
-            'core/navigation' => 'html_transformer_contract',
-            'core/navigation-link' => 'html_transformer_contract',
-            'core/navigation-submenu' => 'html_transformer_contract',
-            'core/paragraph' => 'html_transformer_contract',
-            'core/preformatted' => 'html_transformer_contract',
-            'core/pullquote' => 'html_transformer_contract',
-            'core/quote' => 'html_transformer_contract',
-            'core/search' => 'html_transformer_contract',
-            'core/separator' => 'html_transformer_contract',
-            'core/shortcode' => 'html_transformer_contract',
-            'core/social-link' => 'html_transformer_contract',
-            'core/social-links' => 'html_transformer_contract',
-            'core/spacer' => 'html_transformer_contract',
-            'core/table' => 'html_transformer_contract',
-            'core/video' => 'html_transformer_contract',
-        );
+        return EmittedCoreBlockContracts::map();
     }
 
     /**

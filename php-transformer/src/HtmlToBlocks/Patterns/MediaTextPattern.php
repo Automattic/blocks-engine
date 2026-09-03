@@ -396,7 +396,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
      */
     private function declaresUnresolvableGateValue(string $style, array $properties): bool
     {
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $separator = strpos($declaration, ':');
             if ( false === $separator ) {
                 continue;
@@ -599,7 +599,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
     {
         $declarations = array();
         $important = array();
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $separator = strpos($declaration, ':');
             if ( false === $separator ) {
                 continue;
@@ -637,7 +637,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $tracks = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevelWhitespace($template);
+        $tracks = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($template);
         if ( 2 !== count($tracks) ) {
             return null;
         }
@@ -695,7 +695,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
         $direction = '';
         $directionIsImportant = false;
         $hasDirection = false;
-        foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
+        foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             $separator = strpos($declaration, ':');
             if ( false === $separator ) {
                 continue;
@@ -715,7 +715,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
                     continue;
                 }
                 $candidate = 'row';
-                foreach ( \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevelWhitespace($value) as $component ) {
+                foreach ( \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($value) as $component ) {
                     if ( in_array($component, array( 'row', 'row-reverse', 'column', 'column-reverse' ), true) ) {
                         $candidate = $component;
                         break;
@@ -791,7 +791,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             $wraps = array( 'nowrap', 'wrap', 'wrap-reverse' );
             $seenDirection = false;
             $seenWrap = false;
-            $components = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevelWhitespace($value);
+            $components = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($value);
             if ( array() === $components || 2 < count($components) ) {
                 return false;
             }
@@ -844,7 +844,7 @@ final class MediaTextPattern implements PatternRecognizerInterface
             return true;
         }
 
-        $tracks = \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueSplitter::splitTopLevelWhitespace($value);
+        $tracks = \Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter::splitTopLevelWhitespace($value);
         if ( array() === $tracks ) {
             return false;
         }
