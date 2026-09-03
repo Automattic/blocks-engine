@@ -8,6 +8,8 @@ import {
   type StaticImgRef,
 } from '../theme/assets-static.js';
 import { ingest } from '../theme/ingest.js';
+import { rewriteHtmlImageSrcs as rewriteCarriedHtmlImageSrcs } from '../theme/source-assets.js';
+import { themeAssetUrl } from '../theme/theme-asset-url.js';
 import type { SiteModel } from '../theme/types.js';
 
 const fixtureRoot = join(import.meta.dirname, 'fixtures/site');
@@ -70,6 +72,21 @@ describe('theme static assets', () => {
     ).toBe(
       `<img src="/wp-content/themes/calm-theme/assets/logo.png"><img alt="Hero" src='/wp-content/themes/calm-theme/assets/images/hero.jpg'>`
     );
+  });
+
+  it('uses one normalized theme URL policy for static and carried image rewrites', () => {
+    const expected = '/wp-content/themes/calm-theme/assets/logo.png';
+    const refs: StaticImgRef[] = [{
+      ref: 'logo.png',
+      themeRel: '/assets/logo.png',
+      sourcePath: '/tmp/logo.png',
+    }];
+
+    expect(themeAssetUrl('calm-theme', '/assets/logo.png')).toBe(expected);
+    expect(rewriteHtmlImageSrcs('<img src="logo.png">', refs, 'calm-theme')).toContain(expected);
+    expect(
+      rewriteCarriedHtmlImageSrcs('<img src="logo.png">', [{ ref: 'logo.png', themeRel: '/assets/logo.png' }], 'calm-theme'),
+    ).toContain(expected);
   });
 
   it('leaves unrelated src values untouched', () => {

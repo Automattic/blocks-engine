@@ -15,6 +15,7 @@ import { extractSourceLandmarksFromHtml } from './region-census.js';
 import { reconcileRegions, type PlacedRegion, type RegionSelectionReport } from './region-audit.js';
 import { sectionExtract } from './section-extract.js';
 import { collectSourceAssets, type ImgAssetRef, type MediaAsset } from './source-assets.js';
+import { themeAssetUrl } from './theme-asset-url.js';
 import { hasCarriedSourceCss, shouldCarrySourceCss } from './source-css-carry.js';
 import {
   collectRemoteImageAssets,
@@ -351,10 +352,6 @@ function mergeCarriedImgAssets(
   }
 
   return sortAssetFiles([...byRelPath.values()]);
-}
-
-function themeAssetUrl(themeSlug: string, themeRel: string): string {
-  return `/wp-content/themes/${themeSlug}/${themeRel.replace(/^\/+/, '')}`;
 }
 
 function buildRegionAuditDiagnostics(

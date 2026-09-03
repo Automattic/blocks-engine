@@ -1,5 +1,6 @@
 import { statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { themeAssetUrl } from './theme-asset-url.js';
 import type { AssetFile, SiteModel, SitePage } from './types.js';
 
 export interface StaticImgRef {
@@ -188,10 +189,6 @@ function compareAssetFiles(a: AssetFile, b: AssetFile): number {
   const rel = a.relPath.localeCompare(b.relPath);
   if (rel !== 0) return rel;
   return (a.sourcePath ?? '').localeCompare(b.sourcePath ?? '');
-}
-
-function themeAssetUrl(themeSlug: string, themeRel: string): string {
-  return `/wp-content/themes/${themeSlug}/${themeRel.replace(/^\/+/, '')}`;
 }
 
 function isInside(root: string, file: string): boolean {
