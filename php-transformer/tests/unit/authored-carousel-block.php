@@ -59,4 +59,26 @@ $assert(720 === ($slideshow['attrs']['viewportHeight'] ?? null) && 500 === ($sli
 $assert(1 === ($slideshow['attrs']['initialSlide'] ?? null) && true === ($slideshow['attrs']['showDots'] ?? null) && true === ($slideshow['attrs']['fullBleed'] ?? null), 'active slide, dot navigation, and viewport breakout survive conversion');
 $assert(str_contains($slideshowMarkup, '--slideshow') && 2 === substr_count($slideshowMarkup, 'data-carousel-index=') && str_contains($slideshowMarkup, '--blocks-engine-carousel-height:720px'), 'slideshow markup carries stacked presentation, indexed dots, and source height');
 
+$boundaryItems = '';
+for ( $index = 1; $index <= 6; $index++ ) {
+    $boundaryItems .= '<div data-hook="group-view" aria-hidden="false"><div data-idx="' . ($index - 1) . '" data-hook="item-container"><img src="award-' . $index . '.jpg" alt="Award ' . $index . '"></div></div>';
+}
+$boundaryRailSource = '<div class="pro-gallery slider"><div role="region"><div class="gallery-horizontal-scroll"><div class="gallery-horizontal-scroll-inner">' . $boundaryItems . '</div></div><button data-hook="nav-arrow-next" aria-label="Next Item"></button></div></div>';
+$boundaryRailResult = (new HtmlTransformer())->transform($boundaryRailSource)->toArray();
+$boundaryRail = $boundaryRailResult['blocks'][0] ?? array();
+$assert(
+    'custom/authored-carousel' === ($boundaryRail['blockName'] ?? null)
+        && 6 === count($boundaryRail['innerBlocks'] ?? array())
+        && 'track' === ($boundaryRail['attrs']['presentation'] ?? null)
+        && 0 === ($boundaryRail['attrs']['initialSlide'] ?? null)
+        && false === ($boundaryRail['attrs']['wrap'] ?? null),
+    'a repeated scroll rail with one boundary-state direction lowers to an editable track carousel'
+);
+
+$unrelatedGallery = (new HtmlTransformer())->transform('<div class="photo-gallery"><div class="product-scroll"><div class="item"><img src="one.jpg"></div><div class="item"><img src="two.jpg"></div></div><a href="/next">Next collection</a></div>')->toArray();
+$assert(
+    'custom/authored-carousel' !== ($unrelatedGallery['blocks'][0]['blockName'] ?? null),
+    'an unrelated gallery link does not turn a repeated scroll collection into a carousel'
+);
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

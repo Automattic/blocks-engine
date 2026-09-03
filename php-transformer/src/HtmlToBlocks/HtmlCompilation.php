@@ -10062,17 +10062,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
                 continue;
             }
-            $identity = strtolower(implode(' ', array(
+            $metadataIdentity = strtolower(implode(' ', array(
                 $this->attr($candidate, 'aria-label'),
                 $this->attr($candidate, 'title'),
                 $this->attr($candidate, 'class'),
                 $this->attr($candidate, 'data-hook'),
-                $candidate->textContent ?? '',
             )));
+            $text = strtolower(trim($candidate->textContent ?? ''));
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+                && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
+            ) {
+                continue;
+            }
+            $identity = $metadataIdentity . ' ' . $text;
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        if ( ! $hasPrevious || ! $hasNext ) {
+        // Boundary-state carousels commonly omit the unavailable direction.
+        if ( ! $hasPrevious && ! $hasNext ) {
             return null;
         }
 
@@ -10111,14 +10118,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $slides[] = $slide;
         }
 
-        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'))));
+        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
+        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
         $initialSlide = 0;
         foreach ( $items as $index => $item ) {
-            if ( '' !== $this->attr($item, 'aria-hidden') || '' !== $this->attr($item, 'data-slideshow-slide') ) {
+            if ( '' !== $this->attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== $this->attr($item, 'aria-hidden')) ) {
                 $presentation = 'slideshow';
             }
-            if ( 'false' === strtolower(trim($this->attr($item, 'aria-hidden'))) || str_contains(' ' . strtolower($this->attr($item, 'class')) . ' ', ' active ') ) {
+            if ( ('slideshow' === $presentation && 'false' === strtolower(trim($this->attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower($this->attr($item, 'class')) . ' ', ' active ') ) {
                 $initialSlide = $index;
             }
         }
@@ -10173,7 +10181,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $attributes = array(
             'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
             'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
-            'wrap' => true,
+            'wrap' => $hasPrevious && $hasNext,
             'presentation' => $presentation,
             'slideCount' => count($slides),
             'initialSlide' => $initialSlide,
@@ -10204,7 +10212,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $items = array();
         foreach ( $list->childNodes as $child ) {
-            if ( $child instanceof DOMElement && ('listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName)) ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+                $items[] = $child;
+                continue;
+            }
+
+            $identity = strtolower(implode(' ', array(
+                $child->tagName,
+                $this->attr($child, 'class'),
+                $this->attr($child, 'data-hook'),
+                $this->attr($child, 'data-testid'),
+            )));
+            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
+                && 0 < $child->getElementsByTagName('img')->length
+            ) {
                 $items[] = $child;
             }
         }
