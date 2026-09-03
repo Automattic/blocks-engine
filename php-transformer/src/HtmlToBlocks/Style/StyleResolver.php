@@ -2365,6 +2365,7 @@ final class StyleResolver implements ElementPresentationResolver
         $safe = array_flip(array(
             '-webkit-background-clip',
             '-webkit-text-fill-color',
+            'alignment-baseline',
             'background',
             'background-attachment',
             'background-clip',
@@ -2375,6 +2376,7 @@ final class StyleResolver implements ElementPresentationResolver
             'background-repeat',
             'background-size',
             'aspect-ratio',
+            'baseline-shift',
             'border',
             'border-bottom',
             'border-bottom-color',
@@ -2409,6 +2411,7 @@ final class StyleResolver implements ElementPresentationResolver
             'column-gap',
             'direction',
             'display',
+            'dominant-baseline',
             'flex-direction',
             'flex-flow',
             'flex',
@@ -2462,7 +2465,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     /**
      * The subset of a declaration map needed to resolve values outside the
-     * classification allow-list: inheritable SVG paint and custom properties.
+     * classification allow-list: SVG paint/layout and custom properties.
      * Keeping this stream separate lets SVG materialization and structural
      * `var()` resolution share the real matched cascade without changing
      * general classification.
@@ -2472,7 +2475,7 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function cascadeRelevantDeclarations(array $declarations): array
     {
-        static $paintProperties = array(
+        static $cascadeProperties = array(
             'color' => true,
             'fill' => true,
             'fill-opacity' => true,
@@ -2483,7 +2486,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         $filtered = array();
         foreach ( $declarations as $name => $value ) {
-            if ( str_starts_with($name, '--') || isset($paintProperties[$name]) ) {
+            if ( str_starts_with($name, '--') || isset($cascadeProperties[$name]) ) {
                 $filtered[$name] = $value;
             }
         }
@@ -2980,6 +2983,21 @@ final class StyleResolver implements ElementPresentationResolver
         return false === strpos($declared, 'var(')
             ? $declared
             : $this->expandCssVariableReferences($declared, $this->cascadedCustomProperties($element));
+    }
+
+    public function specificityResolvedSvgCascadeValue(DOMElement $element, string $property): ?string
+    {
+        if ( ! in_array($property, array('alignment-baseline', 'baseline-shift', 'dominant-baseline'), true) ) {
+            return null;
+        }
+
+        $declared = trim((string) ($this->cssDeclarations($this->specificityResolvedPresentationStyle($element))[$property] ?? ''));
+        $declared = trim(preg_replace('/\s*!\s*important\s*$/i', '', $declared) ?? $declared);
+        if ( '' === $declared ) {
+            return null;
+        }
+
+        return $declared;
     }
 
     /**
