@@ -9,8 +9,9 @@ final class ThemeToggleBlockGenerator
     public const LOCAL_NAME = 'theme-toggle';
 
     /** @return array<string, mixed> */
-    public function definition(string $blockName): array
+    public function definition(string $namespace): array
     {
+        $blockName = $namespace . '/' . self::LOCAL_NAME;
         $attributes = array(
             'ariaLabel' => array('type' => 'string', 'default' => 'Toggle theme'),
             'className' => array('type' => 'string', 'default' => ''),
