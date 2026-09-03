@@ -82,7 +82,7 @@ $assert('core/button' === ($fragmentCta['blocks'][0]['innerBlocks'][0]['blockNam
 $streamRow = ( new HtmlTransformer() )->transform('<style>.stream-btn{display:inline-flex;padding:10px 16px;background:#135e96;color:#fff;border-radius:4px}</style><div><a class="stream-btn" href="/listen">Listen live</a><a class="stream-btn" href="/schedule">View schedule</a></div>', array())->toArray();
 $streamRowCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $streamRow['assets'] ?? array()));
 $assert('core/buttons' === ($streamRow['blocks'][0]['blockName'] ?? '') && 2 === count($streamRow['blocks'][0]['innerBlocks'] ?? array()), '22: direct anchor CTA rows group explicit stylesheet surfaces as buttons', json_encode($streamRow['blocks'] ?? array()));
-$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex;padding:10px 16px;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
+$assert(2 === substr_count($streamRowCss, '> :where(.wp-block-button__link)') && str_contains($streamRowCss, '{display:inline-flex!important;padding:10px 16px!important;background:#135e96'), '23: direct anchor CTA stylesheet selectors remain on both rendered button links', $streamRowCss);
 
 $buttonResult = ( new HtmlTransformer() )->transform('<button style="padding:12px 18px;background:#135e96;color:#fff">Buy tickets</button>', array())->toArray();
 $nativeButton = $buttonResult['blocks'][0]['innerBlocks'][0] ?? array();

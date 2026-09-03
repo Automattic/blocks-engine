@@ -54,7 +54,7 @@ $authorAssets = $sourceAssets($authorOrder, 'author-css');
 $assert(1 === count($authorAssets), 'G2: transform emits exactly one author-css asset');
 $normalizedAuthorCss = preg_replace('/\s+/', '', (string) ($authorAssets[0]['content'] ?? '')) ?? '';
 $assert(
-    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex;padding:1rem;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
+    '@layercontract;.contract-author-only{color:#123456}.desktop-nava{color:#fff}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button){width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):where(.wp-block-buttons)>:where(.wp-block-button)>:where(.wp-block-button__link){width:100%!important;max-width:100%!important}:where(.blocks-engine-control-6494fb2a0d77-3):not(.blocks-engine-specificity-class-6494fb2a0d77-1)>:where(.wp-block-button__link){display:inline-flex!important;padding:1rem!important;background:#123456}@media(max-width:700px){.desktop-nav{display:none}.mobile-nav{background:rgba(0,0,0,.9)}}' === $normalizedAuthorCss,
     'G2: author-css contains only its leading at-rule preamble and rewritten author stylesheet'
 );
 $assert('author' === ($authorAssets[0]['stylesheet_placement'] ?? ''), 'G4: author-css record declares author placement');
@@ -160,7 +160,7 @@ $beforeFamilies = array(
     'css-owned editor wrappers' => ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks,:root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}',
     'css-owned-flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned-flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
-    'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
+    'css-owned-grid' => ':root :where(.blocks-engine-css-owned-grid)>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}',
     'positioned-fragment-link-carrier' => ':where(.blocks-engine-positioned-fragment-link-carrier){display:contents!important}',
     'empty-flex-item' => ':where(.blocks-engine-empty-flex-item){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}',
     'list-navigation alignment' => '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}',

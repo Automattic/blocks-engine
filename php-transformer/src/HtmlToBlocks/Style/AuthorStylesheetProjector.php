@@ -115,6 +115,7 @@ final class AuthorStylesheetProjector
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
+        $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude, $context);
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude, $context);
@@ -137,6 +138,67 @@ final class AuthorStylesheetProjector
             return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
         }
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
+    }
+
+    /**
+     * core/button defaults and support styles are emitted after carried author CSS.
+     * Keep source button declarations authoritative after their selector is lowered
+     * to a generated marker, including media-query overrides.
+     */
+    private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
+            return $body;
+        }
+
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                $declarations[] = $declaration;
+                continue;
+            }
+            $name = trim(substr($declaration, 0, $colon));
+            $value = trim(substr($declaration, $colon + 1));
+            if ( '' === $name || '' === $value || ! $this->isButtonLinkLayoutProperty($name) || preg_match('/\s*!important\s*$/i', $value) ) {
+                $declarations[] = $declaration;
+                continue;
+            }
+            $declarations[] = $name . ':' . $value . '!important';
+        }
+        return implode(';', $declarations);
+    }
+
+    private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                if ( 'a' === strtolower($element->tagName)
+                    && '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function isButtonLinkLayoutProperty(string $property): bool
+    {
+        return 'display' === $property
+            || 'gap' === $property
+            || str_starts_with($property, 'flex-')
+            || str_starts_with($property, 'align-')
+            || str_starts_with($property, 'justify-')
+            || 'width' === $property
+            || 'height' === $property
+            || str_starts_with($property, 'min-')
+            || str_starts_with($property, 'max-')
+            || 'padding' === $property
+            || str_starts_with($property, 'padding-');
     }
 
     private function withoutCollapsedButtonProjectedWidths(string $prelude, string $body): ?string
@@ -461,7 +523,9 @@ final class AuthorStylesheetProjector
             $hasNonProjected = false;
             foreach ( $matches as $element ) {
                 $path = $element->getNodePath() ?? '';
-                if ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
+                if ( $this->isPreservedCodeSyntaxElement($element) ) {
+                    $hasNonProjected = true;
+                } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     $inlineLayoutCarriers = true;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
@@ -498,6 +562,20 @@ final class AuthorStylesheetProjector
             }
         }
         return implode(',', $rewritten);
+    }
+
+    private function isPreservedCodeSyntaxElement(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'code' !== strtolower($ancestor->tagName) ) {
+                continue;
+            }
+
+            return $ancestor->parentNode instanceof DOMElement
+                && 'pre' === strtolower($ancestor->parentNode->tagName);
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $parsed @return list<string> */
@@ -793,6 +871,8 @@ final class AuthorStylesheetProjector
             $marker = $context->selectorProjections->tagMarker((string) $typeSpan['name']);
             if ( '' !== $marker ) {
                 $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => ':where(.' . $marker . ')' . $this->typeSpecificityShim($context) );
+            } elseif ( 'code' === strtolower((string) $typeSpan['name']) ) {
+                $replacements[$typeSpan['start']] = array( 'end' => $typeSpan['end'], 'value' => 'code:not(.' . $context->authorStyles->classSpecificityShim() . ')' );
             }
         }
         if ( '' !== $rightmostInsertion ) {

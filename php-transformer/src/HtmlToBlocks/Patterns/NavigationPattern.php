@@ -40,6 +40,16 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        // Repeated heading/list pairs are document navigation sections, not one
+        // flat menu. Let normal heading and list conversion preserve each pair.
+        if ( $this->isDirectSectionedListNavigation($element)
+            || ( in_array(strtolower($element->tagName), array( 'ul', 'ol' ), true)
+                && $element->parentNode instanceof DOMElement
+                && $this->isDirectSectionedListNavigation($element->parentNode) )
+        ) {
+            return null;
+        }
+
         if ( $this->hasNavigationChrome($element) ) {
             return null;
         }
@@ -692,6 +702,43 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return null;
+    }
+
+    private function isDirectSectionedListNavigation(DOMElement $element): bool
+    {
+        if ( 'nav' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $expectsLabel = true;
+        $sectionCount = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            if ( $expectsLabel ) {
+                if ( ! $this->isSectionLabelElement($child) ) {
+                    return false;
+                }
+                $expectsLabel = false;
+                continue;
+            }
+
+            if ( ! in_array(strtolower($child->tagName), array( 'ul', 'ol' ), true) ) {
+                return false;
+            }
+            ++$sectionCount;
+            $expectsLabel = true;
+        }
+
+        return $expectsLabel && 2 <= $sectionCount;
     }
 
     /** @return array<string, mixed> */

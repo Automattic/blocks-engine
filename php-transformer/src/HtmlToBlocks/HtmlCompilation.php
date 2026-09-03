@@ -30,6 +30,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -172,6 +173,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private const MAX_INTERACTION_CANDIDATES = 100;
     private const MAX_CAPTURED_LAYOUT_SOURCE_NESTING = 20;
+    private string $capturedRootTheme = '';
 
     /**
      * Core blocks this transformer can produce, keyed by the contract that
@@ -1178,6 +1180,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
         $staticCss = (string) ($options['static_css'] ?? '');
+        $this->capturedRootTheme = $this->documentRootTheme($html);
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
             $this->stylesheetAnalysisComposer->stylesheetPayloads($html, $staticCss, $options)
         );
@@ -2008,9 +2011,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_GRID_CLASS) ) {
             // Core flow margins are not part of a source grid contract; the
-            // carried grid geometry (gap) owns the spacing between items. The
-            // carrier rides groups and lists, so the reset is class-scoped.
-            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{margin-block-start:0;margin-block-end:0}';
+            // carried grid geometry (gap) owns the spacing between items. Native
+            // headings retain their source browser-default margins unless the
+            // author stylesheet overrides them.
+            $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
+        }
+        if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
+            // Core makes the inner code element a full-width break-spaces block.
+            // Source pre/code is inline and inherits the preformatted whitespace
+            // contract; restore that shape while authored code rules remain free
+            // to choose typography.
+            $beforeAuthorCssParts[] = ':root :where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_INLINE_FLOW_CLASS) ) {
             // Block delimiters may acquire whitespace when Gutenberg saves the
@@ -2420,6 +2431,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $this->innerHtml($body);
+    }
+
+    private function documentRootTheme(string $html): string
+    {
+        if ( ! preg_match('/<html\b[^>]*\bclass\s*=\s*(["\'])(.*?)\1/is', $html, $match) ) {
+            return '';
+        }
+        $classes = preg_split('/\s+/', trim(html_entity_decode($match[2], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'))) ?: array();
+        if ( in_array('dark', $classes, true) ) {
+            return 'dark';
+        }
+        return in_array('light', $classes, true) ? 'light' : '';
     }
 
     /** @return list<string> */
@@ -3020,6 +3043,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ('dialog' === $tagName && 'true' === $this->attr($element, 'data-blocks-engine-captured-dialog')) {
             return $this->capturedDialogBlock($element, $fallbacks);
+        }
+
+        if ( 'button' === $tagName ) {
+            $themeToggle = $this->themeToggleBlock($element);
+            if ( null !== $themeToggle ) {
+                return $themeToggle;
+            }
         }
 
         if ( $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
@@ -4067,6 +4097,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
     {
+        if ( $this->isAtomicDirectInlineLayoutItem($element) ) {
+            return true;
+        }
+
         if ( ! $this->sourceElementClassifier->isInlineContentElement(strtolower($element->tagName))
             || '' === trim($this->runtime->stripAllTags($this->innerHtml($element))) ) {
             return false;
@@ -4078,6 +4112,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
                 return false;
             }
+        }
+
+        // A direct semantic format followed by a block starts an inline run in
+        // the parent's flow. Keep its paragraph carrier boxless so the following
+        // block retains the source line box and default margins.
+        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+            && $this->isDirectFormattingRunBeforeBlock($element)
+        ) {
+            return true;
         }
 
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
@@ -4109,6 +4152,71 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // but a valid RichText paragraph carrier can host that box directly.
         // Avoid wrapping the paragraph in an otherwise redundant core/group.
         return $this->hasAuthorSemanticMarker($element);
+    }
+
+    private function isDirectFormattingRunBeforeBlock(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! in_array(strtolower($element->tagName), array( 'abbr', 'b', 'cite', 'code', 'em', 'i', 'kbd', 'mark', 'samp', 'small', 'strong', 'sub', 'sup', 'time', 'var' ), true)
+            || ! $parent instanceof DOMElement
+            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+        ) {
+            return false;
+        }
+
+        for ( $sibling = $element->nextSibling; null !== $sibling; $sibling = $sibling->nextSibling ) {
+            if ( XML_TEXT_NODE === $sibling->nodeType && '' === trim($sibling->textContent ?? '') ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $sibling->nodeType ) {
+                continue;
+            }
+
+            return $sibling instanceof DOMElement
+                && ! $this->sourceElementClassifier->isInlineSourceElement(strtolower($sibling->tagName));
+        }
+
+        return false;
+    }
+
+    private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'a' !== $tagName && ! $this->sourceElementClassifier->isInlineContentElement($tagName) ) {
+            return false;
+        }
+
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+            return false;
+        }
+
+        $itemCount = 0;
+        $allowsAnchors = 'nav' === strtolower($parent->tagName);
+        $hasNonAnchor = false;
+        foreach ( $parent->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || ( ( ! $allowsAnchors || 'a' !== strtolower($child->tagName) ) && ! $this->sourceElementClassifier->isInlineContentElement(strtolower($child->tagName)) )
+                || '' === trim($this->runtime->stripAllTags($this->innerHtml($child)))
+            ) {
+                return false;
+            }
+            $hasNonAnchor = $hasNonAnchor || 'a' !== strtolower($child->tagName);
+            ++$itemCount;
+        }
+
+        // An all-anchor nav is represented by core/navigation. Only mixed-token
+        // navigation (for example breadcrumbs) needs atomic inline carriers.
+        return 2 <= $itemCount && ( ! $allowsAnchors || $hasNonAnchor );
     }
 
     /** @return array<string, mixed>|null */
@@ -6237,6 +6345,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         if ( ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($element) ) {
             return null;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement && $this->requiresStandaloneInlineLayoutLeaf($child) ) {
+                return null;
+            }
         }
 
         $content = $this->richTextMaterializer->content($element);
@@ -10115,6 +10229,78 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function themeToggleBlock(DOMElement $element): ?array
+    {
+        $identity = strtolower(trim($this->attr($element, 'class') . ' ' . $this->attr($element, 'data-testid')));
+        if ( 1 !== preg_match('/(?:^|[^a-z0-9])theme[-_ ]?toggle(?:[^a-z0-9]|$)/', $identity)
+            || 'toggle theme' !== strtolower(trim($this->attr($element, 'aria-label')))
+            || ! preg_match('/\.dark(?![-_a-z0-9])/i', $this->authorStyles()->combinedCss())
+            || ! preg_match('/:root\s*:\s*not\(\s*\.dark\s*\)/i', $this->authorStyles()->combinedCss())
+        ) {
+            return null;
+        }
+
+        $svg = null;
+        $label = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'svg' === strtolower($child->tagName) && null === $svg ) {
+                $svg = $child;
+            } elseif ( 'span' === strtolower($child->tagName) && null === $label && '' !== trim($child->textContent ?? '') ) {
+                $label = $child;
+            }
+        }
+        if ( ! $svg instanceof DOMElement || ! $label instanceof DOMElement || ! $this->svgHasDrawableContent($svg) ) {
+            return null;
+        }
+        if ( 1 !== preg_match('/(?:^|[^a-z0-9])theme[-_ ]?toggle[-_ ]?label(?:[^a-z0-9]|$)/', strtolower(trim($this->attr($label, 'class')))) ) {
+            return null;
+        }
+
+        $icon = $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($svg));
+        if ( '' === $icon || ! $this->isSafeSvgContent($icon) ) {
+            return null;
+        }
+        if ( ! in_array($this->capturedRootTheme, array( 'dark', 'light' ), true) ) {
+            return null;
+        }
+        $labelText = trim($label->textContent ?? '');
+        if ( 0 !== $label->childElementCount || 1 !== preg_match('/^(Light|Dark)\s+Mode$/i', $labelText, $labelMatch) ) {
+            return null;
+        }
+        $sourceOffersLight = 'light' === strtolower($labelMatch[1]);
+        $lightLabel = $sourceOffersLight ? $labelText : 'Light' . substr($labelText, strlen($labelMatch[1]));
+        $darkLabel = $sourceOffersLight ? 'Dark' . substr($labelText, strlen($labelMatch[1])) : $labelText;
+        $iconIdentity = strtolower($this->attr($svg, 'class') . ' ' . $this->attr($svg, 'data-lucide'));
+        $isSun = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?sun(?:[^a-z0-9]|$)/', $iconIdentity);
+        $isMoon = 1 === preg_match('/(?:^|[^a-z0-9])(?:lucide[-_ ])?moon(?:[^a-z0-9]|$)/', $iconIdentity);
+        if ( ! $isSun && ! $isMoon ) {
+            return null;
+        }
+        $sunIcon = '<svg class="lucide lucide-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"></path></svg>';
+        $moonIcon = '<svg class="lucide lucide-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"></path></svg>';
+        $generator = new ThemeToggleBlockGenerator();
+        $this->generatedBlocks()->register(ThemeToggleBlockGenerator::class, $generator->definition());
+        $attributes = array(
+            'ariaLabel' => trim($this->attr($element, 'aria-label')),
+            'className' => trim($this->attr($element, 'class')),
+            'lightIcon' => $isSun ? $icon : $sunIcon,
+            'darkIcon' => $isMoon ? $icon : $moonIcon,
+            'lightLabel' => $lightLabel,
+            'darkLabel' => $darkLabel,
+            'labelClassName' => trim($this->attr($label, 'class')),
+            'labelMarker' => trim($this->attr($label, 'data-blocks-engine-richtext-marker')),
+            'rootClass' => 'dark',
+            'defaultTheme' => $this->capturedRootTheme,
+            'storageKey' => 'theme',
+        );
+        $markup = $generator->markup($attributes);
+        return array('blockName' => ThemeToggleBlockGenerator::NAME, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
     }
 
     /** @return array<string, mixed>|null */

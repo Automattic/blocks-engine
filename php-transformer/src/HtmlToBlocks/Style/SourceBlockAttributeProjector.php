@@ -166,7 +166,7 @@ final class SourceBlockAttributeProjector
                     if ( $facts->isDirectChildOfAuthorFlexLayout ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
-                    self::registerButtonWidth($attrs, $controlMarker, $context, $this->generatedStyleProjector);
+                    $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
                 }
             }
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
@@ -190,7 +190,7 @@ final class SourceBlockAttributeProjector
                 : 'blocks-engine-native-button-alignment-' . $nativeButtonTextAlignment;
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $nativeButtonMarker);
             $this->generatedStyleProjector->registerNativeButtonStyleRule($nativeButtonMarker, $hasNativeButtonColor ? $attrs : array(), $context->generatedStyles, $nativeButtonTextAlignment);
-            self::registerButtonWidth($attrs, $nativeButtonMarker, $context, $this->generatedStyleProjector);
+            $this->registerButtonWidth($attrs, $nativeButtonMarker, $logicalControl, $context);
         }
         return $attrs;
     }
@@ -261,12 +261,20 @@ final class SourceBlockAttributeProjector
     }
 
     /** @param array<string, mixed> $attrs */
-    private static function registerButtonWidth(array $attrs, string $marker, SourceBlockAttributeProjectionContext $context, GeneratedBlockStyleProjector $generatedStyleProjector): void
+    private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context): void
     {
         $buttonWidth = (int) ($attrs['width'] ?? 0);
-        if ( in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
-            $generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles);
+        if ( ! in_array($buttonWidth, array( 25, 50, 75, 100 ), true) ) {
+            return;
         }
+        if ( 100 === $buttonWidth ) {
+            foreach ( $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ))['width'] ?? array() as $value ) {
+                if ( '100%' !== CssValueInspector::comparable($value) ) {
+                    return;
+                }
+            }
+        }
+        $this->generatedStyleProjector->registerButtonWidth($marker, $buttonWidth, $context->generatedStyles);
     }
 
     /** @param array<int, array<string, mixed>> $innerBlocks */

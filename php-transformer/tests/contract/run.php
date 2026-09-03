@@ -254,6 +254,24 @@ $assert(
     'custom/authored-carousel' !== ($staticGalleryResult['blocks'][0]['blockName'] ?? null),
     'an ordered image collection without previous and next controls is not promoted to an interactive carousel'
 );
+$themeToggleSource = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
+$themeToggleResult = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}'))->toArray();
+$themeToggleDefinition = $themeToggleResult['source_reports']['generated_blocks'][0] ?? array();
+$assert(
+    'blocks-engine/theme-toggle' === ($themeToggleResult['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'theme-toggle-btn')
+        && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<svg')
+        && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<path d="M12 1v2"></path>')
+        && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'lucide-moon')
+        && 'file:./view.js' === ($themeToggleDefinition['block_json']['viewScriptModule'] ?? null)
+        && array('@wordpress/interactivity') === ($themeToggleDefinition['script_dependencies']['view.js'] ?? null),
+    'corroborated dark-root theme controls lower to an editable companion with preserved authored markup and an Interactivity API runtime asset'
+);
+$themeToggleWithoutLightState = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}'))->toArray();
+$assert(
+    'blocks-engine/theme-toggle' !== ($themeToggleWithoutLightState['blocks'][0]['blockName'] ?? null),
+    'theme-looking buttons without both root CSS states remain ordinary buttons'
+);
 
 $referenceAnalyzer = new ReferenceAnalyzer();
 $htmlCandidates = $referenceAnalyzer->htmlReferenceCandidates('<a href="about.html">About</a><img src="assets/logo.png" alt="Logo">', 'index.html');
@@ -1314,13 +1332,33 @@ $assert(str_contains($classOwnedFlexMarkup, 'hero'), 'class-owned CSS flex keeps
 $assert(! str_contains($classOwnedFlexMarkup, 'is-layout-flex'), 'class-owned CSS flex avoids WP layout classes that override exact source layout');
 
 $inlineBreadcrumb = ( new HtmlTransformer() )->transform(
-    '<style>.crumb{padding:20px 0 0}.crumb .sep{margin:0 .6rem}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
+    '<style>.crumb{display:flex;gap:.5rem;padding:20px 0 0}.crumb > a{color:blue}.crumb > .sep{color:#666}</style><main><nav class="crumb" aria-label="Breadcrumb"><a href="/exhibitions">Exhibitions</a><span class="sep">/</span><span>Current</span></nav><section>Exhibition</section></main>'
 )->toArray();
 $inlineBreadcrumbMarkup = (string) ($inlineBreadcrumb['serialized_blocks'] ?? '');
+$inlineBreadcrumbCss = implode("\n", array_column($inlineBreadcrumb['assets'] ?? array(), 'content'));
 $inlineBreadcrumbNavMarkup = strstr($inlineBreadcrumbMarkup, '</nav>', true) ?: '';
-$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb"'), 'inline-only semantic navigation retains its nav group wrapper');
-$assert(1 === substr_count($inlineBreadcrumbNavMarkup, '<!-- wp:paragraph'), 'inline-only semantic navigation keeps one RichText flow instead of stacking each token');
+$assert(str_contains($inlineBreadcrumbMarkup, '<nav class="wp-block-group crumb '), 'inline-only semantic navigation retains its nav group wrapper');
+$assert(3 === substr_count($inlineBreadcrumbNavMarkup, '<p class="blocks-engine-inline-layout-carrier">'), 'authored flex navigation keeps each direct token as an atomic layout item');
 $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibitions</a>') && str_contains($inlineBreadcrumbMarkup, '>Current<'), 'inline-only semantic navigation preserves link and text token order');
+$assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
+$assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
+
+$anchorMenu = ( new HtmlTransformer() )->transform(
+    '<style>.site-header nav{display:flex}.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}</style><header class="site-header"><nav><a href="#pipeline">Pipeline</a><a class="nav-action" href="#maintenance">Maintenance</a></nav></header>'
+)->toArray();
+$anchorMenuMarkup = (string) ($anchorMenu['serialized_blocks'] ?? '');
+$anchorMenuCss = implode("\n", array_column($anchorMenu['assets'] ?? array(), 'content'));
+$assert(str_contains($anchorMenuMarkup, '<!-- wp:navigation '), 'all-anchor flex navigation remains a native navigation block');
+$assert(str_contains($anchorMenuCss, '.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}'), 'all-anchor navigation preserves class selectors on native navigation items');
+$assert(! str_contains($anchorMenuCss, 'blocks-engine-inline-layout-carrier > .nav-action'), 'all-anchor navigation selectors are not projected through absent inline carriers');
+
+$leadingFlowFormat = ( new HtmlTransformer() )->transform(
+    '<main><div class="callout"><strong>Private beta</strong><p>Use your workspace token.</p></div><p>Ordinary <strong>inline prose</strong> remains together.</p></main>'
+)->toArray();
+$leadingFlowFormatMarkup = (string) ($leadingFlowFormat['serialized_blocks'] ?? '');
+$assert(str_contains($leadingFlowFormatMarkup, '<p class="blocks-engine-inline-layout-carrier"><strong>Private beta</strong></p>'), 'a leading semantic format before a block uses a boxless valid carrier');
+$assert(str_contains($leadingFlowFormatMarkup, '<p>Ordinary <strong>inline prose</strong> remains together.</p>'), 'ordinary inline prose remains one RichText flow');
+$assert('pass' === ($leadingFlowFormat['source_reports']['wp_block_validity']['status'] ?? ''), 'leading semantic flow carriers remain editor-valid');
 
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
@@ -1353,7 +1391,7 @@ $flexAnchorButtonMarkup = (string) ($flexAnchorButton['serialized_blocks'] ?? ''
 $flexAnchorButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexAnchorButton['assets'] ?? array()));
 $assert(str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'blocks-engine-control-') && ! str_contains((string) ($flexAnchorButtonAttrs['className'] ?? ''), 'product-row'), 'styled anchor button uses a generated control marker instead of its source anchor class');
 $assert(! str_contains($flexAnchorButtonMarkup, 'wp-block-button product-row') && ! str_contains($flexAnchorButtonMarkup, 'wp-element-button product-row'), 'styled anchor button keeps source anchor classes out of canonical core/button markup');
-$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex;align-items:center;gap:1rem') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker after lowering');
+$assert(str_contains($flexAnchorButtonCss, '> :where(.wp-block-button__link){display:flex!important;align-items:center!important;gap:1rem!important') && str_contains($flexAnchorButtonCss, 'blocks-engine-richtext-marker') && str_contains($flexAnchorButtonCss, '{flex:1}'), 'styled anchor root and descendant selectors project through the generated marker with priority over core button defaults');
 $assert(str_contains($flexAnchorButtonMarkup, 'class="product-row__name"'), 'styled anchor button preserves descendant classes in its RichText content');
 $assert('pass' === ($flexAnchorButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled anchor button remains editor-valid with marker-projected source selectors');
 
@@ -1428,6 +1466,18 @@ $assert(! str_contains($fullWidthNativeButtonMarkup, 'wp-block-button selector-s
 $assert(! str_contains((string) ($fullWidthNativeButtonAttrs['className'] ?? ''), 'is-style-outline') && ! isset($fullWidthNativeButtonAttrs['style']['color']['background']) && str_contains($fullWidthNativeButtonCss, 'background-color:#123456!important'), 'a filled button variant carries its fill after an earlier native-button background reset without becoming an outline control');
 $assert(str_contains($fullWidthNativeButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}') && str_contains($fullWidthNativeButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'styled full-width native button projects root geometry through the wrapper chain without overriding source wrapper margins');
 $assert('pass' === ($fullWidthNativeButton['source_reports']['wp_block_validity']['status'] ?? ''), 'styled full-width native button wrapper chain remains editor-valid');
+
+$responsiveFullWidthButton = ( new HtmlTransformer() )->transform(
+    '<style>.row{display:flex}.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:12px 20px;background:#fc0}@media(min-width:992px){.btn{width:auto;padding:8px 16px}}</style><main><div class="row"><a class="btn" href="/signup"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg><span>Sign Up</span></a></div></main>'
+)->toArray();
+$responsiveFullWidthButtonMarkup = (string) ($responsiveFullWidthButton['serialized_blocks'] ?? '');
+$responsiveFullWidthButtonCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $responsiveFullWidthButton['assets'] ?? array()));
+$responsiveFullWidthButtonMarker = preg_match('/\bblocks-engine-control-[^\s"]+/', $responsiveFullWidthButtonMarkup, $matches) ? $matches[0] : '';
+$assert(str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'width:auto'), 'responsive full-width button retains its desktop intrinsic-width author rule');
+$assert(str_contains($responsiveFullWidthButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($responsiveFullWidthButtonMarkup, '<span>Sign Up</span>'), 'responsive full-width button retains nested icon and label content');
+$assert(str_contains($responsiveFullWidthButtonCss, 'display:flex!important;align-items:center!important;justify-content:center!important;gap:8px!important') && str_contains($responsiveFullWidthButtonCss, '@media(min-width:992px)') && str_contains($responsiveFullWidthButtonCss, 'padding:8px 16px!important') && ! str_contains($responsiveFullWidthButtonCss, 'padding-top:12px!important'), 'responsive icon button keeps its authored flex row and desktop padding instead of a generated mobile padding override');
+$assert('' !== $responsiveFullWidthButtonMarker && ! str_contains($responsiveFullWidthButtonCss, ':where(.' . $responsiveFullWidthButtonMarker . '.wp-block-buttons){display:block!important;gap:0!important;width:100%!important}'), 'responsive full-width button does not emit an unconditional generated full-width wrapper bridge');
+$assert(str_contains($responsiveFullWidthButtonMarkup, 'wp-block-buttons blocks-engine-control-') && str_contains($responsiveFullWidthButtonMarkup, 'wp-block-button blocks-engine-control-') && 'pass' === ($responsiveFullWidthButton['source_reports']['wp_block_validity']['status'] ?? ''), 'responsive full-width button keeps the canonical wrapper save shape and validity');
 
 $contextualSurfaceButton = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:inline-block;border:1px solid #000}.cta .cta-inner{display:inline-block;min-width:170px;padding:22px 26px;border-radius:0;background-color:#00ff8e;color:#000;font-size:16px;line-height:1;font-weight:700}.highlight .cta-inner{background:#fff;color:#000}</style><div style="text-align:center"><a class="cta highlight" href="/learn"><span class="cta-inner">Learn more</span></a></div>'
@@ -1945,6 +1995,16 @@ $preAndCodeBlocks = $preAndCodeResult['blocks'] ?? array();
 $assert('core/paragraph' === ($preAndCodeBlocks[0]['blockName'] ?? '') && str_contains((string) ($preAndCodeBlocks[0]['innerHTML'] ?? ''), '&lt;b&gt;ordinary text&lt;/b&gt;'), 'documents without plaintext preserve ordinary encoded content');
 $assert('core/preformatted' === ($preAndCodeBlocks[1]['blockName'] ?? ''), 'ordinary pre content remains preformatted');
 $assert('core/code' === ($preAndCodeBlocks[2]['blockName'] ?? ''), 'ordinary pre/code content remains code');
+
+$syntaxCodeResult = ( new HtmlTransformer() )->transform(
+    '<style>code{font-family:ui-monospace,monospace}.token.comment{color:#8ea0c8}.token.function{color:#7dd3fc}</style><pre><code><span class="token comment"># npm</span> <span class="token function">install</span></code></pre>'
+)->toArray();
+$syntaxCodeMarkup = (string) ($syntaxCodeResult['serialized_blocks'] ?? '');
+$syntaxCodeCss = implode("\n", array_column($syntaxCodeResult['assets'] ?? array(), 'content'));
+$assert(str_contains($syntaxCodeMarkup, '<span class="token comment"># npm</span>') && str_contains($syntaxCodeMarkup, '<span class="token function">install</span>'), 'core code preserves sanitized syntax-token markup');
+$assert(str_contains($syntaxCodeCss, '.token.comment{color:#8ea0c8}') && str_contains($syntaxCodeCss, '.token.function{color:#7dd3fc}'), 'syntax-token selectors remain targeted at their preserved core code descendants');
+$assert(1 === preg_match('/code:not\(\.blocks-engine-specificity-class-[^)]+\)\{/', $syntaxCodeCss) && str_contains($syntaxCodeCss, ':where(.wp-block-code)>code{display:inline;overflow-wrap:normal;text-align:inherit;white-space:inherit;direction:inherit}'), 'native code keeps source inline preformatted geometry and authored code typography precedence');
+$assert('pass' === ($syntaxCodeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'syntax-token core code remains editor-valid');
 
 $linkedLogoResult = ( new HtmlTransformer() )->transform(
     '<main><a class="site-logo" href="/">Mara Vale</a></main>'
@@ -2807,16 +2867,19 @@ $unmappedNavigation = ( new HtmlTransformer() )->transform(
     '<main><nav aria-label="Main navigation"><ul><li><a href="/">Home</a></li></ul><p>Unexpected helper copy</p></nav></main>'
 )->toArray();
 $unmappedSemanticParity = $unmappedNavigation['source_reports']['semantic_parity'] ?? array();
-$unmappedFinding = $unmappedSemanticParity['findings'][0] ?? array();
-$unmappedNavigationFinding = $unmappedSemanticParity['findings'][1] ?? array();
-$assert('warning' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity warns when source nav is not represented as core navigation');
-$assert('landmark_count_mismatch' === ($unmappedFinding['code'] ?? ''), 'semantic parity reports a precise missing nav landmark finding');
-$assert('nav' === ($unmappedFinding['kind'] ?? ''), 'semantic parity missing landmark finding names the nav kind');
-$assert(1 === ($unmappedFinding['source_count'] ?? null), 'semantic parity missing landmark finding exposes source count');
-$assert(0 === ($unmappedFinding['block_count'] ?? null), 'semantic parity missing landmark finding exposes generated block count');
-$assert('navigation_menu_missing' === ($unmappedNavigationFinding['code'] ?? ''), 'semantic parity reports missing navigation menu diagnostics');
-$assert(array('label' => 'Home', 'url' => '/') === (($unmappedNavigationFinding['source_items'] ?? array())[0] ?? array()), 'semantic parity missing navigation diagnostics expose source nav items');
-$assert(array() === ($unmappedNavigationFinding['block_items'] ?? null), 'semantic parity missing navigation diagnostics expose empty generated nav items');
+$assert('pass' === ($unmappedSemanticParity['status'] ?? ''), 'semantic parity accepts a native list retained inside a nav-tagged Group');
+$assert(1 === ($unmappedSemanticParity['landmarks']['blocks']['nav'] ?? null), 'semantic parity recognizes a native nav-tagged Group landmark');
+$assert(true === ($unmappedSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_list_navigation'] ?? false), 'semantic parity identifies the native list navigation representation');
+$assert(array('label' => 'Home', 'url' => '/') === (($unmappedSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[0] ?? array()), 'semantic parity extracts native list navigation items');
+
+$breadcrumbNavigation = ( new HtmlTransformer() )->transform(
+    '<main><nav class="breadcrumbs" style="display:flex"><a href="/">Docs</a><span>/</span><a href="#guide">Guide</a><span>/</span><span>Current</span></nav><nav class="pagination"><a href="/">Previous</a><a href="#next">Next</a></nav></main>'
+)->toArray();
+$breadcrumbSemanticParity = $breadcrumbNavigation['source_reports']['semantic_parity'] ?? array();
+$assert('pass' === ($breadcrumbSemanticParity['status'] ?? ''), 'semantic parity pairs a native breadcrumb nav Group independently from adjacent core navigation');
+$assert(2 === count($breadcrumbSemanticParity['navigation_menus']['blocks'] ?? array()), 'semantic parity inventories both breadcrumb and pagination navigation representations');
+$assert(true === ($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['represented_as_native_group_navigation'] ?? false), 'semantic parity identifies a direct-anchor nav Group representation');
+$assert(array('label' => 'Guide', 'url' => '#guide') === (($breadcrumbSemanticParity['navigation_menus']['blocks'][0]['items'] ?? array())[1] ?? array()), 'semantic parity extracts direct-anchor nav Group items in document order');
 
 $quoteCitationFooter = ( new HtmlTransformer() )->transform(
     '<main><section><blockquote><p>Lovely dinner.</p><footer>Local Guide</footer></blockquote></section></main><footer>Restaurant footer</footer>'

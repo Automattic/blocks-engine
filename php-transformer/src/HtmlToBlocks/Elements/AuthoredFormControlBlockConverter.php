@@ -101,7 +101,7 @@ final class AuthoredFormControlBlockConverter
      *
      * @return array<string, mixed>|null
      */
-    public function input(DOMElement $input): ?array
+    public function input(DOMElement $input, ?DOMElement $label = null, bool $preserveDataAttributes = false): ?array
     {
         if ( array() === ($this->structuralPresentationDeclarations)($input) ) {
             return null;
@@ -125,7 +125,11 @@ final class AuthoredFormControlBlockConverter
             'disabled' => $input->hasAttribute('disabled'),
             'readOnly' => $input->hasAttribute('readonly'),
             'checked' => $input->hasAttribute('checked'),
-        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+            'dataAttributes' => $preserveDataAttributes ? $this->dataAttributes($input) : array(),
+            'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
+            'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
+            'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
+        ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : (is_bool($value) ? $value : '' !== $value));
         $markup = $generator->markup($attrs);
 
         return array(
@@ -135,6 +139,23 @@ final class AuthoredFormControlBlockConverter
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /** @return array<string, string> */
+    private function dataAttributes(DOMElement $input): array
+    {
+        $attributes = array();
+        foreach ( $input->attributes as $attribute ) {
+            $name = strtolower($attribute->nodeName);
+            if ( 1 !== preg_match('/^data-(?!wp-)[a-z0-9_.:-]+$/', $name) ) {
+                continue;
+            }
+            $attributes[$name] = $attribute->nodeValue ?? '';
+        }
+
+        ksort($attributes);
+
+        return $attributes;
     }
 
     /**

@@ -80,7 +80,7 @@ $layoutRules = array(
     'synthetic paragraph' => ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}',
     'css-owned flow paragraph' => ':root :where(.blocks-engine-css-owned-flow>p){margin-top:0;margin-bottom:0}',
     'css-owned flow direct children' => ':root :where(.wp-block-group.blocks-engine-css-owned-flow)>*{margin-block-start:0;margin-block-end:0}',
-    'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>*{margin-block-start:0;margin-block-end:0}',
+    'css-owned grid direct children' => ':root :where(.blocks-engine-css-owned-grid)>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}',
 );
 $editorWrapperRules = array(
     ':root :where(.blocks-engine-css-owned-layout)>.block-editor-inner-blocks' => array( 0, 2, 0 ),
