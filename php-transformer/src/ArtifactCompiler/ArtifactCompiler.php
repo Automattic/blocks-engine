@@ -2795,15 +2795,24 @@ final class ArtifactCompiler
                 $output[] = $file;
                 continue;
             }
-            $paths = array((string) $file['path']);
-            for ($index = 1; $index < count($chunks); ++$index) {
+            $paths = array();
+            for ($index = 0; $index < count($chunks); ++$index) {
                 $paths[] = $this->stylesheetChunkPath((string) $file['path'], $index + 1, $reserved);
             }
             $chunkPaths[(string) $file['path']] = $paths;
+            $loader = $file;
+            $loader['content'] = implode('', array_map(static fn (string $path): string => '@import url("' . basename($path) . '");', $paths));
+            unset($loader['content_base64']);
+            $loader['bytes'] = strlen($loader['content']);
+            $loader['encoding'] = 'text';
+            $loader['binary'] = false;
+            $loader['provenance']['hash'] = hash('sha256', $loader['content']);
+            $output[] = $loader;
+            $continuationPreamble = $chunker->continuationPreamble($file['content']);
             foreach ($chunks as $index => $content) {
                 $chunk = $file;
                 $chunk['path'] = $paths[$index];
-                $chunk['content'] = $content;
+                $chunk['content'] = 0 === $index ? $content : $continuationPreamble . $content;
                 unset($chunk['content_base64']);
                 $chunk['bytes'] = strlen($content);
                 $chunk['encoding'] = 'text';
@@ -2815,14 +2824,6 @@ final class ArtifactCompiler
         if (array() === $chunkPaths) {
             return $output;
         }
-        foreach ($output as &$file) {
-            if ('html' === ($file['kind'] ?? null) && is_string($file['content'] ?? null)) {
-                $file['content'] = $this->withChunkedStylesheetLinks($file['content'], (string) $file['path'], $chunkPaths);
-                $file['bytes'] = strlen($file['content']);
-                $file['provenance']['hash'] = hash('sha256', $file['content']);
-            }
-        }
-        unset($file);
         return $output;
     }
 
@@ -2838,35 +2839,6 @@ final class ArtifactCompiler
         }
         $reserved[$candidate] = true;
         return $candidate;
-    }
-
-    /** @param array<string, list<string>> $chunkPaths */
-    private function withChunkedStylesheetLinks(string $html, string $sourcePath, array $chunkPaths): string
-    {
-        return preg_replace_callback('/<link\b[^>]*>/i', function (array $match) use ($sourcePath, $chunkPaths): string {
-            $tag = $match[0];
-            if (!preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute($tag, 'rel'))) {
-                return $tag;
-            }
-            $href = $this->htmlAttribute($tag, 'href');
-            $path = $this->stylesheetPathFromHref($href, $sourcePath);
-            $paths = $chunkPaths[$path] ?? array();
-            if (count($paths) < 2) {
-                return $tag;
-            }
-            $tags = array($tag);
-            foreach (array_slice($paths, 1) as $chunkPath) {
-                $tags[] = preg_replace_callback('/\bhref\s*=\s*(["\'])(.*?)\1/i', static function (array $hrefMatch) use ($chunkPath): string {
-                    $href = $hrefMatch[2];
-                    $suffixOffset = strcspn($href, '?#');
-                    $suffix = substr($href, $suffixOffset);
-                    $base = substr($href, 0, $suffixOffset);
-                    $replacement = preg_replace('~[^/]+$~', basename($chunkPath), $base);
-                    return 'href=' . $hrefMatch[1] . $replacement . $suffix . $hrefMatch[1];
-                }, $tag, 1) ?? $tag;
-            }
-            return implode("\n", $tags);
-        }, $html) ?? $html;
     }
 
     /**

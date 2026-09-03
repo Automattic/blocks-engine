@@ -34,6 +34,27 @@ final class CssStylesheetChunker
         return $chunks;
     }
 
+    /**
+     * Return directives that each continuation stylesheet needs before its
+     * first style rule. Imports deliberately stay with the first chunk: they
+     * are only legal before namespace declarations and style rules.
+     */
+    public function continuationPreamble(string $stylesheet): string
+    {
+        $preamble = '';
+        $offset = 0;
+        while (null !== ($boundary = $this->nextBoundary($stylesheet, $offset)) && ';' === $stylesheet[$boundary]) {
+            $statement = substr($stylesheet, $offset, $boundary - $offset + 1);
+            if (1 === preg_match('/^\s*@(?:charset|namespace)\b/i', $statement)) {
+                $preamble .= $statement;
+            } elseif (!preg_match('/^\s*@import\b/i', $statement)) {
+                break;
+            }
+            $offset = $boundary + 1;
+        }
+        return $preamble;
+    }
+
     /** @return list<array{css:string,records:int}> */
     private function units(string $css, int $maxSelectorRecords): array
     {
