@@ -1325,6 +1325,15 @@ $assert(str_contains($inlineBreadcrumbMarkup, '<a href="/exhibitions">Exhibition
 $assert(str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > a{color:blue}') && str_contains($inlineBreadcrumbCss, '.crumb > p.blocks-engine-inline-layout-carrier > .sep{color:#666}'), 'authored flex navigation projects direct-child selectors through inline layout carriers');
 $assert('pass' === ($inlineBreadcrumb['source_reports']['wp_block_validity']['status'] ?? ''), 'authored flex navigation carriers remain editor-valid');
 
+$anchorMenu = ( new HtmlTransformer() )->transform(
+    '<style>.site-header nav{display:flex}.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}</style><header class="site-header"><nav><a href="#pipeline">Pipeline</a><a class="nav-action" href="#maintenance">Maintenance</a></nav></header>'
+)->toArray();
+$anchorMenuMarkup = (string) ($anchorMenu['serialized_blocks'] ?? '');
+$anchorMenuCss = implode("\n", array_column($anchorMenu['assets'] ?? array(), 'content'));
+$assert(str_contains($anchorMenuMarkup, '<!-- wp:navigation '), 'all-anchor flex navigation remains a native navigation block');
+$assert(str_contains($anchorMenuCss, '.site-header .nav-action{padding:.58rem .9rem;border:1px solid #fff}'), 'all-anchor navigation preserves class selectors on native navigation items');
+$assert(! str_contains($anchorMenuCss, 'blocks-engine-inline-layout-carrier > .nav-action'), 'all-anchor navigation selectors are not projected through absent inline carriers');
+
 $leadingFlowFormat = ( new HtmlTransformer() )->transform(
     '<main><div class="callout"><strong>Private beta</strong><p>Use your workspace token.</p></div><p>Ordinary <strong>inline prose</strong> remains together.</p></main>'
 )->toArray();

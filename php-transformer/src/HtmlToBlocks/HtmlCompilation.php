@@ -4115,6 +4115,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $itemCount = 0;
         $allowsAnchors = 'nav' === strtolower($parent->tagName);
+        $hasNonAnchor = false;
         foreach ( $parent->childNodes as $child ) {
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 if ( '' !== trim($child->textContent ?? '') ) {
@@ -4131,10 +4132,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ) {
                 return false;
             }
+            $hasNonAnchor = $hasNonAnchor || 'a' !== strtolower($child->tagName);
             ++$itemCount;
         }
 
-        return 2 <= $itemCount;
+        // An all-anchor nav is represented by core/navigation. Only mixed-token
+        // navigation (for example breadcrumbs) needs atomic inline carriers.
+        return 2 <= $itemCount && ( ! $allowsAnchors || $hasNonAnchor );
     }
 
     /** @return array<string, mixed>|null */
