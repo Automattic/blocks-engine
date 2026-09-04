@@ -49,4 +49,25 @@ $assert('html_unsafe_inline_svg' === ($javascriptHref['fallbacks'][0]['diagnosti
 $eventHandler = (new HtmlTransformer())->transform('<main><svg onload="alert(1)"></svg></main>')->toArray();
 $assert('html_unsafe_inline_svg' === ($eventHandler['fallbacks'][0]['diagnostic_code'] ?? null) && !str_contains((string) ($eventHandler['serialized_blocks'] ?? ''), 'onload='), 'Event-handler SVG fails closed without leaking handlers.');
 
+// SVG rendering hints are presentation-only: they tune rasterization quality and
+// carry no scripting or external reference. Artwork that sets them is still
+// passive, self-contained artwork and must reach the native image path rather
+// than fall back to core/html (#1243).
+$renderingHints = (new HtmlTransformer())->transform(
+    '<main><svg viewBox="0 0 32 32" role="presentation" aria-hidden="true"'
+    . ' shape-rendering="geometricPrecision" text-rendering="optimizeLegibility"'
+    . ' image-rendering="optimizeQuality" color-rendering="optimizeSpeed"'
+    . ' color-interpolation="sRGB" paint-order="stroke"><path d="M4 4h24v24H4z" fill="#123456"></path></svg></main>'
+)->toArray();
+$renderingHintsMarkup = (string) ($renderingHints['serialized_blocks'] ?? '');
+$assert(
+    str_contains($renderingHintsMarkup, '<!-- wp:image') && !str_contains($renderingHintsMarkup, '<!-- wp:html'),
+    'Artwork carrying SVG rendering hints materializes as an editable image instead of a core/html island.'
+);
+$renderingHintAssets = array_values(array_filter($renderingHints['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));
+$assert(
+    1 === count($renderingHintAssets) && str_contains((string) ($renderingHintAssets[0]['content'] ?? ''), 'shape-rendering="geometricPrecision"'),
+    'Rendering hints survive into the materialized SVG asset so rasterization intent is preserved.'
+);
+
 fwrite(STDOUT, 'Filtered SVG materialization tests: ' . $assertions . " passed\n");
