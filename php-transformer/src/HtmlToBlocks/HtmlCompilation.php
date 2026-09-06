@@ -3077,16 +3077,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return $video;
             }
 
-            if ( 'wix-video' === $tagName && '' === $this->attr($element, 'style') ) {
-                $hostAttrs = $this->styleResolver->presentationAttributes($element);
-                $hostClass = (string) ($hostAttrs['className'] ?? '');
-                if ( '' !== $hostClass ) {
-                    $video['attrs']['className'] = $this->mergeClassNames($hostClass, (string) ($video['attrs']['className'] ?? ''));
-                }
-                return $video;
-            }
-
-            return $this->responsiveMediaBlock($element);
+            // The host has a presentation box. Retain it as a core wrapper
+            // instead of moving its geometry onto the video element.
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
         }
 
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
@@ -9654,55 +9647,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement
-                && ! in_array(strtolower($descendant->tagName), array( 'video', 'source', 'track' ), true)
-                && ! $this->isDecorativeCustomVideoDescendant($descendant)
-            ) {
-                return null;
-            }
+        $video = $videos->item(0);
+        if ( ! $video instanceof DOMElement || ! $this->hasRedundantCustomVideoPosterMarkup($element, $video) ) {
+            return null;
         }
 
-        return $videos->item(0);
+        return $video;
     }
 
-    private function isDecorativeCustomVideoDescendant(DOMElement $element): bool
+    private function hasRedundantCustomVideoPosterMarkup(DOMElement $host, DOMElement $video): bool
     {
-        foreach ( $element->attributes as $attribute ) {
-            $name = strtolower($attribute->name);
-            if ( in_array($name, array( 'role', 'tabindex', 'title' ), true)
-                || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name)
-                || ('aria-hidden' === $name && 'true' !== strtolower(trim($attribute->value)))
-            ) {
+        $poster = $this->safeImageUrl($this->attr($video, 'poster'));
+        foreach ( $host->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || $descendant === $video ) {
+                continue;
+            }
+            $tagName = strtolower($descendant->tagName);
+            if ( in_array($tagName, array( 'source', 'track' ), true) && $descendant->parentNode === $video ) {
+                continue;
+            }
+            if ( 'img' === $tagName ) {
+                if ( '' === $poster || '' !== $this->attr($descendant, 'alt') || $poster !== $this->imageSourceUrl($descendant) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( '' !== trim($descendant->textContent ?? '') || ! (str_contains($tagName, '-') || in_array($tagName, array( 'div', 'span' ), true)) ) {
+                return false;
+            }
+            if ( $descendant->hasAttributes() ) {
                 return false;
             }
         }
 
-        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
-            return true;
-        }
-
-        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( 'true' === strtolower(trim($this->attr($ancestor, 'aria-hidden'))) ) {
-                return true;
-            }
-        }
-
-        if ( 'img' === strtolower($element->tagName) ) {
-            return '' === $this->attr($element, 'alt');
-        }
-
-        if ( str_contains($element->tagName, '-') && '' === trim($element->textContent ?? '') ) {
-            foreach ( $element->getElementsByTagName('*') as $descendant ) {
-                if ( $descendant instanceof DOMElement && ! $this->isDecorativeCustomVideoDescendant($descendant) ) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        return in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
-            && '' === trim($element->textContent ?? '');
+        return true;
     }
 
     private function hasTransparentCustomVideoHostPresentation(DOMElement $element): bool

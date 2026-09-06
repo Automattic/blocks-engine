@@ -80,21 +80,25 @@ $assert(
     str_contains($videoResult['blocks'][0]['innerHTML'] ?? '', '<video src="hero.mp4" autoplay="autoplay" loop="loop" muted="muted" playsinline="playsinline"></video>'),
     'video playback attributes should be preserved in native save markup'
 );
-$coffeeFestivalVideoResult = ( new HtmlTransformer() )->transform('<wix-video class="bg-video"><video class="player" src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video><wow-image data-image-info="bounded"><img src="hero.jpg" alt=""></wow-image></wix-video>')->toArray();
+$customHostVideoResult = ( new HtmlTransformer() )->transform('<media-host class="bg-video"><video class="player" src="hero.mp4" poster="hero.jpg" controls autoplay loop muted playsinline><track kind="captions" src="captions.vtt" srclang="en" label="English" default></video><div><img src="hero.jpg" alt=""></div></media-host>')->toArray();
 $assert(
-    'core/video' === ($coffeeFestivalVideoResult['blocks'][0]['blockName'] ?? null)
-        && 'hero.jpg' === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['poster'] ?? null)
-        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($coffeeFestivalVideoResult['blocks'][0]['attrs']['tracks'] ?? null)
-        && str_contains((string) ($coffeeFestivalVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
-        && array() === ($coffeeFestivalVideoResult['fallbacks'] ?? array()),
-    'a Wix video host with decorative poster markup lowers to editable core/video markup'
+    'core/group' === ($customHostVideoResult['blocks'][0]['blockName'] ?? null)
+        && 'bg-video' === ($customHostVideoResult['blocks'][0]['attrs']['className'] ?? null)
+        && 'core/video' === ($customHostVideoResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null)
+        && 'hero.jpg' === ($customHostVideoResult['blocks'][0]['innerBlocks'][0]['attrs']['poster'] ?? null)
+        && array(array( 'kind' => 'captions', 'src' => 'captions.vtt', 'srcLang' => 'en', 'label' => 'English', 'default' => true )) === ($customHostVideoResult['blocks'][0]['innerBlocks'][0]['attrs']['tracks'] ?? null)
+        && str_contains((string) ($customHostVideoResult['serialized_blocks'] ?? ''), '<track kind="captions" src="captions.vtt" srclang="en" label="English" default="default">')
+        && array() === ($customHostVideoResult['fallbacks'] ?? array()),
+    'a generic custom video host preserves its geometry wrapper and lowers its playable video to core/video'
 );
 $styledCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"><video src="hero.mp4"></video></wix-video>')->toArray();
 $assert(
-    'custom/responsive-media' === ($styledCustomVideoResult['blocks'][0]['blockName'] ?? null)
-        && str_contains((string) ($styledCustomVideoResult['blocks'][0]['attrs']['content'] ?? ''), 'style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"')
+    'core/group' === ($styledCustomVideoResult['blocks'][0]['blockName'] ?? null)
+        && 'core/video' === ($styledCustomVideoResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null)
+        && str_starts_with((string) ($styledCustomVideoResult['blocks'][0]['attrs']['className'] ?? ''), 'be-inline-geometry-')
+        && '1px' === ($styledCustomVideoResult['blocks'][0]['attrs']['style']['border']['width'] ?? null)
         && ! str_contains((string) ($styledCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
-    'styled custom video hosts preserve presentation in a typed gap instead of lowering to core/video'
+    'styled custom video hosts retain their wrapper presentation around editable core/video'
 );
 $ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4"></video><video src="trailer.mp4"></video></wix-video>')->toArray();
 $assert(
@@ -106,6 +110,16 @@ $unsafeCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><vid
 $assert(
     'core/video' !== ($unsafeCustomVideoResult['blocks'][0]['blockName'] ?? null),
     'custom video hosts with an unsafe source remain unpromoted'
+);
+$meaningfulCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host><video src="hero.mp4" poster="hero.jpg"></video><div aria-hidden="true">Poster label</div></media-host>')->toArray();
+$assert(
+    'core/video' !== ($meaningfulCustomVideoResult['blocks'][0]['blockName'] ?? null),
+    'aria-hidden alone does not discard meaningful custom video descendants'
+);
+$runtimePosterCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg"></video><wow-image data-image-info="bounded"><img src="hero.jpg" alt=""></wow-image></wix-video>')->toArray();
+$assert(
+    'core/video' !== ($runtimePosterCustomVideoResult['blocks'][0]['blockName'] ?? null),
+    'data-bearing provider poster components remain preserved typed gaps pending provider normalization'
 );
 
 $runtimeMediaMaskFixture = file_get_contents(dirname(__DIR__) . '/fixtures/unsupported-runtime-media-mask.html');
