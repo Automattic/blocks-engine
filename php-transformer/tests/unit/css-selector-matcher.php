@@ -121,6 +121,37 @@ $candidateSelectors = array_column($candidateCache->styleRuleCandidates($byId('t
 $assert(array( '#target', 'span', ':not(.excluded)', 'span[data-value]' ) === $candidateSelectors, 'clearing the immutable revision cache rebuilds class candidates after mutation');
 $assert(4 === $candidateCache->candidateRulesRetained, 'candidate cache accounts for retained rule references');
 
+// RichText normalization parses each fragment into a separate document. Those
+// documents reuse paths such as /html/body/p/span, which must not alias class,
+// selector, or candidate results from an earlier fragment.
+$fragmentOne = new DOMDocument();
+$fragmentOne->loadHTML('<!doctype html><p><span class="font-default">first</span></p>');
+$fragmentTwo = new DOMDocument();
+$fragmentTwo->loadHTML('<!doctype html><p><span class="color-override">second</span></p>');
+$fragmentOneSpan = $fragmentOne->getElementsByTagName('span')->item(0);
+$fragmentTwoSpan = $fragmentTwo->getElementsByTagName('span')->item(0);
+if ( ! $fragmentOneSpan instanceof DOMElement || ! $fragmentTwoSpan instanceof DOMElement ) {
+    throw new RuntimeException('Selector-cache document identity fixture did not produce both spans.');
+}
+$fragmentCache = new CssSelectorMatchCache();
+$fragmentIndex = array(
+    'universal' => array(),
+    'ids' => array(),
+    'classes' => array(
+        'font-default' => array( array( 'order' => 0, 'rule' => array( 'selector' => '.font-default' ) ) ),
+        'color-override' => array( array( 'order' => 1, 'rule' => array( 'selector' => '.color-override' ) ) ),
+    ),
+    'tags' => array(),
+    'attributes' => array(),
+    'total' => 2,
+);
+$fragmentCache->matches($fragmentOneSpan, '.font-default', CssSelectorMatcher::parse('.font-default'));
+$fragmentCache->styleRuleCandidates($fragmentOneSpan, 'fragments', $fragmentIndex);
+$assert(array( 'color-override' ) === $fragmentCache->classTokens($fragmentTwoSpan), 'connected nodes at the same path remain isolated by owner document');
+$assert(! $fragmentCache->matches($fragmentTwoSpan, '.font-default', CssSelectorMatcher::parse('.font-default'))['matches'], 'selector results do not cross connected document boundaries');
+$fragmentSelectors = array_column($fragmentCache->styleRuleCandidates($fragmentTwoSpan, 'fragments', $fragmentIndex), 'selector');
+$assert(array( '.color-override' ) === $fragmentSelectors, 'candidate rules do not cross connected document boundaries');
+
 // DOM nodes are native libxml objects exposed through temporary PHP wrappers.
 // Once a wrapper is released, PHP can immediately reuse its spl_object_id() for
 // a wrapper around a different node. A cache keyed by that bare integer then

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use DOMDocument;
 use DOMElement;
 use DOMNode;
 use WeakMap;
@@ -37,7 +38,15 @@ final class CssSelectorMatchCache
     /** @var WeakMap<DOMElement, string> */
     private WeakMap $connectedElementKeys;
 
+    /** @var WeakMap<DOMDocument, int> */
+    private WeakMap $connectedDocumentKeys;
+
+    /** @var list<DOMDocument> */
+    private array $connectedDocuments = array();
+
     private int $nextDetachedElementKey = 0;
+
+    private int $nextConnectedDocumentKey = 0;
 
     public int $classTokenBuilds = 0;
 
@@ -79,6 +88,7 @@ final class CssSelectorMatchCache
     {
         $this->detachedElementKeys = new WeakMap();
         $this->connectedElementKeys = new WeakMap();
+        $this->connectedDocumentKeys = new WeakMap();
     }
 
     /** @return list<string> */
@@ -215,6 +225,9 @@ final class CssSelectorMatchCache
         $this->candidateRulesRetained = 0;
         $this->detachedElementKeys = new WeakMap();
         $this->connectedElementKeys = new WeakMap();
+        $this->connectedDocumentKeys = new WeakMap();
+        $this->connectedDocuments = array();
+        $this->nextConnectedDocumentKey = 0;
         $this->nextDetachedElementKey = 0;
     }
 
@@ -230,9 +243,17 @@ final class CssSelectorMatchCache
         // released. A connected node's document path is stable across wrappers
         // and unique within this per-document cache revision.
         for ( $ancestor = $element; $ancestor instanceof DOMNode; $ancestor = $ancestor->parentNode ) {
-            if ( $ancestor instanceof \DOMDocument ) {
+            if ( $ancestor instanceof DOMDocument ) {
                 ++$this->connectedElementKeyBuilds;
-                return $this->connectedElementKeys[$element] = 'path:' . $element->getNodePath();
+                if ( ! isset($this->connectedDocumentKeys[$ancestor]) ) {
+                    $this->connectedDocumentKeys[$ancestor] = ++$this->nextConnectedDocumentKey;
+                    // Retain the wrapper so PHP cannot recycle its object ID for
+                    // another native document during this cache revision.
+                    $this->connectedDocuments[] = $ancestor;
+                }
+                return $this->connectedElementKeys[$element] = 'document:'
+                    . $this->connectedDocumentKeys[$ancestor]
+                    . ':path:' . $element->getNodePath();
             }
         }
 
