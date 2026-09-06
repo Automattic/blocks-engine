@@ -39,9 +39,17 @@ final class VisualIframeBlockGenerator
     {
         $namespace = strstr($blockName, '/', true) ?: '';
         $script = <<<'JS'
-( function( blocks, blockEditor, element ) {
+( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
     var attributes = __BLOCK_ATTRIBUTES__;
+    function isSafeVisualIframeUrl( value ) {
+        try {
+            var url = new URL( value );
+            return url.protocol === 'https:' && !! url.hostname && ! url.username && ! url.password;
+        } catch ( error ) {
+            return false;
+        }
+    }
     function iframeProps( attributes, editor ) {
         var props = editor ? blockEditor.useBlockProps() : {};
         [ 'src', 'title', 'width', 'height', 'allow', 'loading', 'sandbox', 'referrerPolicy' ].forEach( function( name ) { if ( attributes[ name ] ) { props[ name ] = attributes[ name ]; } } );
@@ -49,10 +57,35 @@ final class VisualIframeBlockGenerator
         if ( attributes.allowFullScreen ) { props.allowFullScreen = true; }
         return props;
     }
-    function edit( props ) { return createElement( 'iframe', iframeProps( props.attributes, true ) ); }
+    function edit( props ) {
+        var useState = element.useState;
+        var state = useState( props.attributes.src || '' );
+        var draftSrc = state[ 0 ];
+        var setDraftSrc = state[ 1 ];
+        var setAttribute = function( name ) { return function( value ) { props.setAttributes( { [ name ]: value } ); }; };
+        var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
+            createElement( components.PanelBody, { title: 'Embedded content' },
+                createElement( components.TextControl, {
+                    label: 'URL', value: draftSrc,
+                    help: draftSrc && ! isSafeVisualIframeUrl( draftSrc ) ? 'Enter an HTTPS URL without credentials.' : undefined,
+                    onChange: setDraftSrc,
+                    onBlur: function() { var src = draftSrc.trim(); if ( isSafeVisualIframeUrl( src ) ) { props.setAttributes( { src: src } ); setDraftSrc( src ); } else { setDraftSrc( props.attributes.src || '' ); } }
+                } ),
+                createElement( components.TextControl, { label: 'Title', value: props.attributes.title || '', onChange: setAttribute( 'title' ) } ),
+                createElement( components.TextControl, { label: 'Width', value: props.attributes.width || '', onChange: setAttribute( 'width' ) } ),
+                createElement( components.TextControl, { label: 'Height', value: props.attributes.height || '', onChange: setAttribute( 'height' ) } ),
+                createElement( components.TextControl, { label: 'Allow permissions', value: props.attributes.allow || '', onChange: setAttribute( 'allow' ) } ),
+                createElement( components.SelectControl, { label: 'Loading', value: props.attributes.loading || '', options: [ { label: 'Default', value: '' }, { label: 'Lazy', value: 'lazy' }, { label: 'Eager', value: 'eager' } ], onChange: setAttribute( 'loading' ) } ),
+                createElement( components.TextControl, { label: 'Sandbox', value: props.attributes.sandbox || '', onChange: setAttribute( 'sandbox' ) } ),
+                createElement( components.TextControl, { label: 'Referrer policy', value: props.attributes.referrerPolicy || '', onChange: setAttribute( 'referrerPolicy' ) } ),
+                createElement( components.ToggleControl, { label: 'Allow fullscreen', checked: !! props.attributes.allowFullScreen, onChange: setAttribute( 'allowFullScreen' ) } )
+            )
+        ) : null;
+        return createElement( element.Fragment, {}, inspector, createElement( 'iframe', iframeProps( props.attributes, true ) ) );
+    }
     function save( props ) { return createElement( 'iframe', iframeProps( props.attributes, false ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
         return array( 'index.js' => str_replace(
@@ -90,7 +123,7 @@ JS;
             'name' => self::LOCAL_NAME,
             'block_json' => $this->blockJson($namespace),
             'assets' => $this->assets($namespace . '/' . self::LOCAL_NAME),
-            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ),
+            'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ),
         );
     }
 }
