@@ -144,4 +144,29 @@ foreach (array('desktop', 'mobile') as $variant) {
 }
 $assert(2 === ($variantMetrics['responsive_counterpart_count'] ?? null) && str_contains($variantBlocks, '>Desktop copy<') && str_contains($variantBlocks, '>Mobile copy<'), 'Compression retains native editable counterpart leaves and their correspondence contract.');
 
+// A generic outer wrapper can sit directly above an already-projected shell.
+// Merging it retains every source wrapper and direct child without requiring a
+// producer or responsive marker on that outer wrapper.
+$mediaBranch = '<p id="media-caption">Caption remains a sibling of the image</p><img id="media-leaf" src="hero.png" alt="Generic media">';
+for ($depth = 2; 1 <= $depth; --$depth) {
+    $mediaBranch = '<div id="projected-media-shell-' . $depth . '" data-shell="projected-' . $depth . '">' . $mediaBranch . '</div>';
+}
+$mediaBranch = '<div class="generic-shell">' . $mediaBranch . '</div>';
+$mediaResult = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<!doctype html><html><body>' . $mediaBranch . '</body></html>'),
+        array('path' => 'website/hero.png', 'content_base64' => base64_encode('image'), 'mime_type' => 'image/png'),
+    ),
+))->toArray();
+$mediaMetrics = $mediaResult['source_reports']['editability_report']['metrics'] ?? array();
+$mediaPolicy = $mediaResult['source_reports']['editability_policy'] ?? array();
+$mediaBlocks = (string) ($mediaResult['serialized_blocks'] ?? '');
+
+$assert('passed' === ($mediaPolicy['status'] ?? null) && 20 >= ($mediaMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'A generic media branch passes the unchanged editability depth policy.');
+$assert(1 === substr_count($mediaBlocks, '<!-- wp:custom/layout-shell'), 'A generic media branch uses one bounded layout shell without producer markers.');
+$assert(2 === ($mediaMetrics['max_nesting_depth'] ?? null), 'Merging the generic outer wrapper into its projected shell removes the extra List View level.');
+$assert(str_contains($mediaBlocks, 'class="wp-block-group generic-shell"') && str_contains($mediaBlocks, 'id="projected-media-shell-2"') && str_contains($mediaBlocks, 'id="media-caption"') && str_contains($mediaBlocks, 'id="media-leaf"'), 'The generic layout shell preserves wrapper identities and sibling media topology.');
+
 fwrite(STDOUT, "Projected branch compression tests passed.\n");

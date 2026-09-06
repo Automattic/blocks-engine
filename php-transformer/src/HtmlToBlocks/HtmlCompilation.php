@@ -4871,7 +4871,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $compressesDeepUnprojectedChain = 0 === $projectedCount
             && 3 <= count($chain)
             && $this->containsResponsiveCounterpart($terminalBlocks);
-        if ((0 < $projectedCount && $minimumLength <= count($chain)) || $compressesDeepUnprojectedChain || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
+        if ((0 < $projectedCount && $minimumLength <= count($chain)) || $compressesDeepUnprojectedChain || (1 === count($chain) && $terminalIsShell)) {
             $wrappers = array_column($chain, 'descriptor');
             $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
             $terminalVisualOwned = $terminalIsShell && !empty($terminal['_editability_visual_owned']);
