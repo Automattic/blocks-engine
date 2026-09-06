@@ -54,6 +54,11 @@ $assert(array( 'submit' => 'handle' ) === ($formMetadata['events'] ?? array()), 
 $assert(array( $readableBlock ) === ($formMetadata['readable_blocks'] ?? array()), 'form-readable-block');
 $assert(array( array( 'src' => '/form.js' ) ) === ($formMetadata['required_scripts'] ?? array()), 'form-required-scripts');
 
+$popupForm = $elementFrom('<form><label id="date-label" for="date-input">Date</label><input id="date-input" readonly><button type="button" aria-haspopup="dialog" aria-describedby="date-label">Open picker</button></form>', 'form');
+$popupControls = $metadataBuilder->controls($popupForm);
+$assert('date-label' === ($popupControls[0]['label_id'] ?? ''), 'associated-label-id-metadata');
+$assert('dialog' === ($popupControls[1]['aria_haspopup'] ?? '') && 'date-label' === ($popupControls[1]['aria_describedby'] ?? ''), 'popup-control-relationship-metadata');
+
 $recorder->recordForm($form, null);
 $assert(array() === ($recorded[1]['metadata']['readable_blocks'] ?? null), 'form-without-readable-block');
 
