@@ -9661,7 +9661,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function customVideoElement(DOMElement $element): ?DOMElement
     {
-        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) ) {
+        if ( ! str_contains($element->tagName, '-') || '' !== trim($element->textContent ?? '') || ! $this->isSafeTransparentCustomElement($element) || ! $this->hasOnlyStructuralCustomVideoHostAttributes($element) ) {
             return null;
         }
 
@@ -9690,7 +9690,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 continue;
             }
             if ( 'img' === $tagName ) {
-                if ( '' === $poster || '' !== $this->attr($descendant, 'alt') || $poster !== $this->imageSourceUrl($descendant) ) {
+                if ( '' === $poster || ! $this->isRedundantCustomVideoPosterImage($descendant, $poster) ) {
                     return false;
                 }
                 continue;
@@ -9699,6 +9699,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return false;
             }
             if ( $descendant->hasAttributes() ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasOnlyStructuralCustomVideoHostAttributes(DOMElement $element): bool
+    {
+        foreach ( $element->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function isRedundantCustomVideoPosterImage(DOMElement $image, string $poster): bool
+    {
+        if ( ! $image->hasAttribute('alt') || '' !== $this->attr($image, 'alt') || $poster !== $this->imageSourceUrl($image) ) {
+            return false;
+        }
+
+        foreach ( $image->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), array( 'src', 'alt' ), true) ) {
                 return false;
             }
         }

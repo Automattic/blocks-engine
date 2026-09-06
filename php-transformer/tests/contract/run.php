@@ -91,7 +91,7 @@ $assert(
         && array() === ($customHostVideoResult['fallbacks'] ?? array()),
     'a generic custom video host preserves its geometry wrapper and lowers its playable video to core/video'
 );
-$styledCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"><video src="hero.mp4"></video></wix-video>')->toArray();
+$styledCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host style="display:block;width:320px;overflow:hidden;transform:scale(.9);border:1px solid red"><video src="hero.mp4"></video></media-host>')->toArray();
 $assert(
     'core/group' === ($styledCustomVideoResult['blocks'][0]['blockName'] ?? null)
         && 'core/video' === ($styledCustomVideoResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null)
@@ -100,26 +100,34 @@ $assert(
         && ! str_contains((string) ($styledCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
     'styled custom video hosts retain their wrapper presentation around editable core/video'
 );
-$ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4"></video><video src="trailer.mp4"></video></wix-video>')->toArray();
+$ambiguousCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host><video src="hero.mp4"></video><video src="trailer.mp4"></video></media-host>')->toArray();
 $assert(
     'core/video' !== ($ambiguousCustomVideoResult['blocks'][0]['blockName'] ?? null)
         && ! str_contains((string) ($ambiguousCustomVideoResult['serialized_blocks'] ?? ''), '<!-- wp:html'),
     'ambiguous custom media hosts remain typed gaps rather than raw HTML'
 );
-$unsafeCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="javascript:alert(1)" poster="hero.jpg"></video></wix-video>')->toArray();
+$unsafeCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host><video src="javascript:alert(1)" poster="hero.jpg"></video></media-host>')->toArray();
 $assert(
     'core/video' !== ($unsafeCustomVideoResult['blocks'][0]['blockName'] ?? null),
     'custom video hosts with an unsafe source remain unpromoted'
 );
 $meaningfulCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host><video src="hero.mp4" poster="hero.jpg"></video><div aria-hidden="true">Poster label</div></media-host>')->toArray();
 $assert(
-    'core/video' !== ($meaningfulCustomVideoResult['blocks'][0]['blockName'] ?? null),
+    'media-host' === ($meaningfulCustomVideoResult['fallbacks'][0]['tag'] ?? null)
+        && str_contains((string) ($meaningfulCustomVideoResult['fallbacks'][0]['html'] ?? ''), 'Poster label'),
     'aria-hidden alone does not discard meaningful custom video descendants'
 );
-$runtimePosterCustomVideoResult = ( new HtmlTransformer() )->transform('<wix-video><video src="hero.mp4" poster="hero.jpg"></video><wow-image data-image-info="bounded"><img src="hero.jpg" alt=""></wow-image></wix-video>')->toArray();
+$ariaHiddenPosterCustomVideoResult = ( new HtmlTransformer() )->transform('<media-host><video src="hero.mp4" poster="hero.jpg"></video><img src="hero.jpg" alt="" aria-hidden="true"></media-host>')->toArray();
 $assert(
-    'core/video' !== ($runtimePosterCustomVideoResult['blocks'][0]['blockName'] ?? null),
-    'data-bearing provider poster components remain preserved typed gaps pending provider normalization'
+    str_starts_with((string) ($ariaHiddenPosterCustomVideoResult['blocks'][0]['blockName'] ?? ''), 'custom/')
+        && str_contains((string) ($ariaHiddenPosterCustomVideoResult['blocks'][0]['attrs']['content'] ?? ''), 'aria-hidden="true"'),
+    'aria-hidden poster media remains preserved instead of being discarded as redundant'
+);
+$accessibleCustomVideoHostResult = ( new HtmlTransformer() )->transform('<media-host aria-label="Featured video"><video src="hero.mp4"></video></media-host>')->toArray();
+$assert(
+    'media-host' === ($accessibleCustomVideoHostResult['fallbacks'][0]['tag'] ?? null)
+        && str_contains((string) ($accessibleCustomVideoHostResult['fallbacks'][0]['html'] ?? ''), 'aria-label="Featured video"'),
+    'accessible custom video hosts remain preserved when their wrapper semantics cannot be represented by core/group'
 );
 
 $runtimeMediaMaskFixture = file_get_contents(dirname(__DIR__) . '/fixtures/unsupported-runtime-media-mask.html');
