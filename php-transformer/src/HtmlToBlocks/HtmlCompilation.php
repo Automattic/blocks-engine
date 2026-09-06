@@ -3076,9 +3076,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $customVideo = $this->customVideoElement($element);
         if ( $customVideo instanceof DOMElement ) {
-            return $this->hasTransparentCustomVideoHostPresentation($element)
-                ? $this->convertMediaElement($customVideo)
-                : $this->responsiveMediaBlock($element);
+            $video = $this->convertMediaElement($customVideo);
+            if ( $this->hasTransparentCustomVideoHostPresentation($element) ) {
+                return $video;
+            }
+
+            // The host has a presentation box. Retain it as a core wrapper
+            // instead of moving its geometry onto the video element.
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), array($video), $element);
         }
 
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
@@ -9646,13 +9651,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'video', 'source', 'track' ), true) ) {
-                return null;
+        $video = $videos->item(0);
+        if ( ! $video instanceof DOMElement || ! $this->hasRedundantCustomVideoPosterMarkup($element, $video) ) {
+            return null;
+        }
+
+        return $video;
+    }
+
+    private function hasRedundantCustomVideoPosterMarkup(DOMElement $host, DOMElement $video): bool
+    {
+        $poster = $this->safeImageUrl($this->attr($video, 'poster'));
+        foreach ( $host->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || $descendant === $video ) {
+                continue;
+            }
+            $tagName = strtolower($descendant->tagName);
+            if ( in_array($tagName, array( 'source', 'track' ), true) && $descendant->parentNode === $video ) {
+                continue;
+            }
+            if ( 'img' === $tagName ) {
+                if ( '' === $poster || '' !== $this->attr($descendant, 'alt') || $poster !== $this->imageSourceUrl($descendant) ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( '' !== trim($descendant->textContent ?? '') || ! (str_contains($tagName, '-') || in_array($tagName, array( 'div', 'span' ), true)) ) {
+                return false;
+            }
+            if ( $descendant->hasAttributes() ) {
+                return false;
             }
         }
 
-        return $videos->item(0);
+        return true;
     }
 
     private function hasTransparentCustomVideoHostPresentation(DOMElement $element): bool
