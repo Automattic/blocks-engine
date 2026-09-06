@@ -96,4 +96,20 @@ if (3 !== $intentionalEmpties['metrics']['empty_visual_group_count'] || 1 !== $i
 $textOnlyPolicy = (new EditabilityPolicy())->evaluate((new EditabilityReport())->fromBlocks(array_fill(0, 11, array('blockName' => 'core/group', 'attrs' => array('style' => array('color' => array('text' => '#123456'))), 'innerBlocks' => array(), 'innerHTML' => ''))));
 if ('failed' !== $textOnlyPolicy['status'] || 11 !== ($textOnlyPolicy['failures'][0]['actual'] ?? null)) throw new RuntimeException('Eleven text-only empty Groups remain policy-counted neutral wrappers.');
 
+$layoutShellBlocks = array(array(
+    'blockName' => 'custom/layout-shell',
+    'attrs' => array('wrappers' => array(array('tagName' => 'div', 'attributes' => array('id' => 'outer')), array('tagName' => 'section', 'attributes' => array('id' => 'branch')))),
+    'innerBlocks' => array(
+        array('blockName' => 'core/paragraph', 'attrs' => array('content' => 'Editable inside shell', 'className' => 'be-responsive-counterpart-abc123def456'), 'innerBlocks' => array(), 'innerHTML' => '<p>Editable inside shell</p>'),
+        array('blockName' => 'core/heading', 'attrs' => array('content' => 'Second branch'), 'innerBlocks' => array(), 'innerHTML' => '<h2>Second branch</h2>'),
+    ),
+    'innerHTML' => '<div id="outer"><section id="branch"></section></div>',
+));
+$layoutShellReport = (new EditabilityReport())->fromBlocks($layoutShellBlocks, 'shell.html', '', '', array('blocks.0'), array(), array());
+if (1 !== $layoutShellReport['metrics']['custom_wrapper_block_count'] || 2 !== $layoutShellReport['metrics']['layout_shell_wrapper_count'] || 2 !== $layoutShellReport['metrics']['layout_shell_editable_descendant_count'] || 1 !== $layoutShellReport['metrics']['responsive_counterpart_count']) throw new RuntimeException('Editability reports must account for custom layout-shell wrapper structure and persisted counterpart marks.');
+$layoutShellSignals = array_values(array_filter($layoutShellReport['signals'], static fn(array $signal): bool => 'layout_shell' === ($signal['kind'] ?? '')));
+if (1 !== count($layoutShellSignals) || '0' !== ($layoutShellSignals[0]['block_path'] ?? '') || 2 !== ($layoutShellSignals[0]['wrapper_count'] ?? null) || 2 !== ($layoutShellSignals[0]['editable_descendant_count'] ?? null) || true !== ($layoutShellSignals[0]['runtime_owned'] ?? null) || false !== ($layoutShellSignals[0]['visual_owned'] ?? null)) throw new RuntimeException('Layout-shell signals must distinguish layout-only wrappers, editable descendants, and runtime/visual ownership.');
+$layoutShellPolicy = (new EditabilityPolicy())->evaluate($layoutShellReport);
+if ('passed' !== $layoutShellPolicy['status']) throw new RuntimeException('Exact layout-shell serialization is policy-neutral: wrappers ride attributes, not List View depth.');
+
 fwrite(STDOUT, "editability report contract passed\n");

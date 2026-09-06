@@ -13,6 +13,14 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
  */
 final class ResponsiveDocumentVariants
 {
+    /** Class prefix marking a block as one side of a declared responsive correspondence pair. */
+    public const CORRESPONDENCE_CLASS_PREFIX = 'be-responsive-counterpart-';
+
+    /** Text/link leaf tags eligible for responsive correspondence pairing. */
+    private const CORRESPONDENCE_TAGS = array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'button');
+
+    private const CORRESPONDENCE_ID_PATTERN = '/^[A-Za-z][A-Za-z0-9_-]{0,79}$/D';
+
     /** @param array<string,mixed> $artifact @return array<string,mixed> */
     public function compose(array $artifact): array
     {
@@ -100,6 +108,15 @@ final class ResponsiveDocumentVariants
     /** @param array<int,array{id:string,path:string,media:string,html:string}> $variants */
     private function composeDocument(string $primaryHtml, array $variants, string $sourcePath): string
     {
+        // Correspondence tokens are declared from stable source provenance only:
+        // a bounded id carried by exactly one eligible text/link element on each
+        // side of one declared variant pair. Equal text, order, or visual shape
+        // never establishes (or breaks) a pairing.
+        $pairings = $this->correspondencePairings($primaryHtml, $variants);
+        $primaryHtml = $this->injectCorrespondenceClasses($primaryHtml, 'default', $pairings);
+        foreach ($variants as $index => $variant) {
+            $variants[$index]['html'] = $this->injectCorrespondenceClasses($variant['html'], $variant['id'], $pairings);
+        }
         $primaryHtml = $this->scopeDocumentStyles($primaryHtml, 'site-document-variant-default');
         $primaryBody = $this->body($primaryHtml);
         if (null === $primaryBody) {
@@ -285,6 +302,109 @@ final class ResponsiveDocumentVariants
     private function variantClass(string $id): string
     {
         return 'site-document-variant-' . $id;
+    }
+
+    /**
+     * Declare responsive correspondence pairings between the primary document
+     * and one variant. A pairing requires stable source provenance — the same
+     * bounded id carried by exactly one eligible text/link element on each
+     * side, with matching tags — inside one declared responsive document pair.
+     *
+     * @param array<int, array{id:string,path:string,media:string,html:string}> $variants
+     * @return array<int, array{id:string,tag:string,variant_id:string,class:string}>
+     */
+    private function correspondencePairings(string $primaryHtml, array $variants): array
+    {
+        $primaryIds = $this->correspondenceIds($primaryHtml);
+        $pairings = array();
+        foreach ($variants as $variant) {
+            $variantIds = $this->correspondenceIds($variant['html']);
+            foreach ($primaryIds as $id => $primary) {
+                if (1 !== $primary['count']) {
+                    continue;
+                }
+                $variantEntry = $variantIds[$id] ?? null;
+                if (null === $variantEntry || 1 !== $variantEntry['count'] || $variantEntry['tag'] !== $primary['tag']) {
+                    continue;
+                }
+                $pairings[] = array(
+                    'id' => (string) $id,
+                    'tag' => $primary['tag'],
+                    'variant_id' => $variant['id'],
+                    'class' => self::CORRESPONDENCE_CLASS_PREFIX . substr(hash('sha256', $variant['id'] . "\0" . (string) $id), 0, 12),
+                );
+            }
+        }
+        return $pairings;
+    }
+
+    /**
+     * Collect bounded ids carried by eligible correspondence tags in a body,
+     * with per-document occurrence counts so ambiguous ids never pair.
+     *
+     * @return array<string, array{count:int, tag:string}>
+     */
+    private function correspondenceIds(string $html): array
+    {
+        $body = $this->body($html);
+        $ids = array();
+        if (null === $body || !preg_match_all('~<\s*(p|h[1-6]|a|button)\b((?:"[^"]*"|\'[^\']*\'|[^>"\'])*)~i', $body['content'], $matches, PREG_SET_ORDER)) {
+            return $ids;
+        }
+        foreach ($matches as $match) {
+            $tag = strtolower($match[1]);
+            $id = $this->attribute('<' . $tag . $match[2] . '>', 'id');
+            if ('' === $id || 1 !== preg_match(self::CORRESPONDENCE_ID_PATTERN, $id)) {
+                continue;
+            }
+            $ids[$id]['count'] = ($ids[$id]['count'] ?? 0) + 1;
+            $ids[$id]['tag'] = $tag;
+        }
+        return $ids;
+    }
+
+    /**
+     * Persist declared pairings as inert class tokens on the paired source
+     * elements. The tokens carry no styles, so each document root keeps its
+     * authored CSS geometry untouched.
+     *
+     * @param array<int, array{id:string,tag:string,variant_id:string,class:string}> $pairings
+     */
+    private function injectCorrespondenceClasses(string $html, string $side, array $pairings): string
+    {
+        $classesById = array();
+        foreach ($pairings as $pairing) {
+            if ('default' === $side || $side === $pairing['variant_id']) {
+                $classesById[$pairing['id']][] = $pairing['class'];
+            }
+        }
+        $body = $this->body($html);
+        if (array() === $classesById || null === $body) {
+            return $html;
+        }
+        $content = (string) preg_replace_callback(
+            '~<\s*(p|h[1-6]|a|button)\b((?:"[^"]*"|\'[^\']*\'|[^>"\'])*)>~i',
+            function (array $match) use ($classesById): string {
+                $tag = strtolower($match[1]);
+                $id = $this->attribute('<' . $tag . $match[2] . '>', 'id');
+                if ('' === $id || !isset($classesById[$id])) {
+                    return $match[0];
+                }
+                $tokens = implode(' ', $classesById[$id]);
+                if (preg_match('/\bclass\s*=\s*(["\'])(.*?)\1/is', $match[0], $classMatch)) {
+                    $merged = trim($classMatch[2] . ' ' . $tokens);
+                    return (string) preg_replace(
+                        '/\bclass\s*=\s*(["\'])' . preg_quote($classMatch[2], '/') . '\1/is',
+                        'class=' . $classMatch[1] . $merged . $classMatch[1],
+                        $match[0],
+                        1
+                    );
+                }
+                return '<' . $match[1] . $match[2] . ' class="' . $tokens . '">';
+            },
+            $body['content']
+        );
+        return substr_replace($html, $content, $body['content_offset'], strlen($body['content']));
     }
 
     /** @param array<string,mixed> $artifact */

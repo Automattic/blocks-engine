@@ -42,9 +42,10 @@ final class CompanionPluginPayload
      * @param array<string, mixed>             $artifact        Raw artifact envelope (for site identity).
      * @param array<int, array<string, mixed>> $generatedBlocks     Static-render blocks generated at core/html fallbacks (issue #497).
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
-     * @return array<string, mixed> Empty array when there are no generated blocks or preserved scripts.
+     * @param array<int, array<string, mixed>> $editorScripts Editor-only scripts for existing core blocks.
+     * @return array<string, mixed> Empty array when there are no generated blocks or scripts.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array()): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array()): array
     {
         $blocks = array();
         $seenNames = array();
@@ -77,7 +78,7 @@ final class CompanionPluginPayload
         }
 
         $preservedJs = $this->preservedJs($runtimeIslandPackage);
-        if ( array() === $blocks && array() === $preservedJs ) {
+        if ( array() === $blocks && array() === $preservedJs && array() === $editorScripts ) {
             return array();
         }
 
@@ -86,6 +87,9 @@ final class CompanionPluginPayload
             'blocks' => $blocks,
             'preserved_js' => $preservedJs,
         );
+        if ( array() !== $editorScripts ) {
+            $payload['editor_scripts'] = $editorScripts;
+        }
 
         $siteSlug = $this->siteSlug($artifact);
         if ( '' !== $siteSlug ) {
