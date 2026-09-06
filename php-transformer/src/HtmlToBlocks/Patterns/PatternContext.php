@@ -21,6 +21,7 @@ final class PatternContext
      * @param CodeWindowPatternContext|null $codeWindowContext
      * @param LogoPatternContext|null $logoContext
      * @param GalleryPatternContext|null $galleryContext
+     * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -34,7 +35,8 @@ final class PatternContext
         private readonly ?QuotePatternContext $quoteContext = null,
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
         private readonly ?LogoPatternContext $logoContext = null,
-        private readonly ?GalleryPatternContext $galleryContext = null
+        private readonly ?GalleryPatternContext $galleryContext = null,
+        private readonly ?Closure $sourceElementStartsHidden = null
     ) {
     }
 
@@ -67,4 +69,14 @@ final class PatternContext
     public function codeWindowContext(): ?CodeWindowPatternContext { return $this->codeWindowContext; }
     public function logoContext(): ?LogoPatternContext { return $this->logoContext; }
     public function galleryContext(): ?GalleryPatternContext { return $this->galleryContext; }
+    public function sourceElementStartsHidden(DOMElement $element): bool
+    {
+        if ( null !== $this->sourceElementStartsHidden ) {
+            return ($this->sourceElementStartsHidden)($element);
+        }
+
+        return $element->hasAttribute('hidden')
+            || 'true' === strtolower(trim($element->getAttribute('aria-hidden')))
+            || 1 === preg_match('/(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)(?:\s*!important)?\s*(?:;|$)/i', $element->getAttribute('style'));
+    }
 }

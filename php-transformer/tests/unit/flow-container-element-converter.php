@@ -65,6 +65,7 @@ $operations = array(
     'rememberAccordionDisclosureRoot' => static fn (array $block): array => $block,
     'metadataGridBlock' => $null,
     'rememberNativeDisclosureRoot' => static fn (): null => null,
+    'rememberNativeTabControls' => static fn (): null => null,
     'mediaGalleryBlock' => $null,
     'namePriceRowBlock' => $null,
     'inlineTokenGroupBlock' => $null,
