@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
@@ -37,6 +38,22 @@ $assert(
 $assert(
     'Event notifications' === ($blocks[0]['attrs']['content'] ?? null),
     'Canonical serialization does not mutate transformer working blocks.'
+);
+
+$richTextCascade = ( new HtmlTransformer() )->transform(
+    '<style>:root{--dark:0,0,0;--light:255,255,255}'
+    . '.font-default{color:rgb(var(--dark))}.color-override{color:rgb(var(--light))}</style>'
+    . '<p><span><span><span class="font-default" style="font-family:Arial"><span>First</span></span></span></span></p>'
+    . '<p><span><span class="color-override"><span style="font-family:Arial"><span>Second</span></span></span></span></p>'
+)->toArray();
+$richTextMarkup = (string) ($richTextCascade['serialized_blocks'] ?? '');
+$secondOffset = strpos($richTextMarkup, 'Second');
+$secondStart = false === $secondOffset ? false : strrpos(substr($richTextMarkup, 0, $secondOffset), '<!-- wp:paragraph');
+$secondMarkup = false === $secondStart || false === $secondOffset ? '' : substr($richTextMarkup, $secondStart, $secondOffset - $secondStart);
+$assert(
+    str_contains($secondMarkup, 'color:rgb(var(--light))')
+        && ! str_contains($secondMarkup, 'color:rgb(var(--dark))'),
+    'Separate RichText fragment documents do not leak an earlier fragment cascade into the same DOM path.'
 );
 
 if ( 0 === $failures ) {
