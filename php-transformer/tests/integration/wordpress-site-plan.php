@@ -163,13 +163,16 @@ $editorSettings = static function (?WP_Post $post, string $name = 'core/edit-pos
         $styles->to_do = array_values(array_diff($styles->to_do, array($handle)));
     }
     do_action('enqueue_block_assets');
+    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
     $context = array('name' => $name);
     if ($post instanceof WP_Post) $context['post'] = $post;
-    return get_block_editor_settings(array(), new WP_Block_Editor_Context($context));
+    return array('settings' => get_block_editor_settings(array(), new WP_Block_Editor_Context($context)), 'outer_presentation_handles' => $outerPresentationHandles);
 };
-$frontEditorSettings = $editorSettings($frontPage);
+$frontEditor = $editorSettings($frontPage);
+$frontEditorSettings = $frontEditor['settings'];
 $nestedAbout = get_post($pagesBySource['nested/about.html']); if (!$nestedAbout) throw new RuntimeException('Could not load nested about page.');
-$aboutEditorSettings = $editorSettings($nestedAbout);
+$aboutEditor = $editorSettings($nestedAbout);
+$aboutEditorSettings = $aboutEditor['settings'];
 $frontEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $frontEditorSettings['styles'] ?? array()));
 $aboutEditorCss = implode("\n", array_map(static fn(array $style): string => (string) ($style['css'] ?? ''), $aboutEditorSettings['styles'] ?? array()));
 $frontEditorAssets = (string) ($frontEditorSettings['__unstableResolvedAssets']['styles'] ?? '');
@@ -182,8 +185,10 @@ set_current_screen('post');
 $frontEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
 $post = $nestedAbout;
 $aboutEditorThemeJsonCss = (string) ((apply_filters('wp_theme_json_data_theme', new WP_Theme_JSON_Data(array('version' => 3), 'theme'))->get_data())['styles']['css'] ?? '');
-$siteEditorAssets = (string) (($editorSettings(null, 'core/edit-site')['__unstableResolvedAssets']['styles'] ?? ''));
+$siteEditor = $editorSettings(null, 'core/edit-site');
+$siteEditorAssets = (string) (($siteEditor['settings']['__unstableResolvedAssets']['styles'] ?? ''));
 set_current_screen('front');
+$assert(array() === $frontEditor['outer_presentation_handles'] && array() === $aboutEditor['outer_presentation_handles'] && array() === $siteEditor['outer_presentation_handles'], 'Presentation styles are absent from the outer post and site editor documents.');
 $assert(str_contains($frontEditorAssets, get_theme_file_uri('assets/assets/global.css')) && !str_contains($frontEditorAssets, 'nested/about.inline.css') && str_contains($aboutEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($aboutEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'Post editors receive only their route-matched external presentation stylesheets.');
 $assert(str_contains($aboutEditorAssets, "media='(min-width: 48rem)'") && false !== strpos($aboutEditorAssets, 'global.css') && strpos($aboutEditorAssets, 'global.css') < strpos($aboutEditorAssets, 'nested/about.inline.css') && str_contains($frontEditorAssets, rawurlencode((string) ($globalPresentation['content_hash'] ?? ''))), 'Editor stylesheet links preserve media, cascade order, and the canonical content-hash version.');
 $assert(str_contains($siteEditorAssets, get_theme_file_uri('assets/assets/global.css')) && str_contains($siteEditorAssets, get_theme_file_uri('assets/nested/about.inline.css')), 'The site editor receives the complete declared presentation set through external stylesheet assets.');
@@ -196,7 +201,8 @@ $largeCss = fopen($largeCssPath, 'wb'); if (false === $largeCss) throw new Runti
 $remainingCssBytes = $largeCssBytes; $cssChunk = "/* blocks-engine bounded editor presentation */\n" . str_repeat(' ', 1048528);
 while ($remainingCssBytes > 0) { $chunk = substr($cssChunk, 0, min($remainingCssBytes, strlen($cssChunk))); if (false === fwrite($largeCss, $chunk)) throw new RuntimeException('Could not write oversized presentation stylesheet.'); $remainingCssBytes -= strlen($chunk); }
 fclose($largeCss);
-$largeEditorSettings = $editorSettings($frontPage);
+$largeEditor = $editorSettings($frontPage);
+$largeEditorSettings = $largeEditor['settings'];
 $largeEditorCssBytes = array_sum(array_map(static fn(array $style): int => strlen((string) ($style['css'] ?? '')), $largeEditorSettings['styles'] ?? array()));
 $largeEditorAssets = (string) ($largeEditorSettings['__unstableResolvedAssets']['styles'] ?? '');
 $largeEditorPeakBytes = memory_get_peak_usage(true);
