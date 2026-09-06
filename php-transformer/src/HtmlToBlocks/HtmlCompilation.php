@@ -3072,9 +3072,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $customVideo = $this->customVideoElement($element);
         if ( $customVideo instanceof DOMElement ) {
-            return $this->hasTransparentCustomVideoHostPresentation($element)
-                ? $this->convertMediaElement($customVideo)
-                : $this->responsiveMediaBlock($element);
+            $video = $this->convertMediaElement($customVideo);
+            if ( $this->hasTransparentCustomVideoHostPresentation($element) ) {
+                return $video;
+            }
+
+            if ( 'wix-video' === $tagName && '' === $this->attr($element, 'style') ) {
+                $hostAttrs = $this->styleResolver->presentationAttributes($element);
+                $hostClass = (string) ($hostAttrs['className'] ?? '');
+                if ( '' !== $hostClass ) {
+                    $video['attrs']['className'] = $this->mergeClassNames($hostClass, (string) ($video['attrs']['className'] ?? ''));
+                }
+                return $video;
+            }
+
+            return $this->responsiveMediaBlock($element);
         }
 
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
@@ -9643,12 +9655,54 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && ! in_array(strtolower($descendant->tagName), array( 'video', 'source', 'track' ), true) ) {
+            if ( $descendant instanceof DOMElement
+                && ! in_array(strtolower($descendant->tagName), array( 'video', 'source', 'track' ), true)
+                && ! $this->isDecorativeCustomVideoDescendant($descendant)
+            ) {
                 return null;
             }
         }
 
         return $videos->item(0);
+    }
+
+    private function isDecorativeCustomVideoDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( in_array($name, array( 'role', 'tabindex', 'title' ), true)
+                || (str_starts_with($name, 'aria-') && 'aria-hidden' !== $name)
+                || ('aria-hidden' === $name && 'true' !== strtolower(trim($attribute->value)))
+            ) {
+                return false;
+            }
+        }
+
+        if ( 'true' === strtolower(trim($this->attr($element, 'aria-hidden'))) ) {
+            return true;
+        }
+
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'true' === strtolower(trim($this->attr($ancestor, 'aria-hidden'))) ) {
+                return true;
+            }
+        }
+
+        if ( 'img' === strtolower($element->tagName) ) {
+            return '' === $this->attr($element, 'alt');
+        }
+
+        if ( str_contains($element->tagName, '-') && '' === trim($element->textContent ?? '') ) {
+            foreach ( $element->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement && ! $this->isDecorativeCustomVideoDescendant($descendant) ) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        return in_array(strtolower($element->tagName), array( 'div', 'span' ), true)
+            && '' === trim($element->textContent ?? '');
     }
 
     private function hasTransparentCustomVideoHostPresentation(DOMElement $element): bool
