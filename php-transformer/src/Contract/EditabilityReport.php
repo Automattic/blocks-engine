@@ -34,6 +34,10 @@ final class EditabilityReport
             'structural_rich_text_attribute_bytes' => 0,
             'source_marker_class_count' => 0,
             'generated_geometry_class_count' => 0,
+            'custom_wrapper_block_count' => 0,
+            'layout_shell_wrapper_count' => 0,
+            'layout_shell_editable_descendant_count' => 0,
+            'responsive_counterpart_count' => 0,
             'serialized_bytes' => '' === $serializedBlocks ? 0 : strlen($serializedBlocks),
         );
         $blockTypes = array();
@@ -193,6 +197,26 @@ final class EditabilityReport
             foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
                 if (str_starts_with($class, 'blocks-engine-source-')) $metrics['source_marker_class_count']++;
                 if (str_starts_with($class, 'be-inline-geometry-')) $metrics['generated_geometry_class_count']++;
+                if (preg_match('/^be-responsive-counterpart-[a-f0-9]{12}$/', $class)) $metrics['responsive_counterpart_count']++;
+            }
+            if ($this->isLayoutShell($name)) {
+                $ownershipPath = 'blocks.' . implode('.', $blockPath);
+                $wrapperCount = is_array($attrs['wrappers'] ?? null) ? count($attrs['wrappers']) : 0;
+                $editableDescendants = $this->countBlocks($innerBlocks);
+                $metrics['custom_wrapper_block_count']++;
+                $metrics['layout_shell_wrapper_count'] += $wrapperCount;
+                $metrics['layout_shell_editable_descendant_count'] += $editableDescendants;
+                $signals[] = array_filter(array(
+                    'kind' => 'layout_shell',
+                    'source_path' => $sourcePath,
+                    'block_path' => implode('.', $blockPath),
+                    'block_name' => $name,
+                    'wrapper_count' => $wrapperCount,
+                    'editable_descendant_count' => $editableDescendants,
+                    'runtime_owned' => isset($runtimeBlockPaths[$ownershipPath]),
+                    'visual_owned' => isset($visualBlockPaths[$ownershipPath]),
+                    'source_selector' => is_string(($provenanceByBlockPath[implode('.', $blockPath)] ?? array())['selector'] ?? null) ? $provenanceByBlockPath[implode('.', $blockPath)]['selector'] : '',
+                ), static fn(mixed $value): bool => is_bool($value) || is_int($value) || '' !== $value);
             }
             $this->inspectAttributes($attrs, $name, $sourcePath, $blockPath, $metrics, $signals, $provenanceByBlockPath[implode('.', $blockPath)] ?? array());
             if (array() !== $innerBlocks) $this->walk($innerBlocks, $depth + 1, $blockPath, $metrics, $blockTypes, $signals, $sourcePath, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $provenanceByBlockPath, $deepestBlock);
@@ -215,6 +239,24 @@ final class EditabilityReport
     private function isWrapper(string $name): bool
     {
         return in_array($name, array('core/group', 'core/columns', 'core/column', 'core/buttons'), true);
+    }
+
+    /** Custom layout shells serialize exact source wrapper chains inside one bounded carrier block. */
+    private function isLayoutShell(string $name): bool
+    {
+        return str_ends_with($name, '/layout-shell');
+    }
+
+    /** @param array<int, array<string, mixed>> $blocks */
+    private function countBlocks(array $blocks): int
+    {
+        $count = 0;
+        foreach ($blocks as $block) {
+            if (!is_array($block)) continue;
+            ++$count;
+            if (is_array($block['innerBlocks'] ?? null)) $count += $this->countBlocks($block['innerBlocks']);
+        }
+        return $count;
     }
 
     /** @param array<string,mixed> $attrs */

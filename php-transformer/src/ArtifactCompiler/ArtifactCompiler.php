@@ -771,6 +771,22 @@ final class ArtifactCompiler
                 'source_path' => $failure['source_path'] ?? '',
             ));
         }
+        $responsiveCounterpartReports = array();
+        foreach (array_merge(array($entryPath => $entryBlocks), $compiledHtmlDocuments) as $reportSourcePath => $compiledDocument) {
+            if (is_array($compiledDocument['responsive_counterpart_contracts'] ?? null) && array() !== $compiledDocument['responsive_counterpart_contracts']) {
+                $responsiveCounterpartReports[(string) $reportSourcePath] = $compiledDocument['responsive_counterpart_contracts'];
+            }
+        }
+        if (array() !== $responsiveCounterpartReports) {
+            $sourceReports['responsive_counterpart_contracts'] = $this->mergeResponsiveCounterpartContracts($responsiveCounterpartReports);
+            $declaredCount = (int) ($sourceReports['responsive_counterpart_contracts']['metrics']['declared_count'] ?? 0);
+            if (0 < $declaredCount) {
+                $diagnostics[] = $this->diagnostic('responsive_counterparts_declared', 'info', sprintf('Declared %d responsive counterpart pair(s) from stable source provenance.', $declaredCount), array(
+                    'schema' => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ResponsiveCorrespondence::SCHEMA,
+                    'declared_count' => $declaredCount,
+                ));
+            }
+        }
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
@@ -778,7 +794,20 @@ final class ArtifactCompiler
         if (array() !== $sitePlanInput->fontMaterialization) {
             $sourceReports['font_materialization'] = $sitePlanInput->fontMaterialization;
         }
-        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage);
+        $editorScripts = array();
+        $editorModule = $sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null;
+        if ( is_array($editorModule)
+            && is_string($editorModule['handle'] ?? null)
+            && is_string($editorModule['content'] ?? null)
+            && is_array($editorModule['script_dependencies'] ?? null)
+        ) {
+            $editorScripts[] = array(
+                'handle'       => $editorModule['handle'],
+                'content'      => $editorModule['content'],
+                'dependencies' => $editorModule['script_dependencies'],
+            );
+        }
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }
@@ -898,6 +927,57 @@ final class ArtifactCompiler
         $content = array();
         foreach ($assets as $asset) if ('css' === ($asset['kind'] ?? '') && 'engine-support' === ($asset['source'] ?? '') && is_string($asset['content'] ?? null)) $content[] = $asset['content'];
         return implode("\n", $content);
+    }
+
+    /**
+     * Merge per-document responsive counterpart contracts into one bounded
+     * artifact report. Counterpart entries gain their owning source path so a
+     * consumer can attribute every declared pair, and the editor module is
+     * carried once.
+     *
+     * @param array<string, array<string, mixed>> $reports Keyed by source path.
+     * @return array<string, mixed>
+     */
+    private function mergeResponsiveCounterpartContracts(array $reports): array
+    {
+        $merged = array(
+            'schema' => \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\ResponsiveCorrespondence::SCHEMA,
+            'pairing_rule' => 'stable_source_id_and_variant_structure_only',
+            'counterparts' => array(),
+            'metrics' => array('declared_count' => 0, 'declined_count' => 0, 'document_count' => count($reports)),
+        );
+        $editorModule = array();
+        ksort($reports, SORT_STRING);
+        foreach ($reports as $sourcePath => $report) {
+            foreach (is_array($report['counterparts'] ?? null) ? $report['counterparts'] : array() as $counterpart) {
+                if (!is_array($counterpart)) {
+                    continue;
+                }
+                $counterpart['source_path'] = (string) $sourcePath;
+                $merged['counterparts'][] = $counterpart;
+            }
+            foreach (is_array($report['declined'] ?? null) ? $report['declined'] : array() as $declinedEntry) {
+                if (is_array($declinedEntry)) {
+                    $declinedEntry['source_path'] = (string) $sourcePath;
+                    $merged['declined'][] = $declinedEntry;
+                }
+            }
+            foreach (array('declared_count', 'declined_count') as $metric) {
+                $merged['metrics'][$metric] += (int) ($report['metrics'][$metric] ?? 0);
+            }
+            if (array() === $editorModule && is_array($report['editor_module'] ?? null)) {
+                $editorModule = $report['editor_module'];
+            }
+        }
+        if (array() !== $merged['counterparts']) {
+            usort($merged['counterparts'], static function (array $left, array $right): int {
+                return [$left['source_path'], $left['token']] <=> [$right['source_path'], $right['token']];
+            });
+        }
+        if (array() !== $editorModule) {
+            $merged['editor_module'] = $editorModule;
+        }
+        return $merged;
     }
 
     /** @param array<string,mixed> $result @return array<int,string> */
@@ -2002,6 +2082,7 @@ final class ArtifactCompiler
             'runtime_block_paths' => $result['runtime_block_paths'] ?? array(),
             'visual_block_paths' => $result['visual_block_paths'] ?? array(),
             'editability_report' => $result['editability_report'] ?? null,
+            'responsive_counterpart_contracts' => $result['responsive_counterpart_contracts'] ?? array(),
             'reusable_components' => $result['reusable_components'],
             'layout_geometry_proof' => $result['layout_geometry_proof'] ?? array(),
         );
@@ -2087,6 +2168,7 @@ final class ArtifactCompiler
             'runtime_block_paths' => $this->runtimeBlockPaths($result),
             'visual_block_paths' => $this->visualBlockPaths($result),
             'editability_report' => is_array($result['source_reports']['editability_report'] ?? null) ? $result['source_reports']['editability_report'] : null,
+            'responsive_counterpart_contracts' => is_array($result['source_reports']['responsive_counterpart_contracts'] ?? null) ? $result['source_reports']['responsive_counterpart_contracts'] : array(),
             'layout_geometry_proof' => is_array($result['source_reports']['html']['layout_geometry_proof'] ?? null) ? $result['source_reports']['html']['layout_geometry_proof'] : array(),
             'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
             'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
