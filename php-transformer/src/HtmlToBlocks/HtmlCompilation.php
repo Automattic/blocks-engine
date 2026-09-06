@@ -4864,7 +4864,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->sourceElementClassifier->hasSourceProjectionClass($entry['block'])));
         $minimumLength = $branchEndpoint || $emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3);
-        if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
+        // Variant composition adds a provider-neutral counterpart contract to
+        // native leaves, but its source wrappers carry no projection marker.
+        // Collapse only those deep, safe chains; unrelated unprojected DOM keeps
+        // its existing component-routing behavior.
+        $compressesDeepUnprojectedChain = 0 === $projectedCount
+            && 3 <= count($chain)
+            && $this->containsResponsiveCounterpart($terminalBlocks);
+        if ((0 < $projectedCount && $minimumLength <= count($chain)) || $compressesDeepUnprojectedChain || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
             $wrappers = array_column($chain, 'descriptor');
             $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
             $terminalVisualOwned = $terminalIsShell && !empty($terminal['_editability_visual_owned']);
@@ -4896,6 +4903,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
         }
         return $block;
+    }
+
+    /** @param array<int,array<string,mixed>> $blocks */
+    private function containsResponsiveCounterpart(array $blocks): bool
+    {
+        foreach ($blocks as $block) {
+            if (!is_array($block)) continue;
+            if (preg_match('/(?:^|\s)be-responsive-counterpart-[a-f0-9]{12}(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''))) {
+                return true;
+            }
+            if ($this->containsResponsiveCounterpart(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */

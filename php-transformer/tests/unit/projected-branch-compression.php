@@ -111,4 +111,37 @@ $assert(array_reduce($formBindings, static fn(bool $valid, array $binding): bool
     && ($binding['search_block_markup'] ?? '') === substr($formMarkup, (int) ($binding['position']['offset'] ?? -1), (int) ($binding['position']['length'] ?? 0)), true), 'Projected form bindings rebase onto their exact final layout-shell ranges.');
 $assert(2 === count(array_unique($formIdentities)) && array_reduce($formDeclaration['payload']['entities'] ?? array(), static fn(bool $valid, array $entity): bool => $valid && ($entity['fallback_identity'] ?? null) === ($entity['reconciliation_identity'] ?? null) && preg_match('/^[a-f0-9]{64}$/', $entity['fallback_identity'] ?? '') === 1, true), 'Responsive duplicate provider forms retain distinct stable source fallback identities.');
 
+// Variant composition adds ordinary source wrappers rather than source-projection
+// markers. They must still compress when their safe, exact chain would otherwise
+// exceed the producer's List View depth limit.
+$variantChain = static function (string $variant, string $copy): string {
+    $content = '<p id="hero-copy">' . $copy . '</p>';
+    for ($depth = 20; 1 <= $depth; --$depth) {
+        $content = '<div data-shell="' . $variant . '-' . $depth . '" class="' . $variant . '-shell layer-' . $depth . '">' . $content . '</div>';
+    }
+    return $content;
+};
+$variantResult = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<!doctype html><html><body>' . $variantChain('desktop', 'Desktop copy') . '</body></html>'),
+        array('path' => 'website/mobile.html', 'content' => '<!doctype html><html><body>' . $variantChain('mobile', 'Mobile copy') . '</body></html>'),
+    ),
+    'document_variants' => array(array(
+        'source_path' => 'website/index.html',
+        'variants' => array(array('id' => 'mobile', 'source_path' => 'website/mobile.html', 'media' => '(max-width: 700px)')),
+    )),
+))->toArray();
+$variantMetrics = $variantResult['source_reports']['editability_report']['metrics'] ?? array();
+$variantPolicy = $variantResult['source_reports']['editability_policy'] ?? array();
+$variantBlocks = (string) ($variantResult['serialized_blocks'] ?? '');
+
+$assert('passed' === ($variantPolicy['status'] ?? null) && !in_array('editability_policy_failed', array_column($variantResult['diagnostics'] ?? array(), 'code'), true) && 20 >= ($variantMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'Deep provider-neutral responsive counterparts pass the unchanged required editability policy.');
+$assert(2 === substr_count($variantBlocks, '<!-- wp:custom/layout-shell'), 'Each responsive counterpart branch compresses into one bounded layout shell.');
+foreach (array('desktop', 'mobile') as $variant) {
+    $assert(str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-1">') && str_contains($variantBlocks, '<div class="wp-block-group ' . $variant . '-shell layer-20">'), 'Layout-shell serialization retains the exact saved outer and inner wrapper markup for the ' . $variant . ' counterpart.');
+}
+$assert(2 === ($variantMetrics['responsive_counterpart_count'] ?? null) && str_contains($variantBlocks, '>Desktop copy<') && str_contains($variantBlocks, '>Mobile copy<'), 'Compression retains native editable counterpart leaves and their correspondence contract.');
+
 fwrite(STDOUT, "Projected branch compression tests passed.\n");
