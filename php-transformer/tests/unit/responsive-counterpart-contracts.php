@@ -161,8 +161,9 @@ $assert(array('wp-hooks', 'wp-element', 'wp-block-editor', 'wp-components', 'wp-
 $assert(str_contains($script, "hooks.addFilter( 'editor.BlockEdit'"), '4: module extends the block editor through the supported filter seam');
 $assert(str_contains($script, '1 !== matches.length') && str_contains($script, 'return null;'), '4: module requires exactly one counterpart block before acting');
 $assert(str_contains($script, "data.dispatch( 'core/block-editor' ).updateBlockAttributes"), '4: applying a change targets the counterpart through the editor store');
-$assert(str_contains($script, "data.dispatch( 'core/notices' ).createNotice"), '4: every applied change surfaces an auditable editor notice');
-$assert(str_contains($script, 'CONTENT_ATTRIBUTES') && !str_contains($script, 'setAttributes'), '4: module never mutates the selected block, only the declared counterpart attribute');
+$assert(str_contains($script, "data.dispatch( 'core/notices' ).createNotice"), '4: manual copy surfaces an auditable editor notice');
+$assert(str_contains($script, 'CONTENT_ATTRIBUTES') && str_contains($script, 'setAttributes') && str_contains($script, 'Object.prototype.hasOwnProperty.call( nextAttributes, attribute )'), '4: module mirrors only declared compatible attribute updates');
+$assert(str_contains($script, 'components.ToggleControl') && str_contains($script, 'Mirror changes to '), '4: module exposes a visible opt-out for counterpart mirroring');
 $payload = $result['source_reports']['companion_plugin_payload'] ?? array();
 $editorScripts = is_array($payload['editor_scripts'] ?? null) ? $payload['editor_scripts'] : array();
 $assert(1 === count($editorScripts) && 'blocks-engine-responsive-counterparts' === ($editorScripts[0]['handle'] ?? '') && $script === ($editorScripts[0]['content'] ?? '') && ($module['script_dependencies'] ?? null) === ($editorScripts[0]['dependencies'] ?? null), '4: the declared editor module is delivered through the generic companion editor-script contract');

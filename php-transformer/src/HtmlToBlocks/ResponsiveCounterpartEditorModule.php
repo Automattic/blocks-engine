@@ -12,9 +12,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
  *    counterpart token class with a compatible content attribute;
  *  - it requires exactly one other block in the editor carrying the same
  *    token, resolved under the declared responsive variant roots;
- *  - it never syncs automatically: an explicit author action applies the
- *    current content attribute to the counterpart, and every applied change
- *    is surfaced through a dismissible editor notice.
+ *  - it mirrors only the compatible content attribute while the paired block
+ *    is selected, with a visible per-selection opt-out and manual copy action.
  */
 final class ResponsiveCounterpartEditorModule
 {
@@ -36,6 +35,7 @@ final class ResponsiveCounterpartEditorModule
 ( function( hooks, element, components, blockEditor, data ) {
     var createElement = element.createElement;
     var Fragment = element.Fragment;
+    var useState = element.useState;
     var TOKEN_CLASS = /^be-responsive-counterpart-([a-f0-9]{12})$/;
     var VARIANT_CLASS = /^site-document-variant-([a-z][a-z0-9_-]{0,31})$/;
     var CONTENT_ATTRIBUTES = { 'core/paragraph': 'content', 'core/heading': 'content', 'core/button': 'text' };
@@ -87,12 +87,14 @@ final class ResponsiveCounterpartEditorModule
         var variant = variantOf( matches[ 0 ] );
         return variant ? { block: matches[ 0 ], variant: variant } : null;
     }
-    function applyToCounterpart( props, counterpart, attribute ) {
+    function applyToCounterpart( props, counterpart, attribute, notify ) {
         var value = props.attributes[ attribute ];
         var next = {};
         next[ attribute ] = value;
         data.dispatch( 'core/block-editor' ).updateBlockAttributes( counterpart.block.clientId, next );
-        data.dispatch( 'core/notices' ).createNotice( 'success', 'Responsive counterpart: applied ' + attribute + ' to the ' + ( VARIANT_LABELS[ counterpart.variant ] || counterpart.variant ) + ' block.', { type: 'snackbar', isDismissible: true } );
+        if ( notify ) {
+            data.dispatch( 'core/notices' ).createNotice( 'success', 'Responsive counterpart: applied ' + attribute + ' to the ' + ( VARIANT_LABELS[ counterpart.variant ] || counterpart.variant ) + ' block.', { type: 'snackbar', isDismissible: true } );
+        }
     }
     hooks.addFilter( 'editor.BlockEdit', 'blocks-engine/responsive-counterparts', function( BlockEdit ) {
         return function( props ) {
@@ -100,18 +102,36 @@ final class ResponsiveCounterpartEditorModule
             var attribute = CONTENT_ATTRIBUTES[ props.name ] || '';
             var counterpart = token && attribute ? counterpartFor( props.clientId, token ) : null;
             var edited = createElement( BlockEdit, props );
+            var mirrorState = useState( true );
+            var isMirroring = mirrorState[ 0 ];
+            var setMirroring = mirrorState[ 1 ];
             if ( ! counterpart ) { return edited; }
             var variantLabel = VARIANT_LABELS[ counterpart.variant ] || counterpart.variant;
+            var mirroredProps = Object.assign( {}, props, {
+                setAttributes: function( nextAttributes ) {
+                    props.setAttributes( nextAttributes );
+                    if ( isMirroring && Object.prototype.hasOwnProperty.call( nextAttributes, attribute ) ) {
+                        applyToCounterpart( { attributes: Object.assign( {}, props.attributes, nextAttributes ) }, counterpart, attribute, false );
+                    }
+                }
+            } );
+            edited = createElement( BlockEdit, mirroredProps );
             return createElement( Fragment, null,
                 edited,
                 createElement( blockEditor.InspectorControls, null,
                     createElement( components.PanelBody, { title: 'Responsive counterpart', initialOpen: true },
                         createElement( 'p', { className: 'blocks-engine-responsive-counterpart-note' },
                             'Declared ' + variantLabel + ' counterpart for this ' + ( 'text' === attribute ? 'text' : 'link' ) + ' block.' ),
+                        createElement( components.ToggleControl, {
+                            label: 'Mirror changes to ' + variantLabel,
+                            checked: isMirroring,
+                            onChange: setMirroring,
+                            help: isMirroring ? 'Changes to this content are mirrored while this block is selected.' : 'Changes remain independent until mirroring is enabled.'
+                        } ),
                         createElement( components.Button, {
                             variant: 'secondary',
                             className: 'blocks-engine-responsive-counterpart-apply',
-                            onClick: function() { applyToCounterpart( props, counterpart, attribute ); }
+                            onClick: function() { applyToCounterpart( props, counterpart, attribute, true ); }
                         }, 'Copy ' + attribute + ' to ' + variantLabel )
                     )
                 )
