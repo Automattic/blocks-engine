@@ -17,6 +17,9 @@ final class RuntimeBehaviorState
     /** @var array<string, true> */
     private array $nativeDisclosureRootPaths = array();
 
+    /** @var array<string, true> */
+    private array $nativeTabControlPaths = array();
+
     private bool $emptyRuntimeTargetGenerated = false;
 
     private bool $emptyVisualGroupGenerated = false;
@@ -75,6 +78,16 @@ final class RuntimeBehaviorState
     public function isNativeDisclosureRoot(string $path): bool
     {
         return isset($this->nativeDisclosureRootPaths[$path]);
+    }
+
+    public function rememberNativeTabControl(string $path): void
+    {
+        $this->nativeTabControlPaths[$path] = true;
+    }
+
+    public function isNativeTabControl(string $path): bool
+    {
+        return isset($this->nativeTabControlPaths[$path]);
     }
 
     public function markEmptyRuntimeTargetGenerated(): void

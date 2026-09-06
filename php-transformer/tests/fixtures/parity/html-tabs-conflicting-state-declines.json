@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-tabs-conflicting-state-declines",
+  "description": "Declines native Tabs conversion when the selected control points at an explicitly hidden panel.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-tabs-conflicting-state-declines.json",
+    "notes": "Fail-closed coverage for contradictory source state that Core Tabs cannot preserve."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"tabs\"><div role=\"tablist\"><button role=\"tab\" aria-selected=\"true\" aria-controls=\"one\">One</button><button role=\"tab\" aria-selected=\"false\" aria-controls=\"two\">Two</button></div><section id=\"one\" role=\"tabpanel\" aria-hidden=\"true\"><p>One panel.</p></section><section id=\"two\" role=\"tabpanel\"><p>Two panel.</p></section></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "tabs" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:tabs" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "One panel." },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Two panel." },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

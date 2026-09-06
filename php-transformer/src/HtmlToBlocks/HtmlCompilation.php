@@ -777,6 +777,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             rememberAccordionDisclosureRoot: fn (array $block, DOMElement $element): array => $this->rememberAccordionDisclosureRoot($block, $element),
             metadataGridBlock: fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
             rememberNativeDisclosureRoot: function (DOMElement $element): void { $this->runtimeBehavior()->rememberNativeDisclosureRoot($element->getNodePath() ?? ''); },
+            rememberNativeTabControls: function (DOMElement $element): void {
+                foreach ( $element->childNodes as $child ) {
+                    if ( ! $child instanceof DOMElement || 'tablist' !== strtolower(trim($this->attr($child, 'role'))) ) {
+                        continue;
+                    }
+                    foreach ( $child->getElementsByTagName('*') as $candidate ) {
+                        if ( $candidate instanceof DOMElement && 'tab' === strtolower(trim($this->attr($candidate, 'role'))) ) {
+                            $this->runtimeBehavior()->rememberNativeTabControl($candidate->getNodePath() ?? '');
+                        }
+                    }
+                    break;
+                }
+            },
             mediaGalleryBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->mediaGalleryBlockFromElement($element, $fallbacks),
             namePriceRowBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->namePriceRowBlockFromElement($element, $fallbacks),
             inlineTokenGroupBlock: fn (DOMElement $element, array &$fallbacks): ?array => $this->inlineTokenGroupBlockFromElement($element, $fallbacks),
@@ -2585,7 +2598,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
                 fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
                 fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure)
-            )
+            ),
+            fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
+                || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
+                || $this->sourceElementStartsHidden($sourceElement)
         );
     }
 
@@ -2666,7 +2682,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
                 fn (DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array => $this->convertPictureElement($picture, $figure, $link),
                 fn (DOMElement $figure): ?DOMElement => $this->figureLinkedMediaAnchor($figure)
-            )
+            ),
+            sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
+                || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
+                || $this->sourceElementStartsHidden($sourceElement)
         );
     }
 
@@ -7471,7 +7490,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        if ( $this->isFoldedIntoNativeDisclosure($element) ) {
+        if ( $this->isFoldedIntoNativeDisclosure($element) || $this->runtimeBehavior()->isNativeTabControl($element->getNodePath() ?? '') ) {
             return false;
         }
 

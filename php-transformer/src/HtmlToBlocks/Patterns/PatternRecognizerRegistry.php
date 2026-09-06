@@ -31,6 +31,7 @@ final class PatternRecognizerRegistry
             new ButtonAnchorPattern($buttons),
             new ButtonPattern($buttons),
             new AccordionPattern(),
+            new TabsPattern(),
             new SocialLinksPattern(),
             new NavigationPattern(),
         ));

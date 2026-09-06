@@ -38,6 +38,7 @@ final class FlowContainerElementContext
         private readonly Closure $rememberAccordionDisclosureRoot,
         private readonly Closure $metadataGridBlock,
         private readonly Closure $rememberNativeDisclosureRoot,
+        private readonly Closure $rememberNativeTabControls,
         private readonly Closure $mediaGalleryBlock,
         private readonly Closure $namePriceRowBlock,
         private readonly Closure $inlineTokenGroupBlock,
@@ -95,6 +96,7 @@ final class FlowContainerElementContext
     /** @return array<string, mixed>|null */
     public function metadataGridBlock(DOMElement $element): ?array { return ($this->metadataGridBlock)($element); }
     public function rememberNativeDisclosureRoot(DOMElement $element): void { ($this->rememberNativeDisclosureRoot)($element); }
+    public function rememberNativeTabControls(DOMElement $element): void { ($this->rememberNativeTabControls)($element); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
     public function mediaGalleryBlock(DOMElement $element, array &$fallbacks): ?array { return ($this->mediaGalleryBlock)($element, $fallbacks); }
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */

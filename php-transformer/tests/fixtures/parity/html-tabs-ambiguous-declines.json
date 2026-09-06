@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-tabs-ambiguous-declines",
+  "description": "Declines native Tabs conversion when no control is active or radio controls cannot be associated with their panels.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-tabs-ambiguous-declines.json",
+    "notes": "Fail-closed coverage for incomplete ARIA state and coincidental radio/panel layout."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"tabs no-active\"><div role=\"tablist\"><button role=\"tab\">One</button><button role=\"tab\">Two</button></div><section role=\"tabpanel\"><p>First incomplete panel.</p></section><section role=\"tabpanel\"><p>Second incomplete panel.</p></section></div><div class=\"tabs unrelated-radios\"><input id=\"alpha\" name=\"choice\" type=\"radio\" checked><label for=\"alpha\">Alpha</label><input id=\"beta\" name=\"choice\" type=\"radio\"><label for=\"beta\">Beta</label><div class=\"panel first\"><p>Unrelated first panel.</p></div><div class=\"panel second\"><p>Unrelated second panel.</p></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "tabs no-active" } },
+    { "path": "blocks.1", "name": "core/group", "attrs": { "className": "tabs unrelated-radios" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:tabs" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "First incomplete panel." },
+    { "path": "serialized_blocks", "assert": "contains", "value": "Unrelated first panel." },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

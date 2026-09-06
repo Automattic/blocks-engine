@@ -1,0 +1,41 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-tabs",
+  "description": "Converts paired ARIA and radio-label tab interfaces into the WordPress 7.1 Core Tabs family.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-tabs.json",
+    "notes": "Product-neutral coverage based on recurring documentation, schedule, and service tab structures in the fixture corpus."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"schedule-tabs\"><div id=\"day-tabs\" class=\"schedule-tabs__list\" role=\"tablist\" aria-label=\"Conference days\"><button role=\"tab\" aria-selected=\"false\" aria-controls=\"day-one\">Day One</button><button role=\"tab\" aria-selected=\"true\" aria-controls=\"day-two\">Day Two</button></div><section id=\"day-one\" class=\"schedule-panel\" role=\"tabpanel\" hidden><h2>Friday</h2><p>Workshops.</p></section><section id=\"day-two\" class=\"schedule-panel\" role=\"tabpanel\"><h2>Saturday</h2><p>Talks.</p></section></div><div class=\"tabs\" data-tabs><input id=\"node\" name=\"sdk\" type=\"radio\" checked><label for=\"node\">Node</label><input id=\"ruby\" name=\"sdk\" type=\"radio\"><label for=\"ruby\">Ruby</label><div class=\"panel node\"><pre><code>npm install sdk</code></pre></div><div class=\"panel ruby\"><pre><code>gem install sdk</code></pre></div></div>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/tabs", "attrs": { "className": "schedule-tabs", "activeTabIndex": 1 } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/tab-list", "attrs": { "className": "schedule-tabs__list blocks-engine-editor-anchor-day-tabs", "ariaLabel": "Conference days", "tabs": [{"label":"Day One"},{"label":"Day Two"}] } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/tab-panels" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/tab-panel", "attrs": { "anchor": "day-one", "label": "Day One" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Friday" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/tab-panel", "attrs": { "anchor": "day-two", "label": "Day Two" } },
+    { "path": "blocks.1", "name": "core/tabs", "attrs": { "className": "tabs" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/tab-list", "attrs": { "tabs": [{"label":"Node"},{"label":"Ruby"}] } },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.0", "name": "core/tab-panel", "attrs": { "label": "Node" } },
+    { "path": "blocks.1.innerBlocks.1.innerBlocks.1", "name": "core/tab-panel", "attrs": { "label": "Ruby" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:tabs" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-tab-list schedule-tabs__list blocks-engine-editor-anchor-day-tabs\" role=\"tablist\"><button type=\"button\" role=\"tab\">Day One</button>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "id=\"day-tabs\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<section id=\"day-one\" class=\"wp-block-tab-panel schedule-panel" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "type=\"radio\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

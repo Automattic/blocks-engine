@@ -49,7 +49,11 @@ final class EmittedCoreBlockContracts
             'core/social-link' => 'html_transformer_contract',
             'core/social-links' => 'html_transformer_contract',
             'core/spacer' => 'html_transformer_contract',
+            'core/tab-list' => 'html_transformer_contract',
+            'core/tab-panel' => 'html_transformer_contract',
+            'core/tab-panels' => 'html_transformer_contract',
             'core/table' => 'html_transformer_contract',
+            'core/tabs' => 'html_transformer_contract',
             'core/video' => 'html_transformer_contract',
         );
     }

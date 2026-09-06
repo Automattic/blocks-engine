@@ -15,6 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\MediaTextPatter
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SocialLinksPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\SpacerPattern;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\TabsPattern;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use DOMElement;
 
@@ -54,6 +55,11 @@ final class FlowContainerElementConverter implements ElementConverter
         }
 
         $this->context->capturePseudoFormFallback($element, $fallbacks);
+        $block = $this->context->recognizePatterns($element, $fallbacks, array( TabsPattern::class ));
+        if ( null !== $block ) {
+            $this->context->rememberNativeTabControls($element);
+            return ConversionOutcome::handled($block);
+        }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( SpacerPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);

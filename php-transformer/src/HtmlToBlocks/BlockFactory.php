@@ -320,6 +320,27 @@ final class BlockFactory
             return $this->roleWrapperHtml('region', $attrs, 'wp-block-accordion-panel');
         }
 
+        if ( 'core/tabs' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tabs') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/tab-list' === $name ) {
+            $buttons = '';
+            foreach ( is_array($attrs['tabs'] ?? null) ? $attrs['tabs'] : array() as $tab ) {
+                $label = is_array($tab) ? (string) ($tab['label'] ?? '') : '';
+                $buttons .= '<button type="button" role="tab">' . $this->preserveRichTextPunctuation($label) . '</button>';
+            }
+            return '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-list') . ' role="tablist">' . $buttons . '</div>';
+        }
+
+        if ( 'core/tab-panels' === $name ) {
+            return array( 'opening' => '<div' . $this->blockSupportAttrs($attrs, 'wp-block-tab-panels') . '>', 'closing' => '</div>' );
+        }
+
+        if ( 'core/tab-panel' === $name ) {
+            return array( 'opening' => '<section' . $this->blockSupportAttrs($attrs, 'wp-block-tab-panel') . ' role="tabpanel" tabindex="0">', 'closing' => '</section>' );
+        }
+
         if ( 'core/image' === $name ) {
             return $this->imageHtml($attrs);
         }
