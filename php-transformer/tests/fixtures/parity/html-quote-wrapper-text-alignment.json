@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-quote-wrapper-text-alignment",
+  "description": "Gives a quoted text wrapper's generated inner paragraph the wrapper's own text alignment, and leaves an alignment the wrapper's preserved author rule already carries unrestated.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-quote-wrapper-text-alignment.json",
+    "notes": "core/quote carries no native text alignment, so a blockquote whose own text-align is inline lost it entirely: the generated paragraph is where it belongs natively. Reproduced on centred Wix testimonial copy that renders start-aligned after import."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<!doctype html><html><head><style>.pull{text-align:center}</style></head><body><main><blockquote class=\"testimonial\" style=\"text-align:center\">Her plans transformed my life.<cite>Emma</cite></blockquote><blockquote class=\"pull\">Author rule keeps this centred on the source tag.</blockquote></main></body></html>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/quote", "attrs": { "className": "testimonial", "citation": "Emma" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "blocks-engine-synthetic-paragraph", "align": "center" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/quote", "attrs": { "className": "pull" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "blocks-engine-synthetic-paragraph", "align": null } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"has-text-align-center blocks-engine-synthetic-paragraph\">Her plans transformed my life.</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"blocks-engine-synthetic-paragraph\">Author rule keeps this centred on the source tag.</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
