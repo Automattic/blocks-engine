@@ -156,7 +156,15 @@ final class MediaTextPattern implements PatternRecognizerInterface
                     return null;
                 }
             }
+            $mediaStyle = $mergedPresentationStyle($resolution['media']);
         } catch ( \Throwable ) {
+            return null;
+        }
+
+        // A small, explicitly sized image beside a heading is an icon lockup,
+        // not a two-pane media/text section. Let normal group lowering retain
+        // the authored row so both the image and heading stay editable.
+        if ( 'img' === $mediaType && $this->isCompactIconHeadingPair($resolution['media'], $elementChildren[ $textIndex ], $mediaStyle) ) {
             return null;
         }
 
@@ -465,6 +473,51 @@ final class MediaTextPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    private function isCompactIconHeadingPair(DOMElement $media, DOMElement $text, string $mediaStyle): bool
+    {
+        if ( ! preg_match('/^h[1-6]$/', strtolower($text->tagName)) ) {
+            return false;
+        }
+
+        $width = $this->compactHtmlDimension($this->attr($media, 'width'));
+        $height = $this->compactHtmlDimension($this->attr($media, 'height'));
+        if ( null !== $width
+            && null !== $height
+            && 64 >= $width
+            && 64 >= $height ) {
+            return true;
+        }
+
+        $declarations = $this->styleDeclarations($mediaStyle);
+        $width = $this->compactPixelDimension($this->normalizedCssValue((string) ($declarations['width'] ?? '')));
+        $heightValue = strtolower($this->normalizedCssValue((string) ($declarations['height'] ?? 'auto')));
+        $height = $this->compactPixelDimension($heightValue);
+
+        return null !== $width
+            && 64 >= $width
+            && ( 'auto' === $heightValue || ( null !== $height && 64 >= $height ) );
+    }
+
+    private function compactPixelDimension(string $value): ?float
+    {
+        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*px\s*$/i', $value, $matches) ) {
+            return null;
+        }
+
+        $dimension = (float) $matches[1];
+        return 0 < $dimension ? $dimension : null;
+    }
+
+    private function compactHtmlDimension(string $value): ?float
+    {
+        if ( ! preg_match('/^\s*(\d+(?:\.\d+)?)\s*$/', $value, $matches) ) {
+            return null;
+        }
+
+        $dimension = (float) $matches[1];
+        return 0 < $dimension ? $dimension : null;
     }
 
     /**
