@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use DOMElement;
 use InvalidArgumentException;
 
@@ -22,8 +23,8 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const PROPERTIES = array( 'display', 'width', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
-    private const LAYOUT_KEYS = array( 'display', 'width', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
+    private const PROPERTIES = array( 'display', 'width', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
+    private const LAYOUT_KEYS = array( 'display', 'width', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
     private const V1_LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
 
@@ -106,6 +107,15 @@ final class FormLayoutGraphBuilder
                 }
             }
         }
+        foreach ( $entries as $entry ) {
+            if ( ! isset($nodes[$entry['id']]) ) {
+                continue;
+            }
+            $sizing = $this->sizing($nodes[$entry['id']], $nodes);
+            if ( null !== $sizing ) {
+                $nodes[$entry['id']]['sizing'] = $sizing;
+            }
+        }
 
         $graph = array(
             'schema' => 'generic/computed-layout-graph/v2',
@@ -143,7 +153,7 @@ final class FormLayoutGraphBuilder
         }
         $ids = array();
         foreach ( $graph['nodes'] as $node ) {
-            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) ) {
+            if ( ! is_array($node) || ! is_string($node['id'] ?? null) || isset($ids[$node['id']]) || ! in_array($node['kind'] ?? null, array( 'container', 'control' ), true) || ! is_int($node['order'] ?? null) || ! is_array($node['source'] ?? null) || ! is_string($node['source']['tag'] ?? null) || ! is_array($node['source']['classes'] ?? null) || ! is_array($node['layout'] ?? null) || ! is_array($node['provenance'] ?? null) || (isset($node['sizing']) && ! is_array($node['sizing'])) ) {
                 throw new InvalidArgumentException('Form layout graph node is invalid.');
             }
             $ids[$node['id']] = true;
@@ -166,6 +176,9 @@ final class FormLayoutGraphBuilder
                 break;
             }
             self::assertFacts($node['layout'], $node['provenance'], null, $properties, $layoutKeys);
+            if ( isset($node['sizing']) && ( $v1 || ! self::validSizing($node, $node['sizing'], $graph['nodes']) ) ) {
+                throw new InvalidArgumentException('Form layout graph sizing evidence is invalid.');
+            }
         }
         if ( count($graph['variants']) > self::MAX_VARIANTS ) {
             throw new InvalidArgumentException('Form layout graph exceeds its variant limit.');
@@ -209,6 +222,26 @@ final class FormLayoutGraphBuilder
             return is_array($condition['conditions'] ?? null) && array() !== $condition['conditions'] && count($condition['conditions']) <= self::MAX_CONDITION_DEPTH && array_reduce($condition['conditions'], static fn (bool $ok, mixed $item): bool => $ok && is_array($item) && self::validCondition($item, $depth + 1), true);
         }
         return in_array($condition['kind'] ?? null, array( 'media', 'container', 'supports' ), true) && is_string($condition['query'] ?? null) && '' !== trim($condition['query']) && strlen($condition['query']) <= 1024;
+    }
+
+    /** @param array<string, mixed> $node @param array<string, mixed> $sizing @param list<array<string, mixed>> $nodes */
+    private static function validSizing(array $node, array $sizing, array $nodes): bool
+    {
+        if ( 'control' !== $node['kind'] || 'grid_track' !== ($sizing['kind'] ?? null) || 'inline' !== ($sizing['axis'] ?? null) || ! is_string($sizing['container'] ?? null) || ! is_string($sizing['grid_column'] ?? null) || '' === trim($sizing['grid_column']) || array_diff(array_keys($sizing), array( 'kind', 'axis', 'container', 'grid_column' )) ) {
+            return false;
+        }
+        foreach ( $nodes as $container ) {
+            if ( $sizing['container'] === ($container['id'] ?? null) ) {
+                if ( $node['parent'] !== $sizing['container'] || 'container' !== ($container['kind'] ?? null) || isset($node['layout']['width']) || 'grid' !== ($container['layout']['display'] ?? null) || ! is_string($container['layout']['columns'] ?? null) || ! self::stretchesInline($node['layout']['justify_self'] ?? null) || ! self::stretchesInline($container['layout']['justify_items'] ?? null) ) {
+                    return false;
+                }
+                if ( is_string($node['layout']['column'] ?? null) ) {
+                    return $sizing['grid_column'] === $node['layout']['column'];
+                }
+                return 'auto' === $sizing['grid_column'] && 1 === count(CssValueSplitter::splitTopLevelWhitespace($container['layout']['columns']));
+            }
+        }
+        return false;
     }
 
     /** @param array<string, int> $controls @param array<string, bool> $relevant @param list<array<string, mixed>> $entries */
@@ -335,9 +368,35 @@ final class FormLayoutGraphBuilder
         return $result;
     }
 
+    /** @param array<string, mixed> $node @param array<string, array<string, mixed>> $nodes @return array<string, string>|null */
+    private function sizing(array $node, array $nodes): ?array
+    {
+        if ( 'control' !== $node['kind'] || isset($node['layout']['width']) || ! is_string($node['parent'] ?? null) || ! isset($nodes[$node['parent']]) ) {
+            return null;
+        }
+        $container = $nodes[$node['parent']];
+        if ( 'grid' !== ($container['layout']['display'] ?? null) || ! is_string($container['layout']['columns'] ?? null) || ! $this->stretchesInline($node['layout']['justify_self'] ?? null) || ! $this->stretchesInline($container['layout']['justify_items'] ?? null) ) {
+            return null;
+        }
+        $column = $node['layout']['column'] ?? null;
+        if ( ! is_string($column) ) {
+            $tracks = CssValueSplitter::splitTopLevelWhitespace($container['layout']['columns']);
+            if ( 1 !== count($tracks) ) {
+                return null;
+            }
+            $column = 'auto';
+        }
+        return array( 'kind' => 'grid_track', 'axis' => 'inline', 'container' => $container['id'], 'grid_column' => $column );
+    }
+
+    private static function stretchesInline(?string $value): bool
+    {
+        return null === $value || in_array(strtolower(trim($value)), array( 'normal', 'stretch' ), true);
+    }
+
     private static function layoutKey(string $property): string
     {
-        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis' )[$property] ?? $property;
+        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis' )[$property] ?? $property;
     }
 
     /** @return array<string, array<string, array<string, mixed>>> */
