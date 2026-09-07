@@ -125,6 +125,7 @@
       "php tests/unit/navigation-brand-cue-carrier.php",
       "php tests/unit/navigation-author-rule-memory.php",
       "php tests/unit/navigation-projection-state-isolation.php",
+      "php tests/unit/navigation-hidden-menu-hoist.php",
       "php tests/unit/navigation-direct-cluster-parity.php",
       "php tests/unit/navigation-non-anchor-brand-carrier.php",
       "php tests/unit/navigation-block-normalizer.php",

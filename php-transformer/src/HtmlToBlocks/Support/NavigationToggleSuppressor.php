@@ -57,14 +57,15 @@ final class NavigationToggleSuppressor
                 break;
             }
 
-            if ( $this->context->navigationProjection()->hasTargetForControl($control)
-                || ! $this->hasDialogPopupSemantics($control) ) {
+            if ( $this->context->navigationProjection()->hasTargetForControl($control) ) {
                 continue;
             }
 
             $relationship = $this->implicitHiddenNavigationRelationship($control);
             if ( null !== $relationship ) {
-                $this->context->navigationProjection()->markImplicitDialogControl($control);
+                if ( $this->hasDialogPopupSemantics($control) ) {
+                    $this->context->navigationProjection()->markImplicitDialogControl($control);
+                }
                 $this->recordProjectedNavigationRelationship($control, $relationship['target'], $relationship['navigation']);
             }
         }
@@ -94,22 +95,40 @@ final class NavigationToggleSuppressor
     {
         $depth = 0;
         for ( $scope = $this->menuToggleScope($control); $scope instanceof DOMElement && $depth < 12; $scope = $scope->parentNode, ++$depth ) {
-            $candidates = array();
+            $dialogCandidates = array();
+            $navigationCandidates = array();
             foreach ( $scope->getElementsByTagName('*') as $candidate ) {
-                if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) || ! $this->isSemanticDialog($candidate) ) {
+                if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) ) {
                     continue;
                 }
 
+                if ( $this->isSemanticDialog($candidate) ) {
+                    $navigation = $this->hiddenNavigationInControlledTarget($candidate);
+                    if ( $navigation instanceof DOMElement ) {
+                        $dialogCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
+                    }
+                    continue;
+                }
+
+                // A capture can retain only the initially closed menu while the
+                // source creates its dialog after a click. A unique hidden nav
+                // in the control's bounded scope is its static counterpart.
                 $navigation = $this->hiddenNavigationInControlledTarget($candidate);
                 if ( $navigation instanceof DOMElement ) {
-                    $candidates[] = array('target' => $candidate, 'navigation' => $navigation);
+                    $navigationCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
                 }
             }
 
-            if ( 1 === count($candidates) ) {
-                return $candidates[0];
+            if ( 1 === count($dialogCandidates) ) {
+                return $dialogCandidates[0];
             }
-            if ( 1 < count($candidates) ) {
+            if ( 1 < count($dialogCandidates) ) {
+                return null;
+            }
+            if ( 1 === count($navigationCandidates) ) {
+                return $navigationCandidates[0];
+            }
+            if ( 1 < count($navigationCandidates) ) {
                 return null;
             }
         }
@@ -650,18 +669,50 @@ final class NavigationToggleSuppressor
             }
 
             for ( $container = $toggle->parentNode; $container instanceof DOMElement && 'body' !== strtolower($container->tagName); $container = $container->parentNode ) {
-                if ( SourceDom::elementContains($container, $navigation) ) {
+                if ( SourceDom::elementContains($container, $navigation) && $this->isUniqueNavigationInScope($container, $navigation) ) {
                     return $this->concreteToggleControl($toggle);
                 }
             }
 
             $scope = $this->menuToggleScope($toggle);
-            if ( 'body' !== strtolower($scope->tagName) && SourceDom::elementContains($scope, $navigation) ) {
+            if ( 'body' !== strtolower($scope->tagName)
+                && SourceDom::elementContains($scope, $navigation)
+                && $this->isUniqueNavigationInScope($scope, $navigation) ) {
                 return $this->concreteToggleControl($toggle);
             }
         }
 
         return null;
+    }
+
+    private function isUniqueNavigationInScope(DOMElement $scope, DOMElement $navigation): bool
+    {
+        $candidates = array();
+        foreach ( $scope->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->convertsToCoreNavigation($candidate) ) {
+                continue;
+            }
+
+            $candidates[$candidate->getNodePath()] = $candidate;
+        }
+
+        foreach ( $candidates as $path => $candidate ) {
+            foreach ( $candidates as $otherPath => $other ) {
+                if ( $path !== $otherPath && SourceDom::elementContains($other, $candidate) ) {
+                    unset($candidates[$path]);
+                    break;
+                }
+            }
+        }
+
+        if ( 1 !== count($candidates) ) {
+            return false;
+        }
+
+        $candidate = array_values($candidates)[0];
+        return $candidate->isSameNode($navigation)
+            || SourceDom::elementContains($candidate, $navigation)
+            || SourceDom::elementContains($navigation, $candidate);
     }
 
     private function concreteToggleControl(DOMElement $toggle): DOMElement
