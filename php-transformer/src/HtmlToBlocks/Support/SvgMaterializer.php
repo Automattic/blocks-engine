@@ -510,7 +510,7 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
-        $html = $this->styleResolver->resolveCssVariablesInValue($html);
+        $html = $this->styleResolver->resolveCssVariablesInValue($html, $element);
         if ( false !== stripos($html, 'currentColor') ) {
             $html = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
         }
