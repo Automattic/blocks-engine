@@ -2818,12 +2818,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 )
             )
         );
-        // Geometry belongs to the box core already lays out. Carry the paint and
-        // type the source put on the toggle, which is what core replaces.
+        // core renders `<summary>` with no box of its own, so the toggle's own
+        // box is carried here alongside its paint and type. Position and margin
+        // stay out: the details block core lays out already holds the slot.
         $carried = array_filter(
             $declarations,
             static fn (string $property): bool => (bool) preg_match(
-                '/^(?:background|border|border-radius|box-shadow|color|font|letter-spacing|line-height|padding|text-transform|text-decoration)(?:-[a-z-]+)?$/',
+                '/^(?:align-items|background|border|border-radius|box-shadow|box-sizing|color|display|font|height|justify-content|letter-spacing|line-height|max-height|max-width|min-height|min-width|padding|text-align|text-decoration|text-transform|width)(?:-[a-z-]+)?$/',
                 $property
             ),
             ARRAY_FILTER_USE_KEY
