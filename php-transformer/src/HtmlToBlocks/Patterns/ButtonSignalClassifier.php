@@ -72,7 +72,10 @@ final class ButtonSignalClassifier
             }
         }
 
-        if ( ! $hasBoxPadding ) {
+        $hasExplicitControlBox = $this->hasClassSignal($element)
+            && $this->hasPositiveDimension($style, 'width')
+            && $this->hasPositiveDimension($style, 'height');
+        if ( ! $hasBoxPadding && ! $hasExplicitControlBox ) {
             return false;
         }
 
@@ -88,5 +91,15 @@ final class ButtonSignalClassifier
 
         return preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*[^;]+/', $style) === 1
             && preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*(?:transparent|none|inherit|initial|rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\))\s*(?:;|$)/', $style) !== 1;
+    }
+
+    private function hasPositiveDimension(string $style, string $property): bool
+    {
+        if ( ! preg_match('/(?:^|;)\s*' . $property . '\s*:\s*([^;]+)/', $style, $match) ) {
+            return false;
+        }
+
+        $value = trim((string) preg_replace('/\s*!important\s*$/', '', $match[1]));
+        return ! preg_match('/^(?:auto|none|inherit|initial|revert(?:-layer)?|unset|[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?)$/', $value);
     }
 }
