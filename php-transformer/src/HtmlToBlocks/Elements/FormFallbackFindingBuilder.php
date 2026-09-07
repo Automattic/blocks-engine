@@ -30,7 +30,9 @@ final class FormFallbackFindingBuilder
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
         $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
-        $presentationGraph = (new FormPresentationGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $presentationGraph = (new FormPresentationGraphBuilder(
+            fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value)
+        ))->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         $boundedHtml = $this->context->boundedFallbackHtml($element);
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;

@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Closure;
 use DOMDocument;
 use DOMElement;
 use InvalidArgumentException;
@@ -37,6 +38,11 @@ final class FormPresentationGraphBuilder
     private array $diagnostics = array();
     private bool $truncated = false;
 
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue */
+    public function __construct(private readonly ?Closure $resolveValue = null)
+    {
+    }
+
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {
@@ -60,7 +66,7 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                $styles = $this->styles($matched['base']);
+                $styles = $this->styles($matched['base'], $element);
                 if ( array() !== $styles ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
                 }
@@ -70,7 +76,7 @@ final class FormPresentationGraphBuilder
                         $this->diagnostics[] = 'variant_limit';
                         break 2;
                     }
-                    $patch = $this->styles($facts);
+                    $patch = $this->styles($facts, $element);
                     if ( array() !== $patch ) {
                         $condition = json_decode($encoded, true);
                         $variants[] = array(
@@ -198,7 +204,7 @@ final class FormPresentationGraphBuilder
         return array_filter($conditional);
     }
 
-    private function styles(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) $result[self::key($property)] = $fact['value']; ksort($result); return $result; }
+    private function styles(array $facts, DOMElement $element): array { $result = array(); foreach ( $facts as $property => $fact ) $result[self::key($property)] = null !== $this->resolveValue ? ($this->resolveValue)($element, $fact['value']) : $fact['value']; ksort($result); return $result; }
     private static function key(string $property): string { return str_replace('-', '_', $property); }
     private function precedence(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) $result[$property] = array( 'source_order' => $fact['order'], 'specificity' => $fact['specificity'], 'important' => $fact['important'] ); ksort($result); return $result; }
     private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'], 'selector' => $fact['selector'], 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }
