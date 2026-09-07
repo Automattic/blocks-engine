@@ -2056,10 +2056,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            $beforeAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item__content{display:inline}'
-                . "\n" . '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}';
+            // A source <ul> becomes core/navigation's inner container. For a
+            // non-responsive menu, make that wrapper transparent so its promoted
+            // source class controls the actual list items (block, flex, or grid).
+            // Core's responsive overlay keeps its own container semantics.
+            $listNavigationSelector = '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation)';
+            $beforeAuthorCssParts[] = $listNavigationSelector . '{display:block;align-items:normal}'
+                . "\n" . $listNavigationSelector . ' .wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}'
+                . "\n" . $listNavigationSelector . ' .wp-block-navigation__container{display:contents;list-style:none}';
         }
         $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();
         if ( '' !== $nativeSearchTriggerCss ) {

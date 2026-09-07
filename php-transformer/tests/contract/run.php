@@ -2513,8 +2513,15 @@ $assert(str_contains($wrappedListGapNavigationSerialized, '"blockGap":"20px"'), 
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['semantic_parity']['status'] ?? ''), '#748 wrapper-originated navigation preserves semantic parity');
 $assert('pass' === ($wrappedListGapNavigation['source_reports']['wp_block_validity']['status'] ?? ''), '#748 wrapper-originated navigation stays editor-valid');
 $wrappedListGapNavigationCss = implode("\n", array_column($wrappedListGapNavigation['assets'] ?? array(), 'content'));
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation{align-items:normal}'), 'list-navigation restores the source flex alignment default');
-$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__container{display:flex;flex-direction:inherit;align-items:inherit;flex-wrap:wrap;list-style:none}'), 'list-navigation inner container follows the authored host layout without !important');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation){display:block;align-items:normal}'), 'non-responsive list-navigation restores the source list display before author CSS applies');
+$assert(str_contains($wrappedListGapNavigationCss, '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation) .wp-block-navigation__container{display:contents;list-style:none}'), 'non-responsive list-navigation makes the native list wrapper transparent to source block, flex, and grid layout');
+
+$sidebarListNavigation = ( new HtmlTransformer() )->transform(
+    '<style>.aetna-menu{list-style:none;padding:0;margin:0}.aetna-menu a{display:block;padding:7px 12px;border-bottom:1px solid #444;background:#000;color:#d0d0d0;text-decoration:none;line-height:1.25}@media(max-width:850px){.aetna-menu{display:flex;flex-wrap:wrap;gap:6px}}@media(max-width:560px){.aetna-menu{display:grid;grid-template-columns:1fr 1fr}}</style><nav class="primary-navigation"><ul class="aetna-menu"><li class="current-menu-item"><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav>'
+)->toArray();
+$sidebarListNavigationCss = implode("\n", array_column($sidebarListNavigation['assets'] ?? array(), 'content'));
+$assert(str_contains((string) ($sidebarListNavigation['serialized_blocks'] ?? ''), '"className":"primary-navigation blocks-engine-list-navigation aetna-menu'), 'a source sidebar list promotes its list class to core/navigation');
+$assert(str_contains($sidebarListNavigationCss, '@media(max-width:850px){.aetna-menu{display:flex;flex-wrap:wrap;gap:6px}}') && str_contains($sidebarListNavigationCss, '@media(max-width:560px){.aetna-menu{display:grid;grid-template-columns:1fr 1fr}}'), 'source responsive list layout remains authoritative on the promoted navigation host');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'
@@ -2802,7 +2809,7 @@ $assert(! isset($activeNavigationColorLinks[0]['attrs']['style']['typography']['
 // container font-size/line-height rather than by the inline anchor. Keeping the
 // container typography separate preserves the source line box exactly.
 $assert(! isset($activeNavigationColorAttrs['customTextColor']) && ! isset($activeNavigationColorAttrs['style']['typography']) && str_contains((string) ($activeNavigationColorAttrs['className'] ?? ''), 'blocks-engine-list-navigation') && str_contains($activeNavigationColorCss, 'color:var(--bone)'), 'list navigation keeps source container typography separate while retaining shared color through projected CSS');
-$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap while preserving source list-item and inline-anchor formatting semantics');
+$assert(! str_contains($activeNavigationColorCss, '.wp-block-navigation__container{gap:') && str_contains($activeNavigationColorCss, '.wp-block-navigation-item.wp-block-navigation-link{display:list-item;font:inherit}') && ! str_contains($activeNavigationColorCss, '.wp-block-navigation-item__content{display:inline}'), 'list navigation uses native block gap without overriding source anchor display semantics');
 $assert('var(--ember)' === ($activeNavigationColorLinks[0]['attrs']['style']['typography']['textDecorationColor'] ?? ''), 'active navigation underline color carries source pseudo underline paint');
 $assert(! isset($activeNavigationColorLinks[1]['attrs']['style']['typography']['textDecorationColor']), 'inactive navigation link does not get underline color styling');
 $assert(str_contains($activeNavigationColorSerialized, '<!-- wp:navigation-link'), 'active navigation color case keeps canonical navigation-link serialization');
