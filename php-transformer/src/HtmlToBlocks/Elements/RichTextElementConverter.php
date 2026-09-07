@@ -87,6 +87,13 @@ final class RichTextElementConverter implements ElementConverter
             return $marquee;
         }
 
+        // Paragraphs used only as attachment wrappers are common in WordPress
+        // source. Route their image anchor before RichText rejects the <img>.
+        $image = $this->context->imageBlockFromParagraph($element);
+        if ( null !== $image ) {
+            return $image;
+        }
+
         $content         = $this->context->richTextContent($element);
         $withInlineSvg   = $this->context->richTextWithMaterializedSvgImages($element, $content);
         if ( null !== $withInlineSvg ) {

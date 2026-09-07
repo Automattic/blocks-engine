@@ -47,6 +47,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'hasEmptyVisualInlineChild'         => static fn (DOMElement $e): bool => false,
         'hasBoxChromeWrapperStyling'        => static fn (DOMElement $e): bool => false,
         'isRuntimeDomTarget'                => static fn (DOMElement $e): bool => false,
+        'imageBlockFromParagraph'           => static fn (DOMElement $e): ?array => null,
         'convertText'                       => static fn (string $t): array => '' === $t ? array() : array(array('blockName' => 'core/paragraph', 'attrs' => array('content' => $t))),
         'convertChildren'                   => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
@@ -70,6 +71,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['hasEmptyVisualInlineChild'],
         $c['hasBoxChromeWrapperStyling'],
         $c['isRuntimeDomTarget'],
+        $c['imageBlockFromParagraph'],
         $c['convertText'],
         new Runtime(),
         $c['convertChildren']
@@ -121,6 +123,9 @@ $assert('NORMALIZED:Title' === ($headingNormalized->convert($elementFrom('<h3>Ti
 // A paragraph recognized as an authored marquee short-circuits everything else.
 $marquee = $makeConverter(array('authoredMarqueeBlock' => static fn (DOMElement $e): ?array => array('blockName' => 'blocks-engine/marquee')));
 $assert('blocks-engine/marquee' === ($marquee->convert($elementFrom('<p>scroll</p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'paragraph-marquee-short-circuits');
+
+$linkedImage = $makeConverter(array('imageBlockFromParagraph' => static fn (DOMElement $e): ?array => array('blockName' => 'core/image')));
+$assert('core/image' === ($linkedImage->convert($elementFrom('<p><a href="/model"><img src="model.jpg"></a></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'paragraph-image-short-circuits-rich-text-fallback');
 
 // Materialized inline SVG replaces the plain rich-text content. The materialized
 // markup strips to an empty string, so it only survives as a paragraph because

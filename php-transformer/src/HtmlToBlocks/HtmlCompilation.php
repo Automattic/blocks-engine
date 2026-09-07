@@ -1024,6 +1024,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->hasEmptyVisualInlineChild($element),
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
+            fn (DOMElement $element): ?array => $this->imageBlockFromParagraph($element),
             fn (string $text): array => $this->convertText($text),
             $this->runtime,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -9417,6 +9418,36 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
+    }
+
+    /**
+     * A paragraph with exactly one image-only link is presentation-neutral
+     * attachment markup, not RichText. Preserve its native link as core/image.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function imageBlockFromParagraph(DOMElement $paragraph): ?array
+    {
+        $anchor = null;
+        foreach ( $paragraph->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( $anchor instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+                    return null;
+                }
+                $anchor = $child;
+                continue;
+            }
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+        }
+
+        if ( ! $anchor instanceof DOMElement || ! $this->isImageOnlyAnchor($anchor) ) {
+            return null;
+        }
+
+        $image = $this->firstChildElement($anchor, 'img');
+        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
