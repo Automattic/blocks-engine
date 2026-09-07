@@ -295,6 +295,44 @@ final class NavigationStyleProjector
     }
 
     /**
+     * Core navigation supplies `display:flex` on the promoted source list host.
+     * The before-author bridge resets that desktop default to a block list, but
+     * its stronger selector would otherwise also defeat a source media rule such
+     * as `.menu{display:grid}`. Replay only exact promoted-list display rules
+     * after author CSS, retaining their condition, so source responsive layout
+     * remains authoritative without changing unrelated navigation selectors.
+     *
+     * @return array<int, string>
+     */
+    public function listNavigationDisplayRules(string $serializedBlocks): array
+    {
+        if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
+            return array();
+        }
+
+        $navigationClasses = $this->listNavigationHostClasses($serializedBlocks);
+        $rules = array();
+        foreach ( array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules()) as $rule ) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if ( 1 !== preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) || ! isset($navigationClasses[$match[1]]) ) {
+                continue;
+            }
+
+            $display = strtolower(trim((string) ($rule['declarations']['display'] ?? '')));
+            if ( ! in_array($display, array( 'block', 'contents', 'flex', 'grid', 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'list-item', 'none' ), true) ) {
+                continue;
+            }
+
+            $host = '.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation).' . $match[1];
+            $css = $host . '{display:' . $display . '}';
+            $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            $rules[$host . "\0" . implode("\0", $conditions)] = $this->wrapConditionalRule($css, $conditions);
+        }
+
+        return array_values($rules);
+    }
+
+    /**
      * Re-point an authored ANCHOR-scoped menu-item rule at the element core
      * actually renders.
      *
@@ -1309,6 +1347,25 @@ final class NavigationStyleProjector
         }
 
         return $carried;
+    }
+
+    /** @param array<int, string> $conditions */
+    private function wrapConditionalRule(string $css, array $conditions): string
+    {
+        if ( array() === $conditions ) {
+            return $css;
+        }
+
+        foreach ( array_reverse($conditions) as $entry ) {
+            $condition = trim($entry);
+            if ( 256 < strlen($condition)
+                || 1 !== preg_match('/^@(media|container|supports)\b[^{};]+$/i', $condition) ) {
+                return $css;
+            }
+            $css = $condition . '{' . $css . '}';
+        }
+
+        return $css;
     }
 
     public function sourceMobileNavigationOverlayBackground(): string

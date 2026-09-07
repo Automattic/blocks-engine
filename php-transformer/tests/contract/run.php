@@ -2522,6 +2522,7 @@ $sidebarListNavigation = ( new HtmlTransformer() )->transform(
 $sidebarListNavigationCss = implode("\n", array_column($sidebarListNavigation['assets'] ?? array(), 'content'));
 $assert(str_contains((string) ($sidebarListNavigation['serialized_blocks'] ?? ''), '"className":"primary-navigation blocks-engine-list-navigation aetna-menu'), 'a source sidebar list promotes its list class to core/navigation');
 $assert(str_contains($sidebarListNavigationCss, '@media(max-width:850px){.aetna-menu{display:flex;flex-wrap:wrap;gap:6px}}') && str_contains($sidebarListNavigationCss, '@media(max-width:560px){.aetna-menu{display:grid;grid-template-columns:1fr 1fr}}'), 'source responsive list layout remains authoritative on the promoted navigation host');
+$assert(str_contains($sidebarListNavigationCss, '@media(max-width:850px){.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation).aetna-menu{display:flex}}') && str_contains($sidebarListNavigationCss, '@media(max-width:560px){.wp-block-navigation.blocks-engine-list-navigation:not(.blocks-engine-native-responsive-navigation).aetna-menu{display:grid}}'), 'list navigation replays source responsive display declarations after the stronger desktop compatibility bridge');
 
 $outerGapNavigation = ( new HtmlTransformer() )->transform(
     '<nav style="gap:1rem"><ul style="gap:0"><li><a href="/one">One</a></li><li><a href="/two">Two</a></li></ul></nav>'

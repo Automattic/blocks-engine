@@ -2117,6 +2117,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             foreach ( $this->navigationStyleProjector->listNavigationPaddingRules($serializedBlocks) as $paddingRule ) {
                 $afterAuthorCssParts[] = $paddingRule;
             }
+            foreach ( $this->navigationStyleProjector->listNavigationDisplayRules($serializedBlocks) as $displayRule ) {
+                $afterAuthorCssParts[] = $displayRule;
+            }
             foreach ( $this->navigationStyleProjector->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
                 $afterAuthorCssParts[] = $itemAnchorRule;
             }
