@@ -2889,20 +2889,9 @@ final class StyleResolver implements ElementPresentationResolver
             return $value;
         }
 
-        $customProperties = $this->context->sourceStyles()->customProperties();
-        if ( $element instanceof DOMElement ) {
-            $ancestors = array();
-            for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
-                $ancestors[] = $current;
-            }
-            foreach ( array_reverse($ancestors) as $ancestor ) {
-                foreach ( $this->structuralPresentationDeclarations($ancestor) as $name => $propertyValue ) {
-                    if ( str_starts_with($name, '--') ) {
-                        $customProperties[$name] = $propertyValue;
-                    }
-                }
-            }
-        }
+        $customProperties = $element instanceof DOMElement
+            ? $this->cascadedCustomProperties($element)
+            : $this->context->sourceStyles()->customProperties();
 
         return $this->expandCssVariableReferences($value, $customProperties);
     }
