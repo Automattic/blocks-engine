@@ -162,11 +162,11 @@ $editorSettings = static function (?WP_Post $post, string $name = 'core/edit-pos
         $styles->done = array_values(array_diff($styles->done, array($handle)));
         $styles->to_do = array_values(array_diff($styles->to_do, array($handle)));
     }
-    do_action('enqueue_block_assets');
-    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
     $context = array('name' => $name);
     if ($post instanceof WP_Post) $context['post'] = $post;
-    return array('settings' => get_block_editor_settings(array(), new WP_Block_Editor_Context($context)), 'outer_presentation_handles' => $outerPresentationHandles);
+    $settings = get_block_editor_settings(array(), new WP_Block_Editor_Context($context));
+    $outerPresentationHandles = array_values(array_filter($styles->queue, static fn(string $handle): bool => str_starts_with($handle, 'blocks-engine-editor-')));
+    return array('settings' => $settings, 'outer_presentation_handles' => $outerPresentationHandles);
 };
 $frontEditor = $editorSettings($frontPage);
 $frontEditorSettings = $frontEditor['settings'];
