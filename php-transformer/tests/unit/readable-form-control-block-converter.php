@@ -127,6 +127,10 @@ $wrappedSelect = $converter->convert($elementFrom('<label>Plan<select><option>Fr
 $assert('Plan: Free, Pro (selected: Pro)' === ($wrappedSelect['attrs']['content'] ?? ''), 'wrapped-select-summary-retains-options-and-selection');
 $assert(array( 'Plan: Free, Pro (selected: Pro)' ) === $echoes, 'wrapped-select-registers-echo');
 
+$legend = $converter->convert($elementFrom('<fieldset><legend>Your details</legend></fieldset>', 'legend'));
+$assert('core/paragraph' === ($legend['blockName'] ?? ''), 'group-caption-becomes-paragraph');
+$assert('Your details' === ($legend['attrs']['content'] ?? ''), 'group-caption-retains-its-text');
+
 $assert(null === $converter->convert($elementFrom('<div>Not a control</div>', 'div')), 'non-control-is-declined');
 $assert(null === $converter->convert($elementFrom('<input data-event name="email">', 'input')), 'eventful-control-is-declined');
 

@@ -23,8 +23,15 @@ final class ShellLandmarkPolicy
     /** @var array<int, string> */
     private const SEMANTIC_GROUP_TAGS = array( 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main' );
 
-    /** @var array<int, string> */
-    private const FLOW_CONTAINER_TAGS = array( 'article', 'aside', 'body', 'center', 'div', 'footer', 'header', 'main', 'nav', 'section' );
+    /**
+     * Elements whose content model is flow content, so their children convert
+     * through the ordinary container strategies. `fieldset` belongs here: HTML
+     * defines its content model as an optional `legend` caption followed by flow
+     * content, which makes it a grouping wrapper rather than a form control.
+     *
+     * @var array<int, string>
+     */
+    private const FLOW_CONTAINER_TAGS = array( 'article', 'aside', 'body', 'center', 'div', 'fieldset', 'footer', 'header', 'main', 'nav', 'section' );
 
     /** @var array<int, string> */
     private const WRAPPER_PRESERVING_TAGS = array( 'article', 'aside', 'div', 'footer', 'header', 'main', 'nav', 'section' );
