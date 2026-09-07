@@ -4301,6 +4301,13 @@ $neutralPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(
 );
 $assert(! array_key_exists('products', $neutralPlan), 'materialization plan omits product-specific manifest buckets');
 
+$capitalizedSlugPlan = ( new MaterializationPlanBuilder() )->fromCompiledSite(array('entry_path' => 'index.html', 'pages' => array(array('source_path' => 'index.html', 'block_markup' => '<!-- wp:paragraph --><p>Home</p><!-- /wp:paragraph -->'), array('source_path' => 'About.html', 'block_markup' => '<!-- wp:paragraph --><p>About</p><!-- /wp:paragraph -->'), array('source_path' => 'FAQ.html', 'block_markup' => '<!-- wp:paragraph --><p>FAQ</p><!-- /wp:paragraph -->'), array('source_path' => 'Contact_Us.html', 'block_markup' => '<!-- wp:paragraph --><p>Contact</p><!-- /wp:paragraph -->'))));
+$capitalizedSlugs = array();
+foreach ( $capitalizedSlugPlan['routes'] ?? array() as $capitalizedRoute ) {
+    $capitalizedSlugs[(string) ($capitalizedRoute['source_path'] ?? '')] = (string) ($capitalizedRoute['target_slug'] ?? '');
+}
+$assert('about' === ($capitalizedSlugs['About.html'] ?? null) && 'faq' === ($capitalizedSlugs['FAQ.html'] ?? null) && 'contact-us' === ($capitalizedSlugs['Contact_Us.html'] ?? null), 'materialization plan route slugs lowercase capitalized source paths instead of replacing their uppercase characters');
+
 $fontMaterializationPlan = ( new FontMaterializationPlanBuilder() )->googleFonts(array(
     array('family' => 'Open Sans', 'weights' => array(400, 700)),
     array('family' => 'Poppins', 'weights' => array(500)),
