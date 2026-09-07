@@ -97,6 +97,10 @@ final class AuthorStylesheetProjector
 
     private function marginSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
     {
+        $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
+        if ( '' !== $buttonPresentationPseudoPrelude ) {
+            return $buttonPresentationPseudoPrelude;
+        }
         $projected = $this->rewriteSelectorPrelude($prelude, $context, true);
         $selectors = CssStylesheetTransformer::splitSelectorList($projected);
         if ( null === $selectors ) {
@@ -116,6 +120,10 @@ final class AuthorStylesheetProjector
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
+        $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
+        if ( '' !== $buttonPresentationPseudoPrelude ) {
+            return $buttonPresentationPseudoPrelude . '{' . $body . '}';
+        }
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude, $context);
@@ -140,6 +148,60 @@ final class AuthorStylesheetProjector
             return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
         }
         return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
+    }
+
+    /**
+     * Project generated content from an unwrapped button label surface onto the
+     * native link that replaces it. A pseudo rule is safe only when every
+     * matching source element has already been mapped to that link.
+     */
+    private function buttonPresentationPseudoPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+
+        $rewritten = array();
+        foreach ( $selectors as $selector ) {
+            if ( 1 !== preg_match('/^(.*?)(::(?:before|after))\s*$/i', trim($selector), $matches) ) {
+                return '';
+            }
+            $baseSelector = trim($matches[1]);
+            $parsed = $context->sourceStyles->parsedSelector($baseSelector);
+            if ( ! $parsed['supported'] ) {
+                $rewritten[] = $selector;
+                continue;
+            }
+            $sourceElements = $this->matchingSourceElements($baseSelector, $parsed, $context);
+            if ( array() === $sourceElements ) {
+                $rewritten[] = $selector;
+                continue;
+            }
+            $markers = array();
+            foreach ( $sourceElements as $element ) {
+                $path = $element->getNodePath() ?? '';
+                if ( ! $context->selectorProjections->isButtonPresentationPath($path) ) {
+                    $markers = array();
+                    break;
+                }
+                $marker = $context->selectorProjections->controlMarker($path);
+                if ( '' === $marker ) {
+                    $markers = array();
+                    break;
+                }
+                $markers[] = $marker;
+            }
+            if ( array() === $markers ) {
+                $rewritten[] = $selector;
+                continue;
+            }
+            foreach ( array_unique($markers) as $marker ) {
+                $rewritten[] = $this->projectControlSelector($baseSelector, $parsed, $marker, $context) . $matches[2];
+            }
+        }
+
+        return implode(',', array_values(array_unique($rewritten)));
     }
 
     /**
