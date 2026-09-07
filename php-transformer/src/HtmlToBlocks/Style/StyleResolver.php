@@ -1068,6 +1068,40 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The alignment a text wrapper's GENERATED inner RichText blocks must carry
+     * so the source's own alignment survives, or '' when nothing is at risk.
+     *
+     * A wrapper that stays a core/group or core/quote because it owns box chrome
+     * has no native alignment attribute, and its inline `text-align` only reaches
+     * the generated stylesheet when the wrapper already mints a geometry carrier
+     * for some other property. Padding, borders and radii are consumed into block
+     * supports rather than a carrier, so the common "boxed, centred intro copy"
+     * wrapper mints none and the alignment is dropped outright. The inner
+     * paragraph the engine generates for that wrapper's own text is the native
+     * carrier for it.
+     *
+     * The gate is the same one `inlineInheritedTextAlignDeclaration()` applies:
+     * an alignment already reproduced by the wrapper's OWN preserved author rule,
+     * or inherited from a preserved ancestor, is not at risk and is not restated.
+     * Only `left`/`center`/`right` are returned, because `align` is what the
+     * generated block carries and that attribute has no `start`/`end` spelling.
+     */
+    public function generatedRichTextAlignment(DOMElement $element): string
+    {
+        $value = strtolower($this->carriedDeclarationValue((string) ($this->presentationDeclarations($element)['text-align'] ?? '')));
+        if ( ! in_array($value, array( 'left', 'center', 'right' ), true) ) {
+            return '';
+        }
+
+        $rightToLeft = $this->isRightToLeftElement($element);
+        if ( $this->comparableTextAlignment($value, $rightToLeft) === $this->effectiveTextAlignmentWithoutInline($element, $rightToLeft) ) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    /**
      * What this element's alignment would resolve to if the inline declaration
      * were removed: its OWN author-declared `text-align` when it has one, and
      * only otherwise the value inherited from its ancestors.

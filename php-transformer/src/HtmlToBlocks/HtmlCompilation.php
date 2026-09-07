@@ -3762,6 +3762,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             );
         }
 
+        if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/group', 'core/quote' ), true) ) {
+            $innerBlocks = $this->withPropagatedWrapperTextAlignment($innerBlocks, $sourceElement);
+        }
+
         return $this->blockMaterializer->materialize(
             $name,
             $attrs,
@@ -3769,6 +3773,51 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceMaterializationFacts,
             $this->transformationProvenance()
         );
+    }
+
+    /**
+     * Give a text wrapper's generated inner RichText blocks the wrapper's own
+     * alignment.
+     *
+     * A wrapper that owns box chrome stays a core/group, and a quoted wrapper
+     * stays a core/quote; neither carries a native text alignment, and the source
+     * alignment reaches neither the block tree nor the generated stylesheet (see
+     * StyleResolver::generatedRichTextAlignment()). The paragraph generated for
+     * the wrapper's own text is where the alignment belongs natively.
+     *
+     * Scoped to phrasing-only wrappers, so the inner blocks ARE that wrapper's own
+     * text rather than an arbitrary layout subtree, and only the text alignment
+     * inheritance the source already expressed is restated. A block that resolved
+     * its own alignment keeps it: explicit descendant alignment wins.
+     *
+     * @param array<int, array<string, mixed>> $innerBlocks
+     * @return array<int, array<string, mixed>>
+     */
+    private function withPropagatedWrapperTextAlignment(array $innerBlocks, DOMElement $sourceElement): array
+    {
+        if ( array() === $innerBlocks || ! $this->sourceElementClassifier->hasOnlyPhrasingChildren($sourceElement) ) {
+            return $innerBlocks;
+        }
+
+        $alignment = $this->styleResolver->generatedRichTextAlignment($sourceElement);
+        if ( '' === $alignment ) {
+            return $innerBlocks;
+        }
+
+        foreach ( $innerBlocks as $index => $innerBlock ) {
+            if ( ! is_array($innerBlock)
+                || ! in_array((string) ($innerBlock['blockName'] ?? ''), array( 'core/paragraph', 'core/heading' ), true)
+                || '' !== trim((string) ($innerBlock['attrs']['align'] ?? ''))
+            ) {
+                continue;
+            }
+            $innerBlocks[ $index ] = $this->rebuildBlock(
+                $innerBlock,
+                array_merge(is_array($innerBlock['attrs'] ?? null) ? $innerBlock['attrs'] : array(), array( 'align' => $alignment ))
+            );
+        }
+
+        return $innerBlocks;
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
@@ -11113,7 +11162,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /**
      * Rebuild a converted block with updated attributes so its innerHTML and
      * innerContent stay consistent with the stored attrs after an in-place edit
-     * (e.g. a propagated link). Source-provenance linkage is preserved; no new
+     * (e.g. a propagated link). Engine metadata the materializer attached —
+     * source-provenance linkage and editability ownership — is preserved; no new
      * provenance is recorded for the rebuild.
      *
      * @param array<string, mixed> $block
@@ -11125,8 +11175,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $name = (string) ($block['blockName'] ?? '');
         $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
         $rebuilt = $this->blockFactory->create($name, $attrs, $innerBlocks);
-        if ( isset($block['_source_provenance_id']) ) {
-            $rebuilt['_source_provenance_id'] = $block['_source_provenance_id'];
+        foreach ( $block as $key => $value ) {
+            if ( is_string($key) && str_starts_with($key, '_') ) {
+                $rebuilt[$key] = $value;
+            }
         }
 
         return $rebuilt;
