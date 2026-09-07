@@ -1625,6 +1625,14 @@ $assert(str_contains($cssVariableButtonCss, 'border-radius:6px!important'), 'but
 $assert(! str_contains($cssVariableButtonMarkup, 'var(--amber)'), 'button fill avoids leaking source-local CSS custom properties into standalone block markup');
 $assert('pass' === ($cssVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-variable button serialization passes generated WordPress block validity checks');
 
+$ancestorVariableButton = ( new HtmlTransformer() )->transform(
+    '<style>.hero{--fill:#fefefe;--edge:#111111;--curve:10px}.hero .cta{display:block;background:var(--fill);border:1px solid var(--edge);border-radius:var(--curve);color:#111;padding:8px 16px}</style><main class="hero"><a class="cta" href="/contact">Contact</a></main>'
+)->toArray();
+$ancestorVariableButtonMarkup = (string) ($ancestorVariableButton['serialized_blocks'] ?? '');
+$ancestorVariableButtonCss = implode("\n", array_column($ancestorVariableButton['assets'] ?? array(), 'content'));
+$assert(! str_contains($ancestorVariableButtonMarkup, 'var(--fill)') && str_contains($ancestorVariableButtonCss, 'background-color:#fefefe!important') && str_contains($ancestorVariableButtonCss, 'border-radius:10px!important'), 'button native presentation resolves custom properties from its source ancestor cascade', $ancestorVariableButtonMarkup . "\nCSS:\n" . $ancestorVariableButtonCss);
+$assert('pass' === ($ancestorVariableButton['source_reports']['wp_block_validity']['status'] ?? ''), 'ancestor-variable button serialization passes generated WordPress block validity checks');
+
 $borderWidthVariableCta = ( new HtmlTransformer() )->transform(
     '<style>:root{--corvid-border-width:var(--brw,0)}.cta{display:inline-block;width:142px;height:40px;background:#1684d6;color:#fff;border-color:var(--corvid-border-width,var(--brw,0))}</style><a class="cta" href="/more">Meer info</a>'
 )->toArray();
