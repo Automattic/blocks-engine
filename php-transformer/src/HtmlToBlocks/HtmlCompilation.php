@@ -2602,7 +2602,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
-                || $this->sourceElementStartsHidden($sourceElement)
+                || $this->sourceElementStartsHidden($sourceElement),
+            fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
     }
 
@@ -2686,7 +2687,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
-                || $this->sourceElementStartsHidden($sourceElement)
+                || $this->sourceElementStartsHidden($sourceElement),
+            disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
     }
 
@@ -2793,6 +2795,99 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * Marker for a disclosure toggle whose box core/details cannot save.
+     *
+     * core/details renders `<summary>` with no attributes, so a source toggle's
+     * own classes are dropped and every author rule addressing them is left with
+     * nothing to match — an overlay menu button loses its paint, its radius and
+     * its label typography, and drops to the destination theme's defaults.
+     *
+     * Delivered as CSS keyed on a marker the details block carries, not as
+     * markup: adding attributes to `<summary>` would diverge from core's save
+     * shape and invalidate the block.
+     */
+    private function disclosureSummaryMarker(DOMElement $summary): string
+    {
+        $declarations = $this->styleResolver->safeVisualDeclarations(
+            $this->styleResolver->cssDeclarations(
+                $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($summary)
+                )
+            )
+        );
+        // Geometry belongs to the box core already lays out. Carry the paint and
+        // type the source put on the toggle, which is what core replaces.
+        $carried = array_filter(
+            $declarations,
+            static fn (string $property): bool => (bool) preg_match(
+                '/^(?:background|border|border-radius|box-shadow|color|font|letter-spacing|line-height|padding|text-transform|text-decoration)(?:-[a-z-]+)?$/',
+                $property
+            ),
+            ARRAY_FILTER_USE_KEY
+        );
+        if ( array() === $carried ) {
+            return '';
+        }
+
+        // The label the source painted keeps its classes but loses the toggle
+        // ancestor those rules were written against. Its type is inheritable, so
+        // restating it on the summary reaches the label again, and any rule the
+        // label still owns keeps winning over it.
+        $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+
+        $css = $this->styleResolver->cssDeclarationString($carried);
+        if ( '' === $css ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
+        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+
+        return $marker;
+    }
+
+    /**
+     * Inheritable type the disclosure label showed, read from the source.
+     *
+     * @return array<string, string>
+     */
+    private function disclosureSummaryLabelTypography(DOMElement $summary): array
+    {
+        $label = null;
+        foreach ( $summary->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $descendant->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                    $label = $descendant;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $label instanceof DOMElement ) {
+            return array();
+        }
+
+        $declarations = $this->styleResolver->safeVisualDeclarations(
+            $this->styleResolver->cssDeclarations(
+                $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($label)
+                )
+            )
+        );
+
+        return array_filter(
+            $declarations,
+            static fn (string $property): bool => (bool) preg_match(
+                '/^(?:color|font|font-family|font-size|font-style|font-weight|letter-spacing|line-height|text-transform|text-decoration)$/',
+                $property
+            ),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
