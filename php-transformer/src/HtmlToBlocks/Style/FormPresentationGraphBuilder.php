@@ -48,7 +48,7 @@ final class FormPresentationGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array_merge(self::PROPERTIES, array('--*')), self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
         $this->diagnostics = $analysis['diagnostics'];
         $this->truncated = $analysis['truncated'];
         $controls = array();
@@ -66,7 +66,7 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                $styles = $this->styles($matched['base'], $element);
+                $styles = $this->styles($matched['base'], $element, null, $analysis['rules']);
                 if ( array() !== $styles ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
                 }
@@ -76,9 +76,9 @@ final class FormPresentationGraphBuilder
                         $this->diagnostics[] = 'variant_limit';
                         break 2;
                     }
-                    $patch = $this->styles($facts, $element);
+                    $condition = json_decode($encoded, true);
+                    $patch = $this->styles($facts, $element, $condition, $analysis['rules']);
                     if ( array() !== $patch ) {
-                        $condition = json_decode($encoded, true);
                         $variants[] = array(
                             'index' => $index,
                             'role' => $role,
@@ -186,6 +186,7 @@ final class FormPresentationGraphBuilder
             if ( ! $match['matches'] ) continue;
             if ( $matched++ >= self::MAX_RULES_PER_ROLE ) { $this->truncated = true; $this->diagnostics[] = 'rules_per_role_limit'; break; }
             foreach ( $rule['declarations'] as $declaration ) {
+                if ( ! in_array($declaration['name'], self::PROPERTIES, true) ) continue;
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
                 $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important );
@@ -204,7 +205,59 @@ final class FormPresentationGraphBuilder
         return array_filter($conditional);
     }
 
-    private function styles(array $facts, DOMElement $element): array { $result = array(); foreach ( $facts as $property => $fact ) $result[self::key($property)] = null !== $this->resolveValue ? ($this->resolveValue)($element, $fact['value']) : $fact['value']; ksort($result); return $result; }
+    /** @param list<array<string, mixed>> $rules */
+    private function styles(array $facts, DOMElement $element, ?array $condition, array $rules): array
+    {
+        $customProperties = $this->cascadedCustomProperties($element, $condition, $rules);
+        $result = array();
+        foreach ( $facts as $property => $fact ) {
+            $value = $this->expandCustomProperties($fact['value'], $customProperties);
+            if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
+            $result[self::key($property)] = $value;
+        }
+        ksort($result);
+        return $result;
+    }
+
+    /**
+     * Resolve source custom properties at the control's cascade scope. Conditional
+     * presentation variants only admit declarations from their own condition, so a
+     * mobile token cannot replace the desktop value in a separate emitted rule.
+     *
+     * @param list<array<string, mixed>> $rules
+     * @return array<string, string>
+     */
+    private function cascadedCustomProperties(DOMElement $element, ?array $condition, array $rules): array
+    {
+        $properties = array();
+        $ancestors = array();
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) $ancestors[] = $current;
+        foreach ( array_reverse($ancestors) as $ancestor ) {
+            foreach ( $rules as $rule ) {
+                if ( ( null !== ($rule['condition'] ?? null) && ($rule['condition'] ?? null) !== $condition ) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) continue;
+                foreach ( $rule['declarations'] as $declaration ) {
+                    if ( ! str_starts_with($declaration['name'], '--') ) continue;
+                    $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
+                    $fact = array( 'value' => $value, 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => 1 === preg_match('/\s*!important\s*$/i', $declaration['value']) );
+                    CssCascade::apply($properties, $declaration['name'], $fact);
+                }
+            }
+        }
+        return array_map(static fn (array $fact): string => $fact['value'], $properties);
+    }
+
+    /** @param array<string, string> $customProperties */
+    private function expandCustomProperties(string $value, array $customProperties): string
+    {
+        for ( $pass = 0; $pass < 5 && str_contains($value, 'var('); ++$pass ) {
+            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
+                return $customProperties[$matches[1]] ?? ( isset($matches[2]) ? trim($matches[2]) : $matches[0] );
+            }, $value);
+            if ( ! is_string($expanded) || $expanded === $value ) break;
+            $value = $expanded;
+        }
+        return trim($value);
+    }
     private static function key(string $property): string { return str_replace('-', '_', $property); }
     private function precedence(array $facts): array { $result = array(); foreach ( $facts as $property => $fact ) $result[$property] = array( 'source_order' => $fact['order'], 'specificity' => $fact['specificity'], 'important' => $fact['important'] ); ksort($result); return $result; }
     private function provenance(array $facts, ?array $condition): array { $grouped = array(); foreach ( $facts as $property => $fact ) { $key = $fact['path'] . "\n" . $fact['selector']; $grouped[$key] ??= array( 'source_path' => $fact['path'], 'source_sha256' => $fact['hash'], 'selector' => $fact['selector'], 'condition' => $condition, 'properties' => array() ); $grouped[$key]['properties'][] = $property; } foreach ( $grouped as &$item ) sort($item['properties'], SORT_STRING); unset($item); if ( count($grouped) > self::MAX_PROVENANCE ) { $this->truncated = true; $this->diagnostics[] = 'provenance_limit'; } return array_slice(array_values($grouped), 0, self::MAX_PROVENANCE); }

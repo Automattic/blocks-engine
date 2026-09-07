@@ -177,7 +177,7 @@ final class CssRuleAnalyzer
                 if ( null !== $colon ) {
                     $name = strtolower(trim(substr($declaration, 0, $colon)));
                     $value = trim(substr($declaration, $colon + 1));
-                    if ( in_array($name, $properties, true) && '' !== $value ) {
+                    if ( ( in_array($name, $properties, true) || ( in_array('--*', $properties, true) && str_starts_with($name, '--') ) ) && '' !== $value ) {
                         $declarations[] = array( 'name' => $name, 'value' => preg_replace('/\s+/', ' ', $value) ?? $value );
                     }
                 }
