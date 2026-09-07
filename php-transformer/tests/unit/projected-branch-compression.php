@@ -169,4 +169,25 @@ $assert(1 === substr_count($mediaBlocks, '<!-- wp:custom/layout-shell'), 'A gene
 $assert(2 === ($mediaMetrics['max_nesting_depth'] ?? null), 'Merging the generic outer wrapper into its projected shell removes the extra List View level.');
 $assert(str_contains($mediaBlocks, 'class="wp-block-group generic-shell"') && str_contains($mediaBlocks, 'id="projected-media-shell-2"') && str_contains($mediaBlocks, 'id="media-caption"') && str_contains($mediaBlocks, 'id="media-leaf"'), 'The generic layout shell preserves wrapper identities and sibling media topology.');
 
+// Neutral wrapper structure is sufficient for folding: no producer classes or
+// responsive markers participate in the structural decision.
+$neutralResult = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(array('path' => 'website/index.html', 'content' => '<!doctype html><html><body><div id="neutral-outer"><div id="neutral-inner"><p>Neutral editable copy</p></div></div></body></html>')),
+))->toArray();
+$neutralBlocks = (string) ($neutralResult['serialized_blocks'] ?? '');
+$assert(1 === substr_count($neutralBlocks, '<!-- wp:custom/layout-shell') && str_contains($neutralBlocks, 'id="neutral-outer"') && str_contains($neutralBlocks, 'id="neutral-inner"') && str_contains($neutralBlocks, '>Neutral editable copy<'), 'Two neutral wrappers fold into one shell while retaining exact wrapper order and editable children.');
+
+// The report explains a retained wrapper on the deepest path using bounded,
+// generic reason codes rather than producer-specific implementation details.
+$boundaryResult = (new ArtifactCompiler())->compile(array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'website/index.html',
+    'files' => array(array('path' => 'website/index.html', 'content' => '<!doctype html><html><body><div id="retained-wrapper"><p>One wrapper remains</p></div></body></html>')),
+))->toArray();
+$boundaryDocument = $boundaryResult['source_reports']['editability_report']['documents'][0] ?? array();
+$boundaryEvidence = $boundaryDocument['normalization_evidence'] ?? array();
+$assert('single_wrapper' === ($boundaryEvidence['first_boundary']['reason_code'] ?? null) && 'core/group' === ($boundaryEvidence['first_boundary']['block_name'] ?? null) && 24 >= count($boundaryEvidence['path'] ?? array()), 'Editability evidence identifies the first non-foldable boundary with a bounded generic reason code.');
+
 fwrite(STDOUT, "Projected branch compression tests passed.\n");

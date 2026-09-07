@@ -712,10 +712,10 @@ $neutralSingleGroupMarkup = (string) ($neutralSingleGroup['serialized_blocks'] ?
 $assert(1 === substr_count($neutralSingleGroupMarkup, '<!-- wp:group') && str_contains($neutralSingleGroupMarkup, 'outer content') && str_contains($css($neutralSingleGroup), '.outer .copy{color:red}'), 'neutral single-Group wrappers coalesce while retaining their descendant selector hook on the child Group');
 
 $selectorEdgeGroup = $transform('<style>.outer > .content{color:red}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(2 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when an author selector depends on their parent-child edge');
+$assert(1 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($selectorEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($selectorEdgeGroup), '.outer > .content{color:red}'), 'layout-shell folding retains the exact parent-child edge required by author selectors');
 
 $geometryEdgeGroup = $transform('<style>.content{margin:10px}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(2 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when the child geometry depends on its containing block');
+$assert(1 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($geometryEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($geometryEdgeGroup), 'margin:10px'), 'layout-shell folding retains the child containing block required by author geometry');
 
 $neutralSameSourceGroupChain = $transform('<div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $neutralSameSourceGroupChainMarkup = (string) ($neutralSameSourceGroupChain['serialized_blocks'] ?? '');
@@ -726,17 +726,17 @@ $commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['seria
 $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
 
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
-	$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+$assert(1 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($sameSourceGroupChainSelectorEdge['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains retain the selected outer boundary inside their layout shell');
 
 $nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
 $assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
 
 $flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
-$assert(1 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($flexItemGroup['blocks'][0]['attrs']['wrappers'] ?? array()), 'a flex item wrapper around stacked content remains distinct inside one layout shell');
+$assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($flexItemGroup['blocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains((string) ($flexItemGroup['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout'), 'a flex item wrapper around stacked content remains a direct CSS-owned child');
 
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
-$assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($namedFlex['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex wrappers remain distinct inside one layout shell');
+$assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers retain their direct CSS-owned child topology');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

@@ -20,7 +20,8 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card__media" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -28,7 +29,7 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/group" },
-    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "custom/layout-shell" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Block Pattern Basics" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Launch Review" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/block-patterns\">Block Pattern Basics</a>" },
@@ -36,6 +37,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "<a href=\"/resources/block-patterns\"><img" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a class=\"resource-card\"" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

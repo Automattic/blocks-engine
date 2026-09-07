@@ -118,9 +118,10 @@ $deepCollection = $collection;
 for ($depth = 0; $depth < 16; ++$depth) $deepCollection = '<div class="shell-' . $depth . '">' . $deepCollection . '</div>';
 $deepResult = ( new HtmlTransformer() )->transform($deepCollection)->toArray();
 $deepDefinitions = $deepResult['source_reports']['generated_blocks'] ?? array();
+$deepComponentDefinitions = array_values(array_filter($deepDefinitions, static fn (array $definition): bool => 'Layout Shell' !== ($definition['block_json']['title'] ?? null)));
 $deepMarkup = (string) ($deepResult['serialized_blocks'] ?? '');
-$assert(1 === count($deepDefinitions), '6: one deep repeatable component produces one generated definition');
-$assert(str_contains($deepMarkup, '<!-- wp:custom/collection-') && str_contains((string) ($deepDefinitions[0]['render'] ?? ''), '<div class="story-collection">') && !str_contains((string) ($deepDefinitions[0]['render'] ?? ''), 'shell-15'), '6: capture starts at the cohesive component root rather than the surrounding page shell');
+$assert(1 === count($deepComponentDefinitions), '6: one deep repeatable component produces one generated definition alongside its structural layout shell');
+$assert(str_contains($deepMarkup, '<!-- wp:custom/collection-') && str_contains((string) ($deepComponentDefinitions[0]['render'] ?? ''), '<div class="story-collection">') && !str_contains((string) ($deepComponentDefinitions[0]['render'] ?? ''), 'shell-15'), '6: capture starts at the cohesive component root rather than the surrounding page shell');
 $assert(20 >= ($deepResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX), '6: generated component keeps the resulting List View depth within policy');
 
 $tagResetResult = ( new HtmlTransformer() )->transform('<style>p{margin:0}</style>' . $deepCollection)->toArray();
@@ -138,7 +139,8 @@ $assert(array() === ($sectionResult['source_reports']['generated_blocks'] ?? arr
 
 $unsafeCollection = str_replace('class="story-collection"', 'class="story-collection" onclick="selectStory()"', $deepCollection);
 $unsafeResult = ( new HtmlTransformer() )->transform($unsafeCollection)->toArray();
-$assert(array() === ($unsafeResult['source_reports']['generated_blocks'] ?? array()), '6: inline behavior is never removed through static generated-component capture');
+$unsafeComponentDefinitions = array_values(array_filter($unsafeResult['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' !== ($definition['block_json']['title'] ?? null)));
+$assert(array() === $unsafeComponentDefinitions && in_array('div', array_column($unsafeResult['fallbacks'] ?? array(), 'tag'), true), '6: inline behavior is never removed through static generated-component capture');
 
 $customHost = '<fluid-card-grid><div><article><h3>One</h3></article><article><h3>Two</h3></article><article><h3>Three</h3></article></div></fluid-card-grid>';
 for ($depth = 0; $depth < 16; ++$depth) $customHost = '<div>' . $customHost . '</div>';
@@ -187,32 +189,30 @@ $assert(2 === ($shellResult['source_reports']['editability_report']['metrics']['
 
 $emptyShellResult = ( new HtmlTransformer() )->transform('<div id="empty-outer" class="blocks-engine-source-div-outer-3"><div id="empty-inner" class="blocks-engine-source-div-inner-3"></div></div>')->toArray();
 $emptyShellBlock = $emptyShellResult['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($emptyShellBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($emptyShellBlock['attrs']['wrappers'] ?? array()) && empty($emptyShellBlock['innerBlocks']), '6: layout-shell absorbs a projected empty Group endpoint without adding List View depth');
-$assert(1 === ($emptyShellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-outer"') && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-inner"'), '6: empty layout-shell serialization preserves both source wrappers exactly');
+$assert('core/group' === ($emptyShellBlock['blockName'] ?? '') && 'core/group' === ($emptyShellBlock['innerBlocks'][0]['blockName'] ?? '') && str_contains((string) ($emptyShellBlock['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-empty-visual-group'), '6: empty visual groups remain independently owned native boundaries');
+$assert(2 === ($emptyShellResult['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? PHP_INT_MAX) && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-outer"') && str_contains((string) ($emptyShellResult['serialized_blocks'] ?? ''), 'id="empty-inner"'), '6: retained empty visual boundaries preserve both source wrappers exactly');
 
 $branchShell = ( new HtmlTransformer() )->transform('<div id="branch-outer" class="blocks-engine-source-div-outer-3"><div id="branch-inner" class="blocks-engine-source-div-fixture-3"><section id="branch-section" class="blocks-engine-source-section-fixture-3"><p>First branch</p><p>Second branch</p></section></div></div>')->toArray();
 $branchBlock = $branchShell['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell') && 3 === count($branchBlock['attrs']['wrappers'] ?? array()) && 2 === count($branchBlock['innerBlocks'] ?? array()), '6: layout-shell absorbs a final branching Group and exposes all ordered native children through InnerBlocks');
+$assert(str_ends_with((string) ($branchBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($branchBlock['attrs']['wrappers'] ?? array()) && 'core/group' === ($branchBlock['innerBlocks'][0]['blockName'] ?? '') && 'section' === ($branchBlock['innerBlocks'][0]['attrs']['tagName'] ?? '') && 2 === count($branchBlock['innerBlocks'][0]['innerBlocks'] ?? array()), '6: layout-shell stops at the semantic section boundary and exposes its ordered native children');
 $branchMarkup = (string) ($branchShell['serialized_blocks'] ?? '');
 $assert(str_contains($branchMarkup, '<section id="branch-section"') && 2 === substr_count($branchMarkup, '<!-- wp:paragraph') && strpos($branchMarkup, 'First branch') < strpos($branchMarkup, 'Second branch'), '6: branching layout-shell serialization preserves semantic wrappers and ordered native child blocks');
 
 $twoWrapperBranch = ( new HtmlTransformer() )->transform('<div id="depth-outer" class="blocks-engine-source-div-outer-3"><section id="depth-branch" class="blocks-engine-source-section-branch-3"><p>First branch</p><p>Second branch</p></section></div>')->toArray();
 $twoWrapperBranchBlock = $twoWrapperBranch['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($twoWrapperBranchBlock['blockName'] ?? ''), '/layout-shell') && 2 === count($twoWrapperBranchBlock['attrs']['wrappers'] ?? array()) && 2 === count($twoWrapperBranchBlock['innerBlocks'] ?? array()), '6: an exact two-wrapper branch becomes one layout shell independent of document depth');
+$assert('core/group' === ($twoWrapperBranchBlock['blockName'] ?? '') && 'section' === ($twoWrapperBranchBlock['innerBlocks'][0]['attrs']['tagName'] ?? '') && 2 === count($twoWrapperBranchBlock['innerBlocks'][0]['innerBlocks'] ?? array()), '6: a single generic wrapper remains outside its semantic section boundary with direct native children');
 
 $importantShell = ( new HtmlTransformer() )->transform('<div class="blocks-engine-source-div-outer-3" style="color:red ! important"><div class="blocks-engine-source-div-fixture-3"><p>Priority-sensitive content</p></div></div>')->toArray();
 $assert(!str_ends_with((string) ($importantShell['blocks'][0]['blockName'] ?? ''), '/layout-shell'), '6: layout-shell does not rewrite wrapper chains carrying whitespace-variant !important declarations');
 
 $styledShell = ( new HtmlTransformer() )->transform('<div id="styled-outer" class="blocks-engine-source-div-outer-3" style="margin-top:0"><div id="styled-inner" class="blocks-engine-source-div-fixture-3"><p>Style-sensitive content</p></div></div>')->toArray();
 $styledShellBlock = $styledShell['blocks'][0] ?? array();
-$styledShellDefinitions = array_values(array_filter($styledShell['source_reports']['generated_blocks'] ?? array(), static fn (array $definition): bool => 'Layout Shell' === ($definition['block_json']['title'] ?? null)));
-$styledShellScript = (string) ($styledShellDefinitions[0]['assets']['index.js'] ?? '');
-$assert(str_ends_with((string) ($styledShellBlock['blockName'] ?? ''), '/layout-shell') && 'margin-top:0' === ($styledShellBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell compresses canonical styled wrappers without changing their serialized declarations');
-$assert(str_contains((string) ($styledShell['serialized_blocks'] ?? ''), 'style="margin-top:0"') && str_contains($styledShellScript, 'appendDeclaration( declaration )'), '6: layout-shell preserves unitless zero declarations through its React save path');
+$assert('core/group' === ($styledShellBlock['blockName'] ?? '') && '0' === ($styledShellBlock['attrs']['style']['spacing']['margin']['top'] ?? null) && 'core/group' === ($styledShellBlock['innerBlocks'][0]['blockName'] ?? null), '6: styled wrappers remain owned native boundaries with their direct child topology');
+$assert(str_contains((string) ($styledShell['serialized_blocks'] ?? ''), 'style="margin-top:0"'), '6: retained styled wrappers preserve unitless zero declarations');
 
 $normalizedStyleShell = ( new HtmlTransformer() )->transform('<div id="color-outer" class="blocks-engine-source-div-outer-3" style="color:#fff"><div id="color-inner" class="blocks-engine-source-div-fixture-3"><p>Color-sensitive content</p></div></div>')->toArray();
 $normalizedStyleBlock = $normalizedStyleShell['blocks'][0] ?? array();
-$assert(str_ends_with((string) ($normalizedStyleBlock['blockName'] ?? ''), '/layout-shell') && 'color:#fff' === ($normalizedStyleBlock['attrs']['wrappers'][0]['attributes']['style'] ?? null), '6: layout-shell bypasses CSSOM normalization and retains canonical color declarations');
+$assert('core/group' === ($normalizedStyleBlock['blockName'] ?? '') && '#fff' === ($normalizedStyleBlock['attrs']['style']['color']['text'] ?? null) && 'core/group' === ($normalizedStyleBlock['innerBlocks'][0]['blockName'] ?? null), '6: color-owned wrappers remain native boundaries while retaining canonical color declarations');
 
 // ---------------------------------------------------------------------------
 // 7. Gate (negative): weak signals stay UNKNOWN -> unchanged fallback.
