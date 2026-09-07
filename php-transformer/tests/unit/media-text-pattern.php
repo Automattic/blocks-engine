@@ -209,6 +209,20 @@ $assertSame('core/media-text', $headingMediaText['blockName'] ?? null, 'Heading 
 $assertSame('core/heading', $headingMediaText['innerBlocks'][0]['blockName'] ?? null, 'Heading text side keeps core/heading identity.');
 $assertTrue(! array_key_exists('mediaAlt', $headingMediaText['attrs'] ?? array()), 'Empty image alt is omitted from media-text attrs.');
 
+// Compact, explicitly sized icons beside direct headings are row lockups, not
+// split media/text sections. Their normal lowering remains entirely editable.
+$iconHeadingResult = $transformHtml('<section style="display:flex;align-items:center;gap:12px"><figure><img src="icon.png" width="88" height="87" style="width:41px;height:auto" alt=""></figure><h2>Plush 2</h2></section>');
+$iconHeadingBlock = $iconHeadingResult['blocks'][0] ?? array();
+$iconHeadingAssets = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $iconHeadingResult['assets'] ?? array()));
+$assertSame('core/group', $iconHeadingBlock['blockName'] ?? null, 'Compact icon plus heading falls through to native group lowering.');
+$assertContains('display:flex !important', $iconHeadingAssets, 'Compact icon lockup retains the authored row layout in its CSS carrier.');
+$assertSame('core/image', $iconHeadingBlock['innerBlocks'][0]['blockName'] ?? null, 'Compact icon lockup keeps an editable image block.');
+$assertSame('core/heading', $iconHeadingBlock['innerBlocks'][1]['blockName'] ?? null, 'Compact icon lockup keeps an editable heading block.');
+$assertSame(array(), $iconHeadingResult['fallbacks'] ?? array(), 'Compact icon lockup emits no HTML fallback.');
+
+$largeHeadingResult = $transformHtml('<section style="display:flex"><img src="feature.jpg" width="640" height="360" alt=""><h2>Feature</h2></section>');
+$assertSame('core/media-text', $largeHeadingResult['blocks'][0]['blockName'] ?? null, 'Legitimate large image plus heading remains media-text.');
+
 $quoteResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><blockquote><p>Quoted</p></blockquote></section>');
 $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName'] ?? null, 'Blockquote text side keeps core/quote identity.');
 
