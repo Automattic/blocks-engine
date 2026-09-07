@@ -10,7 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
-/** Converts labels and native controls into readable editable blocks. */
+/** Converts labels, group captions, and native controls into readable editable blocks. */
 final class ReadableFormControlBlockConverter
 {
     /**
@@ -38,7 +38,10 @@ final class ReadableFormControlBlockConverter
     public function convert(DOMElement $element): ?array
     {
         $tagName = strtolower($element->tagName);
-        if ( 'label' === $tagName ) {
+
+        // `legend` is the caption of a `fieldset` grouping wrapper, so it reads
+        // exactly like the label of a control group and lowers the same way.
+        if ( 'label' === $tagName || 'legend' === $tagName ) {
             return $this->convertLabel($element);
         }
 

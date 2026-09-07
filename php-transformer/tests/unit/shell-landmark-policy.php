@@ -30,6 +30,11 @@ $assert('header' === ShellLandmarkPolicy::landmarkKind('div', 'banner'), 'role b
 $assert('nav' === ShellLandmarkPolicy::landmarkKind('div', 'navigation'), 'role navigation maps to nav landmark');
 $assert('main' === ShellLandmarkPolicy::landmarkKind('main'), 'main maps to main landmark');
 
+$assert(ShellLandmarkPolicy::isFlowContainerTag('fieldset'), 'fieldset is a flow-content grouping wrapper, not an unsupported element');
+$assert(ShellLandmarkPolicy::isFlowContainerTag('FIELDSET'), 'flow container tags are matched case-insensitively');
+$assert(! ShellLandmarkPolicy::isSemanticGroupTag('fieldset'), 'fieldset stays out of the document landmark vocabulary');
+$assert(! ShellLandmarkPolicy::isWrapperPreservingTag('fieldset'), 'fieldset does not gain wrapper-preserving landmark semantics');
+
 $assert(ShellLandmarkPolicy::isSemanticGroupTag('main'), 'main can remain a semantic core/group tag');
 $assert(ShellLandmarkPolicy::isWrapperPreservingTag('main'), 'main wrapper can preserve source style/structure');
 $assert(ShellLandmarkPolicy::isInlineContentWrapperTag('footer'), 'footer can still be content-local phrasing wrapper');

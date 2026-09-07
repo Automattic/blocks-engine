@@ -1,0 +1,45 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-form-grouping-elements-converted",
+  "description": "Converts the standard form grouping elements (fieldset and its legend caption) as native grouping blocks instead of reporting unsupported_element_loss, both inside a provider-materializable form and as a standalone content group.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-form-grouping-elements-converted.json",
+    "notes": "Mirrors a Wix import where every <form> resolved to provider contact-form blocks while each <form>-owned <fieldset> still emitted html_unsupported_element (loss_class unsupported_element_loss, pattern_family unsupported_fieldset, parent_reason inside_form), failing the import quality gate on an otherwise lossless conversion."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<form class=\"contact\"><fieldset><legend>Your details</legend><label>Name <input type=\"text\" name=\"name\"></label><label>Email <input type=\"email\" name=\"email\"></label><button type=\"submit\">Send</button></fieldset></form><fieldset class=\"specs\"><legend>Specifications</legend><p>Weight: 2kg</p></fieldset>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "contact" } },
+    { "path": "blocks.1", "name": "core/group", "attrs": { "className": "specs" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Specifications" } },
+    { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Weight: 2kg" } }
+  ],
+  "expected_fallbacks": [
+    { "diagnostic_code": "html_form_fallback", "tag": "form" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "diagnostics.1.code", "assert": "equals", "value": "html_form_fallback" },
+    { "path": "diagnostics.1.pattern_family", "assert": "equals", "value": "interactive_form" },
+    { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "provider_materializable_form" },
+    { "path": "diagnostics", "assert": "count", "count": 2 },
+    { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"specs\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Specifications</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Weight: 2kg</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<fieldset" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<legend" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.block_count", "assert": "equals", "value": 2 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
+  ]
+}
