@@ -127,7 +127,11 @@ $assert(
 
 $rootShells = $transform('<style>body > *{position:relative;z-index:1}</style><header><p>Header</p></header><main><p>Body</p></main><footer><p>Footer</p></footer>');
 $rootShellCss = $css($rootShells);
-$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 2 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while their editor position projection retains isolated marker identities');
+$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> header)') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> footer)') && 2 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.blocks-engine-root-child-'), 'root-child selectors target frontend template-part landmarks and editor transport wrappers while their position projection retains isolated marker identities');
+
+$nonTerminalFooterGrid = $transform('<style>body{display:grid;grid-template-columns:20px 1fr 20px;grid-template-rows:10px 20px 30px}body > footer{grid-column:2 / 3;grid-row:2 / 3}</style><header>Header</header><main>Body</main><footer>Footer</footer>');
+$nonTerminalFooterGridCss = $css($nonTerminalFooterGrid);
+$assert(str_contains($nonTerminalFooterGridCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> footer)') && str_contains($nonTerminalFooterGridCss, 'grid-column:2 / 3;grid-row:2 / 3'), 'authored non-terminal, non-full-width footer grid placement projects unchanged onto the editor template-part transport wrapper');
 
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
