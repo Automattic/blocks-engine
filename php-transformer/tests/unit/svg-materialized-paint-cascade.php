@@ -62,6 +62,26 @@ $distinctContents = array_map(static fn (array $asset): string => (string) ($ass
 $assert((bool) array_filter($distinctContents, static fn (string $content): bool => str_contains($content, 'fill:#e1402a')), 'The first shape bakes its own resolved fill.');
 $assert((bool) array_filter($distinctContents, static fn (string $content): bool => str_contains($content, 'fill:#2a6fe1')), 'The second shape bakes its own, different, resolved fill.');
 
+// SVG presentation attributes are copied into the standalone image payload
+// directly. Resolve their variables at the SVG's own ancestor scope rather
+// than from the lossy document-wide custom-property collection.
+$scopedAttributePaint = '<style>
+#orange-one{--orange-icon:#e1402a}
+#orange-two{--orange-icon:#f58220}
+</style>
+<main>
+<div id="orange-one"><svg viewBox="0 0 10 10" width="10" height="10"><path fill="var(--orange-icon)" d="M0 0h10v10H0z"></path></svg></div>
+<div id="orange-two"><svg viewBox="0 0 10 10" width="10" height="10"><path fill="var(--orange-icon)" d="M0 0h10v10H0z"></path></svg></div>
+</main>';
+$scopedAttributeResult = (new HtmlTransformer())->transform($scopedAttributePaint)->toArray();
+$scopedAttributeAssets = $inlineSvgAssets($scopedAttributeResult);
+$scopedAttributeContents = array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $scopedAttributeAssets);
+$assert(2 === count($scopedAttributeAssets), 'Scoped SVG presentation attributes produce distinct native image assets for distinct ancestor values.');
+$assert((bool) array_filter($scopedAttributeContents, static fn (string $content): bool => str_contains($content, 'fill="#e1402a"') && ! str_contains($content, 'var(')), 'The first scoped SVG presentation attribute is baked into its asset.');
+$assert((bool) array_filter($scopedAttributeContents, static fn (string $content): bool => str_contains($content, 'fill="#f58220"') && ! str_contains($content, 'var(')), 'The second scoped SVG presentation attribute is baked into its asset.');
+$assert(2 === substr_count((string) ($scopedAttributeResult['serialized_blocks'] ?? ''), '<!-- wp:image '), 'Scoped SVG presentation attributes retain the editor-native core/image contract.');
+$assert(! str_contains((string) ($scopedAttributeResult['serialized_blocks'] ?? ''), '<!-- wp:html'), 'Scoped SVG presentation attributes do not regress to an HTML fallback.');
+
 // Two shapes that resolve to the SAME cascaded color still dedupe onto one
 // asset -- paint baking must not break existing content-addressed sharing.
 $samePaint = '<style>
