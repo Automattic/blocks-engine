@@ -48,7 +48,25 @@ final class FormPresentationGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, array_merge(self::PROPERTIES, array('--*')), self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $controlsForCustomProperties = $this->controls($form);
+        $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
+            $stylesheets,
+            $inlineCss,
+            array('--*'),
+            self::MAX_CSS_BYTES,
+            self::MAX_RULES,
+            self::MAX_SELECTORS,
+            self::MAX_CONDITION_DEPTH,
+            function (array $selector) use ($controlsForCustomProperties): bool {
+                foreach ( $controlsForCustomProperties as $control ) {
+                    for ( $ancestor = $control; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                        if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) return true;
+                    }
+                }
+                return false;
+            }
+        );
         $this->diagnostics = $analysis['diagnostics'];
         $this->truncated = $analysis['truncated'];
         $controls = array();
@@ -66,7 +84,7 @@ final class FormPresentationGraphBuilder
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
-                $styles = $this->styles($matched['base'], $element, null, $analysis['rules']);
+                $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
                 if ( array() !== $styles ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
                 }
@@ -77,7 +95,7 @@ final class FormPresentationGraphBuilder
                         break 2;
                     }
                     $condition = json_decode($encoded, true);
-                    $patch = $this->styles($facts, $element, $condition, $analysis['rules']);
+                    $patch = $this->styles($facts, $element, $condition, $customPropertyAnalysis['rules']);
                     if ( array() !== $patch ) {
                         $variants[] = array(
                             'index' => $index,
