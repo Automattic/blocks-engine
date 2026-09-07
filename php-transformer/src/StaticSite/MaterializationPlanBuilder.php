@@ -569,7 +569,7 @@ final class MaterializationPlanBuilder
     {
         $base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
         $base = '' === $base || null === $base ? 'document' : $base;
-        return strtolower((string) preg_replace('/[^a-z0-9-]+/', '-', str_replace(array('_', '.'), '-', $base)));
+        return (string) preg_replace('/[^a-z0-9-]+/', '-', strtolower(str_replace(array('_', '.'), '-', $base)));
     }
 
     private function titleFromPath(string $path): string
