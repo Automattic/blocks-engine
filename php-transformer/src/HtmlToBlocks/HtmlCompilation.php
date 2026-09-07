@@ -2556,7 +2556,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 function (DOMElement $sourceElement, array $authorClasses): void {
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
-                }
+                },
+                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),

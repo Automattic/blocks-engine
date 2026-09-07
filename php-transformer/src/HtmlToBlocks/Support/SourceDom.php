@@ -42,6 +42,56 @@ final class SourceDom
         return trim($html);
     }
 
+    /**
+     * Serialize inner markup destined for a block attribute, carrying the author
+     * selector markers the projected stylesheet already targets.
+     *
+     * Markup inlined into an attribute (a navigation label, a logo lockup) never
+     * reaches the block tree, so {@see SourceBlockAttributeProjector} never merges
+     * its projected marker classes into a `className`. The author rules for those
+     * elements have already been rewritten onto those markers, so without this the
+     * rewritten rule matches nothing and the element renders unstyled.
+     *
+     * Markers are stamped on the serialization clone, never on the source DOM, so
+     * later selector matching still sees the authored classes.
+     *
+     * @param callable(DOMElement): list<string> $markersFor
+     */
+    public static function innerHtmlWithProjectedMarkers(DOMElement $element, callable $markersFor): string
+    {
+        $sourceDescendants = array();
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $sourceDescendants[] = $descendant;
+            }
+        }
+
+        $clone = self::canonicalizedSerializationClone($element);
+        $index = 0;
+        foreach ( $clone->getElementsByTagName('*') as $cloned ) {
+            if ( ! $cloned instanceof DOMElement ) {
+                continue;
+            }
+            $source = $sourceDescendants[$index] ?? null;
+            ++$index;
+            if ( ! $source instanceof DOMElement ) {
+                continue;
+            }
+            $markers = array_values(array_filter($markersFor($source), static fn (string $marker): bool => '' !== $marker));
+            if ( array() === $markers ) {
+                continue;
+            }
+            $cloned->setAttribute('class', self::mergeClassNames($cloned->getAttribute('class'), ...$markers));
+        }
+
+        $html = '';
+        foreach ( $clone->childNodes as $child ) {
+            $html .= $clone->ownerDocument->saveHTML($child);
+        }
+
+        return trim($html);
+    }
+
     public static function innerHtmlPreservingWhitespace(DOMElement $element): string
     {
         $element = self::canonicalizedSerializationClone($element);
