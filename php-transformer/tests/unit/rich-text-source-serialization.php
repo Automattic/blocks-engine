@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
@@ -54,6 +55,22 @@ $assert(
     str_contains($secondMarkup, 'color:rgb(var(--light))')
         && ! str_contains($secondMarkup, 'color:rgb(var(--dark))'),
     'Separate RichText fragment documents do not leak an earlier fragment cascade into the same DOM path.'
+);
+
+$linkedAttachment = ( new HtmlTransformer() )->transform(
+    '<p class="attachment"><a class="lightbox" href="https://example.test/model-full.jpg" target="_blank" rel="noopener"><img src="https://example.test/model.jpg" alt="Geological model"></a></p>'
+)->toArray();
+$attachmentMarkup = (string) ($linkedAttachment['serialized_blocks'] ?? '');
+$assert(
+    str_contains($attachmentMarkup, '<!-- wp:image ')
+        && str_contains($attachmentMarkup, '<a href="https://example.test/model-full.jpg" target="_blank" rel="noopener" class="lightbox">')
+        && str_contains($attachmentMarkup, '<img src="https://example.test/model.jpg" alt="Geological model"/>')
+        && ! str_contains($attachmentMarkup, '<!-- wp:html'),
+    'An image-only paragraph link lowers to a native linked image instead of a core/html fallback.'
+);
+$assert(
+    'pass' === ( ( new BlockValidityValidator() )->validateBlocks($linkedAttachment['blocks'] ?? array())['status'] ?? '' ),
+    'A linked image lowered from a paragraph stays Gutenberg-valid.'
 );
 
 if ( 0 === $failures ) {

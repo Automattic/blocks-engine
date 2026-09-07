@@ -27,6 +27,7 @@ final class RichTextElementContext
      * @param Closure(DOMElement): bool                                                                      $hasEmptyVisualInlineChild
      * @param Closure(DOMElement): bool                                                                      $hasBoxChromeWrapperStyling
      * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
+     * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromParagraph
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      */
@@ -39,6 +40,7 @@ final class RichTextElementContext
         private readonly Closure $hasEmptyVisualInlineChild,
         private readonly Closure $hasBoxChromeWrapperStyling,
         private readonly Closure $isRuntimeDomTarget,
+        private readonly Closure $imageBlockFromParagraph,
         private readonly Closure $convertText,
         private readonly Runtime $runtime,
         private readonly Closure $convertChildren
@@ -122,6 +124,12 @@ final class RichTextElementContext
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
         return ($this->isRuntimeDomTarget)($element);
+    }
+
+    /** @return array<string, mixed>|null */
+    public function imageBlockFromParagraph(DOMElement $element): ?array
+    {
+        return ($this->imageBlockFromParagraph)($element);
     }
 
     /**
