@@ -127,7 +127,11 @@ $assert(
 
 $rootShells = $transform('<style>body > *{position:relative;z-index:1}</style><header><p>Header</p></header><main><p>Body</p></main><footer><p>Footer</p></footer>');
 $rootShellCss = $css($rootShells);
-$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && 2 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.blocks-engine-root-child-'), 'root-child selectors target canonical template-part wrappers while their editor position projection retains isolated marker identities');
+$assert(str_contains($rootShellCss, ':where(header.wp-block-template-part)') && str_contains($rootShellCss, ':where(footer.wp-block-template-part)') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> header)') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> footer)') && 2 === substr_count($rootShellCss, ':where(.blocks-engine-root-child-') && str_contains($rootShellCss, ':root .editor-styles-wrapper :where(.blocks-engine-root-child-'), 'root-child selectors target frontend template-part landmarks and editor transport wrappers while their position projection retains isolated marker identities');
+
+$nonTerminalFooterGrid = $transform('<style>body{display:grid;grid-template-columns:20px 1fr 20px;grid-template-rows:10px 20px 30px}body > footer{grid-column:2 / 3;grid-row:2 / 3}</style><header>Header</header><main>Body</main><footer>Footer</footer>');
+$nonTerminalFooterGridCss = $css($nonTerminalFooterGrid);
+$assert(str_contains($nonTerminalFooterGridCss, ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> footer)') && str_contains($nonTerminalFooterGridCss, 'grid-column:2 / 3;grid-row:2 / 3'), 'authored non-terminal, non-full-width footer grid placement projects unchanged onto the editor template-part transport wrapper');
 
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
@@ -712,10 +716,10 @@ $neutralSingleGroupMarkup = (string) ($neutralSingleGroup['serialized_blocks'] ?
 $assert(1 === substr_count($neutralSingleGroupMarkup, '<!-- wp:group') && str_contains($neutralSingleGroupMarkup, 'outer content') && str_contains($css($neutralSingleGroup), '.outer .copy{color:red}'), 'neutral single-Group wrappers coalesce while retaining their descendant selector hook on the child Group');
 
 $selectorEdgeGroup = $transform('<style>.outer > .content{color:red}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(2 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when an author selector depends on their parent-child edge');
+$assert(1 === substr_count((string) ($selectorEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($selectorEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($selectorEdgeGroup), '.outer > .content{color:red}'), 'layout-shell folding retains the exact parent-child edge required by author selectors');
 
 $geometryEdgeGroup = $transform('<style>.content{margin:10px}</style><div class="outer"><div class="content"><p>Copy</p></div></div>');
-$assert(2 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:group'), 'single-Group wrappers remain separate when the child geometry depends on its containing block');
+$assert(1 === substr_count((string) ($geometryEdgeGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($geometryEdgeGroup['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($geometryEdgeGroup), 'margin:10px'), 'layout-shell folding retains the child containing block required by author geometry');
 
 $neutralSameSourceGroupChain = $transform('<div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $neutralSameSourceGroupChainMarkup = (string) ($neutralSameSourceGroupChain['serialized_blocks'] ?? '');
@@ -726,17 +730,17 @@ $commentAnnotatedGroupChainMarkup = (string) ($commentAnnotatedGroupChain['seria
 $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') && str_contains($commentAnnotatedGroupChainMarkup, 'outer content'), 'comment-annotated neutral Group wrappers coalesce because comments are semantically transparent');
 
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
-	$assert(2 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:group'), 'same-source Group chains retain the outer boundary when an author selector matches a removed chain node');
+$assert(1 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($sameSourceGroupChainSelectorEdge['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains retain the selected outer boundary inside their layout shell');
 
 $nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
 $assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
 
 $flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></div></div>');
-$assert(1 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($flexItemGroup['blocks'][0]['attrs']['wrappers'] ?? array()), 'a flex item wrapper around stacked content remains distinct inside one layout shell');
+$assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($flexItemGroup['blocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains((string) ($flexItemGroup['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout'), 'a flex item wrapper around stacked content remains a direct CSS-owned child');
 
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
-$assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($namedFlex['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains((string) ($namedFlex['serialized_blocks'] ?? ''), 'shell'), 'author-named flex wrappers remain distinct inside one layout shell');
+$assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers retain their direct CSS-owned child topology');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

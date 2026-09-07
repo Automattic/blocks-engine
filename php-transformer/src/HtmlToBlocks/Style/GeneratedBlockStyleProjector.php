@@ -243,6 +243,14 @@ final class GeneratedBlockStyleProjector
             if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';
+            } elseif (
+                '100%' === $height
+                && 'absolute' === CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''))
+                && '100%' === CssValueInspector::comparable((string) ($sourceDeclarations['min-width'] ?? ''))
+            ) {
+                $outerWrapperDeclarations[] = 'height:100%';
+                $wrapperDeclarations[] = 'height:100%';
+                $declarations[] = 'height:100%!important';
             }
             foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
                 $value = CssValueInspector::comparable((string) ($sourceStructuralDeclarations[$property] ?? ''));

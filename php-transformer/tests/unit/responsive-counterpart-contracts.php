@@ -202,8 +202,7 @@ $shellSignals = array_values(array_filter(
     ($result['source_reports']['editability_report']['documents'][0]['signals'] ?? array()),
     static fn(array $signal): bool => 'layout_shell' === ($signal['kind'] ?? '')
 ));
-$assert(1 === count($shellSignals), '6: the projected mobile wrapper chain is reported as a custom/layout-shell wrapper structure');
-$assert(2 === ($shellSignals[0]['wrapper_count'] ?? null) && 2 === ($shellSignals[0]['editable_descendant_count'] ?? null), '6: the shell signal distinguishes layout-only wrappers from its editable descendants', json_encode($shellSignals[0] ?? array()));
+$assert(array() === $shellSignals, '6: responsive correspondence metadata does not override independently owned wrapper structure');
 
 // ---------------------------------------------------------------------------
 // 7. Standalone transformer: only composed documents carry pairings.

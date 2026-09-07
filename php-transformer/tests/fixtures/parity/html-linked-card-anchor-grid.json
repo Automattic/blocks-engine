@@ -22,7 +22,8 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card-body" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "className": "article-headline", "content": "<a href=\"/story-one\">City Hall Rewrites the Map</a>", "level": 3 } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "article-card" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "className": "article-headline", "content": "<a href=\"/story-two\">A New Market Opens</a>", "level": 3 } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "link-row" } }
   ],
   "expected_fallbacks": [],
@@ -32,11 +33,12 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.blockName", "assert": "equals", "value": "core/group" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.blockName", "assert": "equals", "value": "core/group" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "custom/layout-shell" },
     { "path": "blocks.0.innerBlocks.1.blockName", "assert": "equals", "value": "core/group" },
     { "path": "serialized_blocks", "assert": "contains", "value": "article-card featured" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<p><a href=\"/story-one\" class=\"article-card featured\">" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]
 }

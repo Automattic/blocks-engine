@@ -20,7 +20,9 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "wrap hero-inner" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "hero-text" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/column", "attrs": { "className": "hero-panel" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.1", "name": "core/paragraph" },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "section" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "wrap" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "features", "layout": { "type": "grid" } } },
@@ -32,6 +34,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:columns {\"className\":\"wrap hero-inner\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"features\",\"layout\":{\"type\":\"grid\"}} -->" },
     { "path": "source_reports.html.structure_signals.1.signals.section_container_like", "assert": "equals", "value": true },

@@ -56,6 +56,10 @@ $assert(! $classifier->hasStyleSignal($element('<a style="padding:0;background:#
 $assert(! $classifier->hasStyleSignal($element('<a style="padding:0px 0rem 0%;border-radius:999px" href="#">Learn more</a>')), '13: zero unit padding plus rounding is not a button surface');
 $assert($classifier->hasStyleSignal($element('<a style="padding:0 0 1px;background:#135e96" href="#">Learn more</a>')), '14: any non-zero shorthand padding retains the style signal');
 $assert($classifier->hasStyleSignal($element('<a style="padding:var(--control-padding);background:#135e96" href="#">Learn more</a>')), '15: unresolved authored padding retains the style signal');
+$assert($classifier->hasStyleSignal($element('<a class="action-button" style="padding:0;width:134px;height:45px;border-radius:10px" href="#">Learn more</a>')), '16: an explicitly sized and rounded anchor with a button class signal is a button surface');
+$assert(! $classifier->hasStyleSignal($element('<a style="padding:0;width:134px;height:45px;border-radius:10px" href="#">Learn more</a>')), '17: explicit box dimensions without a button class signal do not promote an ordinary link');
+$assert($classifier->hasStyleSignal($element('<a class="action-button" href="#">Learn more</a>'), 'position:absolute;min-width:100%;width:max-content;padding:0;border-radius:10px'), '18: a positioned button-class surface that fills its container permits zero padding');
+$assert(! $classifier->hasStyleSignal($element('<a class="action-button" href="#">Learn more</a>'), 'position:absolute;width:max-content;padding:0;border-radius:10px'), '19: positioning without explicit container fill does not promote a zero-padded link');
 
 $result = ( new HtmlTransformer() )->transform('<a style="padding:12px 18px;background:#135e96;color:#fff" href="/buy">Buy tickets</a>', array())->toArray();
 $button = $result['blocks'][0]['innerBlocks'][0] ?? array();
@@ -68,6 +72,16 @@ $stylesheetButtonCss = implode("\n", array_map(static fn (array $asset): string 
 $assert('core/button' === ($stylesheetButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '15: resolved author CSS with a visible surface promotes an anchor', json_encode($stylesheetButton['blocks'] ?? array()));
 $assert(str_contains($stylesheetButtonCss, '> :where(.wp-block-button__link){padding:12px 18px') && str_contains($stylesheetButtonCss, 'border:2px solid #135e96'), '16: true button author selectors style the rendered inner anchor', $stylesheetButtonCss);
 $assert('pass' === ($stylesheetButton['source_reports']['wp_block_validity']['status'] ?? ''), '17: true button conversion remains editor-valid', json_encode($stylesheetButton['source_reports']['wp_block_validity'] ?? array()));
+
+$sizedButton = ( new HtmlTransformer() )->transform('<style>a{padding:0;border:0}.action-button{display:flex;width:134px;height:45px;border-top:1px solid #000;border-right:1px solid #000;border-bottom:1px solid #000;border-left:1px solid #000;border-radius:10px}</style><a class="action-button" href="/contact">Request appointment</a>', array())->toArray();
+$sizedButtonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sizedButton['assets'] ?? array()));
+$assert('core/button' === ($sizedButton['blocks'][0]['innerBlocks'][0]['blockName'] ?? '') && '/contact' === ($sizedButton['blocks'][0]['innerBlocks'][0]['attrs']['url'] ?? ''), '18: a zero-padded button-class anchor with an explicit control box becomes a native button', json_encode($sizedButton['blocks'] ?? array()));
+$assert(str_contains($sizedButtonCss, 'border-top:1px solid #000!important') && ! str_contains($sizedButtonCss, 'border-style:none!important'), '19: explicit sized-button longhand borders reach the native link without reset neutralization', $sizedButtonCss);
+
+$filledButton = ( new HtmlTransformer() )->transform('<style>.button-shell{height:45px}.button-surface{display:flex;position:absolute;min-width:100%;width:max-content;height:100%;padding:0;border-radius:10px;background:#fff}</style><div class="button-shell"><a class="button-surface" href="/contact">Request appointment</a></div>', array())->toArray();
+$filledButtonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $filledButton['assets'] ?? array()));
+$assert('core/button' === ($filledButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), '20: a zero-padded positioned button surface that fills its container becomes a native button', json_encode($filledButton['blocks'] ?? array()));
+$assert(str_contains($filledButtonCss, '.wp-block-buttons{height:100%}') && str_contains($filledButtonCss, '.wp-block-button{height:100%}') && str_contains($filledButtonCss, 'height:100%!important'), '21: a positioned container-fill button projects its percentage height through both native wrappers', $filledButtonCss);
 
 $skipLink = ( new HtmlTransformer() )->transform('<style>.skip-link{position:fixed;top:-200px;left:0;padding:12px 18px;background:#135e96;color:#fff;border-radius:999px}.skip-link:focus{top:0}</style><a class="skip-link" href="#content">Skip to content</a><main id="content">Content</main>', array())->toArray();
 $skipLinkMarkup = (string) ($skipLink['serialized_blocks'] ?? '');

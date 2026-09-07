@@ -558,6 +558,9 @@ final class AuthorStylesheetProjector
                 }
                 foreach ( $shellTags as $tag ) {
                     $rewritten[] = ':where(' . $tag . '.wp-block-template-part)' . $this->selectorSpecificityShims($parsed, $context);
+                    // Core keeps this transport wrapper in the editor but removes it
+                    // from the frontend response for inline shell parts.
+                    $rewritten[] = ':root .editor-styles-wrapper :where(.wp-block-template-part):has(> ' . $tag . ')' . $this->selectorSpecificityShims($parsed, $context);
                 }
                 continue;
             }

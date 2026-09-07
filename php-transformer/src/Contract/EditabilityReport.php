@@ -8,6 +8,7 @@ final class EditabilityReport
 {
     public const SCHEMA = 'blocks-engine/php-transformer/editability-report/v2';
     private const MAX_REPORTED_SIGNALS = 100;
+    private const MAX_NORMALIZATION_PATH_ENTRIES = 24;
     private const INLINE_RICH_TEXT_TAGS = array('a', 'abbr', 'b', 'br', 'cite', 'code', 'del', 'em', 'i', 'img', 'ins', 'kbd', 'mark', 's', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'u');
     private const RICH_TEXT_ATTRIBUTES = array(
         'core/heading' => array('content'),
@@ -58,6 +59,7 @@ final class EditabilityReport
             'scope' => array_filter(array('source_path' => $sourcePath), static fn(string $value): bool => '' !== $value),
             'metrics' => $metrics,
             'deepest_block' => $deepestBlock,
+            'normalization_evidence' => $this->normalizationEvidence($blocks, (string) ($deepestBlock['block_path'] ?? '')),
             'block_types' => $blockTypes,
             'signals' => $this->boundedSignals($signals),
             'signal_totals' => array(
@@ -92,6 +94,7 @@ final class EditabilityReport
                 'source_path' => (string) $sourcePath,
                 'metrics' => $report['metrics'],
                 'deepest_block' => $report['deepest_block'],
+                'normalization_evidence' => $report['normalization_evidence'],
                 'block_types' => $report['block_types'],
                 'signals' => $report['signals'],
                 'signal_totals' => $report['signal_totals'],
@@ -239,6 +242,34 @@ final class EditabilityReport
     private function isWrapper(string $name): bool
     {
         return in_array($name, array('core/group', 'core/columns', 'core/column', 'core/buttons'), true);
+    }
+
+    /** @param array<int,array<string,mixed>> $blocks @return array<string,mixed> */
+    private function normalizationEvidence(array $blocks, string $deepestPath): array
+    {
+        if (!preg_match('/^\d+(?:\.\d+)*$/', $deepestPath)) return array();
+        $current = $blocks;
+        $entries = array();
+        $firstBoundary = null;
+        foreach (array_slice(explode('.', $deepestPath), 0, self::MAX_NORMALIZATION_PATH_ENTRIES) as $depth => $index) {
+            $block = $current[(int) $index] ?? null;
+            if (!is_array($block)) break;
+            $name = (string) ($block['blockName'] ?? 'core/freeform');
+            $entry = array('block_path' => implode('.', array_slice(explode('.', $deepestPath), 0, $depth + 1)), 'block_name' => $name);
+            if ($this->isLayoutShell($name)) {
+                $entry['kind'] = 'layout_shell';
+                $entry['wrapper_count'] = count(is_array($block['attrs']['wrappers'] ?? null) ? $block['attrs']['wrappers'] : array());
+                $entry['reason_code'] = 'folded_wrapper_chain';
+            }
+            $boundary = $block['_wrapper_normalization_boundary'] ?? null;
+            if (is_string($boundary) && '' !== $boundary) {
+                $entry['boundary_reason_code'] = $boundary;
+                if (null === $firstBoundary) $firstBoundary = array('block_path' => $entry['block_path'], 'block_name' => $name, 'reason_code' => $boundary);
+            }
+            if (isset($entry['kind']) || isset($entry['boundary_reason_code'])) $entries[] = $entry;
+            $current = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        }
+        return array_filter(array('path' => $entries, 'first_boundary' => $firstBoundary), static fn(mixed $value): bool => null !== $value && array() !== $value);
     }
 
     /** Custom layout shells serialize exact source wrapper chains inside one bounded carrier block. */

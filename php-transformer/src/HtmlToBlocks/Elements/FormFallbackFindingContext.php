@@ -17,6 +17,7 @@ final class FormFallbackFindingContext
      * @param Closure(DOMElement): array<string, mixed>                                             $sourceContext
      * @param Closure(DOMElement): array<string, mixed>                                             $classifyFallbackSubtree
      * @param Closure(array<string, mixed>, string, array<int, string>): array<string, mixed>       $blockBinding
+     * @param (Closure(DOMElement, string): string)|null                                            $resolvePresentationValue
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -24,7 +25,8 @@ final class FormFallbackFindingContext
         private readonly Closure $runtimeDomSelectors,
         private readonly Closure $sourceContext,
         private readonly Closure $classifyFallbackSubtree,
-        private readonly Closure $blockBinding
+        private readonly Closure $blockBinding,
+        private readonly ?Closure $resolvePresentationValue = null
     ) {
     }
 
@@ -71,6 +73,11 @@ final class FormFallbackFindingContext
     public function blockBinding(array $block, string $role, array $supersededRuntimeSelectors): array
     {
         return ($this->blockBinding)($block, $role, $supersededRuntimeSelectors);
+    }
+
+    public function resolvePresentationValue(DOMElement $element, string $value): string
+    {
+        return null !== $this->resolvePresentationValue ? ($this->resolvePresentationValue)($element, $value) : $value;
     }
 
     /** @param array<string, mixed> $finding @return array<string, mixed> */

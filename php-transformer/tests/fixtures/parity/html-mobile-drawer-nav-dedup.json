@@ -21,8 +21,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "Shop", "url": "/shop", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "mobile-nav overlay" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "mobile-nav-panel" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -30,9 +29,9 @@
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 3 },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks.1.attrs.wrappers", "assert": "count", "count": 2 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "drawer-nav" },
     { "path": "serialized_blocks", "assert": "contains", "value": "mobile-nav" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

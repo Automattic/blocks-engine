@@ -614,7 +614,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors)
+                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
+                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)
             ),
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,
@@ -2574,7 +2575,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             new ButtonPatternContext(
                 fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement), $sourceElement),
                 $this->richTextMaterializer,
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
@@ -4838,89 +4839,104 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<int, array<string, mixed>> $blocks @return array<int, array<string, mixed>> */
     private function compressProjectedGroupChains(array $blocks): array
     {
-        return array_values(array_map(fn (array $block): array => $this->compressProjectedGroupBlock($block), $blocks));
+        return array_values(array_map(fn (array $block): array => $this->normalizeWrapperChain($block), $blocks));
     }
 
     /** @param array<string, mixed> $block @return array<string, mixed> */
-    private function compressProjectedGroupBlock(array $block): array
+    private function normalizeWrapperChain(array $block): array
+    {
+        $candidate = $this->collectWrapperChain($block);
+        $chain = $candidate['chain'];
+        $terminal = $candidate['terminal'];
+        $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
+        if (2 <= count($chain) || (array() !== $chain && $terminalIsShell)) {
+            return $this->foldWrapperChain($chain, $terminal);
+        }
+
+        if (array() !== $chain) {
+            $block['_wrapper_normalization_boundary'] = 'single_wrapper';
+        } elseif (null !== $candidate['boundary']) {
+            $block['_wrapper_normalization_boundary'] = $candidate['boundary'];
+        }
+        if (is_array($block['innerBlocks'] ?? null)) $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
+        return $block;
+    }
+
+    /** @param array<string,mixed> $block @return array{chain:array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}>,terminal:array<string,mixed>,boundary:?string} */
+    private function collectWrapperChain(array $block): array
     {
         $chain = array();
         $cursor = $block;
-        while ($this->sourceElementClassifier->isSingleGroupShellCandidate($cursor)) {
-            $descriptor = $this->groupWrapperDescriptor($cursor);
-            if (null === $descriptor) {
-                break;
-            }
+        while (1 === count(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()) && null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
             $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
             $cursor = $cursor['innerBlocks'][0];
         }
+        if (null !== ($descriptor = $this->foldableWrapperDescriptor($cursor))) {
+            $chain[] = array('block' => $cursor, 'descriptor' => $descriptor);
+            $terminal = array(
+                'blockName' => 'core/freeform',
+                'innerBlocks' => $this->compressProjectedGroupChains(is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array()),
+            );
+            return array('chain' => $chain, 'terminal' => $terminal, 'boundary' => null);
+        }
+        if (array() === $chain) return array('chain' => array(), 'terminal' => $cursor, 'boundary' => $this->wrapperBoundaryReason($cursor));
+        return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor), 'boundary' => $this->wrapperBoundaryReason($cursor));
+    }
 
-        $branchEndpoint = false;
-        $emptyEndpoint = false;
-        $cursorChildren = is_array($cursor['innerBlocks'] ?? null) ? $cursor['innerBlocks'] : array();
-        if ('core/group' === ($cursor['blockName'] ?? null)
-            && 1 < count($cursorChildren)
-            && !isset($cursor['_binding_token'])
-            && !in_array(strtolower((string) ($cursor['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
-            && null !== ($branchDescriptor = $this->groupWrapperDescriptor($cursor))
-        ) {
-            $chain[] = array('block' => $cursor, 'descriptor' => $branchDescriptor);
-            $terminalBlocks = $this->compressProjectedGroupChains($cursorChildren);
-            $terminal = array();
-            $terminalIsShell = false;
-            $branchEndpoint = true;
-        } elseif ('core/group' === ($cursor['blockName'] ?? null)
-            && array() === $cursorChildren
-            && !isset($cursor['_binding_token'])
-            && !in_array(strtolower((string) ($cursor['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)
-            && null !== ($emptyDescriptor = $this->groupWrapperDescriptor($cursor))
-        ) {
-            $chain[] = array('block' => $cursor, 'descriptor' => $emptyDescriptor);
-            $terminalBlocks = array();
-            $terminal = array();
-            $terminalIsShell = false;
-            $emptyEndpoint = true;
-        } else {
-            $terminal = array() !== $chain ? $this->compressProjectedGroupBlock($cursor) : $cursor;
-            $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
-            $terminalBlocks = $terminalIsShell
-                ? $terminal['innerBlocks']
-                : array($terminal);
-        }
-        $projectedCount = count(array_filter($chain, fn (array $entry): bool => $this->sourceElementClassifier->hasSourceProjectionClass($entry['block'])));
-        $minimumLength = $branchEndpoint || $emptyEndpoint ? 2 : ($projectedCount === count($chain) ? 2 : 3);
-        if ((0 < $projectedCount && $minimumLength <= count($chain)) || (1 === count($chain) && $terminalIsShell && 0 < $projectedCount)) {
-            $wrappers = array_column($chain, 'descriptor');
-            $terminalRuntimeOwned = $terminalIsShell && !empty($terminal['_editability_runtime_owned']);
-            $terminalVisualOwned = $terminalIsShell && !empty($terminal['_editability_visual_owned']);
-            if ($terminalIsShell) {
-                $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
-            }
-            $opening = implode('', array_column($wrappers, 'opening'));
-            $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
-            $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
-            if ($terminalIsShell) {
-                $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
-            }
-            $blockName = $this->generatedBlocks()->blockName('layout-shell');
-            $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
-            return array_filter(array(
-                'blockName' => $blockName,
-                'attrs' => array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
-                'innerBlocks' => $terminalBlocks,
-                'innerHTML' => $opening . $closing,
-                'innerContent' => array_merge(array($opening), array_fill(0, count($terminalBlocks), null), array($closing)),
-                '_source_provenance_ids' => $provenanceIds,
-                '_layout_shell_wrappers' => $wrappers,
-                '_editability_runtime_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_runtime_owned'])) || $terminalRuntimeOwned,
-                '_editability_visual_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_visual_owned'])) || $terminalVisualOwned,
-            ), static fn (mixed $value): bool => false !== $value && array() !== $value);
-        }
+    /** @param array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}> $chain @param array<string,mixed> $terminal @return array<string,mixed> */
+    private function foldWrapperChain(array $chain, array $terminal): array
+    {
+        $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
+        $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
+        $wrappers = array_column($chain, 'descriptor');
+        if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+        $opening = implode('', array_column($wrappers, 'opening'));
+        $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
+        $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
+        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
+        $blockName = $this->generatedBlocks()->blockName('layout-shell');
+        $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
+        return array_filter(array(
+            'blockName' => $blockName,
+            'attrs' => array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
+            'innerBlocks' => $terminalBlocks,
+            'innerHTML' => $opening . $closing,
+            'innerContent' => array_merge(array($opening), array_fill(0, count($terminalBlocks), null), array($closing)),
+            '_source_provenance_ids' => $provenanceIds,
+            '_layout_shell_wrappers' => $wrappers,
+            '_editability_runtime_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_runtime_owned'])) || ($terminalIsShell && !empty($terminal['_editability_runtime_owned'])),
+            '_editability_visual_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_visual_owned'])) || ($terminalIsShell && !empty($terminal['_editability_visual_owned'])),
+        ), static fn (mixed $value): bool => false !== $value && array() !== $value);
+    }
 
-        if (is_array($block['innerBlocks'] ?? null)) {
-            $block['innerBlocks'] = $this->compressProjectedGroupChains($block['innerBlocks']);
-        }
-        return $block;
+    /** @param array<string,mixed> $block */
+    private function wrapperBoundaryReason(array $block): string
+    {
+        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true)) return 'non_wrapper_terminal';
+        if (isset($block['_binding_token'])) return 'binding_boundary';
+        if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
+        if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
+        if ('div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return 'semantic_boundary';
+        return 'serialization_unsafe';
+    }
+
+    /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
+    private function foldableWrapperDescriptor(array $block): ?array
+    {
+        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || 'div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return null;
+        return $this->groupWrapperDescriptor($block);
+    }
+
+    /** @param array<string,mixed> $block */
+    private function hasIndependentWrapperOwnership(array $block): bool
+    {
+        $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+        return !empty($block['_editability_runtime_owned'])
+            || !empty($block['_editability_visual_owned'])
+            || !empty($attrs['backgroundColor'])
+            || !empty($attrs['gradient'])
+            || !empty($attrs['style'])
+            || str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-');
     }
 
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
@@ -4929,6 +4945,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
         $opening = is_string($content[0] ?? null) ? $content[0] : '';
         $closing = is_string($content[array_key_last($content)] ?? null) ? $content[array_key_last($content)] : '';
+        $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
+            return null;
+        }
         if (! preg_match('/^<([a-z][a-z0-9-]*)\b/i', $opening, $match) || '' === $closing) {
             return null;
         }
