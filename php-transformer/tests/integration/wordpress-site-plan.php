@@ -46,7 +46,8 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
     'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
     'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
-    array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
+    array('path' => 'notes/essay.html', 'content' => '<main><article>Essay</article></main><script src="assets/essay.js"></script>', 'metadata' => array('json_ld' => array('schema' => 'data-liberation/source-json-ld/v1', 'documents' => array(array('source_url' => 'https://example.test/notes/essay', 'aliases' => array(), 'objects' => array(array('@context' => 'https://schema.org', '@type' => 'BlogPosting', 'url' => 'https://example.test/notes/essay')), 'diagnostics' => array()))))),
+    array('path' => 'post/can-chiropractic-help-with-back-pain-360-chiro-clinic-sheffield.html', 'content' => '<main><article><h1>Can chiropractic help with back pain?</h1><p>Imported publication body survives the migration.</p></article></main>', 'metadata' => array('json_ld' => array('schema' => 'data-liberation/source-json-ld/v1', 'documents' => array(array('source_url' => 'https://360chiro.example/blog/back-pain', 'aliases' => array(), 'objects' => array(array('@context' => 'https://schema.org', '@type' => 'BlogPosting', '@id' => 'https://360chiro.example/blog/back-pain#article', 'mainEntityOfPage' => 'https://360chiro.example/blog/back-pain'))))))),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
     'assets/root-about.js' => 'window.rootAboutAsset=true;',
     'assets/deep-about.js' => 'window.deepAboutAsset=true;',
@@ -198,6 +199,8 @@ $readingOperation = array_values(array_filter($resolved['operations'], static fn
 $assert('page' === get_option('show_on_front') && $pageIds[$readingOperation['front_page_reconciliation_identity']] === (int) get_option('page_on_front'), 'WordPress applies the declared topological page and front-page operations without manual hierarchy mutation.');
 $essay = get_post($pagesBySource['notes/essay.html'] ?? 0); $essayPlan = $pageDeclarations['notes/essay.html'] ?? array();
 $assert($essay && 'post' === $essay->post_type && 0 === (int) $essay->post_parent && ($essayPlan['reconciliation_identity'] ?? null) === get_post_meta($essay->ID, '_blocks_engine_reconciliation_identity', true), 'Reference materialization honors operation post_type, keeps posts parentless, and persists the runtime reconciliation identity.');
+$publication = get_post($pagesBySource['post/can-chiropractic-help-with-back-pain-360-chiro-clinic-sheffield.html'] ?? 0); $publicationPlan = $pageDeclarations['post/can-chiropractic-help-with-back-pain-360-chiro-clinic-sheffield.html'] ?? array();
+$assert($publication && 'post' === $publication->post_type && 0 === (int) $publication->post_parent && 'inferred' === ($publicationPlan['content_decision']['state'] ?? null) && 'metadata:json_ld:BlogPosting' === ($publicationPlan['content_decision']['evidence'][0]['source'] ?? null) && !isset($pagesBySource['wordpress-site-plan/routes/post.html']), 'A DLA JSON-LD publication materializes as a parentless WordPress post without a placeholder route page.');
 $frontPage = get_post((int) get_option('page_on_front')); if (!$frontPage) throw new RuntimeException('Could not load front page.');
 $editorSettings = static function (?WP_Post $post, string $name = 'core/edit-post'): array {
     $GLOBALS['post'] = $post;
@@ -290,6 +293,10 @@ $assert(str_contains($rendered, 'Home') && str_contains($rendered, home_url('/wp
 $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false === $pageTemplate) throw new RuntimeException('Could not read page template.');
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
+$post = $publication; $setRequest($post, false);
+$singleTemplate = resolve_block_template('single', array('single-' . $publication->post_name, 'single', 'singular', 'index'), '');
+$singleRendered = $singleTemplate instanceof WP_Block_Template ? do_blocks($singleTemplate->content) : ''; wp_reset_postdata();
+$assert($singleTemplate instanceof WP_Block_Template && $theme . '//single' === $singleTemplate->id && 'theme' === $singleTemplate->source && str_contains($singleRendered, 'Imported publication body survives the migration.') && !str_contains($singleRendered, 'No posts found.'), 'WordPress resolves the actual singular-post hierarchy to the generated single template and renders its stored block content.');
 $indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
 $queryPostIds = array();
 foreach (array('Query Loop First', 'Query Loop Second') as $title) {
@@ -298,6 +305,7 @@ foreach (array('Query Loop First', 'Query Loop Second') as $title) {
     $queryPostIds[] = $queryPostId;
     $pageIds['query-loop-' . $queryPostId] = $queryPostId;
 }
+$queryPostIds[] = $publication->ID;
 $indexBlocks = parse_blocks($indexTemplate);
 $indexQuery = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
 $indexPostTemplate = $indexQuery['innerBlocks'][0] ?? array();
@@ -306,7 +314,7 @@ $wp_query = new WP_Query(array('post_type' => 'post', 'post__in' => $queryPostId
 $indexRendered = do_blocks($indexTemplate);
 wp_reset_postdata();
 $wp_query = $previousQuery;
-$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
+$assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && str_contains($indexRendered, 'Can chiropractic help with back pain?') && 3 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop with the imported publication instead of its no-results fallback.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

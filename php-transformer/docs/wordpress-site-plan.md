@@ -42,12 +42,21 @@ Each page row may add `content_decision` with schema
 `defaulted`; `provenance` identifies an explicit declaration; and bounded
 `evidence` records normalized source signals. `post_type` remains the
 consumer-facing materialization intent. Explicit frontmatter `page` and `post`
-values are declared decisions. Otherwise article semantics, publication dates,
-and dated `/{YYYY}/{MM}/` routes infer `post`; unresolved documents default to
-`page`. Publication timestamps are RFC3339 UTC strings in
-`publication_timestamp` and evidence rows. Evidence accepts only complete
-`YYYY-MM-DD` dates or ISO datetimes with an explicit `Z` or numeric offset, so
-projection never depends on the runtime clock or timezone.
+values, and producer artifact `metadata.post_type` values of `page` or `post`,
+are declared decisions. Otherwise the planner may infer `post` only from
+source-preserved DLA `metadata.json_ld` documents: exactly one `Article`,
+`BlogPosting`, or `NewsArticle`
+must bind to the captured source URL, canonical URL, or `og:url` alias. Each
+preserved document owns only its own `source_url` and aliases; canonical, source,
+and OG identities must agree. Binding supports `url`, `@id`,
+`mainEntityOfPage`, and equivalent `@graph` relationships. Schema.org URI and
+compact-context type forms are recognized without loading a JSON-LD context.
+Existing raw inline `application/ld+json` Article and BlogPosting classification
+remains unchanged. Unbound or ambiguous DLA documents, listing children,
+date-only, route, article-landmark, microdata, and OG/meta-date signals remain
+`page`.
+Schema dates are preserved opaque and are neither required nor validated by the
+producer contract.
 
 Routes remain canonical source-document and link-reference paths. Page routes
 form page hierarchy and may receive synthetic parents. Post routes never create
