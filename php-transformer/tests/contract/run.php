@@ -66,7 +66,7 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
-$boundaryResult = ( new HtmlTransformer() )->transform('<div class="runtime-target"><button class="theme-toggle-btn" aria-label="Toggle theme">Theme</button></div>', array(
+$boundaryResult = ( new HtmlTransformer() )->transform('<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>', array(
     'static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}',
 ));
 $boundaryEnvelope = $boundaryResult->toArray();
