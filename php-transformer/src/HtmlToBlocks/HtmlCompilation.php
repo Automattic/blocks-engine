@@ -10500,6 +10500,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
         [$list, $items] = $this->richestCarouselList($element);
+        $localList = $list;
         if ( count($items) < 2 ) {
             foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
                 if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
@@ -10520,11 +10521,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $slides = array();
-        foreach ( $items as $item ) {
+        foreach ( $items as $sourceItem ) {
+            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             $image = $item->getElementsByTagName('img')->item(0);
             if ( $image instanceof DOMElement ) {
                 $slide = $this->convertImageElement($image);
                 if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
                     return null;
                 }
                 $caption = $this->carouselItemCaption($item);
@@ -10536,11 +10541,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $slideFallbacks = array();
                 $children = $this->convertChildren($item, $slideFallbacks, true);
                 if ( array() === $children || array() !== $slideFallbacks ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
                     return null;
                 }
                 $slide = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $children, $item);
             }
             $slides[] = $slide;
+            if ( $temporary ) {
+                $item->parentNode?->removeChild($item);
+            }
         }
 
         $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
@@ -10595,8 +10606,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $transitionDuration = 300;
         }
 
-        $listHeight = (string) ($this->styleResolver->presentationDeclarations($list)['height'] ?? $this->styleResolver->cssDeclarations($this->attr($list, 'style'))['height'] ?? '');
-        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($listHeight), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $geometryList = $localList instanceof DOMElement ? $localList : $list;
+        $listHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
+        $rootHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
+        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
         $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
@@ -10685,6 +10699,33 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return $count;
+    }
+
+    /** @return array{0: DOMElement, 1: bool} */
+    private function carouselItemInRoot(DOMElement $item, DOMElement $root, ?DOMElement $localList): array
+    {
+        for ( $ancestor = $item; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor === $root ) {
+                return array($item, false);
+            }
+        }
+        if ( $localList instanceof DOMElement ) {
+            $itemId = trim($this->attr($item, 'id'));
+            if ( '' !== $itemId ) {
+                foreach ( $this->carouselListItems($localList) as $localItem ) {
+                    if ( $itemId === trim($this->attr($localItem, 'id')) ) {
+                        return array($localItem, false);
+                    }
+                }
+            }
+        }
+
+        $clone = $item->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            return array($item, false);
+        }
+        ($localList ?? $root)->appendChild($clone);
+        return array($clone, true);
     }
 
     private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool

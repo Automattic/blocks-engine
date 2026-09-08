@@ -81,7 +81,7 @@ $assert(
     'an unrelated gallery link does not turn a repeated scroll collection into a carousel'
 );
 
-$responsiveTestimonials = '<style>.desktop,.mobile,.testimonialSlideshow{display:grid}</style><div class="desktop"><div id="testimonials" class="testimonialSlideshow" role="region"><button data-testid="prevButton"><svg></svg></button><button data-testid="nextButton"><svg></svg></button><div data-testid="slidesWrapper"><div id="quote-one"><p>First person</p><blockquote>First testimonial.</blockquote></div></div><nav><ol><li><a aria-label="Slide item 1"></a></li><li><a aria-label="Slide item 2"></a></li></ol></nav></div></div>'
+$responsiveTestimonials = '<style>.desktop,.mobile,.testimonialSlideshow{display:grid}.desktop .testimonialSlideshow{height:403px}.mobile .testimonialSlideshow{height:309px}[data-testid="slidesWrapper"]{height:100%}</style><div class="desktop"><div id="testimonials" class="testimonialSlideshow" role="region"><button data-testid="prevButton"><svg></svg></button><button data-testid="nextButton"><svg></svg></button><div data-testid="slidesWrapper"><div id="quote-one"><p>First person</p><blockquote>First testimonial.</blockquote></div></div><nav><ol><li><a aria-label="Slide item 1"></a></li><li><a aria-label="Slide item 2"></a></li></ol></nav></div></div>'
     . '<div class="mobile"><div id="testimonials" class="testimonialSlideshow" role="region"><div data-testid="slidesWrapper"><div id="quote-one"><p>First person</p><blockquote>First testimonial.</blockquote></div><div id="quote-two"><p>Second person</p><blockquote>Second testimonial.</blockquote></div></div><nav><ol><li><a aria-label="Slide item 1"></a></li><li><a aria-label="Slide item 2"></a></li></ol></nav></div></div>';
 $responsiveTestimonialResult = (new HtmlTransformer())->transform($responsiveTestimonials)->toArray();
 $responsiveTestimonialBlocks = array();
@@ -96,6 +96,7 @@ $collectCarousels = static function (array $blocks) use (&$collectCarousels, &$r
 $collectCarousels($responsiveTestimonialResult['blocks'] ?? array());
 $responsiveTestimonialMarkup = (string) ($responsiveTestimonialResult['serialized_blocks'] ?? '');
 $assert(2 === count($responsiveTestimonialBlocks) && 2 === count($responsiveTestimonialBlocks[0]['innerBlocks'] ?? array()) && 2 === count($responsiveTestimonialBlocks[1]['innerBlocks'] ?? array()), 'responsive carousel counterparts reconcile controls and complete text-rich slide collections through stable root identity');
+$assert(403 === ($responsiveTestimonialBlocks[0]['attrs']['viewportHeight'] ?? null) && 309 === ($responsiveTestimonialBlocks[1]['attrs']['viewportHeight'] ?? null), 'slideshow viewport geometry falls back to each authored root when its slide list uses percentage height');
 $assert(2 === substr_count($responsiveTestimonialMarkup, 'Second testimonial.') && 2 === substr_count($responsiveTestimonialMarkup, 'data-wp-interactive=') && 4 === substr_count($responsiveTestimonialMarkup, 'data-carousel-index='), 'responsive text slides remain editable and each variant receives functional carousel controls and pagination');
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
