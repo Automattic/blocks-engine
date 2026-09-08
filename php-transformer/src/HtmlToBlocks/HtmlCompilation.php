@@ -2903,6 +2903,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            // The source component resolves this formula against its own width.
+            // Replaying it on Core's replacement anchor changes that reference
+            // and inflates the label. The promoted item retains the source
+            // wrapper class, so the anchor can inherit the original value.
+            if ( in_array($property, array( 'font', 'font-size' ), true) && str_contains($value, '--scaling-factor') ) {
+                continue;
+            }
             if ( '' !== $value ) {
                 $declarations[] = $property . ':' . $this->navigationProjectionValue($value);
             }

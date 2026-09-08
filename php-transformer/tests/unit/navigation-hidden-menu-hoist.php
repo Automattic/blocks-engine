@@ -37,6 +37,14 @@ $intrinsicProjectedCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($intrinsicProjected['assets'] ?? null) ? $intrinsicProjected['assets'] : array()
 ));
+$containerScaled = ( new HtmlTransformer() )->transform(
+    '<style>.menu-label{font-size:max(.5px,.0410256 * (var(--scaling-factor) - var(--scrollbar-width)))}</style>'
+    . '<nav class="menu"><div class="menu-label"><a href="/">Home</a></div><div class="menu-label"><a href="/work">Work</a></div></nav>'
+)->toArray();
+$containerScaledCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($containerScaled['assets'] ?? null) ? $containerScaled['assets'] : array()
+));
 
 $ambiguous = ( new HtmlTransformer() )->transform(
     '<header><button aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Main" style="display:none"><a href="/">Home</a><a href="/work">Work</a></nav><nav aria-label="Utility" style="display:none"><a href="/help">Help</a><a href="/contact">Contact</a></nav></header>'
@@ -50,6 +58,7 @@ $assertions = array(
     array(str_contains($projectedCss, 'width:42px!important;height:48px!important') && ! str_contains($projectedCss, '!important!important'), 'the visible source control box projects onto Core\'s responsive open button without duplicating source importance'),
     array(str_contains($intrinsicProjectedCss, 'min-width:44px!important') && str_contains($intrinsicProjectedCss, 'min-height:44px!important') && ! str_contains($intrinsicProjectedCss, '!important!important'), 'intrinsic source toggle dimensions receive a usable native control box without invalid declarations'),
     array(str_contains($projectedCss, '100vw'), 'container-relative inherited navigation typography is rebound after promotion'),
+    array(1 === substr_count($containerScaledCss, 'font-size:max(.5px,.0410256 * (var(--scaling-factor) - var(--scrollbar-width)))'), 'container-scaled label typography is not replayed against a replacement navigation anchor'),
     array(! str_contains($projectedMarkup, '<!-- wp:button'), 'the superseded source menu control is not emitted as a dead button'),
     array(str_contains($projectedMarkup, 'Northwind') && str_contains($projectedMarkup, '"label":"Home"') && str_contains($projectedMarkup, '"label":"Work"'), 'projection preserves surrounding shell content and editable navigation destinations'),
     array(2 === $countBlocks($ambiguous['blocks'] ?? array(), 'core/navigation'), 'ambiguous hidden navigation candidates remain unprojected'),
