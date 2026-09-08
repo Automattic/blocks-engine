@@ -66,6 +66,40 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$boundaryResult = ( new HtmlTransformer() )->transform('<div class="runtime-target"><button class="theme-toggle-btn" aria-label="Toggle theme">Theme</button></div>', array(
+    'static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}',
+));
+$boundaryEnvelope = $boundaryResult->toArray();
+$boundaryOutput = $boundaryResult->blockCompilationOutput;
+$assert(
+    null !== $boundaryOutput
+        && array() !== $boundaryOutput->generatedBlocks
+        && $boundaryOutput->generatedBlocks === ($boundaryEnvelope['source_reports']['generated_blocks'] ?? null)
+        && $boundaryOutput->runtimeIslands === ($boundaryEnvelope['source_reports']['runtime_islands'] ?? null)
+        && $boundaryOutput->editabilityReport === ($boundaryEnvelope['source_reports']['editability_report'] ?? null),
+    'HTML compilation retains artifact-required facts separately while source reports remain their compatible projection'
+);
+$assert(
+    array(
+        'schema',
+        'status',
+        'components',
+        'block_types',
+        'source_reports',
+        'blocks',
+        'serialized_blocks',
+        'documents',
+        'assets',
+        'diagnostics',
+        'fallbacks',
+        'provenance',
+        'coverage',
+        'context',
+        'metrics',
+    ) === array_keys($boundaryEnvelope),
+    'internal block-compilation output does not change the public result-envelope keys or ordering'
+);
+
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
 $assert(
     array(

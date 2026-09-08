@@ -1359,6 +1359,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'reusable_components' => $reusableComponentRecognition,
             'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
             'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
+            'runtime_block_paths' => $runtimeBlockPaths,
+            'visual_block_paths' => $visualBlockPaths,
             'author_stylesheet_projections' => $authorStylesheetProjections,
             'runtime_script_projections' => $runtimeScriptProjections,
             'responsive_counterpart_contracts' => $responsiveCounterpartContracts,
@@ -1376,7 +1378,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             sourceReports: $composition['source_reports'],
             coverage: $composition['coverage'],
             context: $context,
-            metrics: $metrics
+            metrics: $metrics,
+            blockCompilationOutput: $composition['block_compilation_output']
         );
     }
 

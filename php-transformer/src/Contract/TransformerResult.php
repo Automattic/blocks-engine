@@ -24,6 +24,7 @@ final class TransformerResult
      * @param array<int, array<string, mixed>> $coverage
      * @param array<string, mixed> $context
      * @param array<string, int|float> $metrics
+     * @param BlockCompilationOutput|null $blockCompilationOutput Internal artifact-compilation facts; never serialized.
      */
     public function __construct(
         public readonly string $status = 'success',
@@ -39,7 +40,8 @@ final class TransformerResult
         public readonly array $provenance = array(),
         public readonly array $coverage = array(),
         public readonly array $context = array(),
-        public readonly array $metrics = array()
+        public readonly array $metrics = array(),
+        public readonly ?BlockCompilationOutput $blockCompilationOutput = null
     ) {
     }
 

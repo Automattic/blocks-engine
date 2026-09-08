@@ -981,22 +981,6 @@ final class ArtifactCompiler
         return $merged;
     }
 
-    /** @param array<string,mixed> $result @return array<int,string> */
-    private function runtimeBlockPaths(array $result): array
-    {
-        $paths = array();
-        foreach ($result['source_reports']['html']['source_provenance'] ?? array() as $entry) if (is_array($entry) && !empty($entry['editability_runtime_owned']) && is_string($entry['block_path'] ?? null)) $paths[] = $entry['block_path'];
-        return $paths;
-    }
-
-    /** @param array<string,mixed> $result @return array<int,string> */
-    private function visualBlockPaths(array $result): array
-    {
-        $paths = array();
-        foreach ($result['source_reports']['html']['source_provenance'] ?? array() as $entry) if (is_array($entry) && !empty($entry['editability_visual_owned']) && is_string($entry['block_path'] ?? null)) $paths[] = $entry['block_path'];
-        return $paths;
-    }
-
     /**
      * Terminal assembly for v2 receipts. It deliberately accepts reductions,
      * not page envelopes or a PayloadReader: all page payload access and page
@@ -2159,36 +2143,37 @@ final class ArtifactCompiler
             'generated_asset_root'       => $this->generatedAssetRoot,
             'extract_global_shell'       => $extractGlobalShell,
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
-        ))->toArray();
+        ));
+        $blockCompilationOutput = $result->blockCompilationOutput;
 
         return array(
-            'blocks'            => is_array($result['blocks'] ?? null) ? $result['blocks'] : array(),
-            'serialized_blocks' => (string) ($result['serialized_blocks'] ?? ''),
-            'diagnostics'       => is_array($result['diagnostics'] ?? null) ? $result['diagnostics'] : array(),
-            'fallbacks'         => is_array($result['fallbacks'] ?? null) ? $result['fallbacks'] : array(),
-            'core_html_fallback_evidence' => is_array($result['source_reports']['html']['core_html_fallback_evidence'] ?? null) ? $result['source_reports']['html']['core_html_fallback_evidence'] : CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
-            'runtime_block_paths' => $this->runtimeBlockPaths($result),
-            'visual_block_paths' => $this->visualBlockPaths($result),
-            'editability_report' => is_array($result['source_reports']['editability_report'] ?? null) ? $result['source_reports']['editability_report'] : null,
-            'responsive_counterpart_contracts' => is_array($result['source_reports']['responsive_counterpart_contracts'] ?? null) ? $result['source_reports']['responsive_counterpart_contracts'] : array(),
-            'layout_geometry_proof' => is_array($result['source_reports']['html']['layout_geometry_proof'] ?? null) ? $result['source_reports']['html']['layout_geometry_proof'] : array(),
-            'reusable_components' => is_array($result['source_reports']['html']['reusable_components'] ?? null) ? $result['source_reports']['html']['reusable_components'] : array(),
-            'assets'            => is_array($result['assets'] ?? null) ? $result['assets'] : array(),
+            'blocks'            => $result->blocks,
+            'serialized_blocks' => $result->serializedBlocks,
+            'diagnostics'       => $result->diagnostics,
+            'fallbacks'         => $result->fallbacks,
+            'core_html_fallback_evidence' => $blockCompilationOutput?->coreHtmlFallbackEvidence ?? CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+            'runtime_block_paths' => $blockCompilationOutput?->runtimeBlockPaths ?? array(),
+            'visual_block_paths' => $blockCompilationOutput?->visualBlockPaths ?? array(),
+            'editability_report' => $blockCompilationOutput?->editabilityReport,
+            'responsive_counterpart_contracts' => $blockCompilationOutput?->responsiveCounterpartContracts ?? array(),
+            'layout_geometry_proof' => $blockCompilationOutput?->layoutGeometryProof ?? array(),
+            'reusable_components' => $blockCompilationOutput?->reusableComponents ?? array(),
+            'assets'            => $result->assets,
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
-                is_array($result['source_reports']['runtime_islands'] ?? null) ? $result['source_reports']['runtime_islands'] : array(),
+                $blockCompilationOutput?->runtimeIslands ?? array(),
                 $sourcePath,
                 $files
             ),
-            'generated_blocks'  => is_array($result['source_reports']['generated_blocks'] ?? null) ? $result['source_reports']['generated_blocks'] : array(),
-            'gutenberg_gaps'    => is_array($result['source_reports']['gutenberg_gaps'] ?? null) ? $result['source_reports']['gutenberg_gaps'] : array(),
-            'interaction_candidates' => is_array($result['source_reports']['interaction_candidates'] ?? null) ? $result['source_reports']['interaction_candidates'] : array(),
+            'generated_blocks'  => $blockCompilationOutput?->generatedBlocks ?? array(),
+            'gutenberg_gaps'    => $blockCompilationOutput?->gutenbergGaps ?? array(),
+            'interaction_candidates' => $blockCompilationOutput?->interactionCandidates ?? array(),
             'superseded_selectors' => array_values(array_filter(
-                is_array($result['source_reports']['superseded_selectors'] ?? null) ? $result['source_reports']['superseded_selectors'] : array(),
+                $blockCompilationOutput?->supersededSelectors ?? array(),
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
-            'author_stylesheet_projections' => is_array($result['source_reports']['author_stylesheet_projections'] ?? null) ? $result['source_reports']['author_stylesheet_projections'] : array(),
-            'runtime_script_projections' => is_array($result['source_reports']['runtime_script_projections'] ?? null) ? $result['source_reports']['runtime_script_projections'] : array(),
-            'shell_artifacts' => is_array($result['source_reports']['shell_artifacts'] ?? null) ? $result['source_reports']['shell_artifacts'] : array(),
+            'author_stylesheet_projections' => $blockCompilationOutput?->authorStylesheetProjections ?? array(),
+            'runtime_script_projections' => $blockCompilationOutput?->runtimeScriptProjections ?? array(),
+            'shell_artifacts' => $blockCompilationOutput?->shellArtifacts ?? array(),
         );
     }
 
