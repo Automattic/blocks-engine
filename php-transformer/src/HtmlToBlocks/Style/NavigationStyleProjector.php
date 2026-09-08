@@ -203,11 +203,20 @@ final class NavigationStyleProjector
                 $fragment
             ) ?? $fragment;
         };
+        $projectTargetIds = static function (string $fragment) use ($ids): string {
+            return preg_replace_callback(
+                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+                static fn (array $match): string => isset($ids[$match[2]])
+                    ? $match[1] . ':is(.blocks-engine-editor-anchor-' . $match[2] . ',.' . $match[2] . ')'
+                    : $match[0],
+                $fragment
+            ) ?? $fragment;
+        };
 
         $start = (int) $rightmost['start'];
         $end = (int) $rightmost['end'];
         $prefix = $projectIds(substr($selector, 0, $start));
-        $target = $projectIds(substr($selector, $start, $end - $start));
+        $target = $projectTargetIds(substr($selector, $start, $end - $start));
         $suffix = substr($selector, $end);
         return $prefix . ':where(.wp-block-template-part):has(> ' . $target . ')' . $suffix;
     }
