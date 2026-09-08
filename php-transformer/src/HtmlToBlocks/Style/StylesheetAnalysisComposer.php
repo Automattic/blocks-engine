@@ -86,10 +86,10 @@ final class StylesheetAnalysisComposer
         return array(array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)));
     }
 
-    /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
+    /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
     public function composedStyleAnalysis(array $payloads): array
     {
-        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
+        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload);
             $analysis = $this->analysisCache->style($key);
@@ -102,6 +102,7 @@ final class StylesheetAnalysisComposer
                     'static' => $style['static'],
                     'conditional' => $style['conditional'],
                     'navigation_state' => $style['navigation_state'],
+                    'reveal_state' => $style['reveal_state'],
                     'image_shape' => $style['image_shape'],
                     'pseudo' => $style['pseudo'],
                     'cascaded_values' => $style['cascaded_values'],
@@ -111,7 +112,7 @@ final class StylesheetAnalysisComposer
             } else {
                 ++$this->analysisCache->styleHits;
             }
-            foreach ( array('static', 'conditional', 'navigation_state', 'pseudo', 'cascaded_values') as $part ) {
+            foreach ( array('static', 'conditional', 'navigation_state', 'reveal_state', 'pseudo', 'cascaded_values') as $part ) {
                 $composed[$part] = array_merge($composed[$part], $analysis[$part]);
             }
             foreach ( $analysis['image_shape'] as $rule ) {
