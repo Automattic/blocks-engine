@@ -51,7 +51,7 @@ final class WordPressCompatCss
         $rules = array();
         foreach ( $this->topLevelCssRules($css, true) as $rule ) {
             if ( str_starts_with($rule['selector'], '@') ) {
-                if ( preg_match('/^@(media|supports|container|layer)\b/i', $rule['selector']) ) {
+                if ( preg_match('/^@(media|supports|container|layer|scope)\b/i', $rule['selector']) ) {
                     $nested = $this->responsiveRootCompatCssRules($rule['body']);
                     if ( array() !== $nested ) {
                         $rules[] = $rule['selector'] . ' {' . implode('', $nested) . '}';
