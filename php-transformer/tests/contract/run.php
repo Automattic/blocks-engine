@@ -861,8 +861,12 @@ $assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan
 $coverage = $result['coverage'][0] ?? array();
 $supportedBlocks = $coverage['supported_blocks'] ?? array();
 $runtimeAvailableBlocks = $coverage['runtime_available_blocks'] ?? array();
+$runtimeRegisteredBlocks = $coverage['runtime_registered_blocks'] ?? array();
+$bundledSnapshotBlocks = $coverage['bundled_snapshot_blocks'] ?? array();
 $capabilityMatrix = $coverage['capability_matrix'] ?? array();
 $conversionReportNativeTargetBlocks = $result['source_reports']['conversion_report']['native_target_blocks'] ?? array();
+$conversionReportBundledSnapshotBlocks = $result['source_reports']['conversion_report']['bundled_snapshot_blocks'] ?? array();
+$conversionReportRuntimeRegisteredBlocks = $result['source_reports']['conversion_report']['runtime_registered_blocks'] ?? array();
 $assert(in_array('core/paragraph', $supportedBlocks, true), 'coverage derives implemented, contract-tested block support from the capability matrix');
 $assert(in_array('core/accordion', $runtimeAvailableBlocks, true), 'coverage exposes core/accordion as runtime availability rather than transformer support');
 $assert(in_array('core/icon', $runtimeAvailableBlocks, true), 'coverage exposes core/icon as runtime availability');
@@ -870,7 +874,13 @@ $assert(in_array('core/math', $runtimeAvailableBlocks, true), 'coverage exposes 
 $assert('implemented' === ($capabilityMatrix['blocks']['core/accordion']['implementation'] ?? null) && 'contract_tested' === ($capabilityMatrix['blocks']['core/accordion']['verification'] ?? null), 'coverage derives native accordion support from its emitter contract');
 $assert('7.1' === ($capabilityMatrix['blocks']['core/tabs']['minimum_runtime'] ?? null), 'matrix records the WordPress 7.1 Tabs runtime gate');
 $assert($runtimeAvailableBlocks === ($capabilityMatrix['runtime_available_blocks'] ?? array()), 'coverage records runtime availability separately inside the matrix');
+$assert($runtimeRegisteredBlocks === ($capabilityMatrix['runtime_registered_blocks'] ?? array()), 'coverage records live runtime registrations separately inside the matrix');
 $assert($runtimeAvailableBlocks === $conversionReportNativeTargetBlocks, 'conversion report exposes runtime availability metadata');
+$assert($bundledSnapshotBlocks === ($capabilityMatrix['bundled_snapshot_blocks'] ?? array()), 'coverage records bundled snapshot knowledge separately inside the matrix');
+$assert($bundledSnapshotBlocks === $conversionReportBundledSnapshotBlocks, 'conversion report exposes bundled snapshot knowledge metadata');
+$assert($runtimeRegisteredBlocks === $conversionReportRuntimeRegisteredBlocks, 'conversion report exposes live runtime registration metadata');
+$assert(in_array('core/verse', $bundledSnapshotBlocks, true), 'coverage exposes known but unimplemented snapshot blocks');
+$assert(! in_array('core/verse', $supportedBlocks, true), 'coverage does not report known but unimplemented snapshot blocks as transformer output');
 $assert(in_array('core/accordion', $supportedBlocks, true), 'coverage reports the emitted native accordion family as converted support');
 $assert(! in_array('core/icon', $supportedBlocks, true), 'coverage does not report runtime-only core/icon as transformer output');
 $runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
@@ -1203,7 +1213,11 @@ $canonicalLinkUrls = ( new HtmlTransformer() )->transform(
 )->toArray();
 $canonicalLinkMarkup = (string) ($canonicalLinkUrls['serialized_blocks'] ?? '');
 $canonicalNavigation = $canonicalLinkUrls['blocks'][0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['url'] ?? null;
-$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && str_contains($canonicalLinkMarkup, 'href="mailto:%22quoted.local%22@example.test"') && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, supports quoted and Unicode mailboxes, and rejects unsafe schemes');
+$quotedMailboxHref = '';
+if ( 1 === preg_match('/href="([^"]+)">Quoted mailbox</', $canonicalLinkMarkup, $matches) ) {
+    $quotedMailboxHref = rawurldecode(html_entity_decode($matches[1], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+}
+$assert(2 === substr_count($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com"') && str_contains($canonicalLinkMarkup, 'href="mailto:hello@richlynngroup.com?subject=Hello"') && str_contains($canonicalLinkMarkup, 'href="https://martinguitar.com"') && str_contains($canonicalLinkMarkup, 'href="https://example.test/?x=&amp;copy;"') && 'mailto:"quoted.local"@example.test' === $quotedMailboxHref && str_contains($canonicalLinkMarkup, 'href="mailto:%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE@%CF%80%CE%B1%CF%81%CE%AC%CE%B4%CE%B5%CE%B9%CE%B3%CE%BC%CE%B1.%CE%B4%CE%BF%CE%BA%CE%B9%CE%BC%CE%AE"') && str_contains($canonicalLinkMarkup, 'href="members/hello@richlynngroup.com/profile"') && ! str_contains($canonicalLinkMarkup, 'script:') && ! str_contains($canonicalLinkMarkup, 'data:') && ! str_contains($canonicalLinkMarkup, 'vbscript:'), 'link sanitization canonicalizes DOM-decoded NBSP-trimmed bare emails and web hosts, preserves literal entity query text and relative @ paths, preserves quoted-mailbox URL semantics across HTML serializers, supports Unicode mailboxes, and rejects unsafe schemes');
 $assert('mailto:hello@richlynngroup.com' === $canonicalNavigation, 'native navigation conversion shares bare-email link canonicalization');
 $assert('https://example.test/?x=&copy;' === LinkUrlSanitizer::sanitize('https://example.test/?x=&copy;') && 'https://martinguitar.com' === LinkUrlSanitizer::sanitize('martinguitar.com') && 'guide.html' === LinkUrlSanitizer::sanitize('guide.html') && 'mailto:"quoted.local"@example.test' === LinkUrlSanitizer::sanitize('"quoted.local"@example.test') && 'mailto:δοκιμή@παράδειγμα.δοκιμή' === LinkUrlSanitizer::sanitize('δοκιμή@παράδειγμα.δοκιμή'), 'link sanitization recognizes bare web hosts without converting common relative file links and recognizes quoted and Unicode mailboxes without IDN conversion');
 $safeLinkProtocols = array( 'http', 'https', 'ftp', 'ftps', 'mailto', 'news', 'irc', 'ircs', 'gopher', 'nntp', 'feed', 'telnet', 'mms', 'rtsp', 'svn', 'tel', 'fax', 'xmpp', 'webcal', 'urn' );

@@ -23,6 +23,8 @@ final class HtmlResultComposer
                 array(
                     'supported_blocks' => $input['supported_blocks'],
                     'runtime_available_blocks' => $input['native_target_blocks'],
+                    'bundled_snapshot_blocks' => $input['bundled_snapshot_blocks'],
+                    'runtime_registered_blocks' => $input['runtime_registered_blocks'],
                     'capability_matrix' => $input['capability_matrix'],
                     'block_count' => count($input['blocks']),
                     'fallback_count' => count($input['fallbacks']),
@@ -50,6 +52,8 @@ final class HtmlResultComposer
         $sourceReports = array(
             'native_target_blocks' => $input['native_target_blocks'],
             'available_core_blocks' => $input['native_target_blocks'],
+            'bundled_snapshot_blocks' => $input['bundled_snapshot_blocks'],
+            'runtime_registered_blocks' => $input['runtime_registered_blocks'],
             'core_block_capabilities' => $input['capability_matrix'],
             'head_metadata' => $input['head_metadata'],
             'runtime_islands' => $input['runtime_islands'],

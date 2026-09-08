@@ -43,11 +43,13 @@ final class ConversionReportProjection
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
             'available_core_blocks' => self::stringList($sourceReports, 'available_core_blocks'),
+            'bundled_snapshot_blocks' => self::stringList($sourceReports, 'bundled_snapshot_blocks'),
+            'runtime_registered_blocks' => self::nullableStringList($sourceReports, 'runtime_registered_blocks'),
             'core_block_capabilities' => is_array($sourceReports['core_block_capabilities'] ?? null) ? $sourceReports['core_block_capabilities'] : array(),
             'metrics'               => $metrics,
         );
 
-        return array_filter($report, static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        return array_filter($report, static fn (mixed $value, string $key): bool => 'runtime_registered_blocks' === $key || ('' !== $value && array() !== $value), ARRAY_FILTER_USE_BOTH);
     }
 
     /**
@@ -454,6 +456,19 @@ final class ConversionReportProjection
         }
 
         return array_values(array_filter($sourceReports[$key], static fn (mixed $value): bool => is_string($value) && '' !== $value));
+    }
+
+    /**
+     * @param array<string, mixed> $sourceReports
+     * @return array<int, string>|null
+     */
+    private static function nullableStringList(array $sourceReports, string $key): ?array
+    {
+        if ( null === ($sourceReports[$key] ?? null) ) {
+            return null;
+        }
+
+        return self::stringList($sourceReports, $key);
     }
 
     /**
