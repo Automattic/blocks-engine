@@ -19,7 +19,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "fixed-header", "tagName": "header" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "mobile-control-slot" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-b5e9ccdeeabe", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "HOME", "url": "/", "kind": "custom" } },
     { "path": "blocks.0.innerBlocks.2", "name": "core/navigation", "attrs": { "className": "desktop-navigation", "overlayMenu": "never" } }
   ],
