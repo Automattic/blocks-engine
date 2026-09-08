@@ -72,6 +72,7 @@ final class FlowContainerElementContext
     public function hasExternalSvgFragmentDependencyBoundary(DOMElement $element): bool { return ($this->canCaptureExternalSvgFragmentDependency)($element) && $this->sourceElementClassifier->hasExternalSvgFragmentDependencyBoundary($element); }
     public function hasResponsiveImageSources(DOMElement $element): bool { return $this->sourceElementClassifier->hasResponsiveImageSources($element); }
     public function hasGalleryMediaItems(DOMElement $element): bool { return $this->sourceElementClassifier->hasGalleryMediaItems($element); }
+    public function hasCapturedMediaContent(DOMElement $element): bool { return $this->sourceElementClassifier->hasCapturedMediaContent($element); }
     /** @return array<string, mixed> */
     public function responsiveMediaBlock(DOMElement $element): array { return ($this->responsiveMediaBlock)($element); }
     public function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool { return ($this->isDirectChildOfAuthorOwnedLayout)($element); }
