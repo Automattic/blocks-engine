@@ -5162,7 +5162,7 @@ if ( ! str_contains($result['serialized_blocks'], '<!-- wp:heading {"level":1} -
 // a block support rides on `className`, and responsive/JS-revealed base hidden
 // states (display:none) are never frozen onto content-bearing elements.
 $canonicalStyleResult = ( new HtmlTransformer() )->transform(
-    '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}</style>'
+    '<style>.class-owned-flex{display:flex;flex-direction:column;gap:1rem}.frozen-panel{display:none;visibility:hidden;height:0;overflow:hidden}.frozen-trigger:hover + .frozen-panel{display:block;visibility:visible;height:auto;overflow:visible}</style>'
     . '<main>'
     . '<h2 class="eyebrow" style="font-size:2rem;color:#c0392b;font-weight:700">Styled heading</h2>'
     . '<p class="lede" style="color:#222;line-height:1.6;text-align:center;font-family:var(--font-mono)">Styled paragraph</p>'
@@ -5170,6 +5170,7 @@ $canonicalStyleResult = ( new HtmlTransformer() )->transform(
     . '<h3>Hero heading</h3><p>Hero content</p></div>'
     . '<div class="class-owned-flex"><p>Class-owned layout</p></div>'
     . '<nav class="main-nav" style="display:none;gap:1.6rem"><a href="/a">Home</a></nav>'
+    . '<div class="frozen-trigger">Reveal panel</div><section id="canonical-frozen-panel" class="frozen-panel"><p>Recovered panel</p></section>'
     . '</main>'
 )->toArray();
 
@@ -5353,15 +5354,16 @@ $classOwnedFlex = $findBlockByClass($canonicalStyleResult['blocks'], 'class-owne
 $assert(is_array($classOwnedFlex), 'class-owned flex container block is emitted');
 $assert(! isset($classOwnedFlex['attrs']['layout']), 'class-owned flex CSS does not synthesize a WordPress layout attribute');
 
-// Hidden-state safety (#259): a base display:none on content-bearing nav is not
-// frozen; it is normalized away and surfaced as a frozen_hidden_state finding.
+// A base display:none without source reveal evidence remains authored rather than
+// being globally repaired into an exposed navigation state.
 $nav = $findBlock($canonicalStyleResult['blocks'], 'core/navigation');
 $assert(is_array($nav), 'navigation block is emitted');
 $assert(! is_string($nav['attrs']['style'] ?? null), 'navigation style is never a raw string');
 $navStyle = $nav['attrs']['style'] ?? array();
 $assert(! (is_array($navStyle) && isset($navStyle['display'])), 'navigation must not freeze display:none');
 $frozen = $canonicalStyleResult['source_reports']['html']['frozen_hidden_state'] ?? array();
-$assert(is_array($frozen) && array() !== $frozen, 'frozen hidden state finding is surfaced for the hidden nav');
+$frozenPanel = array_values(array_filter($frozen, static fn (array $finding): bool => '#canonical-frozen-panel' === ($finding['editor_selector'] ?? '') && array('display:none', 'visibility:hidden', 'height:0', 'overflow:hidden') === ($finding['declarations'] ?? array())));
+$assert(1 === count($frozenPanel), 'the canonical revealable panel is surfaced once with its complete recovery finding');
 
 $editorStaticStateResult = (new HtmlTransformer())->transform(
     '<main><section id="process"><p class="reveal feature-copy">Revealed copy</p><p class="animated-copy">Animated copy</p></section></main>',

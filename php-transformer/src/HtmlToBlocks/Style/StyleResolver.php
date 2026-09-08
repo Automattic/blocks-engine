@@ -576,6 +576,16 @@ final class StyleResolver implements ElementPresentationResolver
                 )));
             }
         }
+        if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
+            $properties[] = 'visibility';
+        }
+        $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
+        if (
+            1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
+            && in_array(CssValueInspector::comparable((string) ($declarations['overflow'] ?? '')), array('hidden', 'clip'), true)
+        ) {
+            $properties[] = 'overflow';
+        }
         $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
         if ( preg_match('/\burl\s*\(/i', $inlineBackground)
             && ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) )
@@ -1858,7 +1868,7 @@ final class StyleResolver implements ElementPresentationResolver
             unset($declarations['display']);
         }
 
-        $normalized = $this->closedStateNormalizer()->strip($declarations);
+        $normalized = $this->closedStateNormalizer()->strip($declarations, $this->sourceRevealProperties($element, $declarations));
         if ( null !== $responsiveDisplay ) {
             $normalized['declarations']['display'] = $responsiveDisplay;
         }
@@ -1887,6 +1897,71 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return false;
+    }
+
+    /** @param array<string, string> $declarations @return array<string, true> */
+    private function sourceRevealProperties(DOMElement $element, array $declarations): array
+    {
+        if ($this->context->sourceStyles()->isAriaControlledTarget($element)) {
+            return array(
+                'display' => true,
+                'visibility' => true,
+                'height' => true,
+                'max-height' => true,
+                'overflow' => true,
+            );
+        }
+
+        $revealed = array();
+        foreach ($this->context->sourceStyles()->revealStateRules() as $rule) {
+            if (! $this->matchesCssSelector($element, (string) $rule['base_selector'])) {
+                continue;
+            }
+            $state = (array) ($rule['declarations'] ?? array());
+            if ('none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) && $this->isVisibleDisplay((string) ($state['display'] ?? ''))) {
+                $revealed['display'] = true;
+            }
+            if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')) && 'visible' === CssValueInspector::comparable((string) ($state['visibility'] ?? ''))) {
+                $revealed['visibility'] = true;
+            }
+            $revealsGeometry = false;
+            foreach (array('height', 'max-height') as $property) {
+                if ($this->isZeroLength((string) ($declarations[$property] ?? '')) && $this->isExpandedLength($property, (string) ($state[$property] ?? ''))) {
+                    $revealed[$property] = true;
+                    $revealsGeometry = true;
+                }
+            }
+            if (
+                $revealsGeometry
+                && 'visible' === CssValueInspector::comparable((string) ($state['overflow'] ?? ''))
+            ) {
+                $revealed['overflow'] = true;
+            }
+        }
+
+        return $revealed;
+    }
+
+    private function isVisibleDisplay(string $value): bool
+    {
+        return in_array(CssValueInspector::comparable($value), array('block', 'contents', 'flex', 'grid', 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'list-item', 'table'), true);
+    }
+
+    private function isZeroLength(string $value): bool
+    {
+        return 1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', CssValueInspector::comparable($value));
+    }
+
+    private function isExpandedLength(string $property, string $value): bool
+    {
+        $value = CssValueInspector::comparable($value);
+        if ('' === $value || $this->isZeroLength($value)) {
+            return false;
+        }
+
+        return ('height' === $property && in_array($value, array('auto', 'fit-content', 'max-content', 'min-content'), true))
+            || ('max-height' === $property && 'none' === $value)
+            || 1 === preg_match('/^(?:\d*\.\d+|\d+)(?:px|em|rem|%|vh|vw)$/', $value);
     }
 
     private function isExplicitlyInactiveState(DOMElement $element): bool
@@ -2306,6 +2381,7 @@ final class StyleResolver implements ElementPresentationResolver
             'static' => array(),
             'conditional' => array(),
             'navigation_state' => array(),
+            'reveal_state' => array(),
             'image_shape' => array(),
             'pseudo' => array(),
             'cascaded_values' => array(),
@@ -2383,6 +2459,7 @@ final class StyleResolver implements ElementPresentationResolver
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
                             $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
+                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'declarations' => $rawDeclarations);
                         }
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {

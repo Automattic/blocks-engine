@@ -5,6 +5,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use DOMDocument;
+use DOMElement;
 
 /** Per-transform source stylesheet matching and declaration state. */
 final class SourceStyleResolutionState
@@ -33,6 +35,9 @@ final class SourceStyleResolutionState
     private array $navigationStateRules = array();
 
     /** @var array<int, array<string, mixed>> */
+    private array $revealStateRules = array();
+
+    /** @var array<int, array<string, mixed>> */
     private array $imageShapeRules = array();
 
     /** @var array<int, array<string, mixed>> */
@@ -47,6 +52,9 @@ final class SourceStyleResolutionState
     /** @var array<string, array<string, mixed>|null> */
     private array $parsedSelectors = array();
 
+    /** @var array<int, array<string, true>> */
+    private array $ariaControlledTargetIds = array();
+
     private string $formLayoutCss = '';
 
     public function __construct()
@@ -58,6 +66,7 @@ final class SourceStyleResolutionState
     {
         $this->selectorMatchCache->clear();
         $this->structuralDeclarations = array();
+        $this->ariaControlledTargetIds = array();
     }
 
     /**
@@ -70,6 +79,7 @@ final class SourceStyleResolutionState
         $this->staticRules = $analysis['static'];
         $this->conditionalRules = $analysis['conditional'];
         $this->navigationStateRules = $analysis['navigation_state'];
+        $this->revealStateRules = $analysis['reveal_state'];
         $this->imageShapeRules = $analysis['image_shape'];
         $this->pseudoElementRules = $analysis['pseudo'];
         $this->cascadedValueRules = $analysis['cascaded_values'] ?? array();
@@ -117,6 +127,39 @@ final class SourceStyleResolutionState
     public function navigationStateRules(): array
     {
         return $this->navigationStateRules;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function revealStateRules(): array
+    {
+        return $this->revealStateRules;
+    }
+
+    public function isAriaControlledTarget(DOMElement $element): bool
+    {
+        $id = trim($element->getAttribute('id'));
+        $document = $element->ownerDocument;
+        if ('' === $id || ! $document instanceof DOMDocument) {
+            return false;
+        }
+
+        $key = spl_object_id($document);
+        if (! isset($this->ariaControlledTargetIds[$key])) {
+            $controlled = array();
+            foreach ($document->getElementsByTagName('*') as $control) {
+                if (! $control instanceof DOMElement || ! $control->hasAttribute('aria-expanded')) {
+                    continue;
+                }
+                foreach (preg_split('/\s+/', trim($control->getAttribute('aria-controls'))) ?: array() as $controlledId) {
+                    if ('' !== $controlledId) {
+                        $controlled[$controlledId] = true;
+                    }
+                }
+            }
+            $this->ariaControlledTargetIds[$key] = $controlled;
+        }
+
+        return isset($this->ariaControlledTargetIds[$key][$id]);
     }
 
     /** @return array<int, array<string, mixed>> */
