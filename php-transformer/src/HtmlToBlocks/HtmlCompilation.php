@@ -1301,63 +1301,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $semanticParityReport,
             $contentRoundTripReport
         );
-        foreach ( $this->transformationEvidence()->responsiveGeometryAmbiguities() as $ambiguity ) {
-            $diagnostics[] = array(
-                'code' => 'responsive_geometry_ambiguous_min_width',
-                'message' => 'A wide minimum-width rule matches both page-shell and authored content surfaces, so it was retained without a responsive projection.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $ambiguity['selector'],
-                'min_width' => $ambiguity['min_width'],
-            );
-        }
-        foreach ( $this->transformationEvidence()->responsiveHeightAmbiguities() as $ambiguity ) {
-            $diagnostics[] = array(
-                'code' => 'responsive_geometry_ambiguous_percentage_height',
-                'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $ambiguity['selector'],
-                'height' => $ambiguity['height'],
-            );
-        }
         $headMetadata = $this->headMetadataReport($html);
-        if ( array() !== $headMetadata ) {
-            $diagnostics[] = array(
-                'code' => 'html_head_metadata_not_carried',
-                'message' => 'Named head metadata (meta description and social property tags) is not representable in block markup; the entries are surfaced in source_reports.head_metadata for the destination document to adopt deliberately.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'info',
-                'entries' => $headMetadata,
-            );
-        }
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
-        foreach ( $authorLayoutTopologyFindings as $finding ) {
-            $diagnostics[] = array(
-                'code' => 'author_layout_topology_changed',
-                'message' => 'Gutenberg block conversion changed the direct-child topology of a CSS-owned layout container.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $finding['selector'],
-                'source_child_count' => $finding['source_child_count'],
-                'block_child_count' => $finding['block_child_count'],
-            );
-        }
-        if ( $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ) {
-            $diagnostics[] = array(
-                'code' => 'semantic_description_list_gutenberg_gap',
-                'message' => 'A semantic description list was materialized with the Blocks Engine companion block because Gutenberg has no core description-list block.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'info',
-                'references' => array(
-                    'https://github.com/WordPress/gutenberg/issues/4880',
-                    'https://github.com/WordPress/gutenberg/pull/20760',
-                ),
-            );
-        }
-
         $this->styleResolver->recordSourceSelectorMatchWork();
-        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
@@ -1366,81 +1312,69 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $generatedCarrierCss = $this->engineSupportCss();
-        $sourceReports = array(
+        $resultComposer = new HtmlResultComposer();
+        $diagnostics = $resultComposer->diagnostics(array(
+            'diagnostics' => $diagnostics,
+            'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
+            'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
+            'head_metadata' => $headMetadata,
+            'author_layout_topology_findings' => $authorLayoutTopologyFindings,
+            'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
+            'source' => HtmlTransformer::class,
+        ));
+        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $compositionInput = array(
+            'source' => HtmlTransformer::class,
+            'blocks' => $blocks,
+            'fallbacks' => $fallbacks,
+            'provenance' => $provenance,
+            'metrics' => $metrics,
+            'diagnostics' => $diagnostics,
+            'supported_blocks' => $supportedBlocks,
             'native_target_blocks' => $nativeTargetBlocks,
-            'available_core_blocks' => $nativeTargetBlocks,
             'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
             'runtime_registered_blocks' => $runtimeRegisteredBlocks,
-            'core_block_capabilities' => $capabilityMatrix,
+            'capability_matrix' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
+            'source_provenance' => $sourceProvenance,
             'runtime_islands' => $this->runtimeDom()->islands(),
             'runtime_dom_contracts' => $this->runtimeDom()->preservations(),
             'runtime_dom_fallbacks' => $this->runtimeDom()->fallbacks(),
             'generated_blocks' => $this->generatedBlocks()->definitions(),
-            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(
-                array(
-                    'id' => 'semantic-description-list',
-                    'block_name' => DescriptionListBlockGenerator::NAME,
-                    'references' => array(
-                        'https://github.com/WordPress/gutenberg/issues/4880',
-                        'https://github.com/WordPress/gutenberg/pull/20760',
-                    ),
-                ),
-            ) : array(),
+            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => DescriptionListBlockGenerator::NAME, 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
             'interaction_candidates' => $interactionCandidates,
             'superseded_selectors' => $this->runtimeSelectors()->supersededSelectors(),
             'shell_artifacts' => $shellArtifacts,
-            'wp_block_validity' => $blockValidityReport,
-            'semantic_parity' => $semanticParityReport,
-            'content_round_trip' => $contentRoundTripReport,
+            'block_validity_report' => $blockValidityReport,
+            'semantic_parity_report' => $semanticParityReport,
+            'content_round_trip_report' => $contentRoundTripReport,
             'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
-            'html' => array(
-                'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
-                'frozen_hidden_state'  => $this->transformationEvidence()->frozenHiddenStateFindings(),
-                'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
-                'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
-                'author_layout_topology' => $authorLayoutTopologyFindings,
-                'source_provenance'    => $sourceProvenance,
-                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
-                'structure_signals'    => $this->transformationProvenance()->structureSignals(),
-                'reusable_components' => $reusableComponentRecognition,
-                'script_metadata'      => $this->runtimeBehavior()->scriptMetadata(),
-                'runtime_islands'      => $this->runtimeDom()->islands(),
-                'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
-            ),
+            'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
+            'frozen_hidden_state' => $this->transformationEvidence()->frozenHiddenStateFindings(),
+            'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
+            'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
+            'author_layout_topology_findings' => $authorLayoutTopologyFindings,
+            'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
+            'structure_signals' => $this->transformationProvenance()->structureSignals(),
+            'reusable_components' => $reusableComponentRecognition,
+            'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
+            'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
+            'author_stylesheet_projections' => $authorStylesheetProjections,
+            'runtime_script_projections' => $runtimeScriptProjections,
+            'responsive_counterpart_contracts' => $responsiveCounterpartContracts,
         );
-        if ( array() !== $authorStylesheetProjections ) {
-            $sourceReports['author_stylesheet_projections'] = $authorStylesheetProjections;
-        }
-        if ( array() !== $runtimeScriptProjections ) {
-            $sourceReports['runtime_script_projections'] = $runtimeScriptProjections;
-        }
-        if ( array() !== $responsiveCounterpartContracts ) {
-            $sourceReports['responsive_counterpart_contracts'] = $responsiveCounterpartContracts;
-        }
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
+        $composition = $resultComposer->compose($compositionInput);
 
         return new TransformerResult(
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $serializedBlocks,
             assets: $this->materializedAssets()->assets(),
-            diagnostics: $diagnostics,
+            diagnostics: $composition['diagnostics'],
             fallbacks: $fallbacks,
             provenance: $provenance,
-            sourceReports: $sourceReports,
-            coverage: array(
-                array(
-                    'supported_blocks'      => $supportedBlocks,
-                    'runtime_available_blocks' => $nativeTargetBlocks,
-                    'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
-                    'runtime_registered_blocks' => $runtimeRegisteredBlocks,
-                    'capability_matrix'     => $capabilityMatrix,
-                    'block_count'           => count($blocks),
-                    'fallback_count'        => count($fallbacks),
-                    'source_provenance_count' => count($sourceProvenance),
-                ),
-            ),
+            sourceReports: $composition['source_reports'],
+            coverage: $composition['coverage'],
             context: $context,
             metrics: $metrics
         );
