@@ -50,8 +50,8 @@ final class VisualIframeBlockGenerator
             return false;
         }
     }
-    function iframeProps( attributes, editor ) {
-        var props = editor ? blockEditor.useBlockProps() : {};
+    function iframeProps( attributes ) {
+        var props = {};
         [ 'src', 'title', 'width', 'height', 'allow', 'loading', 'sandbox', 'referrerPolicy' ].forEach( function( name ) { if ( attributes[ name ] ) { props[ name ] = attributes[ name ]; } } );
         if ( attributes.className ) { props.className = attributes.className; }
         if ( attributes.allowFullScreen ) { props.allowFullScreen = true; }
@@ -81,9 +81,17 @@ final class VisualIframeBlockGenerator
                 createElement( components.ToggleControl, { label: 'Allow fullscreen', checked: !! props.attributes.allowFullScreen, onChange: setAttribute( 'allowFullScreen' ) } )
             )
         ) : null;
-        return createElement( element.Fragment, {}, inspector, createElement( 'iframe', iframeProps( props.attributes, true ) ) );
+        return createElement( element.Fragment, {}, inspector,
+            createElement( 'div', blockEditor.useBlockProps( { style: { position: 'relative' } } ),
+                createElement( 'iframe', iframeProps( props.attributes ) ),
+                ! props.isSelected && createElement( 'div', {
+                    'aria-hidden': true,
+                    style: { position: 'absolute', inset: 0, cursor: 'pointer' }
+                } )
+            )
+        );
     }
-    function save( props ) { return createElement( 'iframe', iframeProps( props.attributes, false ) ); }
+    function save( props ) { return createElement( 'iframe', iframeProps( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
