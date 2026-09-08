@@ -10482,14 +10482,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
                 continue;
             }
-            $metadataIdentity = strtolower(implode(' ', array(
+            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
                 $this->attr($candidate, 'aria-label'),
                 $this->attr($candidate, 'title'),
                 $this->attr($candidate, 'class'),
                 $this->attr($candidate, 'data-hook'),
-            )));
+                $this->attr($candidate, 'data-testid'),
+            ))));
             $text = strtolower(trim($candidate->textContent ?? ''));
-            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav|prev(?:ious)?|next)(?:[^a-z0-9]|$)/', $metadataIdentity)
                 && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
             ) {
                 continue;
@@ -10538,7 +10539,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $slides[] = $slide;
         }
 
-        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
+        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'), $this->attr($element, 'class'))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
         $initialSlide = 0;
@@ -10686,6 +10687,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( '' === $title ) {
             $title = trim($this->attr($item, 'aria-label'));
+        }
+        if ( '' === $title && '' === $description ) {
+            $description = trim($item->textContent ?? '');
         }
 
         $title = '' === $title ? '' : '<strong>' . $this->runtime->escapeHtml($title) . '</strong>';

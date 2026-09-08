@@ -59,6 +59,18 @@ $assert(720 === ($slideshow['attrs']['viewportHeight'] ?? null) && 500 === ($sli
 $assert(1 === ($slideshow['attrs']['initialSlide'] ?? null) && true === ($slideshow['attrs']['showDots'] ?? null) && true === ($slideshow['attrs']['fullBleed'] ?? null), 'active slide, dot navigation, and viewport breakout survive conversion');
 $assert(str_contains($slideshowMarkup, '--slideshow') && 2 === substr_count($slideshowMarkup, 'data-carousel-index=') && str_contains($slideshowMarkup, '--blocks-engine-carousel-height:720px'), 'slideshow markup carries stacked presentation, indexed dots, and source height');
 
+$wixCapture = (new HtmlTransformer())->transform('<div class="wixui-slideshow"><button data-testid="prevButton" aria-label="Zurück"></button><button data-testid="nextButton" aria-label="Weiter"></button><div data-testid="slidesWrapper" role="list"><article role="listitem" data-dla-captured-slide="0"><h2>First testimonial</h2><p>First complete testimonial.</p><img src="first.jpg" alt="First"></article><article role="listitem" data-dla-captured-slide="1"><h2>Second testimonial</h2><p>Second complete testimonial.</p><img src="second.jpg" alt="Second"></article></div></div>')->toArray();
+$wixBlock = $wixCapture['blocks'][0] ?? array();
+$wixMarkup = (string) ($wixCapture['serialized_blocks'] ?? '');
+$assert(
+    'custom/authored-carousel' === ($wixBlock['blockName'] ?? null)
+        && 'slideshow' === ($wixBlock['attrs']['presentation'] ?? null)
+        && 2 === count($wixBlock['innerBlocks'] ?? array())
+        && str_contains($wixMarkup, 'First complete testimonial.')
+        && str_contains($wixMarkup, 'Second complete testimonial.'),
+    'captured slideshow states with test-id controls become an editable authored carousel without losing slide copy'
+);
+
 $boundaryItems = '';
 for ( $index = 1; $index <= 6; $index++ ) {
     $boundaryItems .= '<div data-hook="group-view" aria-hidden="false"><div data-idx="' . ($index - 1) . '" data-hook="item-container"><img src="award-' . $index . '.jpg" alt="Award ' . $index . '"></div></div>';
