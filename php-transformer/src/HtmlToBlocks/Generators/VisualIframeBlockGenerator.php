@@ -50,8 +50,8 @@ final class VisualIframeBlockGenerator
             return false;
         }
     }
-    function iframeProps( attributes, editor ) {
-        var props = editor ? blockEditor.useBlockProps() : {};
+    function iframeProps( attributes ) {
+        var props = {};
         [ 'src', 'title', 'width', 'height', 'allow', 'loading', 'sandbox', 'referrerPolicy' ].forEach( function( name ) { if ( attributes[ name ] ) { props[ name ] = attributes[ name ]; } } );
         if ( attributes.className ) { props.className = attributes.className; }
         if ( attributes.allowFullScreen ) { props.allowFullScreen = true; }
@@ -59,9 +59,18 @@ final class VisualIframeBlockGenerator
     }
     function edit( props ) {
         var useState = element.useState;
+        var useEffect = element.useEffect;
         var state = useState( props.attributes.src || '' );
         var draftSrc = state[ 0 ];
         var setDraftSrc = state[ 1 ];
+        var overlayState = useState( ! props.isSelected );
+        var keepClickOverlay = overlayState[ 0 ];
+        var setKeepClickOverlay = overlayState[ 1 ];
+        useEffect( function() {
+            if ( ! props.isSelected ) {
+                setKeepClickOverlay( true );
+            }
+        }, [ props.isSelected ] );
         var setAttribute = function( name ) { return function( value ) { props.setAttributes( { [ name ]: value } ); }; };
         var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
             createElement( components.PanelBody, { title: 'Embedded content' },
@@ -81,9 +90,18 @@ final class VisualIframeBlockGenerator
                 createElement( components.ToggleControl, { label: 'Allow fullscreen', checked: !! props.attributes.allowFullScreen, onChange: setAttribute( 'allowFullScreen' ) } )
             )
         ) : null;
-        return createElement( element.Fragment, {}, inspector, createElement( 'iframe', iframeProps( props.attributes, true ) ) );
+        return createElement( element.Fragment, {}, inspector,
+                createElement( 'div', blockEditor.useBlockProps( { style: { position: 'relative' } } ),
+                    createElement( 'iframe', iframeProps( props.attributes ) ),
+                    keepClickOverlay && createElement( 'div', {
+                        'aria-hidden': true,
+                        onMouseUp: function() { setKeepClickOverlay( false ); },
+                        style: { position: 'absolute', inset: 0, cursor: 'pointer' }
+                    } )
+            )
+        );
     }
-    function save( props ) { return createElement( 'iframe', iframeProps( props.attributes, false ) ); }
+    function save( props ) { return createElement( 'iframe', iframeProps( props.attributes ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
