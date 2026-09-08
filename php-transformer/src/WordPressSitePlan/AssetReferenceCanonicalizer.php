@@ -112,6 +112,16 @@ final class AssetReferenceCanonicalizer
         return str_contains($content, '<!--') ? self::replaceWhenChanged('~<!--\s*wp:.*?-->~is', $content, static fn(array $match): string => self::json($match[0], $replace)) : $content;
     }
 
+    /** @param array<int,string> $origins */
+    public function cssFromOrigins(string $content, array $origins): string
+    {
+        $origins = array_values(array_unique(array_filter($origins, static fn(mixed $origin): bool => is_string($origin) && '' !== $origin)));
+        return self::css($content, function (string $reference) use ($origins): string {
+            $matches = array_values(array_unique(array_filter(array_map(fn(string $origin): ?string => $this->reference($reference, $origin), $origins))));
+            return 1 === count($matches) ? $matches[0] : $reference;
+        });
+    }
+
     /** @param callable(array<int|string,string>):string $replace */
     private static function replaceWhenChanged(string $pattern, string $content, callable $replace): string
     {

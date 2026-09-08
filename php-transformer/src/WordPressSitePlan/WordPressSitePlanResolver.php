@@ -33,7 +33,7 @@ final class WordPressSitePlanResolver
         // Provider bindings replace page markup, so their anchors must use the
         // same destination projection as the page materialized by consumers.
         $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $plan['pages'], $references);
-        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolvePayload($write['canonical_payload'], self::referencesForWrite($plan['reference_tokens'], $themeUri, $write['target_path'])); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
+        foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
         unset($declaration, $document);
@@ -48,6 +48,12 @@ final class WordPressSitePlanResolver
         $resolved = strtr($content, $references);
         if (str_contains($resolved, WordPressSitePlan::TOKEN_PREFIX)) throw new InvalidArgumentException('WordPress site plan contains unresolved reference tokens.');
         return $resolved;
+    }
+    /** @param array<int,array<string,mixed>> $tokens */
+    public static function resolveWritePayload(string $content, array $tokens, string $themeUri, string $targetPath): string
+    {
+        if ('functions.php' === $targetPath || str_starts_with($targetPath, 'templates/') || str_starts_with($targetPath, 'parts/')) return $content;
+        return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath));
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
     private static function resolveEntityBindings(array $declarations, array $pages, array $references): array
@@ -119,6 +125,9 @@ final class WordPressSitePlanResolver
     /** @param array<int,array<string,mixed>> $tokens @return array<string,string> */
     public static function referencesForWrite(array $tokens, string $themeUri, string $origin): array
     {
+        // Block template files are parsed relative to the rendered page, not this
+        // file. Their canonical tokens are resolved by the generated theme runtime.
+        if (str_starts_with($origin, 'templates/') || str_starts_with($origin, 'parts/')) return array();
         if (!str_ends_with(strtolower($origin), '.css')) return self::references($tokens, $themeUri);
         $references = array();
         foreach ($tokens as $reference) if (is_array($reference) && is_string($reference['token'] ?? null) && is_string($reference['target_path'] ?? null)) $references['{{wordpress-site-plan:asset:' . $reference['token'] . '}}'] = self::relativePath($origin, $reference['target_path']);
