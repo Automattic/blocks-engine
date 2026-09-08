@@ -3635,6 +3635,18 @@ $assert(str_contains($artifactNavStructureMarkup, '"overlayMenu":"never"') && ! 
 $assert(! str_contains($artifactNavStructureCompatCss, '.wp-block-navigation__container { visibility:hidden }'), 'artifact navigation projection leaves script-driven list container visibility to core navigation');
 $assert(str_contains($artifactNavStructureCompatCss, '.menu-ready .desktop-nav.site-menu.wp-block-navigation .wp-block-navigation__container { visibility:visible;opacity:1 }'), 'artifact navigation projection materializes the source list stable visible state for core navigation', $artifactNavStructureCompatCss);
 
+$artifactResponsiveRoot = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html'  => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body class="responsive"><main id="site-root">Content</main></body></html>',
+            'styles.css' => ':root{--site-width:980px}body:not(.responsive) #site-root{width:100%;min-width:var(--site-width)}@media (min-width: 800px){body:not(.responsive) .desktop-root{min-width:980px}}body.responsive #site-root{width:100%}',
+        ),
+    )
+)->toArray();
+$artifactResponsiveRootCss = (string) ($artifactResponsiveRoot['source_reports']['compiled_site']['theme']['static_css'] ?? '');
+$assert(str_contains($artifactResponsiveRootCss, 'wp-compat: WordPress body does not retain the source responsive root class.') && str_contains($artifactResponsiveRootCss, 'body:not(.responsive) #site-root { min-width:0!important }') && str_contains($artifactResponsiveRootCss, '@media (min-width: 800px) {body:not(.responsive) .desktop-root { min-width:0!important }}'), 'artifact CSS clears source responsive-root desktop minimum widths when WordPress owns the body class, including inside supported conditional rules', $artifactResponsiveRootCss);
+
 $artifactMobileNavOverlay = $compiler->compile(
     array(
         'entry' => 'index.html',
