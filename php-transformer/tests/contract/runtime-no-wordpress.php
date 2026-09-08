@@ -10,7 +10,9 @@ $runtime = new Runtime();
 
 assertSame(false, $runtime->hasWordPress(), 'No WordPress runtime should be detected in the standalone PHP test process.');
 assertSame(null, $runtime->runtimeRegisteredCoreBlockNames(), 'Standalone execution should not report bundled snapshot blocks as live registrations.');
-assertSame(null, ConversionReportProjection::fromResultParts('html', array(), array(), array('runtime_registered_blocks' => null), array(), array(), array())['runtime_registered_blocks'] ?? 'missing', 'Reports should retain null when no live registry is loaded.');
+$noRegistryReport = ConversionReportProjection::fromResultParts('html', array(), array(), array('runtime_registered_blocks' => null), array(), array(), array());
+assertSame(true, array_key_exists('runtime_registered_blocks', $noRegistryReport), 'Reports should retain the absent-registry field.');
+assertSame(null, $noRegistryReport['runtime_registered_blocks'], 'Reports should retain null when no live registry is loaded.');
 $availableCoreBlocks = $runtime->availableCoreBlockNames();
 $bundledSnapshotBlocks = $runtime->bundledCoreBlockNames();
 assertSame($bundledSnapshotBlocks, $availableCoreBlocks, 'Standalone availability should derive from bundled snapshot knowledge.');
