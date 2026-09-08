@@ -10482,14 +10482,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
                 continue;
             }
-            $metadataIdentity = strtolower(implode(' ', array(
+            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
                 $this->attr($candidate, 'aria-label'),
                 $this->attr($candidate, 'title'),
                 $this->attr($candidate, 'class'),
                 $this->attr($candidate, 'data-hook'),
-            )));
+                $this->attr($candidate, 'data-testid'),
+            ))));
             $text = strtolower(trim($candidate->textContent ?? ''));
-            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
                 && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
             ) {
                 continue;
@@ -10498,49 +10499,65 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        // Boundary-state carousels commonly omit the unavailable direction.
-        if ( ! $hasPrevious && ! $hasNext ) {
-            return null;
-        }
-
-        $list = null;
-        $items = array();
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $element) ) {
-                continue;
-            }
-            $candidateItems = $this->carouselListItems($candidate);
-            if ( count($candidateItems) >= 2 && $this->carouselItemsHaveImages($candidateItems) ) {
-                $list = $candidate;
-                $items = $candidateItems;
-                break;
+        [$list, $items] = $this->richestCarouselList($element);
+        $localList = $list;
+        if ( count($items) < 2 ) {
+            foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
+                if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
+                    continue;
+                }
+                [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
+                if ( count($candidateItems) > count($items) ) {
+                    $list = $candidateList;
+                    $items = $candidateItems;
+                }
             }
         }
-        if ( ! $list instanceof DOMElement ) {
+        $paginationCount = $this->carouselPaginationCount($element);
+        // Boundary-state carousels commonly omit one direction, while compact
+        // variants can expose only indexed pagination for the same interaction.
+        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
             return null;
         }
 
         $slides = array();
-        foreach ( $items as $item ) {
+        foreach ( $items as $sourceItem ) {
+            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             $image = $item->getElementsByTagName('img')->item(0);
-            if ( ! $image instanceof DOMElement ) {
-                return null;
-            }
-            $slide = $this->convertImageElement($image);
-            if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
-                return null;
-            }
-            $caption = $this->carouselItemCaption($item);
-            if ( '' !== $caption ) {
-                $slide['attrs']['caption'] = $caption;
-                $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+            if ( $image instanceof DOMElement ) {
+                $slide = $this->convertImageElement($image);
+                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $caption = $this->carouselItemCaption($item);
+                if ( '' !== $caption ) {
+                    $slide['attrs']['caption'] = $caption;
+                    $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+                }
+            } else {
+                $slideFallbacks = array();
+                $children = $this->convertChildren($item, $slideFallbacks, true);
+                if ( array() === $children || array() !== $slideFallbacks ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $slide = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $children, $item);
             }
             $slides[] = $slide;
+            if ( $temporary ) {
+                $item->parentNode?->removeChild($item);
+            }
         }
 
         $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
+        $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, $this->attr($element, 'id'), $this->attr($element, 'class'), $this->attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
         $initialSlide = 0;
         foreach ( $items as $index => $item ) {
             if ( '' !== $this->attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== $this->attr($item, 'aria-hidden')) ) {
@@ -10551,7 +10568,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $showDots = false;
+        $showDots = $paginationCount >= 2;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
@@ -10589,8 +10606,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $transitionDuration = 300;
         }
 
-        $listHeight = (string) ($this->styleResolver->cssDeclarations($this->attr($list, 'style'))['height'] ?? '');
-        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($listHeight), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $geometryList = $localList instanceof DOMElement ? $localList : $list;
+        $listHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
+        $rootHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
+        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
         $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
@@ -10627,6 +10647,110 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
+    private function richestCarouselList(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+                continue;
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        return array($list, $items);
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function carouselItemsHaveContent(array $items): bool
+    {
+        foreach ( $items as $item ) {
+            if ( 0 === $item->getElementsByTagName('img')->length
+                && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function carouselPaginationCount(DOMElement $root): int
+    {
+        $count = 0;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
+                $this->attr($candidate, 'aria-label'),
+                $this->attr($candidate, 'class'),
+                $this->attr($candidate, 'data-testid'),
+            ))));
+            $indexed = false;
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                $indexed = $indexed || ctype_digit(trim($this->attr($candidate, $attribute)));
+            }
+            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
+                ++$count;
+            }
+        }
+        return $count;
+    }
+
+    /** @return array{0: DOMElement, 1: bool} */
+    private function carouselItemInRoot(DOMElement $item, DOMElement $root, ?DOMElement $localList): array
+    {
+        for ( $ancestor = $item; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor === $root ) {
+                return array($item, false);
+            }
+        }
+        if ( $localList instanceof DOMElement ) {
+            $itemId = trim($this->attr($item, 'id'));
+            if ( '' !== $itemId ) {
+                foreach ( $this->carouselListItems($localList) as $localItem ) {
+                    if ( $itemId === trim($this->attr($localItem, 'id')) ) {
+                        return array($localItem, false);
+                    }
+                }
+            }
+        }
+
+        $clone = $item->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            return array($item, false);
+        }
+        ($localList ?? $root)->appendChild($clone);
+        return array($clone, true);
+    }
+
+    private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
+            return false;
+        }
+        $leftId = trim($this->attr($left, 'id'));
+        if ( '' !== $leftId && $leftId === trim($this->attr($right, 'id')) ) {
+            return true;
+        }
+
+        $identityClasses = static function (string $classes): array {
+            $matches = array();
+            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
+                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
+                    $matches[] = $class;
+                }
+            }
+            return $matches;
+        };
+        return array() !== array_intersect($identityClasses($this->attr($left, 'class')), $identityClasses($this->attr($right, 'class')));
+    }
+
     /** @return array<int, DOMElement> */
     private function carouselListItems(DOMElement $list): array
     {
@@ -10650,22 +10774,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 && 0 < $child->getElementsByTagName('img')->length
             ) {
                 $items[] = $child;
+                continue;
+            }
+            if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
+                && ! in_array(strtolower($child->tagName), array('a', 'button', 'nav'), true)
+            ) {
+                $items[] = $child;
             }
         }
 
         return $items;
-    }
-
-    /** @param array<int, DOMElement> $items */
-    private function carouselItemsHaveImages(array $items): bool
-    {
-        foreach ( $items as $item ) {
-            if ( 0 === $item->getElementsByTagName('img')->length ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private function carouselItemCaption(DOMElement $item): string
