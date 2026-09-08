@@ -54,6 +54,8 @@ Visual parity runners should exchange `blocks-engine/php-transformer/visual-pari
 
 `context` contains normalized per-call behavior flags. The stable keys are `strict` and `allow_fallbacks`. Callers may pass these keys at the top level of the options array or under `context`.
 
+HTML transformations accept a `reports` option at the top level or under `context`. Its default, `full`, produces the complete evidence surface described above. `reduced` preserves the canonical top-level envelope and guarantees `status`, `blocks`, `serialized_blocks`, `assets`, `fallbacks`, `provenance`, and `metrics`, but `source_reports` contains only its required `conversion_report`; evidence reports and `coverage` are omitted. Use `full` for acceptance evidence and `reduced` when only conversion output is required.
+
 `provenance` entries identify the transformer-owned operation and may include caller-supplied `source` and `scope` strings. These fields are generic metadata for wrappers and product integrations; canonical fixtures should avoid downstream package names.
 
 `metrics` is a generic counters/timing envelope for wrappers and observability. Transformers should populate `input_bytes`, `block_count`, `fallback_count`, `diagnostic_count`, `transform_duration_ms`, and `output_bytes` when the values are available without changing conversion behavior. `block_count` counts parsed block arrays recursively when blocks are produced; artifact-only compilers may report `0` until they materialize parsed block arrays. Product-specific compatibility reports should map from this envelope instead of relying on package-specific events.

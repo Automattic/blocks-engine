@@ -1146,6 +1146,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     public function transform(string $html, array $options = array()): TransformerResult
     {
         $context = TransformationOptions::context($options);
+        $reports = TransformationOptions::reports($options);
         $startedAt = hrtime(true);
         $this->transformationProvenance()->installFallback(TransformationOptions::provenance($options));
         $this->session->installGeneratedBlockRegistry(new GeneratedBlockRegistry($this->generatedBlockNamespaceFromOptions($options)));
@@ -1287,6 +1288,36 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $authorStylesheetProjections
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
+        if ('reduced' === $reports) {
+            $diagnostics = $this->diagnosticsCollector->collect(
+                HtmlTransformer::class,
+                $this->runtimeBehavior()->scriptMetadata(),
+                $fallbacks,
+                $this->runtimeDom()->islands(),
+                $this->runtimeDom()->preservations(),
+                $this->runtimeDom()->fallbacks(),
+                array(),
+                array(),
+                array()
+            );
+            $this->styleResolver->recordSourceSelectorMatchWork();
+            $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+            $composition = (new HtmlResultComposer())->reduced($blocks, $fallbacks, $diagnostics, $provenance, $metrics);
+
+            return new TransformerResult(
+                status: $this->statusForFallbacks($fallbacks, $context),
+                blocks: $blocks,
+                serializedBlocks: $serializedBlocks,
+                assets: $this->materializedAssets()->assets(),
+                diagnostics: $composition['diagnostics'],
+                fallbacks: $fallbacks,
+                provenance: $provenance,
+                sourceReports: $composition['source_reports'],
+                coverage: $composition['coverage'],
+                context: $context,
+                metrics: $metrics
+            );
+        }
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());

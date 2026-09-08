@@ -33,6 +33,23 @@ final class HtmlResultComposer
         );
     }
 
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $diagnostics
+     * @param array<int, array<string, mixed>> $provenance
+     * @param array<string, int|float> $metrics
+     * @return array{diagnostics: array<int, array<string, mixed>>, source_reports: array<string, mixed>, coverage: array<int, array<string, mixed>>}
+     */
+    public function reduced(array $blocks, array $fallbacks, array $diagnostics, array $provenance, array $metrics): array
+    {
+        $sourceReports = array(
+            'conversion_report' => ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, array(), array(), $provenance, $metrics),
+        );
+
+        return array('diagnostics' => $diagnostics, 'source_reports' => $sourceReports, 'coverage' => array());
+    }
+
     /** @param array<string, mixed> $input @return array<int, array<string, mixed>> */
     public function diagnostics(array $input): array
     {
