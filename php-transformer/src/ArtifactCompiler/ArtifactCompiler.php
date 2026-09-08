@@ -2078,35 +2078,11 @@ final class ArtifactCompiler
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
     {
         ++$this->htmlDocumentTransformCount;
-        if ( $this->containsBlockMarkup($html) ) {
+        $preserveBlockMarkup = $this->containsBlockMarkup($html);
+        if ( $preserveBlockMarkup || '' === trim($html) ) {
             return array(
                 'blocks'            => array(),
-                'serialized_blocks' => $html,
-                'diagnostics'       => array(),
-                'fallbacks'         => array(),
-                'assets'            => array(),
-                'runtime_islands'   => array(),
-                'generated_blocks'  => array(),
-                'gutenberg_gaps'    => array(),
-                'interaction_candidates' => array(),
-                'superseded_selectors' => array(),
-                'author_stylesheet_projections' => array(),
-                'runtime_script_projections' => array(),
-                'shell_artifacts' => array(),
-                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
-                'reusable_components' => array(),
-                'runtime_block_paths' => array(),
-                'visual_block_paths' => array(),
-                'editability_report' => null,
-                'responsive_counterpart_contracts' => array(),
-                'layout_geometry_proof' => array(),
-            );
-        }
-
-        if ( '' === trim($html) ) {
-            return array(
-                'blocks'            => array(),
-                'serialized_blocks' => '',
+                'serialized_blocks' => $preserveBlockMarkup ? $html : '',
                 'diagnostics'       => array(),
                 'fallbacks'         => array(),
                 'assets'            => array(),

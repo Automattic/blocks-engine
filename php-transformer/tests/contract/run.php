@@ -66,8 +66,10 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
-$boundaryResult = ( new HtmlTransformer() )->transform('<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>', array(
-    'static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}',
+$boundaryHtml = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
+$boundaryCss = '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}';
+$boundaryResult = ( new HtmlTransformer() )->transform($boundaryHtml, array(
+    'static_css' => $boundaryCss,
 ));
 $boundaryEnvelope = $boundaryResult->toArray();
 $boundaryOutput = $boundaryResult->blockCompilationOutput;
@@ -78,6 +80,19 @@ $assert(
         && $boundaryOutput->runtimeIslands === ($boundaryEnvelope['source_reports']['runtime_islands'] ?? null)
         && $boundaryOutput->editabilityReport === ($boundaryEnvelope['source_reports']['editability_report'] ?? null),
     'HTML compilation retains artifact-required facts separately while source reports remain their compatible projection'
+);
+$boundaryArtifact = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => str_replace('<body>', '<head><link rel="stylesheet" href="site.css"></head><body>', $boundaryHtml),
+        'site.css' => $boundaryCss,
+    ),
+))->toArray();
+$assert(
+    'success' === $boundaryArtifact['status']
+        && count($boundaryArtifact['source_reports']['companion_plugin_payload']['blocks'] ?? array()) > 0
+        && isset($boundaryArtifact['source_reports']['wordpress_site_plan']),
+    'artifact compilation consumes the producer output to retain generated companions and a canonical block site plan'
 );
 $assert(
     array(

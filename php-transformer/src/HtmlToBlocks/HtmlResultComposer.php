@@ -6,7 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 
-/** Composes the HTML transformation evidence envelope from run-scoped values. */
+/** Projects HTML reports from producer-owned compilation output and diagnostic inputs. */
 final class HtmlResultComposer
 {
     /**
@@ -84,9 +84,15 @@ final class HtmlResultComposer
                 'layout_geometry_proof' => $blockCompilationOutput->layoutGeometryProof,
             ),
         );
-        if (array() !== $blockCompilationOutput->authorStylesheetProjections) $sourceReports['author_stylesheet_projections'] = $blockCompilationOutput->authorStylesheetProjections;
-        if (array() !== $blockCompilationOutput->runtimeScriptProjections) $sourceReports['runtime_script_projections'] = $blockCompilationOutput->runtimeScriptProjections;
-        if (array() !== $blockCompilationOutput->responsiveCounterpartContracts) $sourceReports['responsive_counterpart_contracts'] = $blockCompilationOutput->responsiveCounterpartContracts;
+        if (array() !== $blockCompilationOutput->authorStylesheetProjections) {
+            $sourceReports['author_stylesheet_projections'] = $blockCompilationOutput->authorStylesheetProjections;
+        }
+        if (array() !== $blockCompilationOutput->runtimeScriptProjections) {
+            $sourceReports['runtime_script_projections'] = $blockCompilationOutput->runtimeScriptProjections;
+        }
+        if (array() !== $blockCompilationOutput->responsiveCounterpartContracts) {
+            $sourceReports['responsive_counterpart_contracts'] = $blockCompilationOutput->responsiveCounterpartContracts;
+        }
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $input['blocks'], $input['fallbacks'], $sourceReports, array(), $input['provenance'], $input['metrics']);
 
         return $sourceReports;
