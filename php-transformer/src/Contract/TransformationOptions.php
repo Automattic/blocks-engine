@@ -38,15 +38,6 @@ final class TransformationOptions
         return $metadata;
     }
 
-    /** @param array<string, mixed> $options */
-    public static function reports(array $options): string
-    {
-        $context = isset($options['context']) && is_array($options['context']) ? $options['context'] : array();
-        $reports = $options['reports'] ?? $context['reports'] ?? 'full';
-
-        return 'reduced' === $reports ? 'reduced' : 'full';
-    }
-
     /**
      * @param array<string, mixed> $options
      * @param array<string, mixed> $context
