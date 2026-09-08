@@ -49,7 +49,7 @@ final class ConversionReportProjection
             'metrics'               => $metrics,
         );
 
-        return array_filter($report, static fn (mixed $value): bool => '' !== $value && array() !== $value);
+        return array_filter($report, static fn (mixed $value, string $key): bool => 'runtime_registered_blocks' === $key || ('' !== $value && array() !== $value), ARRAY_FILTER_USE_BOTH);
     }
 
     /**

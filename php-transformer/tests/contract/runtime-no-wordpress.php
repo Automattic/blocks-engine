@@ -4,11 +4,13 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 
 $runtime = new Runtime();
 
 assertSame(false, $runtime->hasWordPress(), 'No WordPress runtime should be detected in the standalone PHP test process.');
 assertSame(null, $runtime->runtimeRegisteredCoreBlockNames(), 'Standalone execution should not report bundled snapshot blocks as live registrations.');
+assertSame(null, ConversionReportProjection::fromResultParts('html', array(), array(), array('runtime_registered_blocks' => null), array(), array(), array())['runtime_registered_blocks'] ?? 'missing', 'Reports should retain null when no live registry is loaded.');
 $availableCoreBlocks = $runtime->availableCoreBlockNames();
 $bundledSnapshotBlocks = $runtime->bundledCoreBlockNames();
 assertSame($bundledSnapshotBlocks, $availableCoreBlocks, 'Standalone availability should derive from bundled snapshot knowledge.');

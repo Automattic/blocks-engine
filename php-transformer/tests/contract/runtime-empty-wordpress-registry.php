@@ -19,6 +19,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 
 $runtime = new Runtime();
 if ( array() !== $runtime->availableCoreBlockNames() ) {
@@ -29,6 +30,10 @@ if ( array() !== $runtime->runtimeRegisteredCoreBlockNames() ) {
 }
 if ( array() !== (new CoreBlockCapabilityMatrix($runtime))->coverage($runtime->availableCoreBlockNames(), $runtime->runtimeRegisteredCoreBlockNames())['runtime_registered_blocks'] ) {
     throw new RuntimeException('Reporting must retain an empty live registry rather than treating it as absent.');
+}
+$emptyRegistryReport = ConversionReportProjection::fromResultParts('html', array(), array(), array('runtime_registered_blocks' => array()), array(), array(), array());
+if ( ! array_key_exists('runtime_registered_blocks', $emptyRegistryReport) || array() !== $emptyRegistryReport['runtime_registered_blocks'] ) {
+    throw new RuntimeException('Reports must retain an empty live registry rather than omitting it.');
 }
 if ( 115 !== count($runtime->bundledCoreBlockNames()) ) {
     throw new RuntimeException('An empty live registry must not erase bundled snapshot knowledge.');

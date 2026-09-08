@@ -20,6 +20,7 @@ try {
     unlink($fixture . '/resources/wordpress-latest-core-block-supports.json');
     assertFails(static fn (): array => (new Runtime($fixture . '/resources/'))->bundledCoreBlockNames(), 'wordpress-latest-core-block-supports.json', 'A missing packaged snapshot must fail closed.');
 
+    copy($source . '/wordpress-latest-core-block-supports.json', $fixture . '/resources/wordpress-latest-core-block-supports.json');
     file_put_contents($fixture . '/resources/wordpress-latest-core-block-attributes.json', '{invalid');
     assertFails(static fn () => (new CoreBlockCapabilityMatrix(new Runtime($fixture . '/resources/')))->assertCoversSnapshot(), 'wordpress-latest-core-block-attributes.json', 'A malformed packaged snapshot must fail closed through the capability matrix.');
 } finally {
