@@ -59,9 +59,18 @@ final class VisualIframeBlockGenerator
     }
     function edit( props ) {
         var useState = element.useState;
+        var useEffect = element.useEffect;
         var state = useState( props.attributes.src || '' );
         var draftSrc = state[ 0 ];
         var setDraftSrc = state[ 1 ];
+        var overlayState = useState( ! props.isSelected );
+        var keepClickOverlay = overlayState[ 0 ];
+        var setKeepClickOverlay = overlayState[ 1 ];
+        useEffect( function() {
+            if ( ! props.isSelected ) {
+                setKeepClickOverlay( true );
+            }
+        }, [ props.isSelected ] );
         var setAttribute = function( name ) { return function( value ) { props.setAttributes( { [ name ]: value } ); }; };
         var inspector = props.isSelected ? createElement( blockEditor.InspectorControls, {},
             createElement( components.PanelBody, { title: 'Embedded content' },
@@ -82,12 +91,13 @@ final class VisualIframeBlockGenerator
             )
         ) : null;
         return createElement( element.Fragment, {}, inspector,
-            createElement( 'div', blockEditor.useBlockProps( { style: { position: 'relative' } } ),
-                createElement( 'iframe', iframeProps( props.attributes ) ),
-                ! props.isSelected && createElement( 'div', {
-                    'aria-hidden': true,
-                    style: { position: 'absolute', inset: 0, cursor: 'pointer' }
-                } )
+                createElement( 'div', blockEditor.useBlockProps( { style: { position: 'relative' } } ),
+                    createElement( 'iframe', iframeProps( props.attributes ) ),
+                    keepClickOverlay && createElement( 'div', {
+                        'aria-hidden': true,
+                        onMouseUp: function() { setKeepClickOverlay( false ); },
+                        style: { position: 'absolute', inset: 0, cursor: 'pointer' }
+                    } )
             )
         );
     }
