@@ -66,6 +66,74 @@ $assert = static function (bool $condition, string $message, string $detail = ''
     exit(1);
 };
 
+$boundaryHtml = '<html class="dark"><body><button class="theme-toggle-btn" aria-label="Toggle theme"><svg class="lucide lucide-sun" data-lucide="sun" viewBox="0 0 24 24"><path d="M12 1v2"></path></svg><span class="theme-toggle-label">Light Mode</span></button></body></html>';
+$boundaryCss = '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}';
+$boundaryResult = ( new HtmlTransformer() )->transform($boundaryHtml, array(
+    'static_css' => $boundaryCss,
+));
+$boundaryEnvelope = $boundaryResult->toArray();
+$boundaryOutput = $boundaryResult->blockCompilationOutput;
+$assert(
+    null !== $boundaryOutput
+        && array() !== $boundaryOutput->generatedBlocks
+        && $boundaryOutput->generatedBlocks === ($boundaryEnvelope['source_reports']['generated_blocks'] ?? null)
+        && $boundaryOutput->runtimeIslands === ($boundaryEnvelope['source_reports']['runtime_islands'] ?? null)
+        && $boundaryOutput->editabilityReport === ($boundaryEnvelope['source_reports']['editability_report'] ?? null),
+    'HTML compilation retains artifact-required facts separately while source reports remain their compatible projection'
+);
+$boundaryArtifact = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => str_replace('<body>', '<head><link rel="stylesheet" href="site.css"></head><body>', $boundaryHtml),
+        'site.css' => $boundaryCss,
+    ),
+))->toArray();
+$assert(
+    'success' === $boundaryArtifact['status']
+        && count($boundaryArtifact['source_reports']['companion_plugin_payload']['blocks'] ?? array()) > 0
+        && isset($boundaryArtifact['source_reports']['wordpress_site_plan']),
+    'artifact compilation consumes the producer output to retain generated companions and a canonical block site plan'
+);
+$assert(
+    array(
+        'schema',
+        'status',
+        'components',
+        'block_types',
+        'source_reports',
+        'blocks',
+        'serialized_blocks',
+        'documents',
+        'assets',
+        'diagnostics',
+        'fallbacks',
+        'provenance',
+        'coverage',
+        'context',
+        'metrics',
+    ) === array_keys($boundaryEnvelope),
+    'internal block-compilation output does not change the public result-envelope keys or ordering'
+);
+$emptyHtmlResult = ( new HtmlTransformer() )->transform('');
+$assert(
+    null !== $emptyHtmlResult->blockCompilationOutput
+        && array() === $emptyHtmlResult->blockCompilationOutput->sourceProvenance
+        && array() === $emptyHtmlResult->blockCompilationOutput->runtimeBlockPaths
+        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths,
+    'empty HTML results carry an explicit empty block-compilation output rather than omitting required compiler facts'
+);
+$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
+    array('block_path' => '0', 'editability_runtime_owned' => true),
+    array('block_path' => '', 'editability_visual_owned' => true),
+    array('block_path' => 1, 'editability_runtime_owned' => true),
+    array('block_path' => '0.1', 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
+));
+$assert(
+    array('0', '0.1') === $ownershipOutput->runtimeBlockPaths
+        && array('', '0.1') === $ownershipOutput->visualBlockPaths,
+    'compiler ownership paths retain the original string-only mapping including root and empty paths'
+);
+
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
 $assert(
     array(

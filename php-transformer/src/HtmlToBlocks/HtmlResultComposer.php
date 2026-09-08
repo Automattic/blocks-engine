@@ -4,17 +4,18 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 
-/** Composes the HTML transformation evidence envelope from run-scoped values. */
+/** Projects HTML reports from producer-owned compilation output and diagnostic inputs. */
 final class HtmlResultComposer
 {
     /**
      * @param array<string, mixed> $input
      * @return array{diagnostics: array<int, array<string, mixed>>, source_reports: array<string, mixed>, coverage: array<int, array<string, mixed>>}
      */
-    public function compose(array $input): array
+    public function compose(array $input, BlockCompilationOutput $blockCompilationOutput): array
     {
-        $sourceReports = $this->sourceReports($input);
+        $sourceReports = $this->sourceReports($input, $blockCompilationOutput);
 
         return array(
             'diagnostics' => $input['diagnostics'],
@@ -28,7 +29,7 @@ final class HtmlResultComposer
                     'capability_matrix' => $input['capability_matrix'],
                     'block_count' => count($input['blocks']),
                     'fallback_count' => count($input['fallbacks']),
-                    'source_provenance_count' => count($input['source_provenance']),
+                    'source_provenance_count' => count($blockCompilationOutput->sourceProvenance),
                 ),
             ),
         );
@@ -47,7 +48,7 @@ final class HtmlResultComposer
     }
 
     /** @param array<string, mixed> $input @return array<string, mixed> */
-    private function sourceReports(array $input): array
+    private function sourceReports(array $input, BlockCompilationOutput $blockCompilationOutput): array
     {
         $sourceReports = array(
             'native_target_blocks' => $input['native_target_blocks'],
@@ -56,37 +57,41 @@ final class HtmlResultComposer
             'runtime_registered_blocks' => $input['runtime_registered_blocks'],
             'core_block_capabilities' => $input['capability_matrix'],
             'head_metadata' => $input['head_metadata'],
-            'runtime_islands' => $input['runtime_islands'],
+            'runtime_islands' => $blockCompilationOutput->runtimeIslands,
             'runtime_dom_contracts' => $input['runtime_dom_contracts'],
             'runtime_dom_fallbacks' => $input['runtime_dom_fallbacks'],
-            'generated_blocks' => $input['generated_blocks'],
-            'gutenberg_gaps' => $input['gutenberg_gaps'],
-            'interaction_candidates' => $input['interaction_candidates'],
-            'superseded_selectors' => $input['superseded_selectors'],
-            'shell_artifacts' => $input['shell_artifacts'],
+            'generated_blocks' => $blockCompilationOutput->generatedBlocks,
+            'gutenberg_gaps' => $blockCompilationOutput->gutenbergGaps,
+            'interaction_candidates' => $blockCompilationOutput->interactionCandidates,
+            'superseded_selectors' => $blockCompilationOutput->supersededSelectors,
+            'shell_artifacts' => $blockCompilationOutput->shellArtifacts,
             'wp_block_validity' => $input['block_validity_report'],
             'semantic_parity' => $input['semantic_parity_report'],
             'content_round_trip' => $input['content_round_trip_report'],
-            'editability_report' => $input['editability_report'],
+            'editability_report' => $blockCompilationOutput->editabilityReport,
             'html' => array(
                 'presentation_signals' => $input['presentation_signals'],
                 'frozen_hidden_state' => $input['frozen_hidden_state'],
                 'dropped_link_wrappers' => $input['dropped_link_wrappers'],
                 'gutenberg_incompatibilities' => $input['gutenberg_incompatibilities'],
                 'author_layout_topology' => $input['author_layout_topology_findings'],
-                'source_provenance' => $input['source_provenance'],
-                'core_html_fallback_evidence' => $input['core_html_fallback_evidence'],
+                'source_provenance' => $blockCompilationOutput->sourceProvenance,
+                'core_html_fallback_evidence' => $blockCompilationOutput->coreHtmlFallbackEvidence,
                 'structure_signals' => $input['structure_signals'],
-                'reusable_components' => $input['reusable_components'],
+                'reusable_components' => $blockCompilationOutput->reusableComponents,
                 'script_metadata' => $input['script_metadata'],
-                'runtime_islands' => $input['runtime_islands'],
-                'layout_geometry_proof' => $input['layout_geometry_proof'],
+                'runtime_islands' => $blockCompilationOutput->runtimeIslands,
+                'layout_geometry_proof' => $blockCompilationOutput->layoutGeometryProof,
             ),
         );
-        foreach (array('author_stylesheet_projections', 'runtime_script_projections', 'responsive_counterpart_contracts') as $key) {
-            if (array() !== $input[$key]) {
-                $sourceReports[$key] = $input[$key];
-            }
+        if (array() !== $blockCompilationOutput->authorStylesheetProjections) {
+            $sourceReports['author_stylesheet_projections'] = $blockCompilationOutput->authorStylesheetProjections;
+        }
+        if (array() !== $blockCompilationOutput->runtimeScriptProjections) {
+            $sourceReports['runtime_script_projections'] = $blockCompilationOutput->runtimeScriptProjections;
+        }
+        if (array() !== $blockCompilationOutput->responsiveCounterpartContracts) {
+            $sourceReports['responsive_counterpart_contracts'] = $blockCompilationOutput->responsiveCounterpartContracts;
         }
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $input['blocks'], $input['fallbacks'], $sourceReports, array(), $input['provenance'], $input['metrics']);
 
