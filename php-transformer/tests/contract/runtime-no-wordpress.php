@@ -8,10 +8,15 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 $runtime = new Runtime();
 
 assertSame(false, $runtime->hasWordPress(), 'No WordPress runtime should be detected in the standalone PHP test process.');
+assertSame(null, $runtime->runtimeRegisteredCoreBlockNames(), 'Standalone execution should not report bundled snapshot blocks as live registrations.');
 $availableCoreBlocks = $runtime->availableCoreBlockNames();
+$bundledSnapshotBlocks = $runtime->bundledCoreBlockNames();
+assertSame($bundledSnapshotBlocks, $availableCoreBlocks, 'Standalone availability should derive from bundled snapshot knowledge.');
+assertSame(115, count($bundledSnapshotBlocks), 'Bundled snapshot knowledge should include every metadata snapshot block.');
 assertSame(true, in_array('core/accordion', $availableCoreBlocks, true), 'Fallback native target metadata should include core/accordion.');
 assertSame(true, in_array('core/icon', $availableCoreBlocks, true), 'Fallback native target metadata should include core/icon.');
 assertSame(true, in_array('core/math', $availableCoreBlocks, true), 'Fallback native target metadata should include core/math.');
+assertSame(true, in_array('core/verse', $bundledSnapshotBlocks, true), 'Bundled snapshot knowledge should retain known blocks that are not transformer output.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Standalone support resolution should load Group width support from the generated WordPress declaration snapshot.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'style'), 'Standalone support resolution should load Group style support from the generated WordPress declaration snapshot.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'color'), 'Standalone support resolution should load Group color support from the generated WordPress declaration snapshot.');

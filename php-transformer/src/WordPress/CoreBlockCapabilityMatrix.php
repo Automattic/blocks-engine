@@ -69,12 +69,18 @@ final class CoreBlockCapabilityMatrix
         }
     }
 
-    /** @param array<int,string> $available @return array<string,mixed> */
-    public function coverage(array $available): array
+    /**
+     * @param array<int,string> $available
+     * @param array<int,string>|null $runtimeRegistered
+     * @return array<string,mixed>
+     */
+    public function coverage(array $available, ?array $runtimeRegistered = null): array
     {
         $matrix = $this->blocks();
         $available = array_values(array_unique($available));
         sort($available, SORT_STRING);
+        $runtimeRegistered = array_values(array_unique($runtimeRegistered ?? array()));
+        sort($runtimeRegistered, SORT_STRING);
         $unclassified = array_values(array_diff($available, array_keys($matrix)));
         $summary = array();
         foreach ($matrix as $entry) {
@@ -82,7 +88,7 @@ final class CoreBlockCapabilityMatrix
             $summary[$key] = ($summary[$key] ?? 0) + 1;
         }
         ksort($summary, SORT_STRING);
-        return array('schema' => self::SCHEMA, 'snapshot_block_count' => count($matrix), 'runtime_available_blocks' => $available, 'unclassified_runtime_blocks' => $unclassified, 'supported_blocks' => $this->supportedBlocks($matrix), 'summary' => $summary, 'blocks' => $matrix);
+        return array('schema' => self::SCHEMA, 'snapshot_block_count' => count($matrix), 'bundled_snapshot_blocks' => $this->snapshotBlockNames(), 'runtime_registered_blocks' => $runtimeRegistered, 'runtime_available_blocks' => $available, 'unclassified_runtime_blocks' => $unclassified, 'supported_blocks' => $this->supportedBlocks($matrix), 'summary' => $summary, 'blocks' => $matrix);
     }
 
     /** @param array<string,array<string,mixed>> $matrix @return array<int,string> */
@@ -94,12 +100,7 @@ final class CoreBlockCapabilityMatrix
     /** @return array<int,string> */
     private function snapshotBlockNames(): array
     {
-        $path = dirname(__DIR__, 2) . '/resources/wordpress-latest-core-block-attributes.json';
-        $snapshot = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
-        if (!is_array($snapshot['blocks'] ?? null)) throw new RuntimeException('Bundled core block metadata snapshot is unavailable.');
-        $blocks = array_keys($snapshot['blocks']);
-        sort($blocks, SORT_STRING);
-        return $blocks;
+        return (new Runtime())->bundledCoreBlockNames();
     }
 
     /** @return array<string,mixed> */

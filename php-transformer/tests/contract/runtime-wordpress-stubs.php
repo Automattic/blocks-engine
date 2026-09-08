@@ -98,6 +98,7 @@ if ( ! class_exists('WP_Block_Type_Registry') ) {
         {
             return array(
                 'core/icon' => (object) array('name' => 'core/icon'),
+                'core/future-block' => (object) array('name' => 'core/future-block'),
                 'plugin/card' => (object) array(
                     'name' => 'plugin/card',
                     'attributes' => array(
@@ -188,8 +189,11 @@ assertSame(array('stub' => 'ids="1,2"'), $runtime->parseShortcodeAttributes('ids
 assertSame('{"stub":{"path":"/demo"}}', $runtime->encodeJson(array('path' => '/demo')), 'Runtime should delegate JSON encoding to wp_json_encode().');
 assertSame('stub html <tag>', $runtime->escapeHtml('<tag>'), 'Runtime should delegate HTML escaping to esc_html().');
 assertSame('stub attr "value"', $runtime->escapeAttribute('"value"'), 'Runtime should delegate attribute escaping to esc_attr().');
-assertSame(array('core/accordion', 'core/group', 'core/heading', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose registered core block names as native targets.');
-(new CoreBlockCapabilityMatrix())->assertClassifiesAvailableBlocks($runtime->availableCoreBlockNames());
+assertSame(array('core/accordion', 'core/future-block', 'core/group', 'core/heading', 'core/icon', 'core/math', 'core/quote'), $runtime->availableCoreBlockNames(), 'Runtime should expose the live registered core block subset as native targets.');
+assertSame($runtime->availableCoreBlockNames(), $runtime->runtimeRegisteredCoreBlockNames(), 'Live registry names should be reported without standalone fallback semantics.');
+$liveCoverage = (new CoreBlockCapabilityMatrix())->coverage($runtime->availableCoreBlockNames(), $runtime->runtimeRegisteredCoreBlockNames());
+assertSame(array('core/future-block'), $liveCoverage['unclassified_runtime_blocks'], 'Live-only registrations should remain visible as unclassified runtime availability.');
+assertSame(false, in_array('core/future-block', $liveCoverage['supported_blocks'], true), 'Live-only registrations must not be promoted to transformer-supported output.');
 assertSame(true, $runtime->blockSupportsBorder('core/group', 'width'), 'Runtime should resolve border width from the registered Group declaration.');
 assertSame(false, $runtime->blockSupportsBorder('core/group', 'style'), 'Registered Group metadata should override the standalone snapshot component by component.');
 assertSame(false, $runtime->blockSupportsBorder('core/quote', 'width'), 'A registered Quote declaration without border support should fail closed.');
