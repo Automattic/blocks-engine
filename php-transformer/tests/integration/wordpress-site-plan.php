@@ -291,6 +291,7 @@ $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
 $indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
+$singleTemplate = file_get_contents($themeDir . '/templates/single.html'); if (false === $singleTemplate) throw new RuntimeException('Could not read single template.');
 $queryPostIds = array();
 foreach (array('Query Loop First', 'Query Loop Second') as $title) {
     $queryPostId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => $title, 'post_content' => '<!-- wp:paragraph --><p>' . $title . ' excerpt.</p><!-- /wp:paragraph -->'), true);
@@ -307,6 +308,8 @@ $indexRendered = do_blocks($indexTemplate);
 wp_reset_postdata();
 $wp_query = $previousQuery;
 $assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
+$post = $essay; $setRequest($post, false); $singleRendered = do_blocks($singleTemplate); wp_reset_postdata();
+$assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($singleRendered, 'Essay'), 'WordPress renders each imported post through a standard singular template with its post content.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

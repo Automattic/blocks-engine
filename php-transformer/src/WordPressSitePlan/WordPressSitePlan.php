@@ -656,11 +656,11 @@ final class WordPressSitePlan
             }
             $first = $cluster['candidate'];
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
-            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page') : array('index');
+            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page', 'single') : array('index');
             if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
                 $selected = in_array($index, $cluster['indexes'], true);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
-                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'index'; } elseif ($selected) $templateSlugs[] = 'page';
+                if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'single'; } elseif ($selected) $templateSlugs[] = 'page';
                 if (!$selected) {
                     $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
                     if (isset($overrides[$slug])) {
@@ -1297,6 +1297,7 @@ final class WordPressSitePlan
         $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
         $templates = array($make('index', 'templates/index.html', $markup('index')));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
+        foreach ( $pages as $page ) if ( 'post' === ($page['post_type'] ?? null) ) { $templates[] = $make('single', 'templates/single.html', $markup('single')); break; }
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
