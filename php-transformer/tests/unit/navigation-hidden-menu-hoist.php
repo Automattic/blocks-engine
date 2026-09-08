@@ -21,9 +21,14 @@ $countBlocks = static function (array $blocks, string $name) use (&$countBlocks)
 };
 
 $projected = ( new HtmlTransformer() )->transform(
-    '<header><a href="/" class="brand">Northwind</a><button aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Site" style="display:none"><a href="/">Home</a><a href="/work">Work</a></nav></header>'
+    '<style>.menu-toggle{width:42px;height:48px;padding:3px 0}</style>'
+    . '<header><a href="/" class="brand">Northwind</a><button class="menu-toggle" aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Site" class="source-menu" style="display:none;font:normal 400 max(.5px,.0125 * (100cqw - 0px))/1.2 sans-serif"><a href="/">Home</a><a href="/work">Work</a></nav></header>'
 )->toArray();
 $projectedMarkup = (string) ($projected['serialized_blocks'] ?? '');
+$projectedCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($projected['assets'] ?? null) ? $projected['assets'] : array()
+));
 
 $ambiguous = ( new HtmlTransformer() )->transform(
     '<header><button aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Main" style="display:none"><a href="/">Home</a><a href="/work">Work</a></nav><nav aria-label="Utility" style="display:none"><a href="/help">Help</a><a href="/contact">Contact</a></nav></header>'
@@ -33,6 +38,9 @@ $ambiguousMarkup = (string) ($ambiguous['serialized_blocks'] ?? '');
 $assertions = array(
     array(1 === $countBlocks($projected['blocks'] ?? array(), 'core/navigation'), 'a unique hidden navigation is emitted once at its visible menu control'),
     array(str_contains($projectedMarkup, '"overlayMenu":"mobile"'), 'a projected hidden navigation uses Core responsive overlay behavior'),
+    array(1 === preg_match('/blocks-engine-native-navigation-toggle-[a-f0-9]{12}/', $projectedMarkup), 'a projected hidden navigation retains its native toggle geometry marker'),
+    array(str_contains($projectedCss, 'width:42px!important;height:48px!important'), 'the visible source control box projects onto Core\'s responsive open button'),
+    array(str_contains($projectedCss, '100vw'), 'container-relative inherited navigation typography is rebound after promotion'),
     array(! str_contains($projectedMarkup, '<!-- wp:button'), 'the superseded source menu control is not emitted as a dead button'),
     array(str_contains($projectedMarkup, 'Northwind') && str_contains($projectedMarkup, '"label":"Home"') && str_contains($projectedMarkup, '"label":"Work"'), 'projection preserves surrounding shell content and editable navigation destinations'),
     array(2 === $countBlocks($ambiguous['blocks'] ?? array(), 'core/navigation'), 'ambiguous hidden navigation candidates remain unprojected'),
