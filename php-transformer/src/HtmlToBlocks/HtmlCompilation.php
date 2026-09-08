@@ -2835,7 +2835,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
             $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
             if ( '' !== $value ) {
-                $declarations[] = $property . ':' . $value;
+                $declarations[] = $property . ':' . $this->navigationProjectionValue($value);
             }
         }
         if ( array() === $declarations ) {
@@ -2847,6 +2847,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $selector,
             $selector . '{' . implode(';', $declarations) . '}'
         );
+    }
+
+    /**
+     * A promoted navigation is no longer inside the source component's query
+     * container. Bind inherited container-width units to the viewport, the
+     * responsive reference shared by the source page and its native replacement.
+     */
+    private function navigationProjectionValue(string $value): string
+    {
+        return preg_replace('/(?<![a-z-])cqw\b/i', 'vw', $value) ?? $value;
     }
 
     /**
@@ -3009,7 +3019,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 }
                 $block['attrs']['className'] = $this->mergeClassNames(
                     $nativeClassNames,
+                    // The promoted block replaces the hidden menu and its visible
+                    // control, so both class sets and the generated toggle marker
+                    // are needed for item presentation and control geometry.
+                    (string) ($block['attrs']['className'] ?? ''),
                     (string) ($controlAttrs['className'] ?? ''),
+                    $this->responsiveNavigationToggleMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
                 $block['attrs']['overlayMenu'] = 'mobile';
