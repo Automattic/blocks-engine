@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
-/** Enforces bounded, source-agnostic editability limits on a measured report. */
+/** Enforces substantive, source-agnostic editability limits on a measured report. */
 final class EditabilityPolicy
 {
     public const SCHEMA = 'blocks-engine/php-transformer/editability-policy/v1';
@@ -29,16 +29,14 @@ final class EditabilityPolicy
                 if (!is_array($document)) continue;
                 $failures = array_merge($failures, $this->failures(
                     is_array($document['metrics'] ?? null) ? $document['metrics'] : array(),
-                    is_string($document['source_path'] ?? null) ? $document['source_path'] : '',
-                    is_array($document['deepest_block'] ?? null) ? $document['deepest_block'] : array()
+                    is_string($document['source_path'] ?? null) ? $document['source_path'] : ''
                 ));
             }
         } else {
             $scope = is_array($report['scope'] ?? null) ? $report['scope'] : array();
             $failures = $this->failures(
                 is_array($report['metrics'] ?? null) ? $report['metrics'] : array(),
-                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : '',
-                is_array($report['deepest_block'] ?? null) ? $report['deepest_block'] : array()
+                is_string($scope['source_path'] ?? null) ? $scope['source_path'] : ''
             );
         }
 
@@ -59,10 +57,13 @@ final class EditabilityPolicy
     }
 
     /** @param array<string,mixed> $metrics @return array<int,array<string,mixed>> */
-    private function failures(array $metrics, string $sourcePath, array $deepestBlock = array()): array
+    private function failures(array $metrics, string $sourcePath): array
     {
         $failures = array();
         foreach (self::THRESHOLDS as $metric => $maximum) {
+            // Depth remains measured with its threshold and provenance, but it is
+            // diagnostic evidence rather than a rejecting editability condition.
+            if ('max_nesting_depth' === $metric) continue;
             $actual = $metrics[$metric] ?? 0;
             if ($actual <= $maximum) continue;
             $failure = array(
@@ -72,7 +73,6 @@ final class EditabilityPolicy
                 'message' => sprintf('%s is %s; meaningful editability allows at most %s.', $metric, $actual, $maximum),
             );
             if ('' !== $sourcePath) $failure['source_path'] = $sourcePath;
-            if ('max_nesting_depth' === $metric && array() !== $deepestBlock) $failure['deepest_block'] = $deepestBlock;
             $failures[] = $failure;
         }
         return $failures;
