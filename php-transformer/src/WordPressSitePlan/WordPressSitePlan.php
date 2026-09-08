@@ -292,7 +292,7 @@ final class WordPressSitePlan
         $writesByTarget = array();
         foreach ( $plan['writes'] as $write ) {
             $mimeType = is_array($write) ? ($assetMimeTypes[$write['target_path'] ?? ''] ?? null) : null;
-            self::assertWrite($write, $tokens, null === $mimeType || in_array($mimeType, array('text/css', 'text/html', 'image/svg+xml'), true));
+            self::assertWrite($write, $tokens, !isset($plan['resolution']) && (null === $mimeType || in_array($mimeType, array('text/css', 'text/html', 'image/svg+xml'), true)));
             self::unique($writeTargets, $write['target_path'], 'write target');
             $writesByTarget[$write['target_path']] = $write;
         }
@@ -1921,7 +1921,7 @@ final class WordPressSitePlan
         $resolution = $plan['resolution'];
         if (!is_array($resolution) || array_keys($resolution) !== array('schema', 'theme_uri', 'runtime_capabilities', 'asset_publication_references', 'unsupported_optional_capabilities') || WordPressSitePlanResolver::RESOLUTION_SCHEMA !== ($resolution['schema'] ?? null) || !is_string($resolution['theme_uri'] ?? null) || !is_array($resolution['runtime_capabilities'] ?? null) || !is_array($resolution['asset_publication_references'] ?? null) || !is_array($resolution['unsupported_optional_capabilities'] ?? null) || WordPressSitePlanResolver::normalizeThemeUri($resolution['theme_uri']) !== $resolution['theme_uri']) throw new InvalidArgumentException('WordPress site plan resolution is malformed or fabricated.');
         $references = WordPressSitePlanResolver::references($plan['reference_tokens'], $resolution['theme_uri']);
-        $expectedPublicationReferences = WordPressSitePlanResolver::publicationReferences($plan['runtime_declarations'], $references);
+        $expectedPublicationReferences = WordPressSitePlanResolver::publicationReferences($plan['runtime_declarations'], $plan['reference_tokens'], $plan['writes']);
         try { $capabilities = WordPressSitePlanResolver::normalizeRuntimeCapabilities($resolution['runtime_capabilities']); $unsupported = WordPressSitePlanResolver::unsupportedOptionalCapabilities($plan['runtime_declarations'], $capabilities); } catch (InvalidArgumentException) { throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.'); }
         if ($resolution['runtime_capabilities'] !== $capabilities || $resolution['asset_publication_references'] !== $expectedPublicationReferences || $resolution['unsupported_optional_capabilities'] !== $unsupported) throw new InvalidArgumentException('WordPress site plan publication resolution is malformed or stale.');
         foreach (array('pages', 'template_parts', 'templates') as $kind) foreach ($plan[$kind] as $document) {
@@ -1929,7 +1929,8 @@ final class WordPressSitePlan
         }
         foreach ($writes as $write) {
             if ('utf8' !== ($write['payload']['encoding'] ?? null)) { if (isset($write['canonical_payload'], $write['canonical_payload_hash'])) throw new InvalidArgumentException('WordPress site plan binary write cannot carry a resolution projection.'); continue; }
-            if (!is_string($write['canonical_payload'] ?? null) || !self::hash($write['canonical_payload_hash'] ?? null) || $write['canonical_payload_hash'] !== self::contentHash($write['canonical_payload']) || WordPressSitePlanResolver::resolvePayload($write['canonical_payload'], $references) !== $write['payload']['data']) throw new InvalidArgumentException('WordPress site plan resolved write payload is not canonical.');
+            if (!is_string($write['canonical_payload'] ?? null) || !self::hash($write['canonical_payload_hash'] ?? null) || $write['canonical_payload_hash'] !== self::contentHash($write['canonical_payload']) || WordPressSitePlanResolver::resolvePayload($write['canonical_payload'], WordPressSitePlanResolver::writeReferences($plan['reference_tokens'], $write['target_path'])) !== $write['payload']['data']) throw new InvalidArgumentException('WordPress site plan resolved write payload is not canonical.');
+            self::assertNoLocalBrowserReferences(str_ends_with(strtolower($write['target_path']), '.css') ? '<style>' . $write['canonical_payload'] . '</style>' : $write['canonical_payload'], $write['source_path'], 'write');
         }
         self::assertResolvedMetadata($plan, $references);
     }
