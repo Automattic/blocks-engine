@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
@@ -78,7 +79,7 @@ try {
         assert.equal(revealed.visibility, 'visible');
         assert.ok(revealed.height > 0, `${selector} is statically revealed by emitted repair CSS`);
     }
-    await page.screenshot({ path: '/var/folders/lr/c_cmmt7s0592m4njz99v5yb40000gn/T/opencode/issue-1493-reduced-public-fixture-1280x900.png', fullPage: true });
+    await page.screenshot({ path: path.join(tmpdir(), 'blocks-engine-issue-1493-reduced-public-fixture-1280x900.png'), fullPage: true });
 } finally {
     await browser.close();
 }
