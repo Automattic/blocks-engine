@@ -1312,13 +1312,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
-        $runtimeBlockPaths = array();
-        $visualBlockPaths = array();
-        foreach ($sourceProvenance as $entry) {
-            if (!is_array($entry) || !is_string($entry['block_path'] ?? null)) continue;
-            if (!empty($entry['editability_runtime_owned'])) $runtimeBlockPaths[] = $entry['block_path'];
-            if (!empty($entry['editability_visual_owned'])) $visualBlockPaths[] = $entry['block_path'];
-        }
+        $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $generatedCarrierCss = $this->engineSupportCss();
         $resultComposer = new HtmlResultComposer();
         $diagnostics = $resultComposer->diagnostics(array(
@@ -1332,8 +1327,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ));
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $blockCompilationOutput = new BlockCompilationOutput(
-            runtimeBlockPaths: $runtimeBlockPaths,
-            visualBlockPaths: $visualBlockPaths,
             sourceProvenance: $sourceProvenance,
             editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
             responsiveCounterpartContracts: $responsiveCounterpartContracts,
@@ -1362,7 +1355,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'runtime_registered_blocks' => $runtimeRegisteredBlocks,
             'capability_matrix' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
-            'source_provenance' => $sourceProvenance,
             'runtime_dom_contracts' => $this->runtimeDom()->preservations(),
             'runtime_dom_fallbacks' => $this->runtimeDom()->fallbacks(),
             'block_validity_report' => $blockValidityReport,

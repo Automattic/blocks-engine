@@ -29,7 +29,7 @@ final class HtmlResultComposer
                     'capability_matrix' => $input['capability_matrix'],
                     'block_count' => count($input['blocks']),
                     'fallback_count' => count($input['fallbacks']),
-                    'source_provenance_count' => count($input['source_provenance']),
+                    'source_provenance_count' => count($blockCompilationOutput->sourceProvenance),
                 ),
             ),
         );
@@ -75,7 +75,7 @@ final class HtmlResultComposer
                 'dropped_link_wrappers' => $input['dropped_link_wrappers'],
                 'gutenberg_incompatibilities' => $input['gutenberg_incompatibilities'],
                 'author_layout_topology' => $input['author_layout_topology_findings'],
-                'source_provenance' => $input['source_provenance'],
+                'source_provenance' => $blockCompilationOutput->sourceProvenance,
                 'core_html_fallback_evidence' => $blockCompilationOutput->coreHtmlFallbackEvidence,
                 'structure_signals' => $input['structure_signals'],
                 'reusable_components' => $blockCompilationOutput->reusableComponents,

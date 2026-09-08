@@ -6,14 +6,18 @@ namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 /**
  * In-memory facts required when an HTML result is assembled into an artifact.
  *
- * This is deliberately not serialized: source_reports remains the compatible
- * diagnostic projection for existing result-envelope consumers.
+ * Omitted from the canonical result envelope: source_reports remains the
+ * compatible projection for existing serialized-result consumers.
  */
 final class BlockCompilationOutput
 {
+    /** @var array<int, string> */
+    public readonly array $runtimeBlockPaths;
+
+    /** @var array<int, string> */
+    public readonly array $visualBlockPaths;
+
     /**
-     * @param array<int, string> $runtimeBlockPaths
-     * @param array<int, string> $visualBlockPaths
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @param array<string, mixed>|null $editabilityReport
      * @param array<string, mixed> $responsiveCounterpartContracts
@@ -30,8 +34,6 @@ final class BlockCompilationOutput
      * @param array<string, mixed> $coreHtmlFallbackEvidence
      */
     public function __construct(
-        public readonly array $runtimeBlockPaths = array(),
-        public readonly array $visualBlockPaths = array(),
         public readonly array $sourceProvenance = array(),
         public readonly ?array $editabilityReport = null,
         public readonly array $responsiveCounterpartContracts = array(),
@@ -47,10 +49,19 @@ final class BlockCompilationOutput
         public readonly array $shellArtifacts = array(),
         public readonly array $coreHtmlFallbackEvidence = array()
     ) {
+        $runtimePaths = array();
+        $visualPaths = array();
+        foreach ($sourceProvenance as $entry) {
+            if (!is_array($entry) || !is_string($entry['block_path'] ?? null)) continue;
+            if (!empty($entry['editability_runtime_owned'])) $runtimePaths[] = $entry['block_path'];
+            if (!empty($entry['editability_visual_owned'])) $visualPaths[] = $entry['block_path'];
+        }
+        $this->runtimeBlockPaths = $runtimePaths;
+        $this->visualBlockPaths = $visualPaths;
     }
 
     public static function empty(): self
     {
-        return new self();
+        return new self(coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()));
     }
 }

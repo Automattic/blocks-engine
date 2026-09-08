@@ -107,6 +107,17 @@ $assert(
         && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths,
     'empty HTML results carry an explicit empty block-compilation output rather than omitting required compiler facts'
 );
+$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
+    array('block_path' => '0', 'editability_runtime_owned' => true),
+    array('block_path' => '', 'editability_visual_owned' => true),
+    array('block_path' => 1, 'editability_runtime_owned' => true),
+    array('block_path' => '0.1', 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
+));
+$assert(
+    array('0', '0.1') === $ownershipOutput->runtimeBlockPaths
+        && array('', '0.1') === $ownershipOutput->visualBlockPaths,
+    'compiler ownership paths retain the original string-only mapping including root and empty paths'
+);
 
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
 $assert(

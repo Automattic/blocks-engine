@@ -24,7 +24,7 @@ final class TransformerResult
      * @param array<int, array<string, mixed>> $coverage
      * @param array<string, mixed> $context
      * @param array<string, int|float> $metrics
-     * @param BlockCompilationOutput|null $blockCompilationOutput Internal artifact-compilation facts; never serialized.
+     * @param BlockCompilationOutput|null $blockCompilationOutput Internal compilation facts, omitted from toArray().
      */
     public function __construct(
         public readonly string $status = 'success',
