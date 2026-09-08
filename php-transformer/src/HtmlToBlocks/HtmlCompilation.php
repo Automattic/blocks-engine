@@ -1361,7 +1361,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
         $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
-        $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
+        $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
@@ -1370,7 +1370,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
             'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
-            'runtime_registered_blocks' => $runtimeRegisteredBlocks ?? array(),
+            'runtime_registered_blocks' => $runtimeRegisteredBlocks,
             'core_block_capabilities' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeDom()->islands(),
@@ -1434,7 +1434,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     'supported_blocks'      => $supportedBlocks,
                     'runtime_available_blocks' => $nativeTargetBlocks,
                     'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
-                    'runtime_registered_blocks' => $runtimeRegisteredBlocks ?? array(),
+                    'runtime_registered_blocks' => $runtimeRegisteredBlocks,
                     'capability_matrix'     => $capabilityMatrix,
                     'block_count'           => count($blocks),
                     'fallback_count'        => count($fallbacks),

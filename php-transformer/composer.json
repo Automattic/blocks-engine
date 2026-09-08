@@ -84,6 +84,7 @@
        "php tests/unit/editability-report.php",
       "php tests/unit/projected-branch-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
+      "php tests/unit/core-block-snapshot-validity.php",
       "php tests/unit/list-item-lowering.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/style-tag-scanner.php",

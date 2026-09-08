@@ -879,6 +879,7 @@ $assert($runtimeAvailableBlocks === $conversionReportNativeTargetBlocks, 'conver
 $assert($bundledSnapshotBlocks === ($capabilityMatrix['bundled_snapshot_blocks'] ?? array()), 'coverage records bundled snapshot knowledge separately inside the matrix');
 $assert($bundledSnapshotBlocks === $conversionReportBundledSnapshotBlocks, 'conversion report exposes bundled snapshot knowledge metadata');
 $assert($runtimeRegisteredBlocks === $conversionReportRuntimeRegisteredBlocks, 'conversion report exposes live runtime registration metadata');
+$assert(null === $runtimeRegisteredBlocks, 'standalone reporting distinguishes an absent live registry from an empty registry');
 $assert(in_array('core/verse', $bundledSnapshotBlocks, true), 'coverage exposes known but unimplemented snapshot blocks');
 $assert(! in_array('core/verse', $supportedBlocks, true), 'coverage does not report known but unimplemented snapshot blocks as transformer output');
 $assert(in_array('core/accordion', $supportedBlocks, true), 'coverage reports the emitted native accordion family as converted support');

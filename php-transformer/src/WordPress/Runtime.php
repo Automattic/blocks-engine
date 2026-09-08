@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use RuntimeException;
+
 final class Runtime
 {
     /**
@@ -12,6 +14,13 @@ final class Runtime
 
     /** @var array<string, array<string, mixed>>|null */
     private ?array $fallbackCoreBlockMetadata = null;
+
+    private ?string $resourceDirectory;
+
+    public function __construct(?string $resourceDirectory = null)
+    {
+        $this->resourceDirectory = $resourceDirectory;
+    }
 
     public function hasWordPress(): bool
     {
@@ -302,7 +311,7 @@ final class Runtime
     {
         if ( null !== $this->fallbackCoreBlockMetadata ) return;
 
-        $resourceDirectory = dirname(__DIR__, 2) . '/resources/';
+        $resourceDirectory = $this->resourceDirectory ?? dirname(__DIR__, 2) . '/resources/';
         $supports = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-supports.json');
         $attributes = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-attributes.json');
         $capabilities = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-metadata.json');
@@ -324,8 +333,21 @@ final class Runtime
     /** @return array<string, mixed> */
     private function snapshotBlocks(string $path): array
     {
-        $snapshot = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
-        return is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : array();
+        if ( ! is_file($path) || ! is_readable($path) ) {
+            throw new RuntimeException('Bundled core block metadata snapshot is unavailable: ' . basename($path));
+        }
+
+        try {
+            $snapshot = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new RuntimeException('Bundled core block metadata snapshot is invalid: ' . basename($path), 0, $error);
+        }
+
+        if ( ! is_array($snapshot['blocks'] ?? null) || array() === $snapshot['blocks'] ) {
+            throw new RuntimeException('Bundled core block metadata snapshot has no block declarations: ' . basename($path));
+        }
+
+        return $snapshot['blocks'];
     }
 
     /**

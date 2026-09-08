@@ -18,6 +18,7 @@ final class WP_Block_Type_Registry
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 
 $runtime = new Runtime();
 if ( array() !== $runtime->availableCoreBlockNames() ) {
@@ -25,6 +26,9 @@ if ( array() !== $runtime->availableCoreBlockNames() ) {
 }
 if ( array() !== $runtime->runtimeRegisteredCoreBlockNames() ) {
     throw new RuntimeException('An empty live registry must be reported as an empty registered inventory.');
+}
+if ( array() !== (new CoreBlockCapabilityMatrix($runtime))->coverage($runtime->availableCoreBlockNames(), $runtime->runtimeRegisteredCoreBlockNames())['runtime_registered_blocks'] ) {
+    throw new RuntimeException('Reporting must retain an empty live registry rather than treating it as absent.');
 }
 if ( 115 !== count($runtime->bundledCoreBlockNames()) ) {
     throw new RuntimeException('An empty live registry must not erase bundled snapshot knowledge.');

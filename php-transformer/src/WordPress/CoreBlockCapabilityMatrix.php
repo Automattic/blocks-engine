@@ -20,6 +20,13 @@ final class CoreBlockCapabilityMatrix
     private const RUNTIME_ONLY = array('core/icon');
     private const VERSION_GATED = array('core/tab-list', 'core/tab-panel', 'core/tab-panels', 'core/tabs');
     private const NON_TARGETED = array('core/freeform', 'core/html', 'core/legacy-widget', 'core/missing', 'core/text-columns', 'core/verse', 'core/widget-group');
+
+    private Runtime $runtime;
+
+    public function __construct(?Runtime $runtime = null)
+    {
+        $this->runtime = $runtime ?? new Runtime();
+    }
     /** @return array<string,array<string,mixed>> */
     public function blocks(): array
     {
@@ -79,8 +86,10 @@ final class CoreBlockCapabilityMatrix
         $matrix = $this->blocks();
         $available = array_values(array_unique($available));
         sort($available, SORT_STRING);
-        $runtimeRegistered = array_values(array_unique($runtimeRegistered ?? array()));
-        sort($runtimeRegistered, SORT_STRING);
+        if ( null !== $runtimeRegistered ) {
+            $runtimeRegistered = array_values(array_unique($runtimeRegistered));
+            sort($runtimeRegistered, SORT_STRING);
+        }
         $unclassified = array_values(array_diff($available, array_keys($matrix)));
         $summary = array();
         foreach ($matrix as $entry) {
@@ -100,7 +109,7 @@ final class CoreBlockCapabilityMatrix
     /** @return array<int,string> */
     private function snapshotBlockNames(): array
     {
-        return (new Runtime())->bundledCoreBlockNames();
+        return $this->runtime->bundledCoreBlockNames();
     }
 
     /** @return array<string,mixed> */
