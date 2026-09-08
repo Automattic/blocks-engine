@@ -22,6 +22,7 @@ final class PatternContext
      * @param LogoPatternContext|null $logoContext
      * @param GalleryPatternContext|null $galleryContext
      * @param Closure(DOMElement): bool|null $sourceElementStartsHidden
+     * @param Closure(DOMElement): string|null $disclosureSummaryMarker
      */
     public function __construct(
         private readonly Closure $presentationAttributes,
@@ -36,8 +37,22 @@ final class PatternContext
         private readonly ?CodeWindowPatternContext $codeWindowContext = null,
         private readonly ?LogoPatternContext $logoContext = null,
         private readonly ?GalleryPatternContext $galleryContext = null,
-        private readonly ?Closure $sourceElementStartsHidden = null
+        private readonly ?Closure $sourceElementStartsHidden = null,
+        private readonly ?Closure $disclosureSummaryMarker = null
     ) {
+    }
+
+    /**
+     * Marker for a disclosure toggle whose presentation core cannot save.
+     *
+     * core/details renders its own bare `<summary>`, so a source toggle's box —
+     * its paint, radius, and typography — has nowhere to live on the block. The
+     * owning transformer registers the resolved presentation and returns an
+     * opaque marker class for the details block to carry.
+     */
+    public function disclosureSummaryMarker(DOMElement $summary): string
+    {
+        return null === $this->disclosureSummaryMarker ? '' : ($this->disclosureSummaryMarker)($summary);
     }
 
     /**
