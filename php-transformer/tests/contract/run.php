@@ -3640,12 +3640,12 @@ $artifactResponsiveRoot = $compiler->compile(
         'entry' => 'index.html',
         'files' => array(
             'index.html'  => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body class="responsive"><main id="site-root">Content</main></body></html>',
-            'styles.css' => ':root{--site-width:980px}body:not(.responsive) #site-root{width:100%;min-width:var(--site-width)}@media (min-width: 800px){body:not(.responsive) .desktop-root{min-width:980px}}@scope (.imported-page){@supports (display:grid){body:not(.responsive) .scoped-root{min-width:980px}}}body.responsive #site-root{width:100%}',
+            'styles.css' => ':root{--site-width:980px}body:not(.responsive) #site-root{width:100%;min-width:var(--site-width)}@media (min-width: 800px){body:not(.responsive) .desktop-root{min-width:980px}}@scope (body){@supports (display:grid){body:not(.responsive) .scoped-root{min-width:980px}}}body.responsive #site-root{width:100%}',
         ),
     )
 )->toArray();
 $artifactResponsiveRootCss = (string) ($artifactResponsiveRoot['source_reports']['compiled_site']['theme']['static_css'] ?? '');
-$assert(str_contains($artifactResponsiveRootCss, 'wp-compat: WordPress body does not retain the source responsive root class.') && str_contains($artifactResponsiveRootCss, 'body:not(.responsive) #site-root { min-width:0!important }') && str_contains($artifactResponsiveRootCss, '@media (min-width: 800px) {body:not(.responsive) .desktop-root { min-width:0!important }}') && str_contains($artifactResponsiveRootCss, '@scope (.imported-page) {@supports (display:grid) {body:not(.responsive) .scoped-root { min-width:0!important }}'), 'artifact CSS clears source responsive-root desktop minimum widths when WordPress owns the body class, including nested supported conditional rules', $artifactResponsiveRootCss);
+$assert(str_contains($artifactResponsiveRootCss, 'wp-compat: WordPress body does not retain the source responsive root class.') && str_contains($artifactResponsiveRootCss, 'body:not(.responsive) #site-root { min-width:0!important }') && str_contains($artifactResponsiveRootCss, '@media (min-width: 800px) {body:not(.responsive) .desktop-root { min-width:0!important }}') && str_contains($artifactResponsiveRootCss, '@scope (body) {@supports (display:grid) {body:not(.responsive) .scoped-root { min-width:0!important }}'), 'artifact CSS clears source responsive-root desktop minimum widths when WordPress owns the body class, including nested supported conditional rules', $artifactResponsiveRootCss);
 
 $artifactMobileNavOverlay = $compiler->compile(
     array(
