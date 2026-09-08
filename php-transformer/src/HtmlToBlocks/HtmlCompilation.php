@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
@@ -1218,7 +1219,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fallbacks: $fallbacks,
                 provenance: $provenance,
                 context: $context,
-                metrics: $metrics
+                metrics: $metrics,
+                blockCompilationOutput: BlockCompilationOutput::empty()
             );
         }
 
@@ -1233,7 +1235,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 sourceReports: $sourceReports,
                 provenance: $provenance,
                 context: $context,
-                metrics: $metrics
+                metrics: $metrics,
+                blockCompilationOutput: BlockCompilationOutput::empty()
             );
         }
 
@@ -1309,8 +1312,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
-        $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
-        $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $runtimeBlockPaths = array();
+        $visualBlockPaths = array();
+        foreach ($sourceProvenance as $entry) {
+            if (!is_array($entry) || !is_string($entry['block_path'] ?? null)) continue;
+            if (!empty($entry['editability_runtime_owned'])) $runtimeBlockPaths[] = $entry['block_path'];
+            if (!empty($entry['editability_visual_owned'])) $visualBlockPaths[] = $entry['block_path'];
+        }
         $generatedCarrierCss = $this->engineSupportCss();
         $resultComposer = new HtmlResultComposer();
         $diagnostics = $resultComposer->diagnostics(array(
@@ -1323,6 +1331,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'source' => HtmlTransformer::class,
         ));
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $blockCompilationOutput = new BlockCompilationOutput(
+            runtimeBlockPaths: $runtimeBlockPaths,
+            visualBlockPaths: $visualBlockPaths,
+            sourceProvenance: $sourceProvenance,
+            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
+            responsiveCounterpartContracts: $responsiveCounterpartContracts,
+            layoutGeometryProof: $this->layoutGeometry()->proofProvenance(),
+            reusableComponents: $reusableComponentRecognition,
+            runtimeIslands: $this->runtimeDom()->islands(),
+            generatedBlocks: $this->generatedBlocks()->definitions(),
+            gutenbergGaps: $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => DescriptionListBlockGenerator::NAME, 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
+            interactionCandidates: $interactionCandidates,
+            supersededSelectors: $this->runtimeSelectors()->supersededSelectors(),
+            authorStylesheetProjections: $authorStylesheetProjections,
+            runtimeScriptProjections: $runtimeScriptProjections,
+            shellArtifacts: $shellArtifacts,
+            coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance)
+        );
         $compositionInput = array(
             'source' => HtmlTransformer::class,
             'blocks' => $blocks,
@@ -1337,35 +1363,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'capability_matrix' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
             'source_provenance' => $sourceProvenance,
-            'runtime_islands' => $this->runtimeDom()->islands(),
             'runtime_dom_contracts' => $this->runtimeDom()->preservations(),
             'runtime_dom_fallbacks' => $this->runtimeDom()->fallbacks(),
-            'generated_blocks' => $this->generatedBlocks()->definitions(),
-            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => DescriptionListBlockGenerator::NAME, 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
-            'interaction_candidates' => $interactionCandidates,
-            'superseded_selectors' => $this->runtimeSelectors()->supersededSelectors(),
-            'shell_artifacts' => $shellArtifacts,
             'block_validity_report' => $blockValidityReport,
             'semantic_parity_report' => $semanticParityReport,
             'content_round_trip_report' => $contentRoundTripReport,
-            'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
             'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
             'frozen_hidden_state' => $this->transformationEvidence()->frozenHiddenStateFindings(),
             'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
             'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
             'author_layout_topology_findings' => $authorLayoutTopologyFindings,
-            'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
             'structure_signals' => $this->transformationProvenance()->structureSignals(),
-            'reusable_components' => $reusableComponentRecognition,
             'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
-            'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
-            'runtime_block_paths' => $runtimeBlockPaths,
-            'visual_block_paths' => $visualBlockPaths,
-            'author_stylesheet_projections' => $authorStylesheetProjections,
-            'runtime_script_projections' => $runtimeScriptProjections,
-            'responsive_counterpart_contracts' => $responsiveCounterpartContracts,
         );
-        $composition = $resultComposer->compose($compositionInput);
+        $composition = $resultComposer->compose($compositionInput, $blockCompilationOutput);
 
         return new TransformerResult(
             status: $this->statusForFallbacks($fallbacks, $context),
@@ -1379,7 +1390,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             coverage: $composition['coverage'],
             context: $context,
             metrics: $metrics,
-            blockCompilationOutput: $composition['block_compilation_output']
+            blockCompilationOutput: $blockCompilationOutput
         );
     }
 

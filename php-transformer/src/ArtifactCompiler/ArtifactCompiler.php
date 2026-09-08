@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\ReferenceAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
@@ -747,16 +748,18 @@ final class ArtifactCompiler
         }
         $fileMetadata = array_column($normalized['files'], null, 'path');
         $entryFile = $fileMetadata[$entryPath] ?? array();
-        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryBlocks['runtime_block_paths'] ?? array(), 'visual_block_paths' => $entryBlocks['visual_block_paths'] ?? array(), 'editability_report' => $entryBlocks['editability_report'] ?? null, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
+        $entryCompilationOutput = $this->blockCompilationOutput($entryBlocks);
+        $editabilityDocuments = array($entryPath => array('blocks' => $entryBlocks['blocks'], 'serialized_blocks' => $entryBlocks['serialized_blocks'], 'generated_carrier_css' => $this->cssAssetContent($entryBlocks['assets']), 'runtime_block_paths' => $entryCompilationOutput->runtimeBlockPaths, 'visual_block_paths' => $entryCompilationOutput->visualBlockPaths, 'editability_report' => $entryCompilationOutput->editabilityReport, 'template_surface' => $entryFile['metadata']['template_surface'] ?? null, 'provenance' => $entryFile['provenance'] ?? null));
         foreach ($compiledHtmlDocuments as $sourcePath => $compiledHtmlDocument) {
             $sourceFile = $fileMetadata[$sourcePath] ?? array();
+            $documentCompilationOutput = $this->blockCompilationOutput($compiledHtmlDocument);
             $editabilityDocuments[(string) $sourcePath] = array(
                 'blocks' => is_array($compiledHtmlDocument['blocks'] ?? null) ? $compiledHtmlDocument['blocks'] : array(),
                 'serialized_blocks' => is_string($compiledHtmlDocument['serialized_blocks'] ?? null) ? $compiledHtmlDocument['serialized_blocks'] : '',
                 'generated_carrier_css' => $this->cssAssetContent(is_array($compiledHtmlDocument['assets'] ?? null) ? $compiledHtmlDocument['assets'] : array()),
-                'runtime_block_paths' => $compiledHtmlDocument['runtime_block_paths'] ?? array(),
-                'visual_block_paths' => $compiledHtmlDocument['visual_block_paths'] ?? array(),
-                'editability_report' => $compiledHtmlDocument['editability_report'] ?? null,
+                'runtime_block_paths' => $documentCompilationOutput->runtimeBlockPaths,
+                'visual_block_paths' => $documentCompilationOutput->visualBlockPaths,
+                'editability_report' => $documentCompilationOutput->editabilityReport,
                 'template_surface' => $sourceFile['metadata']['template_surface'] ?? null,
                 'provenance' => $sourceFile['provenance'] ?? null,
             );
@@ -2071,7 +2074,19 @@ final class ArtifactCompiler
             'responsive_counterpart_contracts' => $result['responsive_counterpart_contracts'] ?? array(),
             'reusable_components' => $result['reusable_components'],
             'layout_geometry_proof' => $result['layout_geometry_proof'] ?? array(),
+            'block_compilation_output' => $this->blockCompilationOutput($result),
         );
+    }
+
+    /** @param array<string, mixed> $result */
+    private function blockCompilationOutput(array $result): BlockCompilationOutput
+    {
+        $output = $result['block_compilation_output'] ?? null;
+        if (!$output instanceof BlockCompilationOutput) {
+            throw new \LogicException('HTML compilation result is missing BlockCompilationOutput.');
+        }
+
+        return $output;
     }
 
     private function compileHtmlDocumentBlocks(string $html, string $sourcePath, array $files, string $sourceScope, string $generatedBlockNamespace = '', bool $extractGlobalShell = false): array
@@ -2094,6 +2109,7 @@ final class ArtifactCompiler
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
+                'block_compilation_output' => BlockCompilationOutput::empty(),
             );
         }
 
@@ -2114,6 +2130,7 @@ final class ArtifactCompiler
                 'shell_artifacts' => array(),
                 'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
                 'reusable_components' => array(),
+                'block_compilation_output' => BlockCompilationOutput::empty(),
             );
         }
 
@@ -2145,35 +2162,39 @@ final class ArtifactCompiler
             'layout_geometry_proof'      => $this->layoutGeometryProofForSource($files, $sourcePath),
         ));
         $blockCompilationOutput = $result->blockCompilationOutput;
+        if (!$blockCompilationOutput instanceof BlockCompilationOutput) {
+            throw new \LogicException('HTML compilation must provide BlockCompilationOutput.');
+        }
 
         return array(
             'blocks'            => $result->blocks,
             'serialized_blocks' => $result->serializedBlocks,
             'diagnostics'       => $result->diagnostics,
             'fallbacks'         => $result->fallbacks,
-            'core_html_fallback_evidence' => $blockCompilationOutput?->coreHtmlFallbackEvidence ?? CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
-            'runtime_block_paths' => $blockCompilationOutput?->runtimeBlockPaths ?? array(),
-            'visual_block_paths' => $blockCompilationOutput?->visualBlockPaths ?? array(),
-            'editability_report' => $blockCompilationOutput?->editabilityReport,
-            'responsive_counterpart_contracts' => $blockCompilationOutput?->responsiveCounterpartContracts ?? array(),
-            'layout_geometry_proof' => $blockCompilationOutput?->layoutGeometryProof ?? array(),
-            'reusable_components' => $blockCompilationOutput?->reusableComponents ?? array(),
+            'core_html_fallback_evidence' => $blockCompilationOutput->coreHtmlFallbackEvidence,
+            'runtime_block_paths' => $blockCompilationOutput->runtimeBlockPaths,
+            'visual_block_paths' => $blockCompilationOutput->visualBlockPaths,
+            'editability_report' => $blockCompilationOutput->editabilityReport,
+            'responsive_counterpart_contracts' => $blockCompilationOutput->responsiveCounterpartContracts,
+            'layout_geometry_proof' => $blockCompilationOutput->layoutGeometryProof,
+            'reusable_components' => $blockCompilationOutput->reusableComponents,
             'assets'            => $result->assets,
             'runtime_islands'   => $this->runtimeIslandsWithMaterializedInlineScripts(
-                $blockCompilationOutput?->runtimeIslands ?? array(),
+                $blockCompilationOutput->runtimeIslands,
                 $sourcePath,
                 $files
             ),
-            'generated_blocks'  => $blockCompilationOutput?->generatedBlocks ?? array(),
-            'gutenberg_gaps'    => $blockCompilationOutput?->gutenbergGaps ?? array(),
-            'interaction_candidates' => $blockCompilationOutput?->interactionCandidates ?? array(),
+            'generated_blocks'  => $blockCompilationOutput->generatedBlocks,
+            'gutenberg_gaps'    => $blockCompilationOutput->gutenbergGaps,
+            'interaction_candidates' => $blockCompilationOutput->interactionCandidates,
             'superseded_selectors' => array_values(array_filter(
-                $blockCompilationOutput?->supersededSelectors ?? array(),
+                $blockCompilationOutput->supersededSelectors,
                 static fn (mixed $selector): bool => is_string($selector) && '' !== $selector
             )),
-            'author_stylesheet_projections' => $blockCompilationOutput?->authorStylesheetProjections ?? array(),
-            'runtime_script_projections' => $blockCompilationOutput?->runtimeScriptProjections ?? array(),
-            'shell_artifacts' => $blockCompilationOutput?->shellArtifacts ?? array(),
+            'author_stylesheet_projections' => $blockCompilationOutput->authorStylesheetProjections,
+            'runtime_script_projections' => $blockCompilationOutput->runtimeScriptProjections,
+            'shell_artifacts' => $blockCompilationOutput->shellArtifacts,
+            'block_compilation_output' => $blockCompilationOutput,
         );
     }
 

@@ -99,6 +99,14 @@ $assert(
     ) === array_keys($boundaryEnvelope),
     'internal block-compilation output does not change the public result-envelope keys or ordering'
 );
+$emptyHtmlResult = ( new HtmlTransformer() )->transform('');
+$assert(
+    null !== $emptyHtmlResult->blockCompilationOutput
+        && array() === $emptyHtmlResult->blockCompilationOutput->sourceProvenance
+        && array() === $emptyHtmlResult->blockCompilationOutput->runtimeBlockPaths
+        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths,
+    'empty HTML results carry an explicit empty block-compilation output rather than omitting required compiler facts'
+);
 
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
 $assert(

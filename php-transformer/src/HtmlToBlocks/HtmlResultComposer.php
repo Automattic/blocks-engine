@@ -11,27 +11,10 @@ final class HtmlResultComposer
 {
     /**
      * @param array<string, mixed> $input
-     * @return array{diagnostics: array<int, array<string, mixed>>, source_reports: array<string, mixed>, coverage: array<int, array<string, mixed>>, block_compilation_output: BlockCompilationOutput}
+     * @return array{diagnostics: array<int, array<string, mixed>>, source_reports: array<string, mixed>, coverage: array<int, array<string, mixed>>}
      */
-    public function compose(array $input): array
+    public function compose(array $input, BlockCompilationOutput $blockCompilationOutput): array
     {
-        $blockCompilationOutput = new BlockCompilationOutput(
-            runtimeBlockPaths: $input['runtime_block_paths'],
-            visualBlockPaths: $input['visual_block_paths'],
-            editabilityReport: $input['editability_report'],
-            responsiveCounterpartContracts: $input['responsive_counterpart_contracts'],
-            layoutGeometryProof: $input['layout_geometry_proof'],
-            reusableComponents: $input['reusable_components'],
-            runtimeIslands: $input['runtime_islands'],
-            generatedBlocks: $input['generated_blocks'],
-            gutenbergGaps: $input['gutenberg_gaps'],
-            interactionCandidates: $input['interaction_candidates'],
-            supersededSelectors: $input['superseded_selectors'],
-            authorStylesheetProjections: $input['author_stylesheet_projections'],
-            runtimeScriptProjections: $input['runtime_script_projections'],
-            shellArtifacts: $input['shell_artifacts'],
-            coreHtmlFallbackEvidence: $input['core_html_fallback_evidence']
-        );
         $sourceReports = $this->sourceReports($input, $blockCompilationOutput);
 
         return array(
@@ -49,7 +32,6 @@ final class HtmlResultComposer
                     'source_provenance_count' => count($input['source_provenance']),
                 ),
             ),
-            'block_compilation_output' => $blockCompilationOutput,
         );
     }
 
@@ -79,7 +61,7 @@ final class HtmlResultComposer
             'runtime_dom_contracts' => $input['runtime_dom_contracts'],
             'runtime_dom_fallbacks' => $input['runtime_dom_fallbacks'],
             'generated_blocks' => $blockCompilationOutput->generatedBlocks,
-            'gutenberg_gaps' => $input['gutenberg_gaps'],
+            'gutenberg_gaps' => $blockCompilationOutput->gutenbergGaps,
             'interaction_candidates' => $blockCompilationOutput->interactionCandidates,
             'superseded_selectors' => $blockCompilationOutput->supersededSelectors,
             'shell_artifacts' => $blockCompilationOutput->shellArtifacts,

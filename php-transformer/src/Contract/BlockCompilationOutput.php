@@ -14,6 +14,7 @@ final class BlockCompilationOutput
     /**
      * @param array<int, string> $runtimeBlockPaths
      * @param array<int, string> $visualBlockPaths
+     * @param array<int, array<string, mixed>> $sourceProvenance
      * @param array<string, mixed>|null $editabilityReport
      * @param array<string, mixed> $responsiveCounterpartContracts
      * @param array<string, mixed> $layoutGeometryProof
@@ -31,6 +32,7 @@ final class BlockCompilationOutput
     public function __construct(
         public readonly array $runtimeBlockPaths = array(),
         public readonly array $visualBlockPaths = array(),
+        public readonly array $sourceProvenance = array(),
         public readonly ?array $editabilityReport = null,
         public readonly array $responsiveCounterpartContracts = array(),
         public readonly array $layoutGeometryProof = array(),
@@ -45,5 +47,10 @@ final class BlockCompilationOutput
         public readonly array $shellArtifacts = array(),
         public readonly array $coreHtmlFallbackEvidence = array()
     ) {
+    }
+
+    public static function empty(): self
+    {
+        return new self();
     }
 }
