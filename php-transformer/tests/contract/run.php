@@ -870,6 +870,12 @@ $assert('core/group' === ($capturedDisclosureRoot['blockName'] ?? null) && 'core
 $assert(str_ends_with((string) ($capturedDisclosureDialog['blockName'] ?? ''), '/captured-dialog') && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures lower to the typed dialog block with native navigation children');
 $assert(! str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<dialog class="dla-dialog">'), 'empty-summary dialog disclosures avoid both details trigger geometry and collection fallback');
 
+$capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"><path d="M0 0h1v1"></path></svg></summary><div class="dla-dialog" role="dialog" aria-label="Site"><nav aria-label="Site"><a href="/">Home</a><a href="/contact">Contact</a></nav></div></details>')->toArray();
+$capturedMenuDisclosureMarkup = (string) ($capturedMenuDisclosure['serialized_blocks'] ?? '');
+$capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($capturedMenuDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve the captured dialog instead of suppressing its native trigger');
+$assert(str_contains($capturedMenuDisclosureMarkup, '<dialog class="dla-dialog" aria-label="Site">') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain a native dialog with editable navigation content');
+
 $unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
 $unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
 $assert(! str_contains($unsafeCapturedDisclosureMarkup, '/captured-dialog') && str_contains($unsafeCapturedDisclosureMarkup, 'Copyright text'), 'runtime-heavy empty-summary dialogs fail closed without swallowing adjacent editable prose');
