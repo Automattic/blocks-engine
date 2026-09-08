@@ -95,7 +95,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($element, $presentationAttributes);
-        $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($element) ?? 'never';
+        $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($element) ?? '');
@@ -222,7 +222,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'kind' => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $overlayMenu = $context->navigationContext()?->overlayMenu($element) ?? 'never';
+        $overlayMenu = $this->overlayMenu($element, $context->navigationContext());
         $navigationAttrs = array('overlayMenu' => $overlayMenu);
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
@@ -470,7 +470,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         }
-        $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($cluster) ?? 'never';
+        $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($cluster) ?? '');
