@@ -169,6 +169,17 @@ final class ArtifactNormalizer
                 if ( is_array($file['metadata']['template_surface'] ?? null) ) {
                     $metadata['template_surface'] = $file['metadata']['template_surface'];
                 }
+                // DLA captures structured-data separately from the rendered DOM.
+                // Keep it source-preserved for the site-plan consumer.
+                if ( is_array($file['metadata']['json_ld'] ?? null) ) {
+                    $metadata['json_ld'] = $file['metadata']['json_ld'];
+                }
+                if ( is_string($file['metadata']['source_url'] ?? null) && '' !== trim($file['metadata']['source_url']) ) {
+                    $metadata['source_url'] = trim($file['metadata']['source_url']);
+                }
+                elseif ( is_string($file['metadata']['url'] ?? null) && '' !== trim($file['metadata']['url']) ) {
+                    $metadata['source_url'] = trim($file['metadata']['url']);
+                }
                 if ( is_array($file['metadata']['compilation'] ?? null) ) {
                     $metadata['compilation'] = $file['metadata']['compilation'];
                 }

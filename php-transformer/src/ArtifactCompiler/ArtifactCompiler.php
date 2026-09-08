@@ -3781,6 +3781,9 @@ final class ArtifactCompiler
                 $blockMarkup = $this->htmlDocumentBlockMarkup($content);
             }
             $bodyFormat = '' !== trim($blockMarkup) ? 'blocks' : 'html';
+            $documentMetadata = $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array()));
+            if (is_array($file['metadata']['json_ld'] ?? null)) $documentMetadata['json_ld'] = $file['metadata']['json_ld'];
+            if (is_string($file['metadata']['source_url'] ?? null)) $documentMetadata['source_context']['source_url'] = $file['metadata']['source_url'];
             $pages[] = array_filter(
                 array(
                     'source_path'    => $path,
@@ -3790,7 +3793,7 @@ final class ArtifactCompiler
                     'slug'           => $slug,
                     'title'          => $title,
                     'metadata'       => array_merge($this->documentMetadata($path, 'html', (string) ($file['role'] ?? 'document'), $slug, $title, $bodyFormat), is_string($file['metadata']['route_path'] ?? null) ? array('route_path' => $file['metadata']['route_path']) : array(), is_string($file['metadata']['post_type'] ?? null) ? array('post_type' => $file['metadata']['post_type'], 'post_type_declaration' => 'metadata:post_type') : array(), is_array($file['metadata']['template_surface'] ?? null) ? array('template_surface' => $file['metadata']['template_surface']) : array()),
-                    'document_metadata' => $this->fullDocumentMetadata($content, $path, $artifact['files'], $path === $entryPath ? $assets : ($compiledBlocks['assets'] ?? array())),
+                    'document_metadata' => $documentMetadata,
                     'html'           => $file['content'] ?? '',
                     'body_format'    => $bodyFormat,
                     'block_markup'   => $blockMarkup,
