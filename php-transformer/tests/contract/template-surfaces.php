@@ -13,7 +13,6 @@ $assert = static function (bool $condition, string $message): void { if (!$condi
 $surface = static fn(string $role, string $slug, string $variant = ''): array => array_filter(array('schema' => 'blocks-engine/template-surface/v1', 'role' => $role, 'slug' => $slug, 'logical_surface_id' => $role . ':' . $slug, 'responsive_variant_id' => $variant), static fn(mixed $value): bool => '' !== $value);
 $artifact = array('entrypoint' => 'index.html', 'files' => array(
     array('path' => 'index.html', 'content' => '<main><h1>Home</h1></main>'),
-    array('path' => 'post.html', 'content' => '<main><article><h1>Published post</h1></article></main>', 'metadata' => array('post_type' => 'post')),
     array('path' => 'single.html', 'content' => '<main><article><h1>Article</h1></article></main>', 'metadata' => array('template_surface' => $surface('single', 'single', 'desktop'))),
     array('path' => 'archive.html', 'content' => '<main><h1>News</h1></main>', 'metadata' => array('template_surface' => $surface('archive', 'archive', 'desktop'))),
     array('path' => 'not-found.html', 'content' => '<main><h1>Not found</h1></main>', 'metadata' => array('template_surface' => $surface('404', '404', 'desktop'))),
@@ -24,7 +23,7 @@ $templates = array_column($plan['templates'] ?? array(), null, 'slug');
 $operations = array_values(array_filter($plan['operations'] ?? array(), static fn(array $operation): bool => 'create_page' === ($operation['kind'] ?? null)));
 $writes = array_column($plan['writes'] ?? array(), null, 'target_path');
 $assert(isset($templates['single'], $templates['archive'], $templates['404'], $writes['templates/single.html'], $writes['templates/archive.html'], $writes['templates/404.html']) && 'single.html' === ($templates['single']['source_path'] ?? null) && 'archive.html' === ($templates['archive']['source_path'] ?? null) && '404' === ($templates['404']['template_surface']['role'] ?? null) && 'single.html' === ($templates['single']['template_surface']['source_provenance']['source_path'] ?? null), 'Typed template-surface declarations emit source-provenanced WordPress template writes.');
-$assert(array('index.html', 'post.html') === array_column($operations, 'source_path') && isset($templates['single']['template_surface']) && 'single.html' === ($templates['single']['source_path'] ?? null), 'A post plan preserves an authored single surface rather than generating a colliding generic single template.');
+$assert(array('index.html') === array_column($operations, 'source_path') && isset($templates['single']['template_surface']), 'Declared template surfaces are excluded from page operations and represented by canonical template writes.');
 $assert(true === (static function () use ($plan): bool { WordPressSitePlan::assertValid($plan); return true; })(), 'Canonical site-plan validation accepts declared template surfaces.');
 $tamperedPlan = $plan; $tamperedPlan['templates'][3]['template_surface']['slug'] = 'detached';
 $throws = static function (callable $callback): bool { try { $callback(); } catch (InvalidArgumentException) { return true; } return false; };
@@ -77,7 +76,7 @@ $approvedHash = WordPressSitePlan::canonicalHash($duplicatePlan);
 $assert($throws(static fn() => (new WordPressSitePlanResolver())->resolve($forgedPlan, array('theme_uri' => 'https://example.test/theme', 'approved_plan_hash' => $approvedHash))), 'Materialization rejects structurally valid variant/catalog mutations against the originally approved plan hash.');
 
 $ambiguous = $duplicate;
-$ambiguous['files'][5]['content'] = '<main><article><h1>Different article</h1></article></main>';
+$ambiguous['files'][4]['content'] = '<main><article><h1>Different article</h1></article></main>';
 $ambiguousResult = (new ArtifactCompiler())->compile($ambiguous)->toArray();
 $ambiguity = $ambiguousResult['source_reports']['wordpress_site_plan_diagnostics'][0] ?? array();
 $assert(!isset($ambiguousResult['source_reports']['wordpress_site_plan']) && 'template_surface_ambiguous' === ($ambiguity['reason'] ?? null) && 'template_surface' === ($ambiguity['document_kind'] ?? null), 'Non-equivalent responsive declarations emit a structured ambiguity diagnostic instead of duplicate content records.');

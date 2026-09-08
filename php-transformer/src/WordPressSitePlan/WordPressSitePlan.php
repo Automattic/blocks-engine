@@ -1217,66 +1217,24 @@ final class WordPressSitePlan
     /** @param array<string,mixed> $document @return array<int,array<string,string>> */
     private function publicationEvidence(array $document): array
     {
-        $metadata = is_array($document['document_metadata'] ?? null) ? $document['document_metadata'] : array();
-        $pageAliases = array_merge($this->documentUrlAliases($metadata), $this->documentUrlAliases(is_array($document['metadata'] ?? null) ? $document['metadata'] : array()));
-        $evidence = array();
-        $schema = $metadata['json_ld'] ?? null;
-        if ('data-liberation/source-json-ld/v1' === ($schema['schema'] ?? null) && is_array($schema['documents'] ?? null)) foreach ($schema['documents'] as $preserved) {
-            if (!is_array($preserved) || !is_array($preserved['objects'] ?? null)) continue;
-            $aliases = array_merge($pageAliases, $this->preservedDocumentAliases($preserved));
-            $evidence = array_merge($evidence, $this->classifyPublicationJsonLd($preserved['objects'], $aliases, 'metadata:json_ld:'));
-        }
-        // Inline JSON-LD predates source-preserved DLA documents and retains its
-        // existing content-only classification contract.
-        foreach ($this->inlineJsonLdDocuments((string) ($document['html'] ?? '')) as $inline) $evidence = array_merge($evidence, $this->inlineJsonLdPublicationEvidence($inline));
-        return 1 === count($evidence) ? $evidence : array();
-    }
-    /** @return array<int,string> */
-    private function documentUrlAliases(array $metadata): array { $aliases = array(); if (is_string($metadata['source_url'] ?? null)) $aliases[] = $metadata['source_url']; if (is_string($metadata['source_context']['source_url'] ?? null)) $aliases[] = $metadata['source_context']['source_url']; foreach ($metadata['links'] ?? array() as $link) if (is_array($link) && is_string($link['url'] ?? null) && str_contains(' ' . strtolower((string) ($link['rel'] ?? '')) . ' ', ' canonical ')) $aliases[] = $link['url']; foreach ($metadata['meta'] ?? array() as $meta) if (is_array($meta) && 'og:url' === strtolower((string) ($meta['property'] ?? '')) && is_string($meta['content'] ?? null)) $aliases[] = $meta['content']; return $aliases; }
-    /** @return array<int,string> */
-    private function preservedDocumentAliases(array $document): array { $aliases = array(); if (is_string($document['source_url'] ?? null)) $aliases[] = $document['source_url']; foreach (($document['aliases'] ?? array()) as $alias) if (is_string($alias)) $aliases[] = $alias; return $aliases; }
-    /** @param array<int,string> $aliases @return array<int,string> */
-    private function coherentAliases(array $aliases): array { $aliases = array_values(array_unique(array_filter(array_map(static fn(mixed $alias): string => is_string($alias) ? trim($alias) : '', $aliases)))); $identities = array_unique(array_map(array($this, 'urlIdentity'), $aliases)); return 1 === count($identities) ? $aliases : array(); }
-    private function urlIdentity(string $url): string { $parts = parse_url($url); if (false === $parts || !isset($parts['scheme'], $parts['host'])) return $url; $path = rtrim((string) ($parts['path'] ?? ''), '/'); return strtolower($parts['scheme'] . '://' . $parts['host']) . ('' === $path ? '/' : $path) . (isset($parts['query']) ? '?' . $parts['query'] : ''); }
-    /** @return array<int,array<string,string>> */
-    private function classifyPublicationJsonLd(array $value, array $aliases, string $source): array
-    {
-        $aliases = $this->coherentAliases($aliases); if (array() === $aliases) return array();
-        $entities = $this->jsonLdEntities($value); $byIdentifier = array();
-        foreach ($entities as $index => $entity) foreach ($this->jsonLdIdentifiers($entity) as $identifier) $byIdentifier[$identifier][] = $index;
-        $candidates = array();
-        foreach ($entities as $entity) {
-            $type = $this->publicationType($entity); if (null === $type) continue;
-            $bound = array_intersect($this->jsonLdIdentifiers($entity), $aliases);
-            foreach ($this->jsonLdRelationIdentifiers($entity) as $identifier) foreach ($byIdentifier[$identifier] ?? array() as $related) if (array_intersect($this->jsonLdIdentifiers($entities[$related]), $aliases)) $bound[] = $identifier;
-            foreach ($entities as $related) if ('' !== $this->jsonLdReference($entity) && in_array($this->jsonLdReference($entity), $this->jsonLdRelationIdentifiers($related), true) && array_intersect($this->jsonLdIdentifiers($related), $aliases)) $bound[] = 'inverse';
-            if (array() === $bound) continue;
-            $identity = $this->jsonLdReference($entity); $candidates['' === $identity ? RuntimeDeclarations::canonicalJson($entity) : $identity] = $type;
-        }
-        return 1 === count($candidates) ? array(array('source' => $source . current($candidates))) : array();
+        $html = is_string($document['html'] ?? null) ? $document['html'] : '';
+        $evidence = array(); $add = static function (array &$rows, string $source, ?string $value = null): void { if (count($rows) >= 16) return; $row = array('source' => $source); if (null !== $value) $row['publication_timestamp'] = $value; $rows[] = $row; };
+        $timestamp = static fn(string $value): ?string => self::normalizePublicationTimestamp($value);
+        foreach (($document['document_metadata']['meta'] ?? array()) as $meta) if (is_array($meta) && is_string($meta['content'] ?? null) && in_array(strtolower((string) ($meta['property'] ?? $meta['name'] ?? '')), array('article:published_time', 'article:published', 'pubdate', 'publishdate', 'date', 'dc.date.issued', 'dc.date', 'parsely-pub-date', 'releasedate'), true)) if (null !== ($date = $timestamp($meta['content']))) $add($evidence, 'meta:' . strtolower((string) ($meta['property'] ?? $meta['name'])), $date);
+        foreach (self::htmlMarkupNodes($html) as $node) if ('tag' === ($node['kind'] ?? null)) { $attributes = $node['attributes']; if ('time' === ($node['name'] ?? null) && is_string($attributes['datetime'] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes['datetime'], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) $add($evidence, 'html:time[datetime]', $date); if (preg_match('~\b(?:Article|BlogPosting)\b~', (string) ($attributes['itemtype'] ?? ''))) $add($evidence, 'microdata:itemtype'); if (in_array($attributes['itemprop'] ?? null, array('datePublished', 'dateCreated'), true)) foreach (array('datetime', 'content') as $key) if (is_string($attributes[$key] ?? null) && null !== ($date = $timestamp(html_entity_decode($attributes[$key], ENT_QUOTES | ENT_HTML5, 'UTF-8')))) { $add($evidence, 'microdata:datePublished', $date); break; } }
+        foreach (self::htmlMarkupNodes($html) as $node) if ('rawtext' === ($node['kind'] ?? null) && 'script' === ($node['name'] ?? null) && 'application/ld+json' === strtolower(trim((string) ($node['attributes']['type'] ?? '')))) foreach ($this->jsonLdPublicationEvidence(json_decode($node['content'], true), $timestamp) as $row) $add($evidence, $row['source'], $row['publication_timestamp'] ?? null);
+        $route = is_string($document['metadata']['route_path'] ?? null) ? $document['metadata']['route_path'] : self::pageRoutePath((string) $document['source_path'], self::entryRootFromDocuments(array($document)));
+        if (preg_match('~/(?:[0-9]{4})/(?:0[1-9]|1[0-2])(?:/|$)~', $route)) $add($evidence, 'route:dated');
+        $unique = array(); foreach ($evidence as $row) $unique[$row['source'] . "\n" . ($row['publication_timestamp'] ?? '')] = $row; return array_values($unique);
     }
     /** @return array<int,array<string,string>> */
-    private function inlineJsonLdPublicationEvidence(array $schema): array
+    private function jsonLdPublicationEvidence(mixed $value, callable $timestamp): array
     {
-        $evidence = array();
-        foreach ($this->jsonLdEntities($schema) as $entity) {
-            $types = is_array($entity['@type'] ?? null) ? $entity['@type'] : array($entity['@type'] ?? null);
-            if (in_array('BlogPosting', $types, true)) $evidence[] = array('source' => 'json-ld:BlogPosting');
-            elseif (in_array('Article', $types, true)) $evidence[] = array('source' => 'json-ld:Article');
-        }
-        return $evidence;
+        if (!is_array($value)) return array(); $rows = array();
+        if (isset($value['@type'])) { $types = is_array($value['@type']) ? $value['@type'] : array($value['@type']); if (array_intersect(array('Article', 'BlogPosting'), $types)) { $row = array('source' => 'json-ld:' . (in_array('BlogPosting', $types, true) ? 'BlogPosting' : 'Article')); foreach (array('datePublished', 'dateCreated') as $key) if (is_string($value[$key] ?? null) && null !== ($date = $timestamp($value[$key]))) { $row['publication_timestamp'] = $date; break; } $rows[] = $row; } }
+        foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
+        return $rows;
     }
-    /** @return array<int,array<string,mixed>> */
-    private function inlineJsonLdDocuments(string $html): array { $documents = array(); if (preg_match_all('/<script\b([^>]*)>(.*?)<\/script\s*>/is', $html, $matches, PREG_SET_ORDER)) foreach ($matches as $match) if (preg_match('/\btype\s*=\s*(?:(["\'])application\/ld\+json\1|application\/ld\+json)(?=\s|>|\/|$)/i', $match[1])) { $value = json_decode($match[2], true); if (is_array($value)) $documents[] = $value; } return $documents; }
-    private function publicationType(array $entity): ?string { $context = $entity['@context'] ?? null; foreach (is_array($entity['@type'] ?? null) ? $entity['@type'] : array($entity['@type'] ?? null) as $type) { $type = $this->expandedSchemaType($type, $context); if (in_array($type, array('Article', 'BlogPosting', 'NewsArticle'), true)) return $type; } return null; }
-    private function expandedSchemaType(mixed $type, mixed $context): string { if (!is_string($type)) return ''; if (preg_match('~^https?://schema\.org/(Article|BlogPosting|NewsArticle)$~i', $type, $match)) return $match[1]; if (in_array($type, array('Article', 'BlogPosting', 'NewsArticle'), true) && (is_string($context) && preg_match('~^https?://schema\.org/?$~i', $context) || is_array($context) && (preg_match('~^https?://schema\.org/?$~i', (string) ($context['@vocab'] ?? '')) || preg_match('~^https?://schema\.org/?$~i', (string) ($context[strstr($type, ':', true) ?: ''] ?? ''))))) return $type; if (is_array($context) && str_contains($type, ':')) { list($prefix, $name) = explode(':', $type, 2); if (in_array($name, array('Article', 'BlogPosting', 'NewsArticle'), true) && preg_match('~^https?://schema\.org/?$~i', (string) ($context[$prefix] ?? ''))) return $name; } return ''; }
-    /** @return array<int,array<string,mixed>> */
-    private function jsonLdEntities(array $schema): array { $entities = array(); $visit = static function (mixed $value) use (&$visit, &$entities): void { if (!is_array($value)) return; if (isset($value['@type']) || isset($value['@id']) || isset($value['url'])) $entities[] = $value; foreach ($value as $child) if (is_array($child)) $visit($child); }; $visit($schema); return $entities; }
-    /** @return array<int,string> */
-    private function jsonLdIdentifiers(array $entity): array { $identifiers = array(); foreach (array('@id', 'url') as $key) if (is_string($entity[$key] ?? null) && '' !== $entity[$key]) $identifiers[] = $entity[$key]; $main = $entity['mainEntityOfPage'] ?? null; if (is_string($main) && '' !== $main) $identifiers[] = $main; elseif (is_array($main) && is_string($main['@id'] ?? null)) $identifiers[] = $main['@id']; return array_values(array_unique($identifiers)); }
-    private function jsonLdReference(array $entity): string { foreach (array('@id', 'url') as $key) if (is_string($entity[$key] ?? null) && '' !== $entity[$key]) return $entity[$key]; return ''; }
-    /** @return array<int,string> */
-    private function jsonLdRelationIdentifiers(array $entity): array { $identifiers = array(); foreach (array('mainEntityOfPage', 'mainEntity') as $key) { $value = $entity[$key] ?? null; if (is_string($value) && '' !== $value) $identifiers[] = $value; elseif (is_array($value) && is_string($value['@id'] ?? null)) $identifiers[] = $value['@id']; } return array_values(array_unique($identifiers)); }
     /** @param array<string,mixed> $compiled @param array<string,mixed> $data @return array<string,mixed> */
     private function reporting(array $pages, array $data, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
@@ -1339,8 +1297,6 @@ final class WordPressSitePlan
         $make = static function (string $slug, string $target, string $content): array { return array('slug' => $slug, 'target_path' => $target, 'canonical_block_markup' => $content, 'reconciliation_identity' => self::identity('template', 'wordpress-site-plan/' . $target, $target), 'content_hash' => self::contentHash($content)); };
         $templates = array($make('index', 'templates/index.html', $markup('index')));
         if ( array() !== $pages ) $templates[] = $make('page', 'templates/page.html', $markup('page'));
-        $hasAuthoredSingle = array_filter($surfaces, static fn(array $surface): bool => 'single' === ($surface['template_surface']['slug'] ?? null));
-        if ( array_filter($pages, static fn(array $page): bool => 'post' === ($page['post_type'] ?? null)) && array() === $hasAuthoredSingle ) $templates[] = $make('single', 'templates/single.html', $markup('single'));
         foreach ( $pages as $page ) if ( ! empty($page['entrypoint']) ) { $templates[] = $make('front-page', 'templates/front-page.html', $markup('front-page')); break; }
         $overrides = array();
         foreach ($bound as $part) foreach ($part['placement']['excluded_template_slugs'] ?? array() as $slug) if (preg_match('/^(?:page|single)-[a-z0-9-]+$/', $slug)) $overrides[$slug] = true;
@@ -2017,7 +1973,19 @@ final class WordPressSitePlan
         if (!is_array($decision) || 'blocks-engine/content-decision/v1' !== ($decision['schema'] ?? null) || !in_array($decision['state'] ?? null, array('declared', 'inferred', 'defaulted'), true) || !is_string($decision['post_type'] ?? null) || $decision['post_type'] !== $document['post_type'] || !is_array($decision['evidence'] ?? null) || count($decision['evidence']) > 16) throw new InvalidArgumentException('WordPress site plan content decision is invalid.');
         $provenance = $decision['provenance'] ?? null;
         if (('declared' === $decision['state'] && (!is_string($provenance) || !preg_match('/^(?:frontmatter|metadata):[a-z_]+$/', $provenance))) || ('declared' !== $decision['state'] && null !== $provenance) || ('defaulted' === $decision['state'] && array() !== $decision['evidence']) || ('inferred' === $decision['state'] && array() === $decision['evidence'])) throw new InvalidArgumentException('WordPress site plan content decision provenance is invalid.');
-        foreach ($decision['evidence'] as $evidence) if (!is_array($evidence) || array_diff(array_keys($evidence), array('source', 'publication_timestamp')) || !is_string($evidence['source'] ?? null) || '' === $evidence['source'] || strlen($evidence['source']) > 128) throw new InvalidArgumentException('WordPress site plan content decision evidence is invalid.');
+        $timestamps = array(); foreach ($decision['evidence'] as $evidence) { if (!is_array($evidence) || array_diff(array_keys($evidence), array('source', 'publication_timestamp')) || !is_string($evidence['source'] ?? null) || '' === $evidence['source'] || strlen($evidence['source']) > 128) throw new InvalidArgumentException('WordPress site plan content decision evidence is invalid.'); if (isset($evidence['publication_timestamp'])) { if (!self::utcTimestamp($evidence['publication_timestamp'])) throw new InvalidArgumentException('WordPress site plan content decision timestamp is invalid.'); $timestamps[] = $evidence['publication_timestamp']; } }
+        if (isset($document['publication_timestamp']) && (!self::utcTimestamp($document['publication_timestamp']) || !in_array($document['publication_timestamp'], $timestamps, true))) throw new InvalidArgumentException('WordPress site plan publication timestamp is invalid.');
+    }
+    private static function utcTimestamp(mixed $value): bool { if (!is_string($value) || !preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/', $value)) return false; try { return (new \DateTimeImmutable($value))->format('Y-m-d\\TH:i:s\\Z') === $value; } catch (\Exception) { return false; } }
+    private static function normalizePublicationTimestamp(string $value): ?string
+    {
+        $format = null; $input = $value;
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) $format = '!Y-m-d';
+        elseif (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/', $value, $match)) { $input = $match[1] . ('Z' === $match[2] ? '+00:00' : $match[2]); $format = '!Y-m-d\\TH:i:sP'; }
+        if (null === $format) return null;
+        $date = \DateTimeImmutable::createFromFormat($format, $input); $errors = \DateTimeImmutable::getLastErrors();
+        if (!$date || (is_array($errors) && (0 !== $errors['warning_count'] || 0 !== $errors['error_count']))) return null;
+        return $date->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\\TH:i:s\\Z');
     }
     /** @param array<string,mixed> $metadata @param array<string,bool> $tokens */
     private static function assertDocumentMetadata(array $metadata, array $tokens, string $sourcePath, string $documentKind): void
