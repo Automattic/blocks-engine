@@ -649,7 +649,19 @@ final class WordPressSitePlan
             $identity = array_key_first($clusters);
             $cluster = null === $identity ? null : $clusters[$identity];
             $runnerUp = array_values($clusters)[1] ?? null;
-            if (!is_array($cluster) || (count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
+            $entryIndex = array_key_first(array_filter($applicable, static fn(array $page): bool => !empty($page['entrypoint'])));
+            $entryShell = false;
+            $entryMarkup = is_int($entryIndex) ? ($candidates[$entryIndex][0]['markup'] ?? null) : null;
+            $clusterMarkup = is_array($cluster) ? ($cluster['candidate']['markup'] ?? null) : null;
+            $entryImageVariant = is_string($entryMarkup) && is_string($clusterMarkup)
+                && str_contains($entryMarkup, '<!-- wp:image')
+                && preg_replace('~<!-- wp:image\b.*?<!-- /wp:image -->\s*~s', '', $entryMarkup) === preg_replace('~<!-- wp:image\b.*?<!-- /wp:image -->\s*~s', '', $clusterMarkup);
+            if (is_int($entryIndex) && 1 === count($candidates[$entryIndex] ?? array()) && $entryImageVariant && (!is_array($cluster) || !in_array($entryIndex, $cluster['indexes'], true))) {
+                $cluster = array('candidate' => $candidates[$entryIndex][0], 'indexes' => array($entryIndex));
+                $identity = hash('sha256', $area . "\0" . json_encode($cluster['candidate']['classes']) . "\0" . $cluster['candidate']['markup']);
+                $entryShell = true;
+            }
+            if (!is_array($cluster) || (!$entryShell && count($cluster['indexes']) < count($applicable) && (count($cluster['indexes']) < 2 || (is_array($runnerUp) && count($cluster['indexes']) === count($runnerUp['indexes']))))) {
                 $reason = array() === $clusters ? 'incomplete' : 'non_equivalent';
                 $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_' . ('incomplete' === $reason ? 'incomplete' : 'ambiguous'), 'severity' => 'info', 'message' => "{$area} shell candidates do not establish a dominant semantic cluster.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', $reason, $candidates));
                 continue;
@@ -662,6 +674,7 @@ final class WordPressSitePlan
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
                 if ('post' === ($page['post_type'] ?? null)) { if ($selected) $templateSlugs[] = 'index'; } elseif ($selected) $templateSlugs[] = 'page';
                 if (!$selected) {
+                    if ($entryShell) continue;
                     $slug = 'page' === ($page['post_type'] ?? null) ? 'page-' . $page['slug'] : 'single-' . $page['post_type'] . '-' . $page['slug'];
                     if (isset($overrides[$slug])) {
                         $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'info', 'message' => "{$area} shell exclusions cannot be assigned distinct route templates.", 'area' => $area, 'provenance' => $this->shellProvenance($area, 'retained', 'route_template_ambiguous', $candidates));
@@ -1385,8 +1398,12 @@ final class WordPressSitePlan
     private function assetWrites(array $assets, AssetReferenceCanonicalizer $references): array
     {
         $writes = array();
+        $authorStylesheetOrigins = array_values(array_filter(array_map(static fn(array $asset): ?string => 'css' === ($asset['kind'] ?? null) && 'files' === ($asset['source'] ?? null) && is_string($asset['source_path'] ?? null) ? $asset['source_path'] : null, $assets)));
         foreach ( $assets as $asset ) {
             $content = is_string($asset['content'] ?? null) ? $references->content($asset['content'], $asset['source_path']) : null;
+            // Editor-state rules can retain URL-bearing declarations copied from
+            // author stylesheets, whose relative origin is not this generated file.
+            if ('editor-static-state' === ($asset['source'] ?? null) && is_string($content)) $content = $references->cssFromOrigins($content, $authorStylesheetOrigins);
             if (is_array($asset['payload_reference'] ?? null)) { $writes[] = $this->referenceWrite('theme_asset', $asset['target_path'], $asset['source_path'], $asset['payload_reference']); continue; }
             $base64Transport = is_string($asset['content_base64'] ?? null);
             $text = is_string($content) && empty($asset['binary']) && 1 === preg_match('//u', $content) && (!$base64Transport || 'text/css' === ($asset['mime_type'] ?? null));
