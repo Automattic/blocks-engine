@@ -95,7 +95,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($element, $presentationAttributes);
-        $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($element) ?? 'never';
+        $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($element) ?? '');
@@ -222,7 +222,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 'kind' => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
         }
-        $overlayMenu = $context->navigationContext()?->overlayMenu($element) ?? 'never';
+        $overlayMenu = $this->overlayMenu($element, $context->navigationContext());
         $navigationAttrs = array('overlayMenu' => $overlayMenu);
         if ( 'mobile' === $overlayMenu ) {
             $navigationAttrs['className'] = 'blocks-engine-native-responsive-navigation';
@@ -232,6 +232,33 @@ final class NavigationPattern implements PatternRecognizerInterface
         return new PatternRecognitionResult(
             $context->createBlock('core/group', $context->presentationAttributes($element), array_values(array_filter($blocks)), $element)
         );
+    }
+
+    private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
+    {
+        if ( $this->isInsideCapturedDisclosurePanel($element) ) {
+            return 'never';
+        }
+
+        return $context?->overlayMenu($element) ?? 'never';
+    }
+
+    /** A native disclosure already supplies the only mobile open/close control. */
+    private function isInsideCapturedDisclosurePanel(DOMElement $element): bool
+    {
+        $hasDialogPanel = false;
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $classes = ' ' . trim(SourceDom::attr($ancestor, 'class')) . ' ';
+            if ( str_contains($classes, ' dla-dialog ') ) {
+                $hasDialogPanel = true;
+                continue;
+            }
+            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' dla-disclosure ') ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNavigationSectionHeading(DOMElement $element): bool
@@ -443,7 +470,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 }
             }
         }
-        $navigationAttrs['overlayMenu'] = $navigationContext?->overlayMenu($cluster) ?? 'never';
+        $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($cluster) ?? '');

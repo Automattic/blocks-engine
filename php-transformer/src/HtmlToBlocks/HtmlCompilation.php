@@ -3714,10 +3714,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * An empty native details summary is sometimes capture scaffolding for an
-     * adjacent dialog. A core/details block gives that otherwise invisible
-     * trigger WordPress's default summary geometry, so preserve the bounded
-     * dialog as a closed native dialog instead.
+     * A details disclosure can only lower to a captured dialog when the source
+     * provides the trigger linkage that makes the dialog operable at runtime.
      */
     private function capturedDisclosureDialog(DOMElement $element): ?DOMElement
     {
@@ -3751,6 +3749,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( ! $summary instanceof DOMElement || ! $dialog instanceof DOMElement ) {
+            return null;
+        }
+
+        if ( '' === trim($this->attr($dialog, 'data-blocks-engine-triggers')) ) {
             return null;
         }
 

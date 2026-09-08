@@ -84,7 +84,7 @@ final class NavigationBlockNormalizer
     public function normalize(array $blocks, array $sourceProvenance, array $sourceBaseHiddenStates): array
     {
         $seen = array();
-        return $this->normalizeRecursive($blocks, $seen, $sourceProvenance, $sourceBaseHiddenStates);
+        return $this->normalizeRecursive($blocks, $seen, $sourceProvenance, $sourceBaseHiddenStates, false);
     }
 
     private function directItemAnchor(DOMElement $item): ?DOMElement
@@ -123,7 +123,7 @@ final class NavigationBlockNormalizer
      * @param array<int, bool> $sourceBaseHiddenStates
      * @return array<int, array<string, mixed>>
      */
-    private function normalizeRecursive(array $blocks, array &$seen, array $sourceProvenance, array $sourceBaseHiddenStates): array
+    private function normalizeRecursive(array $blocks, array &$seen, array $sourceProvenance, array $sourceBaseHiddenStates, bool $preserveDisclosureNavigation): array
     {
         $blocks = $this->preferVisibleSiblings($blocks, $sourceBaseHiddenStates);
         $deduplicated = array();
@@ -133,13 +133,19 @@ final class NavigationBlockNormalizer
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $block['innerBlocks'] = $this->normalizeRecursive($block['innerBlocks'], $seen, $sourceProvenance, $sourceBaseHiddenStates);
+                $block['innerBlocks'] = $this->normalizeRecursive(
+                    $block['innerBlocks'],
+                    $seen,
+                    $sourceProvenance,
+                    $sourceBaseHiddenStates,
+                    $preserveDisclosureNavigation || $this->isNativeDisclosure($block)
+                );
                 $block = $this->reconcileInnerContentChildPlaceholders($block);
             }
 
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $signature = $this->signature($block);
-                if ( '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicate($block, $sourceProvenance) ) {
+                if ( ! $preserveDisclosureNavigation && '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicate($block, $sourceProvenance) ) {
                     continue;
                 }
                 if ( '' !== $signature ) {
@@ -151,6 +157,13 @@ final class NavigationBlockNormalizer
         }
 
         return $deduplicated;
+    }
+
+    /** Native DLA disclosures retain independent desktop and mobile panels. */
+    private function isNativeDisclosure(array $block): bool
+    {
+        return 'core/details' === ($block['blockName'] ?? '')
+            && (bool) preg_match('/(?:^|\s)dla-disclosure(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''));
     }
 
     /**

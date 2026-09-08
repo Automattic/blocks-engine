@@ -858,17 +858,37 @@ $assert(str_contains($closedDetailsMarkup, '<details class="wp-block-details"><s
 $assert(strpos($closedDetailsMarkup, '<summary>Closed summary</summary>') < strpos($closedDetailsMarkup, '<p>Closed content.</p>'), 'closed native details preserves summary before content through final serialization');
 $assert('pass' === ($closedDetailsResult['source_reports']['wp_block_validity']['status'] ?? ''), 'closed native details serialization remains Gutenberg-valid');
 
-// A visually empty native summary is capture scaffolding, not an editor-visible
-// disclosure trigger. Keep adjacent prose editable while lowering the bounded
-// dialog separately so core/details cannot add its default closed-state height.
+// Native DLA disclosures without explicit dialog trigger linkage retain their
+// browser-native summary behavior through core/details.
 $capturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details class="dla-disclosure"><summary>&nbsp;</summary><div class="dla-dialog" role="dialog"><nav><a href="/about">About</a><a href="/contact">Contact</a></nav></div></details></div>')->toArray();
 $capturedDisclosureRoot = $capturedDisclosureResult['blocks'][0] ?? array();
 $capturedDisclosureChildren = $capturedDisclosureRoot['innerBlocks'] ?? array();
 $capturedDisclosureDialog = $capturedDisclosureChildren[1] ?? array();
 $capturedDisclosureMarkup = (string) ($capturedDisclosureResult['serialized_blocks'] ?? '');
 $assert('core/group' === ($capturedDisclosureRoot['blockName'] ?? null) && 'core/paragraph' === (($capturedDisclosureChildren[0] ?? array())['blockName'] ?? null) && 'Copyright text' === (($capturedDisclosureChildren[0]['attrs']['content'] ?? null)), 'mixed rich text keeps ordinary sibling prose editable when an empty-summary disclosure is present');
-$assert(str_ends_with((string) ($capturedDisclosureDialog['blockName'] ?? ''), '/captured-dialog') && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures lower to the typed dialog block with native navigation children');
-$assert(! str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<dialog class="dla-dialog">'), 'empty-summary dialog disclosures avoid both details trigger geometry and collection fallback');
+$assert('core/details' === ($capturedDisclosureDialog['blockName'] ?? null) && 'core/navigation' === (($capturedDisclosureDialog['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'bounded empty-summary dialog disclosures retain a native details trigger with navigation children');
+$assert(str_contains($capturedDisclosureMarkup, '<!-- wp:details') && ! str_contains($capturedDisclosureMarkup, '/collection') && str_contains($capturedDisclosureMarkup, '<summary>'), 'empty-summary dialog disclosures preserve their source disclosure instead of lowering to a triggerless dialog');
+
+$capturedMenuDisclosure = ( new HtmlTransformer() )->transform('<details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"><path d="M0 0h1v1"></path></svg></summary><div class="dla-dialog" role="dialog" aria-label="Site"><nav aria-label="Site"><a href="/">Home</a><a href="/contact">Contact</a></nav></div></details>')->toArray();
+$capturedMenuDisclosureMarkup = (string) ($capturedMenuDisclosure['serialized_blocks'] ?? '');
+$capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
+$assert('core/details' === ($capturedMenuDisclosureBlock['blockName'] ?? null) && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve their native trigger and navigation content');
+$assert(str_contains($capturedMenuDisclosureMarkup, '<summary><svg aria-hidden="true">') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
+
+$capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="dla-dialog" role="dialog"><nav class="mobile-nav"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></div></details></header>',
+        ),
+    )
+)->toArray();
+$capturedMobileMenuDisclosureMarkup = (string) ($capturedMobileMenuDisclosure['serialized_blocks'] ?? '');
+$assert(str_contains($capturedMobileMenuDisclosureMarkup, '"overlayMenu":"never"') && ! str_contains($capturedMobileMenuDisclosureMarkup, 'blocks-engine-native-responsive-navigation'), 'navigation inside a captured native disclosure does not create a nested mobile overlay', $capturedMobileMenuDisclosureMarkup);
+
+$linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
+$linkedCapturedDisclosureBlock = $linkedCapturedDisclosure['blocks'][0] ?? array();
+$assert(str_ends_with((string) ($linkedCapturedDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && array('menu-trigger') === ($linkedCapturedDisclosureBlock['attrs']['triggerIds'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
 
 $unsafeCapturedDisclosureResult = ( new HtmlTransformer() )->transform('<div class="rich-text"><p>Copyright text</p><details><summary>&nbsp;</summary><div role="dialog"><script>window.open()</script><nav><a href="/about">About</a></nav></div></details></div>')->toArray();
 $unsafeCapturedDisclosureMarkup = (string) ($unsafeCapturedDisclosureResult['serialized_blocks'] ?? '');
