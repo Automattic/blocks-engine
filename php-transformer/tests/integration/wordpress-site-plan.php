@@ -43,9 +43,9 @@ $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
     'parts/sidebar.html' => '<aside class="site-sidebar"><p>Integration Sidebar</p></aside>',
-    'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
-    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
-    'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
+    'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
+    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
+    'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
     array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
     'assets/root-about.js' => 'window.rootAboutAsset=true;',
@@ -76,11 +76,15 @@ $templates = get_block_templates(array('slug__in' => array('front-page')), 'wp_t
 $parts = get_block_templates(array('slug__in' => array('header')), 'wp_template_part');
 $templateContent = (string) ($frontTemplate->content ?? '');
 $partContent = (string) ($headerPartTemplate->content ?? '');
+$renderedTemplateContent = do_blocks($templateContent);
 $assetBase = get_theme_file_uri('assets/assets/');
 $foreignTemplate = new WP_Block_Template();
 $foreignTemplate->source = 'theme'; $foreignTemplate->theme = 'foreign-theme'; $foreignTemplate->content = '{{wordpress-site-plan:asset:foreign-token}}';
 $foreignTemplates = apply_filters('get_block_templates', array($foreignTemplate));
-$assert($frontTemplate instanceof WP_Block_Template && $headerPartTemplate instanceof WP_Block_Template && 1 === count($templates) && 1 === count($parts) && str_contains($templateContent, $assetBase . 'logo.svg') && str_contains($partContent, $assetBase . 'logo.svg') && !str_contains($templateContent . $partContent, WordPressSitePlan::TOKEN_PREFIX) && '{{wordpress-site-plan:asset:foreign-token}}' === ($foreignTemplates[0]->content ?? null), 'The compiled generated runtime resolves active-theme template and part tokens through core template APIs without mutating foreign-theme template content.');
+$assert($frontTemplate instanceof WP_Block_Template && $headerPartTemplate instanceof WP_Block_Template && 1 === count($templates) && 1 === count($parts) && str_contains($templateContent, '"slug":"header"') && !str_contains($templateContent, WordPressSitePlan::TOKEN_PREFIX), 'The generated front-page template exposes a resolved header template-part reference.');
+$assert(str_contains($partContent, $assetBase . 'logo.svg') && !str_contains($partContent, WordPressSitePlan::TOKEN_PREFIX), 'The generated header template part resolves its logo asset URL.');
+$assert(str_contains($renderedTemplateContent, $assetBase . 'logo.svg'), 'Rendering the generated front-page template composes the header logo asset URL.');
+$assert('{{wordpress-site-plan:asset:foreign-token}}' === ($foreignTemplates[0]->content ?? null), 'The generated runtime does not mutate foreign-theme template content.');
 $templateRequest = new WP_REST_Request('GET', '/wp/v2/templates/' . $templateId);
 $templateRequest->set_param('context', 'edit');
 $partRequest = new WP_REST_Request('GET', '/wp/v2/template-parts/' . $partId);
@@ -97,7 +101,9 @@ wp_set_object_terms($templatePostId, $theme, 'wp_theme');
 wp_cache_flush();
 $reloadedTemplate = get_block_template($templateId, 'wp_template');
 $reloadedContent = (string) ($reloadedTemplate->content ?? '');
-$assert(200 === $templateResponse->get_status() && 200 === $partResponse->get_status() && str_contains($templateRestContent, $assetBase . 'logo.svg') && str_contains($partRestContent, $assetBase . 'logo.svg') && !str_contains($templateRestContent . $partRestContent, WordPressSitePlan::TOKEN_PREFIX) && false !== has_blocks($reloadedContent) && 0 < count(parse_blocks($reloadedContent)) && str_contains($reloadedContent, 'Portable template edit') && !str_contains($reloadedContent, WordPressSitePlan::TOKEN_PREFIX), 'REST returns runtime-resolved generated template and part content, and an edited template reloads as valid parsed block markup without unresolved asset tokens.');
+$assert(200 === $templateResponse->get_status() && 200 === $partResponse->get_status() && str_contains($templateRestContent, '"slug":"header"') && !str_contains($templateRestContent, WordPressSitePlan::TOKEN_PREFIX), 'Template REST returns the resolved header template-part reference.');
+$assert(str_contains($partRestContent, $assetBase . 'logo.svg') && !str_contains($partRestContent, WordPressSitePlan::TOKEN_PREFIX), 'Template-part REST returns the resolved header logo URL.');
+$assert(false !== has_blocks($reloadedContent) && 0 < count(parse_blocks($reloadedContent)) && str_contains($reloadedContent, 'Portable template edit') && !str_contains($reloadedContent, WordPressSitePlan::TOKEN_PREFIX), 'An edited template reloads as valid parsed block markup without unresolved asset tokens.');
 // This suite verifies foreign-theme filter safety directly. It intentionally does not
 // activate a child theme because the runtime contract is exact active stylesheet equality.
 $cssFile = $themeDir . '/assets/assets/global.css';
