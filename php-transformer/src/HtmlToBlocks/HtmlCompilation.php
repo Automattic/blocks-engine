@@ -2657,6 +2657,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $sourceDeclarations = $this->styleResolver->cssDeclarations($resolved);
         $declarations = array();
+        $hasUsableWidth = false;
+        $hasUsableHeight = false;
         foreach ( array(
             'box-sizing',
             'width',
@@ -2677,8 +2679,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ) as $property ) {
             $value = trim((string) ($sourceDeclarations[$property] ?? ''));
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
-                $declarations[] = $property . ':' . $value . '!important';
+                $comparable = CssValueInspector::withoutImportant($value);
+                if ( in_array($property, array( 'width', 'min-width' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
+                    continue;
+                }
+                if ( in_array($property, array( 'height', 'min-height' ), true) && in_array($comparable, array( 'auto', 'fit-content', 'max-content', 'min-content' ), true) ) {
+                    continue;
+                }
+                $hasUsableWidth = $hasUsableWidth || ( in_array($property, array( 'width', 'min-width' ), true) && $this->nativeNavigationToggleDimensionIsUsable($comparable) );
+                $hasUsableHeight = $hasUsableHeight || ( in_array($property, array( 'height', 'min-height' ), true) && $this->nativeNavigationToggleDimensionIsUsable($comparable) );
+                $declarations[] = $property . ':' . $comparable . '!important';
             }
+        }
+        if ( ! $hasUsableWidth ) {
+            $declarations[] = 'min-width:44px!important';
+        }
+        if ( ! $hasUsableHeight ) {
+            $declarations[] = 'min-height:44px!important';
         }
         if ( array() === $declarations ) {
             return '';
@@ -2690,6 +2707,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
         $this->generatedSupportStyles()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    private function nativeNavigationToggleDimensionIsUsable(string $value): bool
+    {
+        if ( 1 !== preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
+            return false;
+        }
+
+        return (float) $matches[1] >= 24;
     }
 
     /**
