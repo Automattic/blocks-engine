@@ -1359,7 +1359,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->styleResolver->recordSourceSelectorMatchWork();
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
-        $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
+        $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
+        $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
+        $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
@@ -1367,6 +1369,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $sourceReports = array(
             'native_target_blocks' => $nativeTargetBlocks,
             'available_core_blocks' => $nativeTargetBlocks,
+            'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
+            'runtime_registered_blocks' => $runtimeRegisteredBlocks,
             'core_block_capabilities' => $capabilityMatrix,
             'head_metadata' => $headMetadata,
             'runtime_islands' => $this->runtimeDom()->islands(),
@@ -1429,6 +1433,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 array(
                     'supported_blocks'      => $supportedBlocks,
                     'runtime_available_blocks' => $nativeTargetBlocks,
+                    'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
+                    'runtime_registered_blocks' => $runtimeRegisteredBlocks,
                     'capability_matrix'     => $capabilityMatrix,
                     'block_count'           => count($blocks),
                     'fallback_count'        => count($fallbacks),

@@ -861,8 +861,12 @@ $assertInvalidCanonicalEnvelope(array_merge($result, array('materialization_plan
 $coverage = $result['coverage'][0] ?? array();
 $supportedBlocks = $coverage['supported_blocks'] ?? array();
 $runtimeAvailableBlocks = $coverage['runtime_available_blocks'] ?? array();
+$runtimeRegisteredBlocks = $coverage['runtime_registered_blocks'] ?? array();
+$bundledSnapshotBlocks = $coverage['bundled_snapshot_blocks'] ?? array();
 $capabilityMatrix = $coverage['capability_matrix'] ?? array();
 $conversionReportNativeTargetBlocks = $result['source_reports']['conversion_report']['native_target_blocks'] ?? array();
+$conversionReportBundledSnapshotBlocks = $result['source_reports']['conversion_report']['bundled_snapshot_blocks'] ?? array();
+$conversionReportRuntimeRegisteredBlocks = $result['source_reports']['conversion_report']['runtime_registered_blocks'] ?? array();
 $assert(in_array('core/paragraph', $supportedBlocks, true), 'coverage derives implemented, contract-tested block support from the capability matrix');
 $assert(in_array('core/accordion', $runtimeAvailableBlocks, true), 'coverage exposes core/accordion as runtime availability rather than transformer support');
 $assert(in_array('core/icon', $runtimeAvailableBlocks, true), 'coverage exposes core/icon as runtime availability');
@@ -870,7 +874,13 @@ $assert(in_array('core/math', $runtimeAvailableBlocks, true), 'coverage exposes 
 $assert('implemented' === ($capabilityMatrix['blocks']['core/accordion']['implementation'] ?? null) && 'contract_tested' === ($capabilityMatrix['blocks']['core/accordion']['verification'] ?? null), 'coverage derives native accordion support from its emitter contract');
 $assert('7.1' === ($capabilityMatrix['blocks']['core/tabs']['minimum_runtime'] ?? null), 'matrix records the WordPress 7.1 Tabs runtime gate');
 $assert($runtimeAvailableBlocks === ($capabilityMatrix['runtime_available_blocks'] ?? array()), 'coverage records runtime availability separately inside the matrix');
+$assert($runtimeRegisteredBlocks === ($capabilityMatrix['runtime_registered_blocks'] ?? array()), 'coverage records live runtime registrations separately inside the matrix');
 $assert($runtimeAvailableBlocks === $conversionReportNativeTargetBlocks, 'conversion report exposes runtime availability metadata');
+$assert($bundledSnapshotBlocks === ($capabilityMatrix['bundled_snapshot_blocks'] ?? array()), 'coverage records bundled snapshot knowledge separately inside the matrix');
+$assert($bundledSnapshotBlocks === $conversionReportBundledSnapshotBlocks, 'conversion report exposes bundled snapshot knowledge metadata');
+$assert($runtimeRegisteredBlocks === $conversionReportRuntimeRegisteredBlocks, 'conversion report exposes live runtime registration metadata');
+$assert(in_array('core/verse', $bundledSnapshotBlocks, true), 'coverage exposes known but unimplemented snapshot blocks');
+$assert(! in_array('core/verse', $supportedBlocks, true), 'coverage does not report known but unimplemented snapshot blocks as transformer output');
 $assert(in_array('core/accordion', $supportedBlocks, true), 'coverage reports the emitted native accordion family as converted support');
 $assert(! in_array('core/icon', $supportedBlocks, true), 'coverage does not report runtime-only core/icon as transformer output');
 $runtimeCanvasResult = ( new HtmlTransformer() )->transform('<main><canvas id="fixture-canvas">Fallback</canvas></main>', array('runtime_canvas_selectors' => array('#fixture-canvas')))->toArray();
