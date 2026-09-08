@@ -27,7 +27,8 @@ final class DetailsPattern implements PatternRecognizerInterface
                 },
                 $context->presentationAttributes(...),
                 SourceDom::innerHtml(...),
-                $context->createBlock(...)
+                $context->createBlock(...),
+                $this->summaryMarker($element, $context)
             );
         } else {
             $block = $this->matchDisclosure(
@@ -45,6 +46,20 @@ final class DetailsPattern implements PatternRecognizerInterface
     }
 
     /**
+     * The source toggle's own box, resolved once so core/details can carry it.
+     *
+     * core's `<summary>` is emitted with no attributes, so the source element's
+     * classes cannot ride along and the author rules that address them would
+     * match nothing.
+     */
+    private function summaryMarker(DOMElement $element, PatternContext $context): string
+    {
+        $summary = $this->firstChildElement($element, 'summary');
+
+        return $summary instanceof DOMElement ? $context->disclosureSummaryMarker($summary) : '';
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, array<int, string>): array<int, array<string, mixed>> $convertChildrenWithoutTags
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
@@ -52,7 +67,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock, string $summaryMarker = ''): ?array
     {
         $summary = $this->firstChildElement($element, 'summary');
         $children = $convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
@@ -60,10 +75,15 @@ final class DetailsPattern implements PatternRecognizerInterface
             return null;
         }
 
-        return $createBlock('core/details', array_filter(array_merge($presentationAttributes($element), array(
+        $attrs = array_merge($presentationAttributes($element), array(
             'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
             'showContent' => $element->hasAttribute('open') ? true : '',
-        )), static fn ($value): bool => '' !== $value), $children, $element);
+        ));
+        if ( '' !== $summaryMarker ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $summaryMarker);
+        }
+
+        return $createBlock('core/details', array_filter($attrs, static fn ($value): bool => '' !== $value), $children, $element);
     }
 
     /**

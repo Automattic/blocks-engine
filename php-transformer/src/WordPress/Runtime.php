@@ -3,57 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\WordPress;
 
+use RuntimeException;
+
 final class Runtime
 {
-    /**
-     * @var array<int, string>
-     */
-    private const FALLBACK_CORE_BLOCK_NAMES = array(
-        'core/accordion',
-        'core/audio',
-        'core/breadcrumbs',
-        'core/button',
-        'core/buttons',
-        'core/categories',
-        'core/code',
-        'core/column',
-        'core/columns',
-        'core/details',
-        'core/embed',
-        'core/file',
-        'core/footnotes',
-        'core/gallery',
-        'core/group',
-        'core/heading',
-        'core/icon',
-        'core/image',
-        'core/list',
-        'core/list-item',
-        'core/math',
-        'core/media-text',
-        'core/navigation',
-        'core/navigation-link',
-        'core/navigation-submenu',
-        'core/paragraph',
-        'core/post-terms',
-        'core/preformatted',
-        'core/pullquote',
-        'core/query-total',
-        'core/quote',
-        'core/search',
-        'core/separator',
-        'core/shortcode',
-        'core/spacer',
-        'core/tab-list',
-        'core/tab-panel',
-        'core/tab-panels',
-        'core/table',
-        'core/tabs',
-        'core/tag-cloud',
-        'core/term-description',
-        'core/video',
-    );
-
     /**
      * @var array<int, array<string, mixed>>
      */
@@ -61,6 +14,13 @@ final class Runtime
 
     /** @var array<string, array<string, mixed>>|null */
     private ?array $fallbackCoreBlockMetadata = null;
+
+    private ?string $resourceDirectory;
+
+    public function __construct(?string $resourceDirectory = null)
+    {
+        $this->resourceDirectory = $resourceDirectory;
+    }
 
     public function hasWordPress(): bool
     {
@@ -115,18 +75,46 @@ final class Runtime
     }
 
     /**
-     * Native core block names available as potential WordPress targets.
+     * Native core block names registered by the live WordPress runtime. When no
+     * registry is available, bundled snapshot knowledge is the standalone view.
      *
      * @return array<int, string>
      */
     public function availableCoreBlockNames(): array
     {
         $registered = $this->registeredCoreBlockNames();
-        if ( array() !== $registered ) {
+        if ( null !== $registered ) {
             return $registered;
         }
 
-        return self::FALLBACK_CORE_BLOCK_NAMES;
+        return $this->bundledCoreBlockNames();
+    }
+
+    /**
+     * Core blocks known by the bundled metadata snapshot, independently of live
+     * registration and of the transformer's supported output policy.
+     *
+     * @return array<int, string>
+     */
+    public function bundledCoreBlockNames(): array
+    {
+        $this->loadFallbackCoreBlockMetadata();
+        $names = array_keys($this->fallbackCoreBlockMetadata);
+        sort($names, SORT_STRING);
+
+        return $names;
+    }
+
+    /**
+     * Core blocks registered by the live WordPress runtime, or null when no
+     * registry is loaded. Unlike availableCoreBlockNames(), this never falls
+     * back to bundled snapshot knowledge.
+     *
+     * @return array<int, string>|null
+     */
+    public function runtimeRegisteredCoreBlockNames(): ?array
+    {
+        return $this->registeredCoreBlockNames();
     }
 
     /**
@@ -215,12 +203,17 @@ final class Runtime
     }
 
     /**
-     * @return array<int, string>
+     * @return array<int, string>|null Null when no live registry is available.
      */
-    private function registeredCoreBlockNames(): array
+    private function registeredCoreBlockNames(): ?array
     {
+        $registeredBlockTypes = $this->registeredBlockTypes();
+        if ( null === $registeredBlockTypes ) {
+            return null;
+        }
+
         $names = array();
-        foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
+        foreach ( $registeredBlockTypes as $key => $blockType ) {
             $name = is_string($key) ? $key : '';
             if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
                 $name = $blockType->name;
@@ -238,21 +231,21 @@ final class Runtime
     }
 
     /**
-     * @return array<string|int, object>
+     * @return array<string|int, object>|null
      */
-    private function registeredBlockTypes(): array
+    private function registeredBlockTypes(): ?array
     {
         if ( ! class_exists('WP_Block_Type_Registry') || ! method_exists('WP_Block_Type_Registry', 'get_instance') ) {
-            return array();
+            return null;
         }
 
         $registry = \WP_Block_Type_Registry::get_instance();
         if ( ! is_object($registry) || ! method_exists($registry, 'get_all_registered') ) {
-            return array();
+            return null;
         }
 
         $registered = $registry->get_all_registered();
-        return is_array($registered) ? $registered : array();
+        return is_array($registered) ? $registered : null;
     }
 
     /**
@@ -274,7 +267,7 @@ final class Runtime
 
     private function registeredBlockType(string $blockName): ?object
     {
-        foreach ( $this->registeredBlockTypes() as $key => $blockType ) {
+        foreach ( $this->registeredBlockTypes() ?? array() as $key => $blockType ) {
             $name = is_string($key) ? $key : '';
             if ( '' === $name && is_object($blockType) && isset($blockType->name) && is_string($blockType->name) ) {
                 $name = $blockType->name;
@@ -318,7 +311,7 @@ final class Runtime
     {
         if ( null !== $this->fallbackCoreBlockMetadata ) return;
 
-        $resourceDirectory = dirname(__DIR__, 2) . '/resources/';
+        $resourceDirectory = $this->resourceDirectory ?? dirname(__DIR__, 2) . '/resources/';
         $supports = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-supports.json');
         $attributes = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-attributes.json');
         $capabilities = $this->snapshotBlocks($resourceDirectory . 'wordpress-latest-core-block-metadata.json');
@@ -340,8 +333,21 @@ final class Runtime
     /** @return array<string, mixed> */
     private function snapshotBlocks(string $path): array
     {
-        $snapshot = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
-        return is_array($snapshot['blocks'] ?? null) ? $snapshot['blocks'] : array();
+        if ( ! is_file($path) || ! is_readable($path) ) {
+            throw new RuntimeException('Bundled core block metadata snapshot is unavailable: ' . basename($path));
+        }
+
+        try {
+            $snapshot = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            throw new RuntimeException('Bundled core block metadata snapshot is invalid: ' . basename($path), 0, $error);
+        }
+
+        if ( ! is_array($snapshot['blocks'] ?? null) || array() === $snapshot['blocks'] ) {
+            throw new RuntimeException('Bundled core block metadata snapshot has no block declarations: ' . basename($path));
+        }
+
+        return $snapshot['blocks'];
     }
 
     /**

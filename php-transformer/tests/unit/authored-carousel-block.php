@@ -34,6 +34,8 @@ $assert('file:./view.js' === ($definition['block_json']['viewScriptModule'] ?? n
 $assert(str_contains($view, "from '@wordpress/interactivity'") && str_contains($view, "store( 'blocks-engine/carousel'"), 'frontend behavior is a script module built on the WordPress Interactivity API');
 $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'") && str_contains($view, 'requested > maximum ? 0'), 'frontend behavior supports keyboard navigation and deterministic wrapping');
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
+$assert(str_contains($style, 'pointer-events:auto'), 'slideshow controls and viewport remain interactive inside source layers that disable pointer events');
+$assert(str_contains($style, 'visibility:hidden!important') && str_contains($style, 'visibility:visible!important'), 'slideshow state overrides captured responsive visibility on borrowed slides');
 
 $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Care & <support>', 'itemsPerView' => 99, 'wrap' => false));
 $shellMarkup = $shell['opening'] . $shell['closing'];
@@ -80,5 +82,23 @@ $assert(
     'custom/authored-carousel' !== ($unrelatedGallery['blocks'][0]['blockName'] ?? null),
     'an unrelated gallery link does not turn a repeated scroll collection into a carousel'
 );
+
+$responsiveTestimonials = '<style>.desktop,.mobile,.testimonialSlideshow{display:grid}.desktop .testimonialSlideshow{height:403px}.mobile .testimonialSlideshow{height:309px}[data-testid="slidesWrapper"]{height:100%}</style><div class="desktop"><div id="testimonials" class="testimonialSlideshow" role="region"><button data-testid="prevButton"><svg></svg></button><button data-testid="nextButton"><svg></svg></button><div data-testid="slidesWrapper"><div id="quote-one"><p>First person</p><blockquote>First testimonial.</blockquote></div></div><nav><ol><li><a aria-label="Slide item 1"></a></li><li><a aria-label="Slide item 2"></a></li></ol></nav></div></div>'
+    . '<div class="mobile"><div id="testimonials" class="testimonialSlideshow" role="region"><div data-testid="slidesWrapper"><div id="quote-one"><p>First person</p><blockquote>First testimonial.</blockquote></div><div id="quote-two"><p>Second person</p><blockquote>Second testimonial.</blockquote></div></div><nav><ol><li><a aria-label="Slide item 1"></a></li><li><a aria-label="Slide item 2"></a></li></ol></nav></div></div>';
+$responsiveTestimonialResult = (new HtmlTransformer())->transform($responsiveTestimonials)->toArray();
+$responsiveTestimonialBlocks = array();
+$collectCarousels = static function (array $blocks) use (&$collectCarousels, &$responsiveTestimonialBlocks): void {
+    foreach ( $blocks as $candidate ) {
+        if ( 'custom/authored-carousel' === ($candidate['blockName'] ?? null) ) {
+            $responsiveTestimonialBlocks[] = $candidate;
+        }
+        $collectCarousels($candidate['innerBlocks'] ?? array());
+    }
+};
+$collectCarousels($responsiveTestimonialResult['blocks'] ?? array());
+$responsiveTestimonialMarkup = (string) ($responsiveTestimonialResult['serialized_blocks'] ?? '');
+$assert(2 === count($responsiveTestimonialBlocks) && 2 === count($responsiveTestimonialBlocks[0]['innerBlocks'] ?? array()) && 2 === count($responsiveTestimonialBlocks[1]['innerBlocks'] ?? array()), 'responsive carousel counterparts reconcile controls and complete text-rich slide collections through stable root identity');
+$assert(403 === ($responsiveTestimonialBlocks[0]['attrs']['viewportHeight'] ?? null) && 309 === ($responsiveTestimonialBlocks[1]['attrs']['viewportHeight'] ?? null), 'slideshow viewport geometry falls back to each authored root when its slide list uses percentage height');
+$assert(2 === substr_count($responsiveTestimonialMarkup, 'Second testimonial.') && 2 === substr_count($responsiveTestimonialMarkup, 'data-wp-interactive=') && 4 === substr_count($responsiveTestimonialMarkup, 'data-carousel-index='), 'responsive text slides remain editable and each variant receives functional carousel controls and pagination');
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

@@ -214,7 +214,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $links = array();
         foreach ( $anchors as $anchor ) {
             $links[] = $context->createBlock('core/navigation-link', array_filter(array(
-                'label' => SourceDom::innerHtml($anchor),
+                'label' => SourceDom::innerHtmlWithProjectedMarkers(
+                    $anchor,
+                    static fn (DOMElement $labelElement): array => $context->navigationContext()?->labelPresentationMarkers($labelElement) ?? array()
+                ),
                 'url' => SourceDom::safeNavigationUrl(SourceDom::attr($anchor, 'href')),
                 'kind' => 'custom',
             ), static fn ($value): bool => '' !== $value), array(), $anchor);
@@ -1127,7 +1130,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationBlockFromItem(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?NavigationPatternContext $navigationContext = null): ?array
     {
         $anchor = $this->primaryNavigationAnchor($element);
-        if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml) ) {
+        if ( ! $anchor instanceof DOMElement || '' === $this->anchorLabel($anchor, $innerHtml, $navigationContext) ) {
             return null;
         }
 
@@ -1144,7 +1147,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             $submenuAttrs = array(
-                'label' => $this->anchorLabel($anchor, $innerHtml),
+                'label' => $this->anchorLabel($anchor, $innerHtml, $navigationContext),
                 'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
                 'kind'  => 'custom',
             );
@@ -1162,7 +1165,7 @@ final class NavigationPattern implements PatternRecognizerInterface
     private function navigationLinkBlock(DOMElement $anchor, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?DOMElement $item = null, ?NavigationPatternContext $navigationContext = null): array
     {
         $linkAttrs = $this->navigationItemAttributes($item ?? $anchor, $anchor, null, array(
-            'label' => $this->anchorLabel($anchor, $innerHtml),
+            'label' => $this->anchorLabel($anchor, $innerHtml, $navigationContext),
             'url'   => SourceDom::safeNavigationUrl($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : ''),
             'kind'  => 'custom',
         ), $presentationAttributes, $navigationContext);
@@ -1175,9 +1178,9 @@ final class NavigationPattern implements PatternRecognizerInterface
         return $createBlock('core/navigation-link', $linkAttrs, array(), $anchor);
     }
 
-    private function anchorLabel(DOMElement $anchor, callable $innerHtml): string
+    private function anchorLabel(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext = null): string
     {
-        $label = $this->navigationLabel($innerHtml($anchor));
+        $label = $this->navigationLabel($this->labelHtml($anchor, $innerHtml, $navigationContext));
         if ( '' !== $label ) {
             return $label;
         }
@@ -1201,6 +1204,30 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return '';
+    }
+
+    /**
+     * Serialize an anchor's inner markup for the `label` attribute.
+     *
+     * A label lives inside a block attribute, never in the block tree, so the
+     * marker classes the projected author stylesheet targets are otherwise never
+     * stamped on it and the rewritten rules match nothing. Carry them here so the
+     * source's own menu typography and color survive to the front end.
+     */
+    private function labelHtml(DOMElement $anchor, callable $innerHtml, ?NavigationPatternContext $navigationContext): string
+    {
+        if ( ! $navigationContext instanceof NavigationPatternContext ) {
+            return $innerHtml($anchor);
+        }
+
+        $markered = SourceDom::innerHtmlWithProjectedMarkers(
+            $anchor,
+            static fn (DOMElement $element): array => $navigationContext->labelPresentationMarkers($element)
+        );
+
+        // The transformer's own serializer performs rich-text lowering the plain
+        // clone cannot. Prefer it whenever no marker had to be carried.
+        return $markered === SourceDom::innerHtml($anchor) ? $innerHtml($anchor) : $markered;
     }
 
     private function navigationLabel(string $html): string

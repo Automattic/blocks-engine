@@ -1301,140 +1301,80 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $semanticParityReport,
             $contentRoundTripReport
         );
-        foreach ( $this->transformationEvidence()->responsiveGeometryAmbiguities() as $ambiguity ) {
-            $diagnostics[] = array(
-                'code' => 'responsive_geometry_ambiguous_min_width',
-                'message' => 'A wide minimum-width rule matches both page-shell and authored content surfaces, so it was retained without a responsive projection.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $ambiguity['selector'],
-                'min_width' => $ambiguity['min_width'],
-            );
-        }
-        foreach ( $this->transformationEvidence()->responsiveHeightAmbiguities() as $ambiguity ) {
-            $diagnostics[] = array(
-                'code' => 'responsive_geometry_ambiguous_percentage_height',
-                'message' => 'A percentage-height rule matches both auto-sized structural wrappers and height-owning content, so it was retained without a responsive projection.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $ambiguity['selector'],
-                'height' => $ambiguity['height'],
-            );
-        }
         $headMetadata = $this->headMetadataReport($html);
-        if ( array() !== $headMetadata ) {
-            $diagnostics[] = array(
-                'code' => 'html_head_metadata_not_carried',
-                'message' => 'Named head metadata (meta description and social property tags) is not representable in block markup; the entries are surfaced in source_reports.head_metadata for the destination document to adopt deliberately.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'info',
-                'entries' => $headMetadata,
-            );
-        }
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
-        foreach ( $authorLayoutTopologyFindings as $finding ) {
-            $diagnostics[] = array(
-                'code' => 'author_layout_topology_changed',
-                'message' => 'Gutenberg block conversion changed the direct-child topology of a CSS-owned layout container.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'warning',
-                'selector' => $finding['selector'],
-                'source_child_count' => $finding['source_child_count'],
-                'block_child_count' => $finding['block_child_count'],
-            );
-        }
-        if ( $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ) {
-            $diagnostics[] = array(
-                'code' => 'semantic_description_list_gutenberg_gap',
-                'message' => 'A semantic description list was materialized with the Blocks Engine companion block because Gutenberg has no core description-list block.',
-                'source' => HtmlTransformer::class,
-                'severity' => 'info',
-                'references' => array(
-                    'https://github.com/WordPress/gutenberg/issues/4880',
-                    'https://github.com/WordPress/gutenberg/pull/20760',
-                ),
-            );
-        }
-
         $this->styleResolver->recordSourceSelectorMatchWork();
-        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $nativeTargetBlocks = $this->runtime->availableCoreBlockNames();
-        $capabilityMatrix = (new CoreBlockCapabilityMatrix())->coverage($nativeTargetBlocks);
+        $bundledSnapshotBlocks = $this->runtime->bundledCoreBlockNames();
+        $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
+        $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
         $generatedCarrierCss = $this->engineSupportCss();
-        $sourceReports = array(
-            'native_target_blocks' => $nativeTargetBlocks,
-            'available_core_blocks' => $nativeTargetBlocks,
-            'core_block_capabilities' => $capabilityMatrix,
+        $resultComposer = new HtmlResultComposer();
+        $diagnostics = $resultComposer->diagnostics(array(
+            'diagnostics' => $diagnostics,
+            'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
+            'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
             'head_metadata' => $headMetadata,
+            'author_layout_topology_findings' => $authorLayoutTopologyFindings,
+            'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
+            'source' => HtmlTransformer::class,
+        ));
+        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
+        $compositionInput = array(
+            'source' => HtmlTransformer::class,
+            'blocks' => $blocks,
+            'fallbacks' => $fallbacks,
+            'provenance' => $provenance,
+            'metrics' => $metrics,
+            'diagnostics' => $diagnostics,
+            'supported_blocks' => $supportedBlocks,
+            'native_target_blocks' => $nativeTargetBlocks,
+            'bundled_snapshot_blocks' => $bundledSnapshotBlocks,
+            'runtime_registered_blocks' => $runtimeRegisteredBlocks,
+            'capability_matrix' => $capabilityMatrix,
+            'head_metadata' => $headMetadata,
+            'source_provenance' => $sourceProvenance,
             'runtime_islands' => $this->runtimeDom()->islands(),
             'runtime_dom_contracts' => $this->runtimeDom()->preservations(),
             'runtime_dom_fallbacks' => $this->runtimeDom()->fallbacks(),
             'generated_blocks' => $this->generatedBlocks()->definitions(),
-            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(
-                array(
-                    'id' => 'semantic-description-list',
-                    'block_name' => DescriptionListBlockGenerator::NAME,
-                    'references' => array(
-                        'https://github.com/WordPress/gutenberg/issues/4880',
-                        'https://github.com/WordPress/gutenberg/pull/20760',
-                    ),
-                ),
-            ) : array(),
+            'gutenberg_gaps' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => DescriptionListBlockGenerator::NAME, 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
             'interaction_candidates' => $interactionCandidates,
             'superseded_selectors' => $this->runtimeSelectors()->supersededSelectors(),
             'shell_artifacts' => $shellArtifacts,
-            'wp_block_validity' => $blockValidityReport,
-            'semantic_parity' => $semanticParityReport,
-            'content_round_trip' => $contentRoundTripReport,
+            'block_validity_report' => $blockValidityReport,
+            'semantic_parity_report' => $semanticParityReport,
+            'content_round_trip_report' => $contentRoundTripReport,
             'editability_report' => (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
-            'html' => array(
-                'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
-                'frozen_hidden_state'  => $this->transformationEvidence()->frozenHiddenStateFindings(),
-                'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
-                'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
-                'author_layout_topology' => $authorLayoutTopologyFindings,
-                'source_provenance'    => $sourceProvenance,
-                'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
-                'structure_signals'    => $this->transformationProvenance()->structureSignals(),
-                'reusable_components' => $reusableComponentRecognition,
-                'script_metadata'      => $this->runtimeBehavior()->scriptMetadata(),
-                'runtime_islands'      => $this->runtimeDom()->islands(),
-                'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
-            ),
+            'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
+            'frozen_hidden_state' => $this->transformationEvidence()->frozenHiddenStateFindings(),
+            'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
+            'gutenberg_incompatibilities' => $this->transformationEvidence()->gutenbergIncompatibilities(),
+            'author_layout_topology_findings' => $authorLayoutTopologyFindings,
+            'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
+            'structure_signals' => $this->transformationProvenance()->structureSignals(),
+            'reusable_components' => $reusableComponentRecognition,
+            'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
+            'layout_geometry_proof' => $this->layoutGeometry()->proofProvenance(),
+            'author_stylesheet_projections' => $authorStylesheetProjections,
+            'runtime_script_projections' => $runtimeScriptProjections,
+            'responsive_counterpart_contracts' => $responsiveCounterpartContracts,
         );
-        if ( array() !== $authorStylesheetProjections ) {
-            $sourceReports['author_stylesheet_projections'] = $authorStylesheetProjections;
-        }
-        if ( array() !== $runtimeScriptProjections ) {
-            $sourceReports['runtime_script_projections'] = $runtimeScriptProjections;
-        }
-        if ( array() !== $responsiveCounterpartContracts ) {
-            $sourceReports['responsive_counterpart_contracts'] = $responsiveCounterpartContracts;
-        }
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('html', $blocks, $fallbacks, $sourceReports, array(), $provenance, $metrics);
+        $composition = $resultComposer->compose($compositionInput);
 
         return new TransformerResult(
             status: $this->statusForFallbacks($fallbacks, $context),
             blocks: $blocks,
             serializedBlocks: $serializedBlocks,
             assets: $this->materializedAssets()->assets(),
-            diagnostics: $diagnostics,
+            diagnostics: $composition['diagnostics'],
             fallbacks: $fallbacks,
             provenance: $provenance,
-            sourceReports: $sourceReports,
-            coverage: array(
-                array(
-                    'supported_blocks'      => $supportedBlocks,
-                    'runtime_available_blocks' => $nativeTargetBlocks,
-                    'capability_matrix'     => $capabilityMatrix,
-                    'block_count'           => count($blocks),
-                    'fallback_count'        => count($fallbacks),
-                    'source_provenance_count' => count($sourceProvenance),
-                ),
-            ),
+            sourceReports: $composition['source_reports'],
+            coverage: $composition['coverage'],
             context: $context,
             metrics: $metrics
         );
@@ -2558,7 +2498,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 function (DOMElement $sourceElement, array $authorClasses): void {
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
-                }
+                },
+                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2603,7 +2544,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
-                || $this->sourceElementStartsHidden($sourceElement)
+                || $this->sourceElementStartsHidden($sourceElement),
+            fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
     }
 
@@ -2687,7 +2629,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
-                || $this->sourceElementStartsHidden($sourceElement)
+                || $this->sourceElementStartsHidden($sourceElement),
+            disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
     }
 
@@ -2820,6 +2763,100 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->generatedSupportStyles()->registerNavigationLinkIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * Marker for a disclosure toggle whose box core/details cannot save.
+     *
+     * core/details renders `<summary>` with no attributes, so a source toggle's
+     * own classes are dropped and every author rule addressing them is left with
+     * nothing to match — an overlay menu button loses its paint, its radius and
+     * its label typography, and drops to the destination theme's defaults.
+     *
+     * Delivered as CSS keyed on a marker the details block carries, not as
+     * markup: adding attributes to `<summary>` would diverge from core's save
+     * shape and invalidate the block.
+     */
+    private function disclosureSummaryMarker(DOMElement $summary): string
+    {
+        $declarations = $this->styleResolver->safeVisualDeclarations(
+            $this->styleResolver->cssDeclarations(
+                $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($summary)
+                )
+            )
+        );
+        // core renders `<summary>` with no box of its own, so the toggle's own
+        // box is carried here alongside its paint and type. Position and margin
+        // stay out: the details block core lays out already holds the slot.
+        $carried = array_filter(
+            $declarations,
+            static fn (string $property): bool => (bool) preg_match(
+                '/^(?:align-items|background|border|border-radius|box-shadow|box-sizing|color|display|font|height|justify-content|letter-spacing|line-height|max-height|max-width|min-height|min-width|padding|text-align|text-decoration|text-transform|width)(?:-[a-z-]+)?$/',
+                $property
+            ),
+            ARRAY_FILTER_USE_KEY
+        );
+        if ( array() === $carried ) {
+            return '';
+        }
+
+        // The label the source painted keeps its classes but loses the toggle
+        // ancestor those rules were written against. Its type is inheritable, so
+        // restating it on the summary reaches the label again, and any rule the
+        // label still owns keeps winning over it.
+        $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+
+        $css = $this->styleResolver->cssDeclarationString($carried);
+        if ( '' === $css ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
+        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+
+        return $marker;
+    }
+
+    /**
+     * Inheritable type the disclosure label showed, read from the source.
+     *
+     * @return array<string, string>
+     */
+    private function disclosureSummaryLabelTypography(DOMElement $summary): array
+    {
+        $label = null;
+        foreach ( $summary->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( $descendant->childNodes as $child ) {
+                if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                    $label = $descendant;
+                    break 2;
+                }
+            }
+        }
+        if ( ! $label instanceof DOMElement ) {
+            return array();
+        }
+
+        $declarations = $this->styleResolver->safeVisualDeclarations(
+            $this->styleResolver->cssDeclarations(
+                $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($label)
+                )
+            )
+        );
+
+        return array_filter(
+            $declarations,
+            static fn (string $property): bool => (bool) preg_match(
+                '/^(?:color|font|font-family|font-size|font-style|font-weight|letter-spacing|line-height|text-transform|text-decoration)$/',
+                $property
+            ),
+            ARRAY_FILTER_USE_KEY
+        );
     }
 
     /**
@@ -10502,14 +10539,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
                 continue;
             }
-            $metadataIdentity = strtolower(implode(' ', array(
+            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
                 $this->attr($candidate, 'aria-label'),
                 $this->attr($candidate, 'title'),
                 $this->attr($candidate, 'class'),
                 $this->attr($candidate, 'data-hook'),
-            )));
+                $this->attr($candidate, 'data-testid'),
+            ))));
             $text = strtolower(trim($candidate->textContent ?? ''));
-            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
                 && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
             ) {
                 continue;
@@ -10518,49 +10556,65 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
             $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
         }
-        // Boundary-state carousels commonly omit the unavailable direction.
-        if ( ! $hasPrevious && ! $hasNext ) {
-            return null;
-        }
-
-        $list = null;
-        $items = array();
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $element) ) {
-                continue;
-            }
-            $candidateItems = $this->carouselListItems($candidate);
-            if ( count($candidateItems) >= 2 && $this->carouselItemsHaveImages($candidateItems) ) {
-                $list = $candidate;
-                $items = $candidateItems;
-                break;
+        [$list, $items] = $this->richestCarouselList($element);
+        $localList = $list;
+        if ( count($items) < 2 ) {
+            foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
+                if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
+                    continue;
+                }
+                [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
+                if ( count($candidateItems) > count($items) ) {
+                    $list = $candidateList;
+                    $items = $candidateItems;
+                }
             }
         }
-        if ( ! $list instanceof DOMElement ) {
+        $paginationCount = $this->carouselPaginationCount($element);
+        // Boundary-state carousels commonly omit one direction, while compact
+        // variants can expose only indexed pagination for the same interaction.
+        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
             return null;
         }
 
         $slides = array();
-        foreach ( $items as $item ) {
+        foreach ( $items as $sourceItem ) {
+            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
             $image = $item->getElementsByTagName('img')->item(0);
-            if ( ! $image instanceof DOMElement ) {
-                return null;
-            }
-            $slide = $this->convertImageElement($image);
-            if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
-                return null;
-            }
-            $caption = $this->carouselItemCaption($item);
-            if ( '' !== $caption ) {
-                $slide['attrs']['caption'] = $caption;
-                $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+            if ( $image instanceof DOMElement ) {
+                $slide = $this->convertImageElement($image);
+                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $caption = $this->carouselItemCaption($item);
+                if ( '' !== $caption ) {
+                    $slide['attrs']['caption'] = $caption;
+                    $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
+                }
+            } else {
+                $slideFallbacks = array();
+                $children = $this->convertChildren($item, $slideFallbacks, true);
+                if ( array() === $children || array() !== $slideFallbacks ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $slide = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $children, $item);
             }
             $slides[] = $slide;
+            if ( $temporary ) {
+                $item->parentNode?->removeChild($item);
+            }
         }
 
         $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
+        $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, $this->attr($element, 'id'), $this->attr($element, 'class'), $this->attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity) ? 'slideshow' : 'track';
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
         $initialSlide = 0;
         foreach ( $items as $index => $item ) {
             if ( '' !== $this->attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== $this->attr($item, 'aria-hidden')) ) {
@@ -10571,7 +10625,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $showDots = false;
+        $showDots = $paginationCount >= 2;
         foreach ( $element->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
@@ -10609,8 +10663,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $transitionDuration = 300;
         }
 
-        $listHeight = (string) ($this->styleResolver->cssDeclarations($this->attr($list, 'style'))['height'] ?? '');
-        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($listHeight), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $geometryList = $localList instanceof DOMElement ? $localList : $list;
+        $listHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
+        $rootHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
+        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
         $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
@@ -10647,6 +10704,110 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
+    private function richestCarouselList(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+                continue;
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        return array($list, $items);
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function carouselItemsHaveContent(array $items): bool
+    {
+        foreach ( $items as $item ) {
+            if ( 0 === $item->getElementsByTagName('img')->length
+                && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function carouselPaginationCount(DOMElement $root): int
+    {
+        $count = 0;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
+                $this->attr($candidate, 'aria-label'),
+                $this->attr($candidate, 'class'),
+                $this->attr($candidate, 'data-testid'),
+            ))));
+            $indexed = false;
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                $indexed = $indexed || ctype_digit(trim($this->attr($candidate, $attribute)));
+            }
+            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
+                ++$count;
+            }
+        }
+        return $count;
+    }
+
+    /** @return array{0: DOMElement, 1: bool} */
+    private function carouselItemInRoot(DOMElement $item, DOMElement $root, ?DOMElement $localList): array
+    {
+        for ( $ancestor = $item; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor === $root ) {
+                return array($item, false);
+            }
+        }
+        if ( $localList instanceof DOMElement ) {
+            $itemId = trim($this->attr($item, 'id'));
+            if ( '' !== $itemId ) {
+                foreach ( $this->carouselListItems($localList) as $localItem ) {
+                    if ( $itemId === trim($this->attr($localItem, 'id')) ) {
+                        return array($localItem, false);
+                    }
+                }
+            }
+        }
+
+        $clone = $item->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            return array($item, false);
+        }
+        ($localList ?? $root)->appendChild($clone);
+        return array($clone, true);
+    }
+
+    private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
+            return false;
+        }
+        $leftId = trim($this->attr($left, 'id'));
+        if ( '' !== $leftId && $leftId === trim($this->attr($right, 'id')) ) {
+            return true;
+        }
+
+        $identityClasses = static function (string $classes): array {
+            $matches = array();
+            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
+                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
+                    $matches[] = $class;
+                }
+            }
+            return $matches;
+        };
+        return array() !== array_intersect($identityClasses($this->attr($left, 'class')), $identityClasses($this->attr($right, 'class')));
+    }
+
     /** @return array<int, DOMElement> */
     private function carouselListItems(DOMElement $list): array
     {
@@ -10670,22 +10831,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 && 0 < $child->getElementsByTagName('img')->length
             ) {
                 $items[] = $child;
+                continue;
+            }
+            if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
+                && ! in_array(strtolower($child->tagName), array('a', 'button', 'nav'), true)
+            ) {
+                $items[] = $child;
             }
         }
 
         return $items;
-    }
-
-    /** @param array<int, DOMElement> $items */
-    private function carouselItemsHaveImages(array $items): bool
-    {
-        foreach ( $items as $item ) {
-            if ( 0 === $item->getElementsByTagName('img')->length ) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private function carouselItemCaption(DOMElement $item): string

@@ -17,6 +17,7 @@ final class NavigationPatternContext
     private readonly ?Closure $responsiveToggleMarker;
     private readonly ?Closure $linkIconMarker;
     private readonly ?Closure $inheritedPresentation;
+    private readonly ?Closure $labelPresentationMarkers;
 
     /**
      * @param callable(DOMElement): bool|null $runtimeDomTarget
@@ -27,6 +28,7 @@ final class NavigationPatternContext
      * @param callable(DOMElement): string|null $responsiveToggleMarker
      * @param callable(DOMElement): string|null $linkIconMarker
      * @param callable(DOMElement, array<int, string>): void|null $inheritedPresentation
+     * @param callable(DOMElement): list<string>|null $labelPresentationMarkers
      */
     public function __construct(
         ?callable $runtimeDomTarget,
@@ -36,16 +38,29 @@ final class NavigationPatternContext
         ?callable $overlayMenu = null,
         ?callable $responsiveToggleMarker = null,
         ?callable $linkIconMarker = null,
-        ?callable $inheritedPresentation = null
+        ?callable $inheritedPresentation = null,
+        ?callable $labelPresentationMarkers = null
     ) {
         $this->linkIconMarker         = null === $linkIconMarker ? null : Closure::fromCallable($linkIconMarker);
         $this->inheritedPresentation  = null === $inheritedPresentation ? null : Closure::fromCallable($inheritedPresentation);
+        $this->labelPresentationMarkers = null === $labelPresentationMarkers ? null : Closure::fromCallable($labelPresentationMarkers);
         $this->runtimeDomTarget       = null === $runtimeDomTarget ? null : Closure::fromCallable($runtimeDomTarget);
         $this->underlineColor         = Closure::fromCallable($underlineColor);
         $this->resolvedStyle          = Closure::fromCallable($resolvedStyle);
         $this->colorInteractionStates = null === $colorInteractionStates ? null : Closure::fromCallable($colorInteractionStates);
         $this->overlayMenu            = null === $overlayMenu ? null : Closure::fromCallable($overlayMenu);
         $this->responsiveToggleMarker = null === $responsiveToggleMarker ? null : Closure::fromCallable($responsiveToggleMarker);
+    }
+
+    /**
+     * Author-selector markers the projected stylesheet targets for an element
+     * that will be inlined into a navigation item's `label` attribute.
+     *
+     * @return list<string>
+     */
+    public function labelPresentationMarkers(DOMElement $element): array
+    {
+        return null === $this->labelPresentationMarkers ? array() : ($this->labelPresentationMarkers)($element);
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool

@@ -22,14 +22,14 @@ final class ClosedStateNormalizer
      * @param array<string, string> $declarations
      * @return array{declarations: array<string, string>, stripped: list<string>}
      */
-    public function strip(array $declarations): array
+    public function strip(array $declarations, array $revealProperties = array()): array
     {
         $stripped = array();
-        if ( isset($declarations['display']) && 'none' === $this->normalizedValue($declarations['display']) ) {
+        if ( isset($revealProperties['display']) && isset($declarations['display']) && 'none' === $this->normalizedValue($declarations['display']) ) {
             unset($declarations['display']);
             $stripped[] = 'display:none';
         }
-        if ( isset($declarations['visibility']) && 'hidden' === $this->normalizedValue($declarations['visibility']) ) {
+        if ( isset($revealProperties['visibility']) && isset($declarations['visibility']) && 'hidden' === $this->normalizedValue($declarations['visibility']) ) {
             unset($declarations['visibility']);
             $stripped[] = 'visibility:hidden';
         }
@@ -42,18 +42,18 @@ final class ClosedStateNormalizer
         $height = strtolower(trim((string) ($declarations['height'] ?? '')));
         $maxHeight = strtolower(trim((string) ($declarations['max-height'] ?? '')));
         $overflow = strtolower(trim((string) ($declarations['overflow'] ?? '')));
-        if ( $this->isZeroLength($height) ) {
+        if ( isset($revealProperties['height']) && $this->isZeroLength($height) ) {
             unset($declarations['height']);
             $stripped[] = 'height:0';
-            if ( $this->isHiddenOverflow($overflow) ) {
+            if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
                 unset($declarations['overflow']);
                 $stripped[] = 'overflow:hidden';
             }
         }
-        if ( $this->isZeroLength($maxHeight) ) {
+        if ( isset($revealProperties['max-height']) && $this->isZeroLength($maxHeight) ) {
             unset($declarations['max-height']);
             $stripped[] = 'max-height:0';
-            if ( $this->isHiddenOverflow($overflow) ) {
+            if ( isset($revealProperties['overflow']) && $this->isHiddenOverflow($overflow) ) {
                 unset($declarations['overflow']);
                 $stripped[] = 'overflow:hidden';
             }

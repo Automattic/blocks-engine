@@ -86,6 +86,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( $this->context->hasResponsiveImageSources($element) && $this->context->hasGalleryMediaItems($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
+        $block = $this->context->authoredCarouselBlock($element);
+        if ( null !== $block ) {
+            return ConversionOutcome::handled($block);
+        }
         if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -195,10 +199,6 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-        }
-        $block = $this->context->authoredCarouselBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
         }
         if ( $this->context->isGeneratedComponentCandidate($element) ) {
             $block = $this->context->generatedComponentBlock($element);
