@@ -234,6 +234,33 @@ final class NavigationPattern implements PatternRecognizerInterface
         );
     }
 
+    private function overlayMenu(DOMElement $element, ?NavigationPatternContext $context): string
+    {
+        if ( $this->isInsideCapturedDisclosurePanel($element) ) {
+            return 'never';
+        }
+
+        return $context?->overlayMenu($element) ?? 'never';
+    }
+
+    /** A native disclosure already supplies the only mobile open/close control. */
+    private function isInsideCapturedDisclosurePanel(DOMElement $element): bool
+    {
+        $hasDialogPanel = false;
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $classes = ' ' . trim(SourceDom::attr($ancestor, 'class')) . ' ';
+            if ( str_contains($classes, ' dla-dialog ') ) {
+                $hasDialogPanel = true;
+                continue;
+            }
+            if ( $hasDialogPanel && 'details' === strtolower($ancestor->tagName) && str_contains($classes, ' dla-disclosure ') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isNavigationSectionHeading(DOMElement $element): bool
     {
         if ( preg_match('/^h[1-6]$/i', $element->tagName) ) {

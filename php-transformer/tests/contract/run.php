@@ -875,6 +875,17 @@ $capturedMenuDisclosureBlock = $capturedMenuDisclosure['blocks'][0] ?? array();
 $assert('core/details' === ($capturedMenuDisclosureBlock['blockName'] ?? null) && 'core/navigation' === (($capturedMenuDisclosureBlock['innerBlocks'][0]['innerBlocks'][0] ?? array())['blockName'] ?? null), 'icon-only menu disclosures preserve their native trigger and navigation content');
 $assert(str_contains($capturedMenuDisclosureMarkup, '<summary><svg aria-hidden="true">') && str_contains($capturedMenuDisclosureMarkup, '<!-- wp:navigation'), 'icon-only menu disclosures retain an operable summary with editable navigation content');
 
+$capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<header><details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="dla-dialog" role="dialog"><nav class="mobile-nav"><ul><li><a href="/">Home</a></li><li><a href="/about">About</a></li></ul></nav></div></details></header>',
+        ),
+    )
+)->toArray();
+$capturedMobileMenuDisclosureMarkup = (string) ($capturedMobileMenuDisclosure['serialized_blocks'] ?? '');
+$assert(str_contains($capturedMobileMenuDisclosureMarkup, '"overlayMenu":"never"') && ! str_contains($capturedMobileMenuDisclosureMarkup, 'blocks-engine-native-responsive-navigation'), 'navigation inside a captured native disclosure does not create a nested mobile overlay', $capturedMobileMenuDisclosureMarkup);
+
 $linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
 $linkedCapturedDisclosureBlock = $linkedCapturedDisclosure['blocks'][0] ?? array();
 $assert(str_ends_with((string) ($linkedCapturedDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && array('menu-trigger') === ($linkedCapturedDisclosureBlock['attrs']['triggerIds'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');
