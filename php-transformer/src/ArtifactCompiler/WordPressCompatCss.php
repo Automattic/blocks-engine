@@ -25,7 +25,34 @@ final class WordPressCompatCss
             . $this->navigationStructureCompatCss($authoredCss)
             . $this->navigationAnchorCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
+            . $this->responsiveRootCompatCss($authoredCss)
             . $this->coreRuntimeCompatCss($authoredCss, $files);
+    }
+
+    /**
+     * WordPress owns the body element, so a source body's responsive class is
+     * not available to disable a captured desktop-only root minimum width.
+     */
+    private function responsiveRootCompatCss(string $css): string
+    {
+        $selectors = array();
+        foreach ( $this->topLevelCssRules($css) as $rule ) {
+            if ( ! preg_match('/(?:^|;)\s*min-width\s*:\s*(?!0(?:[a-z%]+)?\s*(?:!important)?\s*(?:;|$))/i', $rule['body']) ) {
+                continue;
+            }
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
+                if ( preg_match('/\bbody\s*:not\(\s*\.responsive\s*\)/i', $selector) ) {
+                    $selectors[trim($selector)] = true;
+                }
+            }
+        }
+
+        if ( array() === $selectors ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: WordPress body does not retain the source responsive root class. */\n"
+            . implode(",\n", array_keys($selectors)) . ' { min-width:0!important }';
     }
 
     /**
