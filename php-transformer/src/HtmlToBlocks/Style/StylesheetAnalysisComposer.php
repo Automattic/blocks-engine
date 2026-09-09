@@ -41,7 +41,11 @@ final class StylesheetAnalysisComposer
     public function stylesheetPayloads(string $html, string $staticCss, array $options): array
     {
         $staticPayloads = $this->staticStylesheetPayloads($staticCss, $options);
-        $inlinePayloads = $this->inlineStylesheetPayloads($html);
+        // Artifact compilation supplies every stylesheet occurrence, including
+        // inline styles, in document order through stylesheet_payloads.
+        $inlinePayloads = is_array($options['stylesheet_payloads'] ?? null)
+            ? array()
+            : $this->inlineStylesheetPayloads($html);
         $payloads = array_merge($staticPayloads, $inlinePayloads);
         if ( ! $this->hasSafeStylesheetBoundaries($payloads) ) {
             // Preserve the legacy parser's recovery across a concatenated stream.
@@ -208,7 +212,12 @@ final class StylesheetAnalysisComposer
         $payloads = array();
         foreach ( $options['stylesheet_payloads'] as $payload ) {
             if ( is_array($payload) && is_string($payload['content'] ?? null) ) {
-                $payloads[] = $payload['content'];
+                $content = $payload['content'];
+                $media = is_string($payload['media'] ?? null) ? trim($payload['media']) : '';
+                // A link/style media attribute scopes the entire stylesheet.
+                // Preserve that scope for presentation analysis just as emitted
+                // stylesheet assets preserve it for browser rendering.
+                $payloads[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
         }
 

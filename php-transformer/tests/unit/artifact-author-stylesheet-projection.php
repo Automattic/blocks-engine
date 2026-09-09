@@ -292,6 +292,25 @@ $assert('(min-width: 48rem)' === (($embeddedStyleAssets[2]['media'] ?? '')), 'em
 $assert(str_contains($embeddedStyleContents, '.hero{background:url("images/banner.svg")}'), 'embedded CSS URL references retain canonical artifact-relative resolution');
 $assert(array() === $styleFallbacks && 1 === count($unsupportedBodyFallbacks), 'materialized style elements avoid unsupported-element fallbacks while genuine unsupported body elements remain reported');
 
+// Stylesheet occurrences must keep source order for analysis, but a media
+// attribute must remain a condition rather than becoming unconditional input.
+$mediaScopedCascade = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.card{display:grid}</style><link rel="stylesheet" href="screen.css"><link rel="stylesheet" href="print.css" media="print"><main><div class="card"><p>One</p><p>Two</p></div></main>' ),
+        array( 'path' => 'screen.css', 'kind' => 'css', 'content' => '.card{display:block}' ),
+        array( 'path' => 'print.css', 'kind' => 'css', 'content' => '.card{display:grid}' ),
+    ),
+) )->toArray();
+$mediaScopedAssets = array_column($mediaScopedCascade['assets'] ?? array(), null, 'path');
+$mediaScopedMarkup = (string) ($mediaScopedCascade['serialized_blocks'] ?? '');
+$assert(
+    ! str_contains($mediaScopedMarkup, 'blocks-engine-css-owned-grid')
+        && 'print' === ($mediaScopedAssets['print.css']['media'] ?? null)
+        && 1 === substr_count((string) ($mediaScopedAssets['print.css']['content'] ?? ''), '.card{display:grid}'),
+    'source-ordered inline and linked styles resolve the screen layout without treating print-only CSS as unconditional, while the print stylesheet is emitted once with its media scope'
+);
+
 $image = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="image.css"><img class="root-photo" src="photo.jpg" alt="Root photo"><main><img class="photo relative-photo" src="photo.jpg" alt="Photo"></main>' ),

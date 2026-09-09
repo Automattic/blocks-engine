@@ -2517,7 +2517,7 @@ final class ArtifactCompiler
      *
      * @param list<array{path: string, content: string, source_hash: string}> $stylesheets
      * @param array<int, array<string, mixed>> $files
-     * @return list<array{content: string, source_hash: string}>
+     * @return list<array{content: string, source_hash: string, media: string}>
      */
     private function linkedStylesheetPayloads(array $stylesheets, string $sourcePath, array $files): array
     {
@@ -2528,6 +2528,7 @@ final class ArtifactCompiler
                 $payloads[] = array(
                     'content' => $this->artifactRelativeStylesheetContent($content, (string) ($stylesheet['source_path'] ?? $sourcePath), $files),
                     'source_hash' => (string) ($stylesheet['source_hash'] ?? hash('sha256', $content)),
+                    'media' => (string) ($stylesheet['media'] ?? ''),
                 );
             }
         }
