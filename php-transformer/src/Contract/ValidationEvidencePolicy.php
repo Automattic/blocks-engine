@@ -16,7 +16,7 @@ final class ValidationEvidencePolicy
     /** @param array<string, mixed> $options */
     public static function fromOptions(array $options): self
     {
-        $detail = $options['validation_evidence'] ?? self::FULL;
+        $detail = array_key_exists('validation_evidence', $options) ? $options['validation_evidence'] : self::FULL;
         if (!is_string($detail) || !in_array($detail, array(self::FULL, self::COMPACT), true)) {
             throw new \InvalidArgumentException('validation_evidence must be "full" or "compact".');
         }

@@ -222,6 +222,11 @@ $assert(
     'compact' === ($compactBridgeEvidence['source_reports']['semantic_parity']['evidence']['detail'] ?? null),
     'format bridge forwards compact validation evidence to HTML conversion'
 );
+$compactFragmentEvidence = (new ArtifactCompiler())->compileFragment($validationEvidenceHtml, 'fixture:compact-fragment', 'html', array('validation_evidence' => 'compact'))->toArray();
+$assert(
+    $compactBridgeEvidence['source_reports']['semantic_parity'] === $compactFragmentEvidence['source_reports']['semantic_parity'],
+    'artifact compiler compileFragment forwards compact validation evidence to HTML conversion'
+);
 try {
     (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => 'summary'));
     $invalidValidationEvidenceRejected = false;
@@ -229,6 +234,15 @@ try {
     $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
 }
 $assert($invalidValidationEvidenceRejected, 'invalid validation evidence detail is rejected explicitly');
+foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) {
+    try {
+        (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => $invalidValidationEvidence));
+        $invalidValidationEvidenceRejected = false;
+    } catch (\InvalidArgumentException $exception) {
+        $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
+    }
+    $assert($invalidValidationEvidenceRejected, 'null and non-string validation evidence details are rejected explicitly');
+}
 $ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
     array('block_path' => '0', 'editability_runtime_owned' => true),
     array('block_path' => '', 'editability_visual_owned' => true),
