@@ -488,52 +488,30 @@ final class Runtime
      */
     public function validateBlockSerialization(string|array $serializedBlocksOrBlocks): array
     {
-        if ( is_string($serializedBlocksOrBlocks) ) {
-            $blocks = $this->parseBlocks($serializedBlocksOrBlocks);
-            $report = $this->buildBlockValidityReport($blocks);
-
-            if ( array() === $blocks && str_contains($serializedBlocksOrBlocks, '<!-- wp:') ) {
-                $report['status'] = 'warning';
-                $report['summary']['finding_count'] = ((int) ($report['summary']['finding_count'] ?? 0)) + 1;
-                $report['findings'][] = array(
-                    'code'     => 'serialized_blocks_parse_failed',
-                    'severity' => 'warning',
-                    'category' => 'wp_block_validity',
-                    'path'     => 'serialized_blocks',
-                    'summary'  => 'Serialized block comments were present but could not be parsed into a balanced block tree.',
-                );
-            }
-
-            return $report;
-        }
-
-        return $this->buildBlockValidityReport($serializedBlocksOrBlocks);
+        return $this->evaluateBlockSerialization($serializedBlocksOrBlocks)->report();
     }
 
     /**
-     * Run the serialization-structure validator and the canonical save()-shape
-     * validator over the same parsed block tree and merge their findings into a
-     * single wp_block_validity report. Both are pure-PHP and need no WordPress
-     * runtime, so the report stays usable in the standalone transformer loop.
+     * Parse string input once, then evaluate both validity validators over the
+     * resulting tree. The public report facade delegates here so consumers can
+     * use facts without reverse-engineering report maps.
      *
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<string, mixed>
+     * @param string|array<int, array<string, mixed>> $serializedBlocksOrBlocks
      */
-    private function buildBlockValidityReport(array $blocks): array
+    public function evaluateBlockSerialization(string|array $serializedBlocksOrBlocks): BlockValidityEvaluation
     {
-        $report = ( new BlockValidityValidator() )->validateBlocks($blocks);
+        if ( is_string($serializedBlocksOrBlocks) ) {
+            $blocks = $this->parseBlocks($serializedBlocksOrBlocks);
+            $evaluation = BlockValidityEvaluation::fromBlocks($blocks);
 
-        $saveShapeFindings = ( new CanonicalSaveShapeValidator() )->findings($blocks);
-        if ( array() !== $saveShapeFindings ) {
-            $report['findings'] = array_merge(
-                is_array($report['findings'] ?? null) ? $report['findings'] : array(),
-                $saveShapeFindings
-            );
-            $report['summary']['finding_count'] = count($report['findings']);
-            $report['status'] = 'warning';
+            if ( array() === $blocks && str_contains($serializedBlocksOrBlocks, '<!-- wp:') ) {
+                return $evaluation->withParseFailure();
+            }
+
+            return $evaluation;
         }
 
-        return $report;
+        return BlockValidityEvaluation::fromBlocks($serializedBlocksOrBlocks);
     }
 
     public function stripAllTags(string $text, bool $removeBreaks = false): string

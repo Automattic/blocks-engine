@@ -153,6 +153,10 @@ $validityFixture = json_decode((string) file_get_contents(dirname(__DIR__) . '/f
 assertSame('blocks-engine/php-transformer/wp-block-validity-fixture/v1', $validityFixture['schema'] ?? null, 'Block validity fixture should expose its schema.');
 foreach ( $validityFixture['cases'] as $case ) {
     $report = $runtime->validateBlockSerialization($case['input'] ?? $case['blocks']);
+    $evaluation = $runtime->evaluateBlockSerialization($case['input'] ?? $case['blocks']);
+    assertSame($report, $evaluation->report(), 'Block validity report facade should project the single evaluation for fixture case ' . $case['name']);
+    assertSame($report['status'] ?? null, $evaluation->status, 'Block validity evaluation should retain the report status for fixture case ' . $case['name']);
+    assertSame($report['findings'] ?? null, $evaluation->findings, 'Block validity evaluation should retain report finding order for fixture case ' . $case['name']);
     assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $report['schema'] ?? null, 'Block validity report should expose its schema.');
     assertSame($case['expected_status'], $report['status'] ?? null, 'Block validity report status should match fixture case ' . $case['name']);
     $codes = array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $report['findings'] ?? array());
@@ -161,6 +165,42 @@ foreach ( $validityFixture['cases'] as $case ) {
     sort($expectedCodes);
     assertSame($expectedCodes, $codes, 'Block validity report finding codes should match fixture case ' . $case['name']);
 }
+
+$invalidButtonAndGroup = array(
+    array(
+        'blockName' => 'core/button',
+        'attrs' => array('text' => 'Book now', 'url' => '/book'),
+        'innerBlocks' => array(),
+        'innerHTML' => '<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact">Contact us</a></div>',
+        'innerContent' => array('<div class="wp-block-button"><a class="wp-block-button__link wp-element-button" href="/contact">Contact us</a></div>'),
+    ),
+    array(
+        'blockName' => 'core/group',
+        'attrs' => array(),
+        'innerBlocks' => array(),
+        'innerHTML' => '<div class="wp-block-group leaked"></div>',
+        'innerContent' => array('<div class="wp-block-group leaked"></div>'),
+    ),
+);
+$orderedEvaluation = $runtime->evaluateBlockSerialization($invalidButtonAndGroup);
+assertSame(array('button_text_markup_mismatch', 'button_url_markup_mismatch', 'canonical_save_shape_violation'), array_column($orderedEvaluation->findings, 'code'), 'Block validity evaluation should retain structural findings before canonical save-shape findings.');
+assertSame(2, $orderedEvaluation->summary['block_count'] ?? null, 'Block validity evaluation should retain structural summary block count.');
+assertSame(3, $orderedEvaluation->summary['finding_count'] ?? null, 'Block validity evaluation should count merged findings.');
+assertSame(array('core/button', 'core/group'), $orderedEvaluation->summary['checked_block_types'] ?? null, 'Block validity evaluation should retain checked type summary ordering.');
+
+$mixedBlocks = array(null, array(
+    'blockName' => 'core/navigation',
+    'attrs' => array(),
+    'innerBlocks' => array(),
+    'innerHTML' => '',
+    'innerContent' => array(''),
+));
+assertSame($runtime->validateBlockSerialization($mixedBlocks), $runtime->evaluateBlockSerialization($mixedBlocks)->report(), 'Block validity evaluation should preserve mixed array input report semantics.');
+
+$unbalancedSerialization = '<!-- wp:paragraph --><p>Unbalanced';
+$unbalancedEvaluation = $runtime->evaluateBlockSerialization($unbalancedSerialization);
+assertSame($runtime->validateBlockSerialization($unbalancedSerialization), $unbalancedEvaluation->report(), 'Block validity evaluation should preserve unbalanced serialized-comment report semantics.');
+assertSame(array('serialized_block_comment_in_inner_content', 'serialized_block_comment_in_inner_html'), array_column($unbalancedEvaluation->findings, 'code'), 'Unbalanced serialized comments should retain structural parser findings and ordering.');
 
 assertSame('Safe text', $runtime->stripAllTags('<script>alert(1)</script><p>Safe <em>text</em></p>'), 'Fallback tag stripping should remove scripts and tags.');
 assertSame('wordpress_strip_all_tags_unavailable', $runtime->diagnostics()[0]['code'] ?? null, 'Fallback tag stripping should expose a diagnostic.');

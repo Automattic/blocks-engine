@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityEvaluation;
+
 /**
  * Required HTML validation facts used for diagnostics and acceptance.
  *
@@ -44,19 +46,18 @@ final class HtmlValidationOutcome
      * Semantic parity is evaluated by its producer; its detailed report remains
      * a projection rather than the source of required diagnostic facts.
      *
-     * @param array<string, mixed> $blockValidityReport
      * @param array<int, array<string, mixed>> $semanticParityFindings
      * @param array<string, mixed> $contentRoundTripReport
      */
-    public static function fromBlockValidityAndContentRoundTripReports(
-        array $blockValidityReport,
+    public static function fromBlockValidityEvaluationAndContentRoundTripReport(
+        BlockValidityEvaluation $blockValidityEvaluation,
         string $semanticParityStatus,
         array $semanticParityFindings,
         array $contentRoundTripReport
     ): self {
         return new self(
-            blockValidityStatus: self::status($blockValidityReport),
-            blockValidityFindings: self::findings($blockValidityReport, array('block_name', 'path')),
+            blockValidityStatus: $blockValidityEvaluation->status,
+            blockValidityFindings: self::findings(array('findings' => $blockValidityEvaluation->findings), array('block_name', 'path')),
             semanticParityStatus: $semanticParityStatus,
             semanticParityFindings: self::findings(array('findings' => $semanticParityFindings), array('selector')),
             contentRoundTripStatus: self::status($contentRoundTripReport),
