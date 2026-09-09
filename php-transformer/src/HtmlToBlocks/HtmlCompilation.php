@@ -1296,8 +1296,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $semanticParityReport = $semanticParityEvaluation->report();
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
-        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromBlockValidityEvaluationAndContentRoundTripReport(
-            $blockValidityEvaluation,
+        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFactsAndContentRoundTripReport(
+            $blockValidityEvaluation->status,
+            $blockValidityEvaluation->findings,
             $semanticParityEvaluation->status(),
             $semanticParityEvaluation->findings,
             $contentRoundTripReport

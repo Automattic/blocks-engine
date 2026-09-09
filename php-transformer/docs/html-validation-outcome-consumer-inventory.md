@@ -1,6 +1,6 @@
 # HTML Validation Outcome Consumer Inventory
 
-`HtmlCompilation` evaluates block validity, semantic parity, and content round-trip once. `Runtime::evaluateBlockSerialization()` parses string input once and returns `BlockValidityEvaluation`, which owns the merged structural and canonical save-shape status/findings; its `report()` facade projects the unchanged detailed report. `SemanticParityReporter::evaluate()` owns the semantic status, detailed enriched findings, landmark counts, and menu pairing/folding facts. `HtmlCompilation` passes both evaluations' status and findings directly to `Contract\HtmlValidationOutcome`, which it carries in `BlockCompilationOutput`.
+`HtmlCompilation` evaluates block validity, semantic parity, and content round-trip once. `BlockValidityValidator::evaluateBlocks()` produces structural `BlockValidityEvaluation` facts and `validateBlocks()` projects its public report; `Runtime::evaluateBlockSerialization()` parses string input once and returns the evaluation merged with canonical save-shape findings. Its `report()` facade projects the unchanged detailed report. `SemanticParityReporter::evaluate()` owns the semantic status, detailed enriched findings, landmark counts, and menu pairing/folding facts. `HtmlCompilation` passes both evaluations' explicit status and findings to the implementation-independent `Contract\HtmlValidationOutcome`, which it carries in `BlockCompilationOutput`.
 
 | Consumer | Required facts | Source |
 | --- | --- | --- |

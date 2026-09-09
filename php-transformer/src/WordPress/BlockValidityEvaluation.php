@@ -23,19 +23,40 @@ final class BlockValidityEvaluation
     /** @param array<int, array<string, mixed>> $blocks */
     public static function fromBlocks(array $blocks): self
     {
-        $structuralReport = ( new BlockValidityValidator() )->validateBlocks($blocks);
-        $findings = is_array($structuralReport['findings'] ?? null) ? $structuralReport['findings'] : array();
-        $findings = array_merge($findings, ( new CanonicalSaveShapeValidator() )->findings($blocks));
+        return ( new BlockValidityValidator() )
+            ->evaluateBlocks($blocks)
+            ->withAdditionalFindings(( new CanonicalSaveShapeValidator() )->findings($blocks));
+    }
 
+    /**
+     * @param array<int, string> $checkedBlockTypes
+     * @param array<int, array<string, mixed>> $findings
+     */
+    public static function fromStructuralFacts(int $blockCount, array $checkedBlockTypes, array $findings): self
+    {
         return new self(
             status: array() === $findings ? 'pass' : 'warning',
             summary: array(
-                'block_count'         => $structuralReport['summary']['block_count'] ?? 0,
+                'block_count'         => $blockCount,
                 'finding_count'       => count($findings),
-                'checked_block_types' => $structuralReport['summary']['checked_block_types'] ?? array(),
+                'checked_block_types' => $checkedBlockTypes,
             ),
             findings: $findings
         );
+    }
+
+    /** @param array<int, array<string, mixed>> $findings */
+    public function withAdditionalFindings(array $findings): self
+    {
+        if ( array() === $findings ) {
+            return $this;
+        }
+
+        $findings = array_merge($this->findings, $findings);
+        $summary = $this->summary;
+        $summary['finding_count'] = count($findings);
+
+        return new self('warning', $summary, $findings);
     }
 
     public function withParseFailure(): self

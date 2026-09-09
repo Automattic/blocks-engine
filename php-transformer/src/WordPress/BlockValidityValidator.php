@@ -26,9 +26,8 @@ final class BlockValidityValidator
 
     /**
      * @param array<int, array<string, mixed>> $blocks
-     * @return array<string, mixed>
      */
-    public function validateBlocks(array $blocks): array
+    public function evaluateBlocks(array $blocks): BlockValidityEvaluation
     {
         $findings = array();
         $checkedBlockTypes = array();
@@ -41,16 +40,16 @@ final class BlockValidityValidator
 
         sort($checkedBlockTypes);
 
-        return array(
-            'schema'   => self::SCHEMA,
-            'status'   => array() === $findings ? 'pass' : 'warning',
-            'summary'  => array(
-                'block_count'         => $this->countBlocks($blocks),
-                'finding_count'       => count($findings),
-                'checked_block_types' => $checkedBlockTypes,
-            ),
-            'findings' => $findings,
-        );
+        return BlockValidityEvaluation::fromStructuralFacts($this->countBlocks($blocks), $checkedBlockTypes, $findings);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @return array<string, mixed>
+     */
+    public function validateBlocks(array $blocks): array
+    {
+        return $this->evaluateBlocks($blocks)->report();
     }
 
     /**

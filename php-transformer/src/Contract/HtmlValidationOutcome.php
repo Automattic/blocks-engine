@@ -3,8 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 
-use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityEvaluation;
-
 /**
  * Required HTML validation facts used for diagnostics and acceptance.
  *
@@ -29,37 +27,25 @@ final class HtmlValidationOutcome
     ) {
     }
 
-    /** @param array<string, mixed> $blockValidityReport @param array<string, mixed> $semanticParityReport @param array<string, mixed> $contentRoundTripReport */
-    public static function fromReports(array $blockValidityReport, array $semanticParityReport, array $contentRoundTripReport): self
-    {
-        return new self(
-            blockValidityStatus: self::status($blockValidityReport),
-            blockValidityFindings: self::findings($blockValidityReport, array('block_name', 'path')),
-            semanticParityStatus: self::status($semanticParityReport),
-            semanticParityFindings: self::findings($semanticParityReport, array('selector')),
-            contentRoundTripStatus: self::status($contentRoundTripReport),
-            contentRoundTripFindings: self::findings($contentRoundTripReport, array('text'))
-        );
-    }
-
     /**
-     * Semantic parity is evaluated by its producer; its detailed report remains
-     * a projection rather than the source of required diagnostic facts.
+     * Validators supply facts directly; detailed reports remain projections.
      *
+     * @param array<int, array<string, mixed>> $blockValidityFindings
      * @param array<int, array<string, mixed>> $semanticParityFindings
      * @param array<string, mixed> $contentRoundTripReport
      */
-    public static function fromBlockValidityEvaluationAndContentRoundTripReport(
-        BlockValidityEvaluation $blockValidityEvaluation,
+    public static function fromValidationFactsAndContentRoundTripReport(
+        string $blockValidityStatus,
+        array $blockValidityFindings,
         string $semanticParityStatus,
         array $semanticParityFindings,
         array $contentRoundTripReport
     ): self {
         return new self(
-            blockValidityStatus: $blockValidityEvaluation->status,
-            blockValidityFindings: self::findings(array('findings' => $blockValidityEvaluation->findings), array('block_name', 'path')),
+            blockValidityStatus: $blockValidityStatus,
+            blockValidityFindings: self::filteredFindings($blockValidityFindings, array('block_name', 'path')),
             semanticParityStatus: $semanticParityStatus,
-            semanticParityFindings: self::findings(array('findings' => $semanticParityFindings), array('selector')),
+            semanticParityFindings: self::filteredFindings($semanticParityFindings, array('selector')),
             contentRoundTripStatus: self::status($contentRoundTripReport),
             contentRoundTripFindings: self::findings($contentRoundTripReport, array('text'))
         );
@@ -74,8 +60,14 @@ final class HtmlValidationOutcome
     /** @param array<string, mixed> $report @param array<int, string> $fields @return array<int, array<string, mixed>> */
     private static function findings(array $report, array $fields): array
     {
+        return self::filteredFindings(is_array($report['findings'] ?? null) ? $report['findings'] : array(), $fields);
+    }
+
+    /** @param array<int, mixed> $sourceFindings @param array<int, string> $fields @return array<int, array<string, mixed>> */
+    private static function filteredFindings(array $sourceFindings, array $fields): array
+    {
         $findings = array();
-        foreach ($report['findings'] ?? array() as $finding) {
+        foreach ($sourceFindings as $finding) {
             if (!is_array($finding)) {
                 continue;
             }

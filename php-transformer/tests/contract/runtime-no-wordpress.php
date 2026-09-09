@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 
 $runtime = new Runtime();
@@ -183,6 +184,10 @@ $invalidButtonAndGroup = array(
     ),
 );
 $orderedEvaluation = $runtime->evaluateBlockSerialization($invalidButtonAndGroup);
+$structuralValidator = new BlockValidityValidator();
+$structuralEvaluation = $structuralValidator->evaluateBlocks($invalidButtonAndGroup);
+assertSame($structuralValidator->validateBlocks($invalidButtonAndGroup), $structuralEvaluation->report(), 'Structural report facade should project direct structural evaluation facts.');
+assertSame(array('button_text_markup_mismatch', 'button_url_markup_mismatch'), array_column($structuralEvaluation->findings, 'code'), 'Structural evaluation should exclude composite canonical save-shape findings.');
 assertSame(array('button_text_markup_mismatch', 'button_url_markup_mismatch', 'canonical_save_shape_violation'), array_column($orderedEvaluation->findings, 'code'), 'Block validity evaluation should retain structural findings before canonical save-shape findings.');
 assertSame(2, $orderedEvaluation->summary['block_count'] ?? null, 'Block validity evaluation should retain structural summary block count.');
 assertSame(3, $orderedEvaluation->summary['finding_count'] ?? null, 'Block validity evaluation should count merged findings.');
