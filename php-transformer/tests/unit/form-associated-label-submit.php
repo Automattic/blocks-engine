@@ -41,6 +41,12 @@ $form = '<main><form aria-label="Contact">'
 $serialized = $serialize($form);
 $formResult = $transformer->transform($form)->toArray();
 $runtimeSubmit = $formResult['fallbacks'][0]['controls'][3] ?? array();
+$assert(
+    '*' === ($formResult['fallbacks'][0]['controls'][0]['required_text'] ?? null)
+        && 'First name' === ($formResult['fallbacks'][0]['controls'][0]['label'] ?? null)
+        && ! isset($formResult['fallbacks'][0]['controls'][1]['required_text']),
+    'required marker text is captured separately from the accessible label only when present'
+);
 
 $assert(
     str_contains($serialized, 'Claim My Spot') && ! str_contains($serialized, '>Button<'),
