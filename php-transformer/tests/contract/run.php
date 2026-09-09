@@ -199,6 +199,15 @@ $withoutDuration = static function (array $result): array {
 };
 $compactSemanticParity = $compactValidationEvidence['source_reports']['semantic_parity'] ?? array();
 $compactConversionSemanticParity = $compactValidationEvidence['source_reports']['conversion_report']['semantic_parity'] ?? array();
+$fullSemanticParity = $fullValidationEvidence['source_reports']['semantic_parity'];
+$fullSemanticEvaluation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityEvaluation(
+    $fullSemanticParity['landmarks']['source'],
+    $fullSemanticParity['landmarks']['blocks'],
+    $fullSemanticParity['navigation_menus']['source'],
+    $fullSemanticParity['navigation_menus']['blocks'],
+    $fullSemanticParity['findings']
+);
+$assert($fullSemanticParity === $fullSemanticEvaluation->report(), 'existing no-argument semantic report projection retains the complete full default');
 $assert(
     $withoutDuration($defaultValidationEvidence) === $withoutDuration($fullValidationEvidence),
     'explicit full validation evidence preserves the default envelope except transform duration'

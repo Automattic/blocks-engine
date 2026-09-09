@@ -19,6 +19,9 @@ foreach ($iterator as $file) {
     }
 }
 sort($files, SORT_STRING);
+if (array() === $files) {
+    throw new InvalidArgumentException('No HTML fixtures found.');
+}
 
 $stripDuration = static function (mixed $value) use (&$stripDuration): mixed {
     if (!is_array($value)) {
@@ -33,18 +36,34 @@ $stripDuration = static function (mixed $value) use (&$stripDuration): mixed {
 
 $started = hrtime(true);
 $serializedBytes = 0;
+$serializedReportBytes = 0;
+$jsonBytes = 0;
+$jsonReportBytes = 0;
+$jsonEncodableResults = 0;
+$jsonEncodableReports = 0;
 $serializedHash = hash_init('sha256');
 foreach ($files as $file) {
     $result = (new HtmlTransformer())->transform((string) file_get_contents($file), array('validation_evidence' => $evidence))->toArray();
     $path = str_replace($root . '/', '', $file);
-    $serialized = serialize($stripDuration($result));
+    $result = $stripDuration($result);
+    $serialized = serialize($result);
     $serializedBytes += strlen($serialized);
+    $serializedReportBytes += strlen(serialize($result['source_reports']));
+    $json = json_encode($result, JSON_UNESCAPED_SLASHES);
+    $reportJson = json_encode($result['source_reports'], JSON_UNESCAPED_SLASHES);
+    if (is_string($json)) { $jsonBytes += strlen($json); ++$jsonEncodableResults; }
+    if (is_string($reportJson)) { $jsonReportBytes += strlen($reportJson); ++$jsonEncodableReports; }
     hash_update($serializedHash, pack('N', strlen($path)) . $path . pack('N', strlen($serialized)) . $serialized);
 }
 fwrite(STDOUT, json_encode(array(
     'file_count' => count($files),
     'evidence' => $evidence,
     'serialized_bytes' => $serializedBytes,
+    'serialized_report_bytes' => $serializedReportBytes,
+    'json_bytes' => $jsonBytes,
+    'json_report_bytes' => $jsonReportBytes,
+    'json_encodable_results' => $jsonEncodableResults,
+    'json_encodable_reports' => $jsonEncodableReports,
     'serialized_sha256' => hash_final($serializedHash),
     'peak_memory_bytes' => memory_get_peak_usage(true),
     'duration_ms' => (hrtime(true) - $started) / 1000000,

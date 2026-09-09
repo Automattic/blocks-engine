@@ -34,14 +34,14 @@ final class SemanticParityEvaluation
     }
 
     /** @return array<string, mixed> */
-    public function report(ValidationEvidencePolicy $validationEvidence): array
+    public function report(?ValidationEvidencePolicy $validationEvidence = null): array
     {
         $report = array(
             'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
             'finding_schema' => ConversionFindingContract::SCHEMA,
             'status' => $this->status(),
         );
-        if (ValidationEvidencePolicy::COMPACT === $validationEvidence->detail) {
+        if (ValidationEvidencePolicy::COMPACT === $validationEvidence?->detail) {
             // Findings and status remain authoritative; inventories are optional detail.
             return $report + array(
                 'evidence' => array(

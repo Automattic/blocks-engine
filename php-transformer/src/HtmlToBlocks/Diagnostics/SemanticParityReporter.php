@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
-use Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
@@ -92,7 +91,7 @@ final class SemanticParityReporter
      */
     public function report(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): array
     {
-        return $this->evaluate($body, $blocks, $sourceProvenance, $html, $staticCss)->report(ValidationEvidencePolicy::fromOptions(array()));
+        return $this->evaluate($body, $blocks, $sourceProvenance, $html, $staticCss)->report();
     }
 
     /**
