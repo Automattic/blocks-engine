@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 
 /**
  * Composes typed viewport-specific source documents before artifact normalization.
@@ -192,11 +193,11 @@ final class ResponsiveDocumentVariants
             },
             $html
         );
-        return (string) preg_replace_callback(
-            '~<style\b[^>]*>(.*?)</style\s*>~is',
-            static fn(array $match): string => str_replace($match[1], self::rebaseCss($match[1], $rebase), $match[0]),
-            $html
-        );
+        foreach (array_reverse(StyleTagScanner::scan($html)) as $style) {
+            $contentOffset = $style['offset'] + 6 + strlen($style['attributes']) + 1;
+            $html = substr_replace($html, self::rebaseCss($style['content'], $rebase), $contentOffset, strlen($style['content']));
+        }
+        return $html;
     }
 
     /** @param callable(string):string $rebase */
@@ -283,13 +284,10 @@ final class ResponsiveDocumentVariants
     /** @return array<int,array{css:string,media:string}> */
     private function styles(string $html): array
     {
-        if (!preg_match_all('@<style\b([^>]*)>([\s\S]*?)</style\s*>@i', $html, $matches, PREG_SET_ORDER)) {
-            return array();
-        }
-        return array_map(fn(array $match): array => array(
-            'css' => (string) $match[2],
-            'media' => $this->attribute('<style ' . $match[1] . '>', 'media'),
-        ), $matches);
+        return array_map(fn(array $style): array => array(
+            'css' => $style['content'],
+            'media' => $this->attribute('<style' . $style['attributes'] . '>', 'media'),
+        ), StyleTagScanner::scan($html));
     }
 
     private function attribute(string $tag, string $name): string

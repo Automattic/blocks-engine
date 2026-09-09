@@ -86,6 +86,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( $this->context->hasResponsiveImageSources($element) && $this->context->hasGalleryMediaItems($element) ) {
             return ConversionOutcome::handled($this->context->responsiveMediaBlock($element));
         }
+        $block = $this->context->authoredCarouselBlock($element);
+        if ( null !== $block ) {
+            return ConversionOutcome::handled($block);
+        }
         if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -130,7 +134,13 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($navigationSection->block());
         }
         if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
-            $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class ));
+            // A broad container can contain a real social cluster plus unrelated
+            // media. Let its children be converted instead of dropping that media.
+            $patterns = array( AccordionPattern::class, NavigationPattern::class );
+            if ( ! $this->context->hasCapturedMediaContent($element) ) {
+                $patterns[] = SocialLinksPattern::class;
+            }
+            $block = $this->context->recognizePatterns($element, $fallbacks, $patterns);
             if ( null !== $block ) {
                 return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
             }
@@ -195,10 +205,6 @@ final class FlowContainerElementConverter implements ElementConverter
             if ( null !== $block ) {
                 return ConversionOutcome::handled($block);
             }
-        }
-        $block = $this->context->authoredCarouselBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
         }
         if ( $this->context->isGeneratedComponentCandidate($element) ) {
             $block = $this->context->generatedComponentBlock($element);

@@ -406,7 +406,7 @@ final class ArtifactNormalizer
             foreach ( StyleTagScanner::scan($content) as $style ) {
                 $attributes = $style['attributes'];
                 $css = trim($style['content']);
-                if ( '' === $css || ! $this->isCssType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( '' === $css || ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
                 $styles[] = array( 'content' => $css, 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
@@ -544,12 +544,6 @@ final class ArtifactNormalizer
         }
         $reservedPaths[$path] = true;
         return $path;
-    }
-
-    private function isCssType(string $type): bool
-    {
-        $type = strtolower(trim($type));
-        return '' === $type || 1 === preg_match("/^text\\/css(?:\\s*;\\s*[!#$%&'*+\\-.^_`|~0-9a-z]+(?:\\s*=\\s*(?:[!#$%&'*+\\-.^_`|~0-9a-z]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)*\\s*$/i", $type);
     }
 
     /**

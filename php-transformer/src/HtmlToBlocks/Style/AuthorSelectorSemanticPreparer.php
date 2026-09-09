@@ -28,6 +28,22 @@ final class AuthorSelectorSemanticPreparer
         HtmlTransformerSession $session
     ): void {
         $stylesheetAssets = $this->stylesheetAnalysisComposer->authorStylesheetAssetsFromOptions($options);
+        if ( array() === $stylesheetAssets ) {
+            $stylesheetAssets = $this->stylesheetAnalysisComposer->inlineAuthorStylesheetAssets($html);
+            $staticCss = trim($staticCss);
+            if ( '' !== $staticCss ) {
+                $stylesheetAssets[] = array(
+                    'path' => 'static-style.css',
+                    // static_css predates explicit source assets and reports as
+                    // inline-style in the public fallback provenance contract.
+                    'source_path' => 'inline-style',
+                    'content' => $staticCss,
+                    'source_hash' => hash('sha256', $staticCss),
+                    'media' => '',
+                    'type' => '',
+                );
+            }
+        }
         $combinedAuthorCss = array() === $stylesheetAssets
             ? $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss)
             : implode("\n\n", array_column($stylesheetAssets, 'content'));

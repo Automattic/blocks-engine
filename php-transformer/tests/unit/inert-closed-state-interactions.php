@@ -175,11 +175,81 @@ $assert(
     $hiddenAnswerMarkup
 );
 $assert(
-    str_contains($hiddenAnswerAfterAuthor, 'visibility:visible')
-        || str_contains($hiddenAnswerAfterAuthor, 'display:revert')
-        || str_contains($hiddenAnswerAfterAuthor, 'height:auto'),
-    'author closed-state CSS is repaired on the frontend after behavior is stripped',
+    ! str_contains($hiddenAnswerAfterAuthor, '.answer{display:revert!important}')
+        && ! str_contains($hiddenAnswerAfterAuthor, '.answer{visibility:visible!important}')
+        && ! str_contains($hiddenAnswerAfterAuthor, '.answer{height:auto!important}'),
+    'permanently hidden authored content receives no visibility repair without source reveal evidence',
     $hiddenAnswerAfterAuthor
+);
+
+$permanentHidden = ( new HtmlTransformer() )->transform('<p style="display:none">Screen-reader-only source copy.</p><p style="visibility:hidden">Authored hidden copy.</p><p style="height:0;overflow:hidden">Collapsed authored copy.</p>')->toArray();
+$permanentHiddenMarkup = (string) ($permanentHidden['serialized_blocks'] ?? '');
+$permanentHiddenCss = $cssContent($permanentHidden);
+$permanentHiddenAfterAuthor = $cssContent($permanentHidden, 'after-author', 'both');
+$assert(
+    str_contains($permanentHiddenCss, 'display:none')
+        && str_contains($permanentHiddenCss, 'visibility:hidden')
+        && str_contains($permanentHiddenCss, 'height:0px !important')
+        && str_contains($permanentHiddenCss, 'overflow:hidden')
+        && '' === $permanentHiddenAfterAuthor,
+    'permanent inline display, visibility, and zero-geometry hidden states stay authored without repair CSS',
+    $permanentHiddenMarkup . "\n" . $permanentHiddenCss . "\n" . $permanentHiddenAfterAuthor
+);
+
+$authoredState = ( new HtmlTransformer() )->transform('<style>[data-panel-state="closed"]{display:none;visibility:hidden;height:0;overflow:hidden}</style><p data-panel-state="closed">A deliberately closed authored state.</p>')->toArray();
+$authoredStateAfterAuthor = $cssContent($authoredState, 'after-author', 'both');
+$assert(
+    ! str_contains($authoredStateAfterAuthor, 'display:revert!important')
+        && ! str_contains($authoredStateAfterAuthor, 'visibility:visible!important')
+        && ! str_contains($authoredStateAfterAuthor, 'height:auto!important'),
+    'a source-authored state selector receives no repair without a matching reveal mechanism',
+    $authoredStateAfterAuthor
+);
+
+$cssRevealPanel = ( new HtmlTransformer() )->transform('<style>.frozen-panel{display:none;visibility:hidden;height:0;overflow:hidden}.frozen-trigger:hover + .frozen-panel{display:block;visibility:visible;height:auto;overflow:visible}</style><div class="frozen-trigger">Reveal</div><div id="css-panel" class="frozen-panel"><p>A CSS-revealable panel.</p></div>')->toArray();
+$cssRevealPanelAfterAuthor = $cssContent($cssRevealPanel, 'after-author', 'both');
+$assert(
+    str_contains($cssRevealPanelAfterAuthor, '#css-panel{display:revert!important;height:auto!important;overflow:visible!important;visibility:visible!important}'),
+    'a frozen panel with CSS-only reveal evidence receives static recovery repairs',
+    $cssRevealPanelAfterAuthor
+);
+
+$ariaRevealPanel = ( new HtmlTransformer() )->transform('<style>.frozen-panel{display:none;visibility:hidden;height:0;overflow:hidden}</style><button aria-controls="aria-panel" aria-expanded="false">Reveal</button><div id="aria-panel" class="frozen-panel"><p>An ARIA-revealable panel.</p></div>')->toArray();
+$ariaRevealPanelAfterAuthor = $cssContent($ariaRevealPanel, 'after-author', 'both');
+$assert(
+    str_contains($ariaRevealPanelAfterAuthor, '#aria-panel{display:revert!important;height:auto!important;overflow:visible!important;visibility:visible!important}'),
+    'an exact ARIA-controlled target receives static recovery without CSS reveal rules',
+    $ariaRevealPanelAfterAuthor
+);
+
+$ariaDescendantOnly = ( new HtmlTransformer() )->transform('<style>.hidden-ancestor{display:none;visibility:hidden;height:0;overflow:hidden}</style><button aria-controls="controlled-child" aria-expanded="false">Reveal child</button><div id="hidden-ancestor" class="hidden-ancestor"><p id="controlled-child">Controlled child.</p></div>')->toArray();
+$ariaDescendantOnlyAfterAuthor = $cssContent($ariaDescendantOnly, 'after-author', 'both');
+$assert(
+    ! str_contains($ariaDescendantOnlyAfterAuthor, '#hidden-ancestor{display:revert!important}'),
+    'an ARIA-controlled descendant does not authorize repair of a hidden ancestor',
+    $ariaDescendantOnlyAfterAuthor
+);
+
+$nonProvingConditionals = ( new HtmlTransformer() )->transform('<style>.height-only{display:none}.height-trigger:hover + .height-only{height:auto}.collapsed-visibility{visibility:hidden}.visibility-trigger:hover + .collapsed-visibility{visibility:collapse}</style><div class="height-trigger">Hover</div><p id="height-only" class="height-only">Permanently display-hidden copy.</p><div class="visibility-trigger">Hover</div><p id="collapsed-visibility" class="collapsed-visibility">Permanently visibility-hidden copy.</p>')->toArray();
+$nonProvingAfterAuthor = $cssContent($nonProvingConditionals, 'after-author', 'both');
+$assert(
+    ! str_contains($nonProvingAfterAuthor, '#height-only{display:revert!important}')
+        && ! str_contains($nonProvingAfterAuthor, '#collapsed-visibility{visibility:visible!important}'),
+    'height-only and visibility:collapse conditional rules do not prove hidden barriers revealable',
+    $nonProvingAfterAuthor
+);
+
+$ariaHiddenOverflow = ( new HtmlTransformer() )->transform('<style>.aria-hidden-overflow{height:0;overflow:hidden}</style><p id="aria-hidden-overflow" class="aria-hidden-overflow" aria-hidden="true">Retained hidden overflow content.</p>')->toArray();
+$ariaHiddenOverflowMarkup = (string) ($ariaHiddenOverflow['serialized_blocks'] ?? '');
+$ariaHiddenOverflowCss = $cssContent($ariaHiddenOverflow);
+$ariaHiddenOverflowAfterAuthor = $cssContent($ariaHiddenOverflow, 'after-author', 'both');
+$assert(
+    str_contains($ariaHiddenOverflowMarkup, 'Retained hidden overflow content.')
+        && str_contains($ariaHiddenOverflowCss, 'height:0')
+        && str_contains($ariaHiddenOverflowCss, 'overflow:hidden')
+        && '' === $ariaHiddenOverflowAfterAuthor,
+    'source aria-hidden collapsed overflow content remains retained and receives no repair',
+    $ariaHiddenOverflowMarkup . "\n" . $ariaHiddenOverflowCss . "\n" . $ariaHiddenOverflowAfterAuthor
 );
 
 $alternateLayer = <<<'HTML'

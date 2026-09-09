@@ -34,18 +34,18 @@ $pageIds = array();
 try {
 if (!is_dir($themeDir) && !mkdir($themeDir, 0777, true) && !is_dir($themeDir)) throw new RuntimeException('Could not create integration theme directory.');
 $result = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
-    'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.home-owned{color:#123456}#content{background:#111;padding:4rem}</style><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
+    'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="assets/global.css"><style>.home-owned{color:#123456}#content{background:#111;padding:4rem}</style><script src="/assets/head.js?head=1#top"></script><script src="assets/defer.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><img src="assets/logo.svg"><h1>Home</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/async.js" async defer></script><script src="assets/module.js" type="module"></script><script src="assets/legacy.js" nomodule integrity="sha384-test" crossorigin="anonymous" referrerpolicy="no-referrer"></script><script src="https://cdn.example.test/external.js?build=1#run" async></script></body></html>',
     'assets/logo.svg' => '<svg xmlns="http://www.w3.org/2000/svg"/>',
-    'assets/global.css' => 'body{color:#123456;background-color:#fefefe;font-family:Inter,sans-serif;font-size:18px;padding:24px}.global-presentation{display:block}',
+    'assets/global.css' => 'body{color:#123456;background-color:#fefefe;background-image:url("logo.svg");font-family:Inter,sans-serif;font-size:18px;padding:24px}.global-presentation{display:block}',
     'assets/head.js' => 'window.headAsset=true;',
     'assets/defer.js' => 'window.deferAsset=true;',
     'assets/async.js' => 'window.asyncAsset=true;',
     'assets/module.js' => 'window.moduleAsset=true;',
     'assets/legacy.js' => 'window.legacyAsset=true;',
     'parts/sidebar.html' => '<aside class="site-sidebar"><p>Integration Sidebar</p></aside>',
-    'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
-    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
-    'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
+    'about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Root About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/root-about.js"></script><script src="assets/shared.js"></script></body></html>',
+    'nested/about.html' => '<!doctype html><html><head><link rel="stylesheet" href="../assets/global.css"><style media="(min-width: 48rem)">.about-owned{color:#654321}.about-media-presentation{display:grid}</style><script src="../assets/about-head.js" defer></script></head><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="https://cdn.example.test/about.js" async></script><script src="../assets/shared.js"></script></body></html>',
+    'nested/deep/about.html' => '<!doctype html><html><body><a class="skip-link" href="#content">Skip to content</a><header id="site-chrome" class="site-chrome" style="border-top:3px solid #111"><img src="../../assets/logo.svg" alt="Header mark"><p>Integration Header</p></header><main id="content"><h1>Deep About</h1></main><footer class="site-footer"><p>Integration Footer</p></footer><script src="assets/deep-about.js"></script></body></html>',
     array('path' => 'notes/essay.html', 'content' => '<main><article>Essay<time datetime="2024-03-02T10:30:00Z"></time></article></main><script src="assets/essay.js"></script>'),
     'assets/about-head.js' => 'window.aboutHeadAsset=true;',
     'assets/root-about.js' => 'window.rootAboutAsset=true;',
@@ -65,6 +65,51 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
+$editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
+if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
+wp_set_current_user($editorUserId);
+$templateId = $theme . '//front-page';
+$partId = $theme . '//header';
+$frontTemplate = get_block_template($templateId, 'wp_template');
+$headerPartTemplate = get_block_template($partId, 'wp_template_part');
+$templates = get_block_templates(array('slug__in' => array('front-page')), 'wp_template');
+$parts = get_block_templates(array('slug__in' => array('header')), 'wp_template_part');
+$templateContent = (string) ($frontTemplate->content ?? '');
+$partContent = (string) ($headerPartTemplate->content ?? '');
+$renderedTemplateContent = do_blocks($templateContent);
+$assetBase = get_theme_file_uri('assets/assets/');
+$foreignTemplate = new WP_Block_Template();
+$foreignTemplate->source = 'theme'; $foreignTemplate->theme = 'foreign-theme'; $foreignTemplate->content = '{{wordpress-site-plan:asset:foreign-token}}';
+$foreignTemplates = apply_filters('get_block_templates', array($foreignTemplate));
+$assert($frontTemplate instanceof WP_Block_Template && $headerPartTemplate instanceof WP_Block_Template && 1 === count($templates) && 1 === count($parts) && str_contains($templateContent, '"slug":"header"') && !str_contains($templateContent, WordPressSitePlan::TOKEN_PREFIX), 'The generated front-page template exposes a resolved header template-part reference.');
+$assert(str_contains($partContent, $assetBase . 'logo.svg') && !str_contains($partContent, WordPressSitePlan::TOKEN_PREFIX), 'The generated header template part resolves its logo asset URL.');
+$assert(str_contains($renderedTemplateContent, $assetBase . 'logo.svg'), 'Rendering the generated front-page template composes the header logo asset URL.');
+$assert('{{wordpress-site-plan:asset:foreign-token}}' === ($foreignTemplates[0]->content ?? null), 'The generated runtime does not mutate foreign-theme template content.');
+$templateRequest = new WP_REST_Request('GET', '/wp/v2/templates/' . $templateId);
+$templateRequest->set_param('context', 'edit');
+$partRequest = new WP_REST_Request('GET', '/wp/v2/template-parts/' . $partId);
+$partRequest->set_param('context', 'edit');
+$templateResponse = rest_do_request($templateRequest);
+$partResponse = rest_do_request($partRequest);
+$templateRestContent = (string) (($templateResponse->get_data()['content']['raw'] ?? ''));
+$partRestContent = (string) (($partResponse->get_data()['content']['raw'] ?? ''));
+$editedTemplate = $templateContent . "\n<!-- wp:paragraph --><p>Portable template edit</p><!-- /wp:paragraph -->";
+$templatePostId = wp_insert_post(array('post_type' => 'wp_template', 'post_status' => 'publish', 'post_name' => 'front-page', 'post_title' => 'Front page', 'post_content' => wp_slash($editedTemplate)), true);
+if (is_wp_error($templatePostId)) throw new RuntimeException($templatePostId->get_error_message());
+$pageIds['portable-template'] = $templatePostId;
+wp_set_object_terms($templatePostId, $theme, 'wp_theme');
+wp_cache_flush();
+$reloadedTemplate = get_block_template($templateId, 'wp_template');
+$reloadedContent = (string) ($reloadedTemplate->content ?? '');
+$assert(200 === $templateResponse->get_status() && 200 === $partResponse->get_status() && str_contains($templateRestContent, '"slug":"header"') && !str_contains($templateRestContent, WordPressSitePlan::TOKEN_PREFIX), 'Template REST returns the resolved header template-part reference.');
+$assert(str_contains($partRestContent, $assetBase . 'logo.svg') && !str_contains($partRestContent, WordPressSitePlan::TOKEN_PREFIX), 'Template-part REST returns the resolved header logo URL.');
+$assert(false !== has_blocks($reloadedContent) && 0 < count(parse_blocks($reloadedContent)) && str_contains($reloadedContent, 'Portable template edit') && !str_contains($reloadedContent, WordPressSitePlan::TOKEN_PREFIX), 'An edited template reloads as valid parsed block markup without unresolved asset tokens.');
+// This suite verifies foreign-theme filter safety directly. It intentionally does not
+// activate a child theme because the runtime contract is exact active stylesheet equality.
+$cssFile = $themeDir . '/assets/assets/global.css';
+$cssUrl = get_theme_file_uri('assets/assets/global.css');
+$imageUrl = $assetBase . 'logo.svg';
+$assert(is_file($cssFile) && is_file($themeDir . '/assets/assets/logo.svg') && str_contains((string) file_get_contents($cssFile), 'url("logo.svg")') && str_starts_with($cssUrl, home_url('/')) && str_starts_with($imageUrl, home_url('/')) && !str_contains($cssUrl . $imageUrl, 'build.example.test'), 'A moved active theme exposes local CSS and SVG image fetch URLs under the runtime host and subdirectory without a source-origin URL.');
 $themeJson = json_decode((string) file_get_contents($themeDir . '/theme.json'), true);
 $globalStylesheet = wp_get_global_stylesheet();
 $presetGroups = array(
@@ -102,8 +147,6 @@ $responsiveArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'i
 $responsivePlan = $responsiveArtifact['source_reports']['wordpress_site_plan'] ?? array();
 $responsiveResolved = (new WordPressSitePlanResolver())->resolve($responsivePlan, array('theme_uri' => home_url('/wp-content/themes/' . $theme)));
 $responsiveMarkup = (string) ($responsiveResolved['pages'][0]['resolved_block_markup'] ?? '');
-$editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
-if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
 $responsiveId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Responsive fallback', 'post_content' => wp_slash($responsiveMarkup)), true);
 if (is_wp_error($responsiveId)) throw new RuntimeException($responsiveId->get_error_message());
@@ -248,6 +291,7 @@ $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
 $indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
+$singleTemplate = file_get_contents($themeDir . '/templates/single.html'); if (false === $singleTemplate) throw new RuntimeException('Could not read single template.');
 $queryPostIds = array();
 foreach (array('Query Loop First', 'Query Loop Second') as $title) {
     $queryPostId = wp_insert_post(array('post_type' => 'post', 'post_status' => 'publish', 'post_title' => $title, 'post_content' => '<!-- wp:paragraph --><p>' . $title . ' excerpt.</p><!-- /wp:paragraph -->'), true);
@@ -264,6 +308,8 @@ $indexRendered = do_blocks($indexTemplate);
 wp_reset_postdata();
 $wp_query = $previousQuery;
 $assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
+$post = $essay; $setRequest($post, false); $singleRendered = do_blocks($singleTemplate); wp_reset_postdata();
+$assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($singleRendered, 'Essay'), 'WordPress renders each imported post through a standard singular template with its post content.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

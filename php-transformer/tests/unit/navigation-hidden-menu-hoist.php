@@ -21,13 +21,29 @@ $countBlocks = static function (array $blocks, string $name) use (&$countBlocks)
 };
 
 $projected = ( new HtmlTransformer() )->transform(
-    '<style>.menu-toggle{width:42px;height:48px;padding:3px 0}</style>'
+    '<style>.menu-toggle{width:42px!important;height:48px!important;padding:3px 0}</style>'
     . '<header><a href="/" class="brand">Northwind</a><button class="menu-toggle" aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Site" class="source-menu" style="display:none;font:normal 400 max(.5px,.0125 * (100cqw - 0px))/1.2 sans-serif"><a href="/">Home</a><a href="/work">Work</a></nav></header>'
 )->toArray();
 $projectedMarkup = (string) ($projected['serialized_blocks'] ?? '');
 $projectedCss = implode("\n", array_map(
     static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
     is_array($projected['assets'] ?? null) ? $projected['assets'] : array()
+));
+$intrinsicProjected = ( new HtmlTransformer() )->transform(
+    '<style>.menu-toggle{min-width:min-content!important;min-height:10px;padding:2px}</style>'
+    . '<header><button class="menu-toggle" aria-label="Menu" aria-expanded="false"><span></span><span></span></button><nav aria-label="Site" style="display:none"><a href="/">Home</a></nav></header>'
+)->toArray();
+$intrinsicProjectedCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($intrinsicProjected['assets'] ?? null) ? $intrinsicProjected['assets'] : array()
+));
+$containerScaled = ( new HtmlTransformer() )->transform(
+    '<style>.menu-label{font-size:max(.5px,.0410256 * (var(--scaling-factor) - var(--scrollbar-width)))}</style>'
+    . '<nav class="menu"><div class="menu-label"><a href="/">Home</a></div><div class="menu-label"><a href="/work">Work</a></div></nav>'
+)->toArray();
+$containerScaledCss = implode("\n", array_map(
+    static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+    is_array($containerScaled['assets'] ?? null) ? $containerScaled['assets'] : array()
 ));
 
 $ambiguous = ( new HtmlTransformer() )->transform(
@@ -39,8 +55,10 @@ $assertions = array(
     array(1 === $countBlocks($projected['blocks'] ?? array(), 'core/navigation'), 'a unique hidden navigation is emitted once at its visible menu control'),
     array(str_contains($projectedMarkup, '"overlayMenu":"mobile"'), 'a projected hidden navigation uses Core responsive overlay behavior'),
     array(1 === preg_match('/blocks-engine-native-navigation-toggle-[a-f0-9]{12}/', $projectedMarkup), 'a projected hidden navigation retains its native toggle geometry marker'),
-    array(str_contains($projectedCss, 'width:42px!important;height:48px!important'), 'the visible source control box projects onto Core\'s responsive open button'),
+    array(str_contains($projectedCss, 'width:42px!important;height:48px!important') && ! str_contains($projectedCss, '!important!important'), 'the visible source control box projects onto Core\'s responsive open button without duplicating source importance'),
+    array(str_contains($intrinsicProjectedCss, 'min-width:44px!important') && str_contains($intrinsicProjectedCss, 'min-height:44px!important') && ! str_contains($intrinsicProjectedCss, '!important!important'), 'intrinsic source toggle dimensions receive a usable native control box without invalid declarations'),
     array(str_contains($projectedCss, '100vw'), 'container-relative inherited navigation typography is rebound after promotion'),
+    array(1 === substr_count($containerScaledCss, 'font-size:max(.5px,.0410256 * (var(--scaling-factor) - var(--scrollbar-width)))'), 'container-scaled label typography is not replayed against a replacement navigation anchor'),
     array(! str_contains($projectedMarkup, '<!-- wp:button'), 'the superseded source menu control is not emitted as a dead button'),
     array(str_contains($projectedMarkup, 'Northwind') && str_contains($projectedMarkup, '"label":"Home"') && str_contains($projectedMarkup, '"label":"Work"'), 'projection preserves surrounding shell content and editable navigation destinations'),
     array(2 === $countBlocks($ambiguous['blocks'] ?? array(), 'core/navigation'), 'ambiguous hidden navigation candidates remain unprojected'),

@@ -64,6 +64,31 @@ $assert(str_contains($assetCss, '.card{display:block}'), 'Mobile selectors remai
 $assert(str_contains($blocks, 'site-document-variant-default desktop'), 'Primary body classes are projected onto the default document wrapper.');
 $assert(str_contains($blocks, 'href="calendar/index.html"'), 'Mobile route destinations retain their existing primary-route interpretation.');
 
+$largeVariantCss = '.variant-large-first{color:#123456}' . str_repeat('/* responsive variant payload */', 40000) . '.variant-large-last{color:#654321}';
+$largeVariantArtifact = array(
+    'schema' => ArtifactCompiler::INPUT_SCHEMA,
+    'entrypoint' => 'index.html',
+    'document_variants' => array(array(
+        'source_path' => 'index.html',
+        'variants' => array(array(
+            'id' => 'mobile',
+            'source_path' => '.variants/mobile/index.html',
+            'media' => '(max-width: 768px)',
+        )),
+    )),
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<!doctype html><html><head></head><body><main>Desktop</main></body></html>'),
+        array('path' => '.variants/mobile/index.html', 'content' => '<!doctype html><html><head><style media="screen">' . $largeVariantCss . '</style></head><body><main>Mobile</main></body></html>'),
+    ),
+);
+$assert(strlen($largeVariantCss) > 1048576, 'Responsive variant regression CSS exceeds one megabyte.');
+$largeVariantResult = (new ArtifactCompiler())->compile($largeVariantArtifact)->toArray();
+$largeVariantAssetCss = implode("\n", array_map(
+    static fn(array $asset): string => (string) ($asset['content'] ?? ''),
+    array_filter($largeVariantResult['assets'] ?? array(), 'is_array')
+));
+$assert(str_contains($largeVariantAssetCss, '@scope (.site-document-variant-mobile)') && str_contains($largeVariantAssetCss, '.variant-large-first{color:#123456}') && str_contains($largeVariantAssetCss, '.variant-large-last{color:#654321}'), 'Large variant CSS is fully emitted inside the responsive document scope.');
+
 $sharedPlan = $compiler->prepareShared($artifact);
 $pagePlan = $compiler->preparePage($artifact, $sharedPlan, 'website/index.html');
 $staged = $compiler->compose($sharedPlan, array($pagePlan))->toArray();

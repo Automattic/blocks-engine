@@ -62,11 +62,10 @@ $linkedAttachment = ( new HtmlTransformer() )->transform(
 )->toArray();
 $attachmentMarkup = (string) ($linkedAttachment['serialized_blocks'] ?? '');
 $assert(
-    str_contains($attachmentMarkup, '<!-- wp:image ')
-        && str_contains($attachmentMarkup, '<a href="https://example.test/model-full.jpg" target="_blank" rel="noopener" class="lightbox">')
-        && str_contains($attachmentMarkup, '<img src="https://example.test/model.jpg" alt="Geological model"/>')
+    'custom/responsive-media' === ($linkedAttachment['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($linkedAttachment['blocks'][0]['attrs']['content'] ?? ''), '<a class="lightbox" href="https://example.test/model-full.jpg" target="_blank" rel="noopener"><img src="https://example.test/model.jpg" alt="Geological model"></a>')
         && ! str_contains($attachmentMarkup, '<!-- wp:html'),
-    'An image-only paragraph link lowers to a native linked image instead of a core/html fallback.'
+    'An image-only paragraph link remains responsive media so crop cannot discard its link presentation.'
 );
 $assert(
     'pass' === ( ( new BlockValidityValidator() )->validateBlocks($linkedAttachment['blocks'] ?? array())['status'] ?? '' ),

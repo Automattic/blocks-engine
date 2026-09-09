@@ -52,6 +52,16 @@ $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id
 $normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenance, array());
 $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'removes a mobile duplicate after preserving the first canonical navigation');
 
+$disclosure = static fn (array $children): array => array(
+    'blockName' => 'core/details',
+    'attrs' => array('className' => 'dla-disclosure'),
+    'innerBlocks' => $children,
+    'innerContent' => array('<details>', null, '</details>'),
+    'innerHTML' => '<details></details>',
+);
+$normalized = $normalizer->normalize(array($disclosure(array($navigation(1))), $disclosure(array($navigation(2))),), $sourceProvenance, array());
+$assert(2 === count($normalized) && 1 === ($normalized[0]['innerBlocks'][0]['_source_provenance_id'] ?? null) && 2 === ($normalized[1]['innerBlocks'][0]['_source_provenance_id'] ?? null), 'keeps responsive navigation variants inside independent native disclosures');
+
 $sourceProvenance[2] = array('source_attributes' => array('class' => 'wsite-menu-default'), 'context' => array('class_names' => array('wsite-menu-default'), 'ancestor_class_names' => array('mobile-nav', 'menu')));
 $normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenance, array());
 $assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'recognizes a responsive duplicate from its source ancestor identity');

@@ -43,7 +43,7 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || ! $this->isHamburgerMenuToggleControl($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || ! $this->isHamburgerMenuToggleControl($control) ) {
                 continue;
             }
 
@@ -212,11 +212,42 @@ final class NavigationToggleSuppressor
      */
     public function isRedundantMenuToggleControl(DOMElement $element): bool
     {
+        if ( $this->isCapturedDialogControl($element) ) {
+            return false;
+        }
+
         if ( ! $this->isHamburgerMenuToggleControl($element) ) {
             return false;
         }
 
         return $this->hasAssociatedNavigationMenu($element);
+    }
+
+    /** A native disclosure with a captured dialog has its own preservation path. */
+    private function isCapturedDialogControl(DOMElement $element): bool
+    {
+        if ( 'summary' === strtolower($element->tagName) && $element->parentNode instanceof DOMElement ) {
+            $element = $element->parentNode;
+        }
+        if ( 'details' !== strtolower($element->tagName) ) {
+            return false;
+        }
+
+        $hasSummary = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'summary' === strtolower($child->tagName) ) {
+                $hasSummary = true;
+                continue;
+            }
+            if ( $hasSummary && 'dialog' === strtolower(SourceDom::attr($child, 'role')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -641,6 +672,7 @@ final class NavigationToggleSuppressor
 
         foreach ( $document->getElementsByTagName('*') as $toggle ) {
             if ( ! $toggle instanceof DOMElement
+                || $this->isCapturedDialogControl($toggle)
                 || ! $this->isHamburgerMenuToggleControl($toggle)
                 || ! $this->hasAssociatedNavigationMenu($toggle)
             ) {

@@ -139,8 +139,9 @@ final class NavigationStyleProjector
 
         return trim(( new CssStylesheetTransformer() )->transform(
             $this->context->authorStyles()->combinedCss(),
-            static function (string $prelude, string $body) use ($ids, $stateMarkers): array {
+            function (string $prelude, string $body) use ($ids, $stateMarkers): array {
                 $projected = array();
+                $transported = array();
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
                     $marker = $stateMarkers[trim($selector)] ?? '';
                     if ( '' !== $marker ) {
@@ -159,14 +160,79 @@ final class NavigationStyleProjector
                     );
                     if ( is_string($replacement) && $replacement !== $selector ) {
                         $projected[] = $replacement;
+                        $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
+                        if ( null !== $transportSelector ) {
+                            $transported[] = $transportSelector;
+                        }
                     }
                 }
 
-                return array() === $projected
-                    ? array()
-                    : array(array('prelude' => implode(',', $projected), 'body' => $body));
+                if ( array() === $projected ) {
+                    return array();
+                }
+
+                $rules = array(array('prelude' => implode(',', $projected), 'body' => $body));
+                $transportBody = $this->templatePartGridItemDeclarations($body);
+                if ( array() !== $transported && '' !== $transportBody ) {
+                    $rules[] = array('prelude' => implode(',', array_unique($transported)), 'body' => $transportBody);
+                }
+                return $rules;
             }
         ));
+    }
+
+    /** @param array<string, bool> $ids */
+    private function editorTemplatePartTransportSelector(string $selector, array $ids): ?string
+    {
+        $parsed = CssSelectorMatcher::parse($selector);
+        $rightmost = $parsed['rightmost_compound_span'] ?? null;
+        $compound = $parsed['compounds'][count($parsed['compounds']) - 1] ?? null;
+        if ( ! ($parsed['supported'] ?? false) || ! is_array($rightmost) || ! is_array($compound) ) {
+            return null;
+        }
+        if ( array() === array_intersect(array_keys($ids), $compound['ids'] ?? array()) ) {
+            return null;
+        }
+
+        $projectIds = static function (string $fragment) use ($ids): string {
+            return preg_replace_callback(
+                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+                static fn (array $match): string => isset($ids[$match[2]])
+                    ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
+                    : $match[0],
+                $fragment
+            ) ?? $fragment;
+        };
+        $projectTargetIds = static function (string $fragment) use ($ids): string {
+            return preg_replace_callback(
+                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+                static fn (array $match): string => isset($ids[$match[2]])
+                    ? $match[1] . ':is(.blocks-engine-editor-anchor-' . $match[2] . ',.' . $match[2] . ')'
+                    : $match[0],
+                $fragment
+            ) ?? $fragment;
+        };
+
+        $start = (int) $rightmost['start'];
+        $end = (int) $rightmost['end'];
+        $prefix = $projectIds(substr($selector, 0, $start));
+        $target = $projectTargetIds(substr($selector, $start, $end - $start));
+        $suffix = substr($selector, $end);
+        return $prefix . ':where(.wp-block-template-part):has(> ' . $target . ')' . $suffix;
+    }
+
+    private function templatePartGridItemDeclarations(string $body): string
+    {
+        $declarations = $this->styleResolver->cssDeclarations($body);
+        $placement = array_filter(
+            $declarations,
+            static fn (string $name): bool => 'order' === $name
+                || 'grid-area' === $name
+                || str_starts_with($name, 'grid-row')
+                || str_starts_with($name, 'grid-column'),
+            ARRAY_FILTER_USE_KEY
+        );
+        return $this->styleResolver->cssDeclarationString($placement);
     }
 
     /**

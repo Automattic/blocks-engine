@@ -17,7 +17,7 @@
     "options": { "static_css": ".screen-reader-label{display:none}" }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-b5e9ccdeeabe", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "HOME", "url": "/", "kind": "custom" } }
   ],
   "expected_fallbacks": [],

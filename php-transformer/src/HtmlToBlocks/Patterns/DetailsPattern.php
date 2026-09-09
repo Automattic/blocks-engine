@@ -27,7 +27,8 @@ final class DetailsPattern implements PatternRecognizerInterface
                 },
                 $context->presentationAttributes(...),
                 SourceDom::innerHtml(...),
-                $context->createBlock(...)
+                $context->createBlock(...),
+                $this->summaryMarker($element, $context)
             );
         } else {
             $block = $this->matchDisclosure(
@@ -45,6 +46,20 @@ final class DetailsPattern implements PatternRecognizerInterface
     }
 
     /**
+     * The source toggle's own box, resolved once so core/details can carry it.
+     *
+     * core's `<summary>` is emitted with no attributes, so the source element's
+     * classes cannot ride along and the author rules that address them would
+     * match nothing.
+     */
+    private function summaryMarker(DOMElement $element, PatternContext $context): string
+    {
+        $summary = $this->firstChildElement($element, 'summary');
+
+        return $summary instanceof DOMElement ? $context->disclosureSummaryMarker($summary) : '';
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $fallbacks
      * @param callable(DOMElement, array<int, array<string, mixed>>&, array<int, string>): array<int, array<string, mixed>> $convertChildrenWithoutTags
      * @param callable(DOMElement): array<string, mixed> $presentationAttributes
@@ -52,7 +67,7 @@ final class DetailsPattern implements PatternRecognizerInterface
      * @param callable(string, array<string, mixed>, array<int, array<string, mixed>>, DOMElement|null): array<string, mixed> $createBlock
      * @return array<string, mixed>|null
      */
-    public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock): ?array
+    public function match(DOMElement $element, array &$fallbacks, callable $convertChildrenWithoutTags, callable $presentationAttributes, callable $innerHtml, callable $createBlock, string $summaryMarker = ''): ?array
     {
         $summary = $this->firstChildElement($element, 'summary');
         $children = $convertChildrenWithoutTags($element, $fallbacks, array( 'summary' ));
@@ -60,10 +75,47 @@ final class DetailsPattern implements PatternRecognizerInterface
             return null;
         }
 
-        return $createBlock('core/details', array_filter(array_merge($presentationAttributes($element), array(
-            'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+        $summaryHtml = $summary instanceof DOMElement ? $innerHtml($summary) : '';
+        if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
+            $label = trim($summary->getAttribute('aria-label'));
+            if ('' === $label) {
+                $label = trim($summary->getAttribute('data-dla-disclosure-label'));
+            }
+            if ('' !== $label) {
+                $summaryHtml .= '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+            }
+        }
+        if ($summary instanceof DOMElement) {
+            $summaryHtml = $this->summaryContentCarrier($summary, $summaryHtml);
+        }
+
+        $attrs = array_merge($presentationAttributes($element), array(
+            'summary'     => $summaryHtml,
             'showContent' => $element->hasAttribute('open') ? true : '',
-        )), static fn ($value): bool => '' !== $value), $children, $element);
+        ));
+        if ( '' !== $summaryMarker ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $summaryMarker);
+        }
+
+        return $createBlock('core/details', array_filter($attrs, static fn ($value): bool => '' !== $value), $children, $element);
+    }
+
+    /**
+     * core/details saves a bare summary, but source CSS often addresses the
+     * summary's classes and responsive data attributes. Keep those safe styling
+     * hooks on its content rather than changing core's saved summary shape.
+     */
+    private function summaryContentCarrier(DOMElement $summary, string $html): string
+    {
+        $attributes = array();
+        foreach (SourceDom::htmlAttributes($summary) as $name => $value) {
+            $lowerName = strtolower($name);
+            if ('class' === $lowerName || 'style' === $lowerName || 'title' === $lowerName || str_starts_with($lowerName, 'data-')) {
+                $attributes[$name] = $value;
+            }
+        }
+
+        return array() === $attributes ? $html : '<span' . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</span>';
     }
 
     /**
