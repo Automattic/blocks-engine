@@ -46,7 +46,7 @@ final class SemanticParityReporter
      * @param array<int, array<string, mixed>> $sourceProvenance
      * @return array<string, mixed>
      */
-    public function report(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): array
+    public function evaluate(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): SemanticParityEvaluation
     {
         $sourceLandmarks = $this->sourceLandmarkReport($body);
         $blockLandmarks = $this->blockLandmarkReport($blocks, $sourceProvenance, $sourceLandmarks);
@@ -76,20 +76,23 @@ final class SemanticParityReporter
             $findings
         );
 
-        return array(
-            'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
-            'finding_schema' => ConversionFindingContract::SCHEMA,
-            'status' => array() === $findings ? 'pass' : 'warning',
-            'landmarks' => array(
-                'source' => $sourceLandmarks['counts'],
-                'blocks' => $blockLandmarks['counts'],
-            ),
-            'navigation_menus' => array(
-                'source' => $sourceMenus,
-                'blocks' => $blockMenus,
-            ),
-            'findings' => $findings,
+        return new SemanticParityEvaluation(
+            sourceLandmarks: $sourceLandmarks['counts'],
+            blockLandmarks: $blockLandmarks['counts'],
+            sourceMenus: $sourceMenus,
+            blockMenus: $blockMenus,
+            findings: $findings
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $sourceProvenance
+     * @return array<string, mixed>
+     */
+    public function report(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): array
+    {
+        return $this->evaluate($body, $blocks, $sourceProvenance, $html, $staticCss)->report();
     }
 
     /**
