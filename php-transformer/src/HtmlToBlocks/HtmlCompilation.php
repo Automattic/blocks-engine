@@ -3178,6 +3178,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $customImage = $this->imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
+            if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
+                return $this->responsiveMediaBlock($element);
+            }
             $picture = $customImage->parentNode;
             return $this->convertImageElement(
                 $customImage,
@@ -9560,31 +9563,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $image = $this->firstChildElement($anchor, 'img');
             return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
         }
-        $link = '' !== $href ? $anchor : null;
-
-        $picture = $this->firstChildElement($anchor, 'picture');
-        if ( $picture instanceof DOMElement ) {
-            $image = $this->firstChildElement($picture, 'img');
-            return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
-        }
-
-        $image = $this->firstChildElement($anchor, 'img');
-        if ( ! $image instanceof DOMElement ) {
-            foreach ( $anchor->childNodes as $child ) {
-                if ( $child instanceof DOMElement ) {
-                    $image = $this->imageOnlyCarrierElement($child);
-                    if ( $image instanceof DOMElement ) {
-                        break;
-                    }
-                }
-            }
-        }
-        return $image instanceof DOMElement ? $this->responsiveMediaBlock($anchor) : null;
+        // WordPress 7.0.4 crop replaces core/image link attributes. Retain every
+        // linked image shape rather than promote an editable shape whose supported
+        // edits lose its link presentation.
+        return $this->responsiveMediaBlock($anchor);
     }
 
     /**
-     * A paragraph with exactly one image-only link is presentation-neutral
-     * attachment markup, not RichText. Preserve its native link as core/image.
+     * A paragraph with exactly one image-only link is not RichText. Retain a
+     * valid link as responsive media because core/image crop cannot preserve it.
      *
      * @return array<string, mixed>|null
      */
@@ -9608,8 +9595,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        if ( '' !== $this->safeLinkUrl($this->attr($anchor, 'href')) ) {
+            return $this->responsiveMediaBlock($anchor);
+        }
+
         $image = $this->firstChildElement($anchor, 'img');
-        return $image instanceof DOMElement ? $this->convertImageElement($image, null, null, $anchor) : null;
+        return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
@@ -9850,6 +9841,96 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $images->item(0);
+    }
+
+    /**
+     * A core/image save is a block figure, not a custom-element host. Only erase
+     * a host when its box and identity are provably inert after that substitution.
+     * Everything else stays in responsive media, which preserves the source DOM.
+     */
+    private function canPromoteImageOnlyCustomElement(DOMElement $host, DOMElement $image): bool
+    {
+        if ( ! $this->hasOnlyInertImageHostAttributes($host)
+            || ! $this->hasBlockFigureDisplay($host)
+            || ! $this->hasBlockFigureCarrier($host)
+            || ! $this->hasOnlyBlockDisplayPresentation($host)
+            || $this->hasCropFocusThatCoreImageCannotCarry($image) ) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function hasOnlyInertImageHostAttributes(DOMElement $host): bool
+    {
+        foreach ( $host->attributes as $attribute ) {
+            if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
+                return false;
+            }
+        }
+
+        return ! $this->runtimeIslands->isRuntimeDomTarget($host)
+            && array() === $this->interactiveAttributes($host)
+            && ! $this->hasAuthorSemanticMarker($host);
+    }
+
+    private function hasBlockFigureDisplay(DOMElement $host): bool
+    {
+        return 'block' === strtolower(trim($this->cssValueWithoutImportant(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($host)['display'] ?? '')
+        )));
+    }
+
+    private function hasBlockFigureCarrier(DOMElement $host): bool
+    {
+        $parent = $host->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        if ( in_array(strtolower($parent->tagName), array( 'a', 'abbr', 'b', 'button', 'em', 'i', 'label', 'p', 'small', 'span', 'strong' ), true) ) {
+            return false;
+        }
+
+        $display = strtolower(trim($this->cssValueWithoutImportant(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '')
+        )));
+        if ( '' !== $display && ! in_array($display, array( 'block', 'flex', 'flow-root', 'grid', 'list-item', 'table-cell' ), true) ) {
+            return false;
+        }
+
+        // An unstyled custom parent has the platform's inline default. Its child
+        // cannot safely be replaced by a block figure without a declared carrier.
+        return ! str_contains($parent->tagName, '-') || '' !== $display;
+    }
+
+    private function hasOnlyBlockDisplayPresentation(DOMElement $host): bool
+    {
+        // Structural declarations include otherwise-unmapped box properties such
+        // as overflow; presentation declarations catch paint that a tag-specific
+        // selector could otherwise lose when the host becomes a figure.
+        $declarations = array_merge(
+            $this->styleResolver->presentationDeclarations($host),
+            $this->styleResolver->structuralPresentationDeclarations($host)
+        );
+        foreach ( $declarations as $property => $value ) {
+            if ( 'display' !== strtolower($property)
+                || 'block' !== strtolower(trim($this->cssValueWithoutImportant((string) $value))) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function hasCropFocusThatCoreImageCannotCarry(DOMElement $image): bool
+    {
+        $scale = strtolower($this->cssValueWithoutImportant($this->imageShapeDeclaration($image, 'object-fit')));
+        if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
+            return false;
+        }
+
+        return '' !== trim($this->cssValueWithoutImportant($this->imageShapeDeclaration($image, 'object-position')));
     }
 
     private function customVideoElement(DOMElement $element): ?DOMElement

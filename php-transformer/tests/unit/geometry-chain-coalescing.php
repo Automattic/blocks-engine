@@ -35,7 +35,7 @@ $assert('core/image' === ($resourceSvg['blocks'][0]['blockName'] ?? null) && !st
 $wowChain = '<wow-image class="captured-media"><img src="hero.jpg" alt="Hero"></wow-image>';
 for ($depth = 0; $depth < 39; ++$depth) $wowChain = '<div class="depth-' . $depth . '">' . $wowChain . '</div>';
 $deepWow = $transform($wowChain);
-$assert('core/image' === ($deepWow['blocks'][0]['blockName'] ?? null) && $maxDepth($deepWow['blocks'] ?? array()) <= 20 && str_contains((string) ($deepWow['blocks'][0]['attrs']['className'] ?? ''), 'captured-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'src="hero.jpg"'), 'A depth-39 custom media chain coalesces while preserving media selector ownership and image semantics.');
+$assert('core/group' === ($deepWow['blocks'][0]['blockName'] ?? null) && $maxDepth($deepWow['blocks'] ?? array()) <= 20 && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), '<!-- wp:custom/responsive-media') && str_contains((string) ($deepWow['serialized_blocks'] ?? ''), 'hero.jpg'), 'A depth-39 custom media chain coalesces its structural shells while retaining the custom media host.');
 
 $fullWidth = $transform('<div style="width:100%"><div class="surface"><p>Copy</p></div></div>');
 $fullWidthBlock = $fullWidth['blocks'][0] ?? array();

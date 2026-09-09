@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-custom-wrapper-image",
+  "description": "A linked custom image wrapper remains responsive media because WordPress crop mutations cannot preserve its link presentation.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-custom-wrapper-image.json",
+    "notes": "Regression coverage for a captured custom media wrapper; no original-site fixture is present in this repository."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<html><head><style>.media-frame{overflow:hidden}.media-image{width:100%;aspect-ratio:4 / 3;object-fit:cover}</style></head><body><a class=\"media-link\" href=\"/profile\" target=\"_blank\" rel=\"noopener\"><media-frame class=\"media-frame\" data-image-info=\"bounded\"><img class=\"media-image\" src=\"assets/profile.jpg\" width=\"640\" height=\"480\" alt=\"Profile portrait\"></media-frame></a></body></html>",
+    "options": {
+      "context": {
+        "asset_metadata": {
+          "assets/profile.jpg": {
+            "id": 42,
+            "url": "https://example.test/wp-content/uploads/profile.jpg"
+          }
+        }
+      }
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "custom/responsive-media" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<a class=\"media-link\" href=\"/profile\" target=\"_blank\" rel=\"noopener\"><media-frame class=\"media-frame\"" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<img class=\"media-image\" src=\"assets/profile.jpg\" width=\"640\" height=\"480\" alt=\"Profile portrait\">" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

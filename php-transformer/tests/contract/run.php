@@ -234,13 +234,11 @@ $assert(
 );
 $customImageResult = ( new HtmlTransformer() )->transform('<media-image id="hero" class="media-frame"><img class="photo" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP" data-src="hero.jpg" srcset="hero-small.jpg 340w, hero.jpg 680w" sizes="100vw" alt="Hero"></media-image>')->toArray();
 $assert(
-    'core/image' === ($customImageResult['blocks'][0]['blockName'] ?? null)
-        && 'hero.jpg' === ($customImageResult['blocks'][0]['attrs']['url'] ?? null)
-        && str_contains((string) ($customImageResult['blocks'][0]['attrs']['className'] ?? ''), 'media-frame photo')
-        && 'hero' === ($customImageResult['blocks'][0]['attrs']['anchor'] ?? null)
-        && 0 === substr_count((string) ($customImageResult['serialized_blocks'] ?? ''), '<!-- wp:html')
+    'custom/responsive-media' === ($customImageResult['blocks'][0]['blockName'] ?? null)
+        && str_contains((string) ($customImageResult['blocks'][0]['attrs']['content'] ?? ''), 'id="hero"')
+        && str_contains((string) ($customImageResult['blocks'][0]['attrs']['content'] ?? ''), 'srcset="hero-small.jpg 340w, hero.jpg 680w"')
         && array() === ($customImageResult['fallbacks'] ?? array()),
-    'image-only custom elements should lower to core/image while retaining lazy image and CSS identity'
+    'image-only custom elements with identity and responsive source semantics remain responsive media'
 );
 $selectorBoundaryCustomElementResult = ( new HtmlTransformer() )->transform(
     '<style>.menu-host .menu-nav .menu-items{width:100%}.menu-items li{display:inline-block}</style><menu-host class="menu-host" data-mode="desktop"><nav class="menu-nav"><ul class="menu-items" style="text-align:right"><li>Home</li><li>About</li></ul></nav></menu-host>'
@@ -255,7 +253,7 @@ $assert(
         && ! str_contains($selectorBoundaryCustomElementMarkup, '<!-- wp:html'),
     'static custom-element wrappers retain block display, selector boundaries, and alignment around editable blocks'
 );
-$dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<media-image><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></media-image>')->toArray();
+$dimensionedCustomImageResult = ( new HtmlTransformer() )->transform('<media-image style="display:block"><img src="hero.jpg" style="width:320px;height:281px;object-fit:cover" width="1951" height="1951" alt="Hero"></media-image>')->toArray();
 $assert(
     str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'style="object-fit:cover;width:320px;height:281px"')
         && ! str_contains((string) ($dimensionedCustomImageResult['serialized_blocks'] ?? ''), 'width:1951px'),
@@ -1676,11 +1674,11 @@ $assert(str_contains($unlinkedWrappedImageMarkup, '<!-- wp:image') && str_contai
 
 $imageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><div class="gallery-frame"><media-image class="source-image"><img src="product.jpg" alt="Product"></media-image></div><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></button></main>')->toArray();
 $imageCarrierButtonMarkup = (string) ($imageCarrierButton['serialized_blocks'] ?? '');
-$assert(str_contains($imageCarrierButtonMarkup, '<!-- wp:image') && str_contains($imageCarrierButtonMarkup, 'src="product.jpg"'), 'an unlabeled image carrier control preserves its nested image as a native block');
+$assert(str_contains($imageCarrierButtonMarkup, '<!-- wp:custom/responsive-media') && str_contains($imageCarrierButtonMarkup, 'product.jpg'), 'an unlabeled image carrier control retains its inline custom image host');
 $assert(! str_contains($imageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled image carrier control does not route media through core/button RichText');
 $multiImageCarrierButton = ( new HtmlTransformer() )->transform('<main><button class="gallery-trigger" type="button"><media-image><img src="one.jpg" alt="Product"></media-image><media-image><img src="two.jpg" alt="Product"></media-image></button></main>')->toArray();
 $multiImageCarrierButtonMarkup = (string) ($multiImageCarrierButton['serialized_blocks'] ?? '');
-$assert(2 === substr_count($multiImageCarrierButtonMarkup, '<!-- wp:image') && str_contains($multiImageCarrierButtonMarkup, 'src="one.jpg"') && str_contains($multiImageCarrierButtonMarkup, 'src="two.jpg"'), 'an unlabeled multi-image gallery control preserves every nested image as native blocks');
+$assert(2 === substr_count($multiImageCarrierButtonMarkup, '<!-- wp:custom/responsive-media') && str_contains($multiImageCarrierButtonMarkup, 'one.jpg') && str_contains($multiImageCarrierButtonMarkup, 'two.jpg'), 'an unlabeled multi-image gallery control retains every custom image host');
 $assert(! str_contains($multiImageCarrierButtonMarkup, '<!-- wp:button'), 'an unlabeled multi-image gallery control does not flatten image alternatives into button RichText');
 
 $dataAncestryLayout = ( new HtmlTransformer() )->transform('<style>[data-layout="grid"]{display:grid;grid-template-rows:100px}[data-layout="grid"] > [id="hero"]{position:relative;grid-area:2 / 1 / 3 / 2}</style><main><div data-layout="grid"><section id="hero"><p>Hero</p></section></div></main>')->toArray();

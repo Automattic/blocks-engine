@@ -1,0 +1,29 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-public-custom-wrapper-image",
+  "description": "A linked custom image wrapper remains responsive media because WordPress crop mutations cannot preserve its link presentation.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-public-custom-wrapper-image.json",
+    "notes": "Sanitized from the 2026-09-09 homepage capture at https://www.360chiro.co.uk/: an anchor around wow-image._image_8j9vj_1.image.wixui-gallery__image with data-image-info and one img. Remote asset URLs and descriptive copy are replaced with fixture-local values."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a href=\"assets/full-image.jpg\"><wow-image class=\"_image_8j9vj_1 image wixui-gallery__image\" data-image-info=\"{&quot;displayMode&quot;:&quot;fit&quot;,&quot;isLQIP&quot;:true,&quot;imageData&quot;:{&quot;width&quot;:1024,&quot;height&quot;:1024,&quot;uri&quot;:&quot;assets/source-image.jpg&quot;,&quot;displayMode&quot;:&quot;fit&quot;}}\" data-motion-part=\"BG_IMG undefined\" data-has-ssr-src=\"true\"><img src=\"assets/preview-image.jpg\" alt=\"Gallery image\" style=\"width:100%;height:100%;object-fit:contain;object-position:unset\"/></wow-image></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "custom/responsive-media" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "<a href=\"assets/full-image.jpg\"><wow-image class=\"_image_8j9vj_1 image wixui-gallery__image\"" },
+    { "path": "blocks.0.attrs.content", "assert": "contains", "value": "object-fit:contain" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

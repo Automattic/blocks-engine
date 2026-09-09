@@ -2486,7 +2486,7 @@ final class StyleResolver implements ElementPresentationResolver
             [$property, $value] = array_map('trim', explode(':', $declaration, 2));
             $property = strtolower($property);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if (in_array($property, array('aspect-ratio', 'object-fit'), true) && '' !== $value) {
+            if (in_array($property, array('aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
         }
