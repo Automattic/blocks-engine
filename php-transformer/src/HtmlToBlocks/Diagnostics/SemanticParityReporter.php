@@ -44,7 +44,6 @@ final class SemanticParityReporter
     /**
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $sourceProvenance
-     * @return array<string, mixed>
      */
     public function evaluate(DOMElement $body, array $blocks, array $sourceProvenance, string $html = '', string $staticCss = ''): SemanticParityEvaluation
     {
