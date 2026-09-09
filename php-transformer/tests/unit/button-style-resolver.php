@@ -112,6 +112,12 @@ $resetButton = ( new HtmlTransformer() )->transform(
 $resetButtonCss = implode("\n", array_column($resetButton['assets'] ?? array(), 'content'));
 $assert(str_contains($resetButtonCss, 'border-radius:56.25px!important') && str_contains($resetButtonCss, 'padding-right:27px!important') && str_contains($resetButtonCss, 'padding-left:27px!important'), 'resolved button styling overrides an authored border and padding reset', $resetButtonCss);
 
+$logicalCornerButton = ( new HtmlTransformer() )->transform(
+    '<style>.cta{padding:12px 24px;background:#123456;border-start-start-radius:var(--corner);border-start-end-radius:var(--corner);border-end-start-radius:var(--corner);border-end-end-radius:var(--corner);--corner:50px}</style><a class="cta" href="/quote">Quote</a>'
+)->toArray();
+$logicalCornerCss = implode("\n", array_column($logicalCornerButton['assets'] ?? array(), 'content'));
+$assert(! str_contains($logicalCornerCss, 'border-radius:0!important') && str_contains($logicalCornerCss, 'border-start-start-radius:'), 'authored logical corners prevent the native square-corner fallback', $logicalCornerCss);
+
 $longhandBorderButton = ( new HtmlTransformer() )->transform(
     '<style>a{border:0;background:0 0}.btn{border-top:1px solid rgb(254,126,3);border-right:1px solid rgb(254,126,3);border-bottom:1px solid rgb(254,126,3);border-left:1px solid rgb(254,126,3);border-radius:4px;padding:10px 20px}</style><a class="btn" href="/team">Meet the Team</a>'
 )->toArray();
