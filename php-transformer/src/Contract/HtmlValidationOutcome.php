@@ -13,16 +13,16 @@ namespace Automattic\BlocksEngine\PhpTransformer\Contract;
 final class HtmlValidationOutcome
 {
     /**
-     * @param array<int, array{code: string, summary: string, severity: string, block_name: string|null, path: string|null}> $blockValidityFindings
-     * @param array<int, array{code: string, summary: string, severity: string, selector: string|null}> $semanticParityFindings
-     * @param array<int, array{code: string, summary: string, severity: string, text: string|null}> $contentRoundTripFindings
+     * @param array<int, array<string, mixed>> $blockValidityFindings
+     * @param array<int, array<string, mixed>> $semanticParityFindings
+     * @param array<int, array<string, mixed>> $contentRoundTripFindings
      */
     public function __construct(
-        public readonly string $blockValidityStatus = 'pass',
+        public readonly string $blockValidityStatus = 'not_evaluated',
         public readonly array $blockValidityFindings = array(),
-        public readonly string $semanticParityStatus = 'pass',
+        public readonly string $semanticParityStatus = 'not_evaluated',
         public readonly array $semanticParityFindings = array(),
-        public readonly string $contentRoundTripStatus = 'pass',
+        public readonly string $contentRoundTripStatus = 'not_evaluated',
         public readonly array $contentRoundTripFindings = array()
     ) {
     }
@@ -43,26 +43,20 @@ final class HtmlValidationOutcome
     /** @param array<string, mixed> $report */
     private static function status(array $report): string
     {
-        return is_string($report['status'] ?? null) ? $report['status'] : 'pass';
+        return is_string($report['status'] ?? null) ? $report['status'] : 'not_evaluated';
     }
 
-    /** @param array<string, mixed> $report @param array<int, string> $optionalFields @return array<int, array<string, string|null>> */
-    private static function findings(array $report, array $optionalFields): array
+    /** @param array<string, mixed> $report @param array<int, string> $fields @return array<int, array<string, mixed>> */
+    private static function findings(array $report, array $fields): array
     {
         $findings = array();
         foreach ($report['findings'] ?? array() as $finding) {
             if (!is_array($finding)) {
                 continue;
             }
-            $outcome = array(
-                'code' => (string) ($finding['code'] ?? 'warning'),
-                'summary' => (string) ($finding['summary'] ?? ''),
-                'severity' => (string) ($finding['severity'] ?? 'warning'),
-            );
-            foreach ($optionalFields as $field) {
-                $outcome[$field] = is_string($finding[$field] ?? null) ? $finding[$field] : null;
-            }
-            $findings[] = $outcome;
+            // Keep only fields needed by diagnostics, without taking ownership
+            // of their established defaults or coercing their original values.
+            $findings[] = array_intersect_key($finding, array_flip(array_merge(array('code', 'summary', 'severity'), $fields)));
         }
         return $findings;
     }
