@@ -40,6 +40,7 @@
     "parity": "@test:parity",
     "static-parity": "php tools/static-parity/run.php",
     "live-wp-parity": "php tools/live-wp-parity/run.php",
+    "visual:image-custom-host-promotion": "node tools/visual-parity/tests/image-custom-host-promotion.mjs",
     "benchmark:selector-cache": "php tools/benchmarks/css-selector-match-cache.php",
     "benchmark:staged-page-compilation": "php tools/benchmarks/staged-page-compilation-production.php",
     "corpus-diagnostics": "php tools/corpus-diagnostics/run.php",

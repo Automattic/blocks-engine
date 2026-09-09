@@ -73,17 +73,48 @@ foreach (array('media="(min-width: 800px)"', 'type="image/webp"', 'hero,wide.web
     $assert(str_contains($content, $fragment), 'responsive companion preserves ' . $fragment);
 }
 
-$wrappedSource = '<a href="/profile" aria-label="Profile"><wow-image data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></wow-image></a>';
+$editableSource = '<media-frame style="display:block"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>';
+$editable = ( new HtmlTransformer() )->transform($editableSource)->toArray();
+$editableAttrs = $editable['blocks'][0]['attrs'] ?? array();
+$assert('core/image' === ($editable['blocks'][0]['blockName'] ?? null) && 'Profile' === ($editableAttrs['alt'] ?? null), 'an unlinked, block-displayed inert custom image wrapper promotes to editable core/image');
+
+foreach (array(
+    'inline custom host' => '<media-frame><img src="profile.png" width="30" height="30" alt="Profile"></media-frame>',
+    'overflow clipping' => '<media-frame style="display:block;overflow:hidden"><img src="profile.png" width="80" height="60" alt="Profile"></media-frame>',
+    'crop focus' => '<style>.focus-frame{display:block}.focus-frame img{aspect-ratio:4 / 3;object-fit:cover;object-position:right top}</style><media-frame class="focus-frame"><img src="profile.png" alt="Profile"></media-frame>',
+    'wrapper id and target reference' => '<button aria-controls="profile-frame"></button><media-frame id="profile-frame" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+    'wrapper aria label' => '<media-frame aria-label="Profile image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+    'wrapper data hook' => '<media-frame data-hook="profile-image" style="display:block"><img src="profile.png" alt="Profile"></media-frame>',
+) as $name => $source) {
+    $candidate = ( new HtmlTransformer() )->transform($source)->toArray();
+    $assert(in_array('custom/responsive-media', array_column($candidate['blocks'] ?? array(), 'blockName'), true), $name . ' remains responsive media rather than silently losing host semantics');
+}
+
+$inlineFlow = ( new HtmlTransformer() )->transform('<p>Before <media-frame><img src="profile.png" width="30" height="30" alt="Profile"></media-frame><svg aria-hidden="true" viewBox="0 0 1 1"><path d="M0 0"></path></svg> after</p>')->toArray();
+$assert('core/html' === ($inlineFlow['blocks'][0]['blockName'] ?? null) && str_contains((string) ($inlineFlow['blocks'][0]['attrs']['content'] ?? ''), '<media-frame><img'), 'an inline custom host with adjacent text and icon remains in its original inline carrier');
+
+$wrappedSource = '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame" data-image-info="bounded"><img class="profile-image" src="profile.png" width="30" height="30" alt="Profile"></media-frame></a>';
 $wrapped = ( new HtmlTransformer() )->transform($wrappedSource)->toArray();
 $wrappedContent = (string) ($wrapped['blocks'][0]['attrs']['content'] ?? '');
-$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null), 'an image-only custom-element carrier inside a link uses responsive media');
-$assert(str_contains($wrappedContent, '<wow-image') && str_contains($wrappedContent, '<img') && str_contains($wrappedContent, 'href="/profile"'), 'the linked custom carrier retains its bounded source markup for WordPress rendering');
+$assert('custom/responsive-media' === ($wrapped['blocks'][0]['blockName'] ?? null), 'a linked custom image wrapper remains responsive media because crop cannot preserve its link presentation');
+$assert(str_contains($wrappedContent, '<a class="profile-link" href="/profile" target="_blank" rel="noopener"><media-frame class="profile-frame"') && str_contains($wrappedContent, '<img class="profile-image" src="profile.png" width="30" height="30" alt="Profile">'), 'the retained linked wrapper preserves its link and presentation attributes');
 
-$nestedWrappedSource = '<a href="/profile" aria-label="Profile"><div class="crop" style="overflow:hidden"><wow-image data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></wow-image></div></a>';
+$nestedWrappedSource = '<a href="/profile"><div class="crop" style="overflow:hidden"><media-frame data-image-info="bounded"><img src="profile.png" width="30" height="30" alt="Profile"></media-frame></div></a>';
 $nestedWrapped = ( new HtmlTransformer() )->transform($nestedWrappedSource)->toArray();
 $nestedWrappedContent = (string) ($nestedWrapped['blocks'][0]['attrs']['content'] ?? '');
-$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null), 'a linked custom image behind one text-free presentation wrapper uses responsive media');
-$assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains($nestedWrappedContent, '<wow-image'), 'the nested carrier retains its presentation wrapper');
+$assert('custom/responsive-media' === ($nestedWrapped['blocks'][0]['blockName'] ?? null), 'a linked image behind additional presentation topology remains responsive media');
+$assert(str_contains($nestedWrappedContent, '<div class="crop"') && str_contains($nestedWrappedContent, '<media-frame'), 'the retained carrier preserves its nested presentation wrapper');
+
+$artDirectedWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><picture><source media="(min-width: 800px)" srcset="profile-wide.png 800w"><img src="profile.png" alt="Profile"></picture></media-frame></a>')->toArray();
+$artDirectedContent = (string) ($artDirectedWrapper['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($artDirectedWrapper['blocks'][0]['blockName'] ?? null) && str_contains($artDirectedContent, '<source media="(min-width: 800px)" srcset="profile-wide.png 800w">'), 'art-directed custom wrappers remain responsive media because core/image cannot preserve picture source selection');
+
+$srcsetWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><media-frame><img src="profile.png" srcset="profile.png 1x, profile-2x.png 2x" sizes="30px" alt="Profile"></media-frame></a>')->toArray();
+$srcsetContent = (string) ($srcsetWrapper['blocks'][0]['attrs']['content'] ?? '');
+$assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] ?? null) && str_contains($srcsetContent, 'srcset="profile.png 1x, profile-2x.png 2x"') && str_contains($srcsetContent, 'sizes="30px"'), 'responsive candidates remain responsive media because core/image cannot serialize srcset or sizes');
+
+$selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
+$assert('custom/responsive-media' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper whose descendant selector would change remains responsive media');
 
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
