@@ -517,6 +517,60 @@ final class SourceDom
     }
 
     /**
+     * Validate markup intended for a trusted inline SVG rendering surface.
+     *
+     * This deliberately accepts a small, passive SVG subset instead of trying
+     * to clean caller-controlled markup. XML parsing makes entity decoding and
+     * the single-root requirement part of the boundary rather than regexes.
+     */
+    public static function isSafeInlineSvgMarkup(string $markup): bool
+    {
+        if ( '' === trim($markup) || str_contains($markup, '<?') || preg_match('/<!\s*(?:doctype|entity)\b/i', $markup) || preg_match('/&(?!(?:amp|lt|gt|quot|apos);)/i', $markup) ) {
+            return false;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadXML($markup, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_COMPACT);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        if ( ! $loaded || ! $document->documentElement instanceof DOMElement || 'svg' !== strtolower($document->documentElement->tagName) ) {
+            return false;
+        }
+
+        $allowedTags = array_flip(array(
+            'svg', 'g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon',
+            'text', 'tspan', 'title', 'desc', 'defs', 'lineargradient', 'radialgradient',
+            'stop', 'clippath', 'mask', 'pattern', 'marker', 'filter', 'feblend',
+            'fecolormatrix', 'fecomposite', 'fegaussianblur', 'femerge', 'femergenode',
+            'feoffset', 'feflood', 'feturbulence',
+        ));
+        $blockedAttributes = array_flip(array( 'href', 'xlink:href', 'src', 'style' ));
+        $nodes = array( $document->documentElement );
+        while ( array() !== $nodes ) {
+            /** @var DOMElement $element */
+            $element = array_pop($nodes);
+            if ( ! isset($allowedTags[strtolower($element->tagName)]) ) {
+                return false;
+            }
+            foreach ( $element->attributes as $attribute ) {
+                $name = strtolower($attribute->name);
+                $value = trim($attribute->value);
+                if ( str_starts_with($name, 'on') || isset($blockedAttributes[$name]) || (str_contains($name, ':') && ! in_array($name, array( 'xmlns', 'xml:lang', 'xml:space' ), true)) || preg_match('/(?:^|[^a-z])url\s*\(/i', $value) ) {
+                    return false;
+                }
+            }
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $nodes[] = $child;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Whether an inline SVG carries any drawable artwork worth preserving.
      *
      * Returns true when the SVG has at least one shape/structure element

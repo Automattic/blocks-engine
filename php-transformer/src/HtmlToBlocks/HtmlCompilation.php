@@ -535,7 +535,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ), $this->styleResolver, $this->runtime);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element)
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
