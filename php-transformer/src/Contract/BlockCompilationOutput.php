@@ -47,7 +47,8 @@ final class BlockCompilationOutput
         public readonly array $authorStylesheetProjections = array(),
         public readonly array $runtimeScriptProjections = array(),
         public readonly array $shellArtifacts = array(),
-        public readonly array $coreHtmlFallbackEvidence = array()
+        public readonly array $coreHtmlFallbackEvidence = array(),
+        public readonly HtmlValidationOutcome $validationOutcome = new HtmlValidationOutcome()
     ) {
         $runtimePaths = array();
         $visualPaths = array();
@@ -62,6 +63,9 @@ final class BlockCompilationOutput
 
     public static function empty(): self
     {
-        return new self(coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()));
+        return new self(
+            coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks(array(), array(), array()),
+            validationOutcome: new HtmlValidationOutcome()
+        );
     }
 }
