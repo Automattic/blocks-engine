@@ -121,6 +121,8 @@ Public transformation entrypoints return `TransformerResult` wherever a conversi
 
 Public entrypoints accept a generic options array. `source` and `scope` are copied into provenance metadata so wrappers can identify the caller-owned source without making the transformer package depend on that wrapper. The same values can be nested under `provenance`.
 
+`HtmlTransformer`, `FormatBridge::convertResult()`, and `ArtifactCompiler::compileFragment()` accept `validation_evidence` as `full` (the default) or `compact`. Full preserves the established report envelope. Compact retains validator status and complete findings, but semantic-parity report projections explicitly omit the landmark and navigation-menu inventories with an `evidence.detail`/`evidence.omitted` declaration; its duplicated `conversion_report.semantic_parity` projection matches. `ArtifactCompiler::compile()` and staged artifact APIs do not expose per-document validation reports, so they do not accept this option.
+
 `context.strict` and `context.allow_fallbacks` are normalized into the result `context`. Top-level `strict` and `allow_fallbacks` are also accepted for simple callers. `HtmlTransformer` keeps default fallback behavior unchanged; callers that pass `allow_fallbacks => false` receive `success_with_warnings`, or `failed` when `strict` is also true and unsupported HTML is encountered.
 
 `FormatBridge::convertResult()` forwards the original options array to adapters and exposes the normalized context/provenance metadata on the returned `TransformerResult`.

@@ -33,9 +33,9 @@ final class SemanticParityEvaluation
     }
 
     /** @return array<string, mixed> */
-    public function report(): array
+    public function report(string $validationEvidence = 'full'): array
     {
-        return array(
+        $report = array(
             'schema' => 'blocks-engine/php-transformer/semantic-parity/v1',
             'finding_schema' => ConversionFindingContract::SCHEMA,
             'status' => $this->status(),
@@ -49,5 +49,17 @@ final class SemanticParityEvaluation
             ),
             'findings' => $this->findings,
         );
+        if ('compact' === $validationEvidence) {
+            // Findings and status remain authoritative; inventories are optional detail.
+            unset($report['landmarks'], $report['navigation_menus']);
+            $report = array_slice($report, 0, 3, true) + array(
+                'evidence' => array(
+                    'detail' => 'compact',
+                    'omitted' => array('landmarks', 'navigation_menus'),
+                ),
+            ) + array_slice($report, 3, null, true);
+        }
+
+        return $report;
     }
 }
