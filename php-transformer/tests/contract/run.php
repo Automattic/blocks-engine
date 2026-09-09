@@ -134,12 +134,17 @@ $assert(
         && $validationOutcome->contentRoundTripStatus === ($validationOutcomeReports['content_round_trip']['status'] ?? null)
         && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->blockValidityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['wp_block_validity']['findings'] ?? array())
         && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->semanticParityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['semantic_parity']['findings'] ?? array())
+        && $validationOutcome->semanticParityFindings === array_map(
+            static fn (array $finding): array => array_intersect_key($finding, array_flip(array('code', 'summary', 'severity', 'selector'))),
+            $validationOutcomeReports['semantic_parity']['findings'] ?? array()
+        )
         && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->contentRoundTripFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['content_round_trip']['findings'] ?? array()),
-    'producer-owned required validation outcomes retain each detailed report status and every diagnostic finding while reports remain projections'
+    'semantic evaluation directly supplies required diagnostic facts while its full report remains an identical projection'
 );
-$validationFailureOutcome = HtmlValidationOutcome::fromReports(
+$validationFailureOutcome = HtmlValidationOutcome::fromBlockValidityAndContentRoundTripReports(
     array('status' => 'fail', 'findings' => array(array('code' => 'invalid_save', 'summary' => null, 'severity' => 0, 'block_name' => false, 'path' => 12, 'verbose_evidence' => array('not-needed')))),
-    array('status' => 'fail', 'findings' => array(array('code' => 'missing_landmark', 'severity' => null, 'selector' => 0, 'verbose_evidence' => array('not-needed')))),
+    'fail',
+    array(array('code' => 'missing_landmark', 'severity' => null, 'selector' => 0, 'verbose_evidence' => array('not-needed'))),
     array('status' => 'fail', 'findings' => array(array('code' => 'invented_text', 'summary' => null, 'severity' => false, 'text' => array('unexpected'), 'verbose_evidence' => array('not-needed'))))
 );
 $validationFailureDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $validationFailureOutcome);
