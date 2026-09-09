@@ -11003,6 +11003,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' === $title ) {
             $title = trim($this->attr($item, 'aria-label'));
         }
+        if ( '' === $title && '' === $description ) {
+            $description = trim($item->textContent ?? '');
+        }
 
         $title = '' === $title ? '' : '<strong>' . $this->runtime->escapeHtml($title) . '</strong>';
         $description = $this->runtime->escapeHtml($description);
