@@ -178,6 +178,11 @@ final class GeneratedBlockStyleProjector
         $responsiveAuthoredProperties = $sourceControl instanceof DOMElement
             ? $this->responsiveAuthoredProperties($sourceControl)
             : array();
+        $logicalCorners = array( 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' );
+        $hasLogicalCorners = $sourceControl instanceof DOMElement && (
+            array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, $logicalCorners)
+            || array() !== array_intersect_key($this->styleResolver->cssDeclarations($sourceControl->getAttribute('style')), array_flip($logicalCorners))
+        );
         foreach ( array(
             'background-color' => $style['color']['background'] ?? '',
             'color' => $style['color']['text'] ?? '',
@@ -195,7 +200,7 @@ final class GeneratedBlockStyleProjector
             'padding-bottom' => $style['spacing']['padding']['bottom'] ?? '',
             'padding-left' => $style['spacing']['padding']['left'] ?? '',
         ) as $property => $value ) {
-            if ( isset($responsiveAuthoredProperties[$property]) ) {
+            if ( isset($responsiveAuthoredProperties[$property]) || ('border-radius' === $property && $hasLogicalCorners) ) {
                 continue;
             }
             $value = trim((string) $value);
@@ -259,8 +264,8 @@ final class GeneratedBlockStyleProjector
                 }
             }
             if ( 'a' === strtolower($sourceControl->tagName) && '' === trim((string) ($style['border']['radius'] ?? '')) ) {
-                $hasCornerRadius = false;
-                foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
+                $hasCornerRadius = $hasLogicalCorners;
+                foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius', 'border-start-start-radius', 'border-start-end-radius', 'border-end-start-radius', 'border-end-end-radius' ) as $property ) {
                     if ( '' !== trim((string) ($sourceStructuralDeclarations[$property] ?? '')) ) {
                         $hasCornerRadius = true;
                         break;
