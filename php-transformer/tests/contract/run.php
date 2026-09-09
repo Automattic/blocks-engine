@@ -5573,6 +5573,16 @@ $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</st
 $htmlAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $htmlAssetResult['assets'] ?? array()));
 assertSame('core/paragraph', $htmlAssetResult['blocks'][0]['blockName'] ?? '', 'HTML format conversion should keep a classed-span text logo on the paragraph path.');
 assertStringContains('.logo{display:inline-flex}', $htmlAssetCss, 'HTML format conversion should preserve generated author stylesheet assets.');
+$inlineStyleFixture = '<section class="card"><style>.card{color:rebeccapurple}</style><style type="text/css" media="(min-width:40rem)">.card{padding:1rem}</style><h1>Card</h1></section>';
+$directInlineStyleResult = (new HtmlTransformer())->transform($inlineStyleFixture)->toArray();
+$artifactInlineStyleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $inlineStyleFixture)))->toArray();
+$directInlineStyleAssets = array_values(array_filter($directInlineStyleResult['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '')));
+$directInlineStyleCss = implode("\n", array_column($directInlineStyleAssets, 'content'));
+assertSame(array(), array_values(array_filter($directInlineStyleResult['fallbacks'], static fn (array $fallback): bool => 'style' === ($fallback['tag'] ?? ''))), 'Direct HTML conversion collects nested CSS style elements instead of emitting unsupported fallbacks.');
+assertSame(array(), array_values(array_filter($artifactInlineStyleResult['fallbacks'], static fn (array $fallback): bool => 'style' === ($fallback['tag'] ?? ''))), 'Artifact compilation keeps collected nested CSS style elements out of fallbacks.');
+assertSame(true, str_contains($directInlineStyleCss, '.card{color:rebeccapurple}') && str_contains($directInlineStyleCss, '.card{padding:1rem}') && strpos($directInlineStyleCss, '.card{color:rebeccapurple}') < strpos($directInlineStyleCss, '.card{padding:1rem}'), 'Direct HTML stylesheet assets retain nested style source order.');
+assertSame(true, array('both', 'both') === array_column($directInlineStyleAssets, 'stylesheet_target') && array('', '(min-width:40rem)') === array_column($directInlineStyleAssets, 'media') && array('', 'text/css') === array_column($directInlineStyleAssets, 'type'), 'Direct HTML stylesheet assets preserve media/type scope and remain applicable in frontend and editor contexts.');
+assertSame(true, str_contains(implode("\n", array_column($artifactInlineStyleResult['assets'], 'content')), '.card{color:rebeccapurple}') && str_contains(implode("\n", array_column($artifactInlineStyleResult['assets'], 'content')), '.card{padding:1rem}'), 'Artifact compilation retains the same nested stylesheet content.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',

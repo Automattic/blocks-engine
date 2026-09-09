@@ -20,9 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Label" } },
     { "path": "blocks.1", "name": "core/paragraph", "attrs": { "content": "Visible" } }
   ],
-  "expected_fallbacks": [
-    { "type": "unsupported_element", "tag": "style", "severity": "info" }
-  ],
+  "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-attribute-" },

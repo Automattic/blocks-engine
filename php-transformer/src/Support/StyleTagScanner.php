@@ -5,6 +5,21 @@ namespace Automattic\BlocksEngine\PhpTransformer\Support;
 
 final class StyleTagScanner
 {
+    public static function isCssType(string $type): bool
+    {
+        $type = strtolower(trim($type));
+        return '' === $type || 1 === preg_match("/^text\\/css(?:\\s*;\\s*[!#$%&'*+\\-.^_`|~0-9a-z]+(?:\\s*=\\s*(?:[!#$%&'*+\\-.^_`|~0-9a-z]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)*\\s*$/i", $type);
+    }
+
+    public static function attribute(string $attributes, string $name): string
+    {
+        if ( 1 !== preg_match('/(?:^|\\s)' . preg_quote($name, '/') . '\\s*=\\s*(?:"([^"]*)"|\\\'([^\\\']*)\\\'|([^\\s>]+))/i', $attributes, $matches) ) {
+            return '';
+        }
+
+        return html_entity_decode((string) ($matches[1] ?? $matches[2] ?? $matches[3] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
+
     /**
      * @return list<array{attributes:string,content:string,offset:int,end_offset:int}>
      */
