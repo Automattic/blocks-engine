@@ -109,6 +109,15 @@ final class FormControlMetadataBuilder
 
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
+            if ( $labelElement instanceof DOMElement ) {
+                foreach ( $labelElement->getElementsByTagName('span') as $marker ) {
+                    $text = trim($marker->textContent ?? '');
+                    if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) ) {
+                        $metadata['required_text'] = $text;
+                        break;
+                    }
+                }
+            }
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
             if ( $control->hasAttribute($attribute) ) {
