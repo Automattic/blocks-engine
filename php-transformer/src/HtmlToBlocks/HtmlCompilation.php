@@ -1291,12 +1291,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $authorStylesheetProjections
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
-        $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
+        $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
+        $blockValidityReport = $blockValidityEvaluation->report();
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $semanticParityReport = $semanticParityEvaluation->report();
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
-        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromBlockValidityAndContentRoundTripReports(
-            $blockValidityReport,
+        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFactsAndContentRoundTripReport(
+            $blockValidityEvaluation->status,
+            $blockValidityEvaluation->findings,
             $semanticParityEvaluation->status(),
             $semanticParityEvaluation->findings,
             $contentRoundTripReport

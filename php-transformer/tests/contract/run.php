@@ -141,11 +141,13 @@ $assert(
         && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->contentRoundTripFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['content_round_trip']['findings'] ?? array()),
     'semantic evaluation directly supplies required diagnostic facts while its full report remains an identical projection'
 );
-$validationFailureOutcome = HtmlValidationOutcome::fromBlockValidityAndContentRoundTripReports(
-    array('status' => 'fail', 'findings' => array(array('code' => 'invalid_save', 'summary' => null, 'severity' => 0, 'block_name' => false, 'path' => 12, 'verbose_evidence' => array('not-needed')))),
-    'fail',
-    array(array('code' => 'missing_landmark', 'severity' => null, 'selector' => 0, 'verbose_evidence' => array('not-needed'))),
-    array('status' => 'fail', 'findings' => array(array('code' => 'invented_text', 'summary' => null, 'severity' => false, 'text' => array('unexpected'), 'verbose_evidence' => array('not-needed'))))
+$validationFailureOutcome = new HtmlValidationOutcome(
+    blockValidityStatus: 'fail',
+    blockValidityFindings: array(array('code' => 'invalid_save', 'summary' => null, 'severity' => 0, 'block_name' => false, 'path' => 12)),
+    semanticParityStatus: 'fail',
+    semanticParityFindings: array(array('code' => 'missing_landmark', 'severity' => null, 'selector' => 0)),
+    contentRoundTripStatus: 'fail',
+    contentRoundTripFindings: array(array('code' => 'invented_text', 'summary' => null, 'severity' => false, 'text' => array('unexpected')))
 );
 $validationFailureDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $validationFailureOutcome);
 $validationDiagnosticsByCode = array_column($validationFailureDiagnostics, null, 'code');
@@ -165,7 +167,7 @@ $assert(
         && array('unexpected') === ($validationDiagnosticsByCode['html_content_round_trip_invented_text']['text'] ?? null),
     'required validation outcomes preserve failure diagnostics, existing fallback messages, and mixed severity and location values without retaining verbose report evidence'
 );
-$notEvaluatedOutcome = HtmlValidationOutcome::fromReports(array(), array(), array());
+$notEvaluatedOutcome = HtmlValidationOutcome::fromValidationFactsAndContentRoundTripReport('not_evaluated', array(), 'not_evaluated', array(), array());
 $notEvaluatedDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $notEvaluatedOutcome);
 $assert(
     'not_evaluated' === $notEvaluatedOutcome->blockValidityStatus
