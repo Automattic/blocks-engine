@@ -131,39 +131,27 @@ $assert(
     'the emitted summary stays attribute-free, matching core\'s save shape'
 );
 
-// -- A source icon styled through the lost summary classes keeps its control size.
-$iconDisclosure = $transform(
-    '<style>#comp-icon .hamburger .icon{--icon-size:24px;width:var(--icon-size);height:var(--icon-size)}</style>'
-    . '<div id="comp-icon"><details class="dla-disclosure"><summary class="hamburger" aria-label="Menu">'
-    . '<span class="icon"><svg aria-hidden="true"><path d="M0 0h1v1"/></svg></span>Menu</summary>'
-    . '<div class="dla-dialog" role="dialog"><a href="/a/">A</a></div></details><p>Body copy.</p></div>'
-);
-
-$assert(
-    (bool) preg_match('/>summary>span:nth-of-type\(1\)\{[^}]*width:24px[^}]*height:24px/', $iconDisclosure['frontend']),
-    'a disclosure icon keeps its source-sized presentation after summary classes are dropped',
-    $iconDisclosure['blocks'] . "\n" . $iconDisclosure['frontend']
-);
-
-// -- Captured menus put the icon's size on a toggle ancestor custom property.
-// The summary class is not part of core/details' save shape, so resolve it at the
-// icon's source cascade scope before carrying the rule to the core summary tree.
+// -- Serialized Busy Bears capture: source responsive rules address the button
+// summary itself. Retaining its classes on a content carrier lets the author CSS,
+// rather than generated pixel rules, size the nested animated icon.
 $capturedIconDisclosure = $transform(
-    '<style>.menu-toggle{--size:42px}.menu-toggle .animated-icon{width:var(--size);height:var(--size)}'
-    . '.menu-toggle .animated-icon svg{width:var(--size);height:var(--size)}</style>'
-    . '<details class="dla-disclosure"><summary class="menu-toggle" aria-label="Menu">'
-    . '<div class="animated-icon"><div><svg aria-hidden="true" width="200" height="200"><path d="M0 0h1v1"/></svg></div></div>'
+    '<details class="dla-disclosure"><summary class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-testid="buttonContent" data-semantic-classname="button" aria-label="Menu">'
+    . '<div class="_animatedIcon_jg4gf_2 animatedIcon icon animated-icon _icon_1fj1u_79" id="animated-icon"><div data-dla-geometry-id="mobile-wrapper-6"><svg id="menu-icon" viewBox="0 0 24 24" width="100%" height="100%"><path d="M0 0h1v1"/></svg></div></div>'
     . '</summary><div class="dla-dialog" role="dialog"><a href="/">Home</a></div></details>'
 );
 
 $assert(
-    (bool) preg_match('/>summary>div:nth-of-type\(1\)\{[^}]*width:42px[^}]*height:42px/', $capturedIconDisclosure['frontend'])
-        && (bool) preg_match('/>summary>div:nth-of-type\(1\)>div:nth-of-type\(1\)>svg:nth-of-type\(1\)\{[^}]*width:42px[^}]*height:42px/', $capturedIconDisclosure['frontend']),
-    'a captured nested disclosure icon resolves its ancestor-scoped size before core summary projection',
+    str_contains($capturedIconDisclosure['blocks'], '<span class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-semantic-classname="button" data-testid="buttonContent">'),
+    'a native details summary retains the captured source selector hooks on its content carrier',
+    $capturedIconDisclosure['blocks']
+);
+$assert(
+    ! str_contains($capturedIconDisclosure['frontend'], '>summary>div:nth-of-type'),
+    'the captured icon keeps source styling hooks without generated descendant projection CSS',
     $capturedIconDisclosure['frontend']
 );
 $assert(
-    str_contains($capturedIconDisclosure['blocks'], '<span class="screen-reader-text">Menu</span>'),
+    str_contains($capturedIconDisclosure['blocks'], '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Menu</span>'),
     'an icon-only disclosure preserves its accessible source label in core summary markup',
     $capturedIconDisclosure['blocks']
 );
