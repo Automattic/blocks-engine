@@ -22,6 +22,9 @@ final class StylesheetAnalysisComposer
     {
         $cssParts = array();
         foreach ( StyleTagScanner::scan($html) as $style ) {
+            if ( ! StyleTagScanner::isCssType(StyleTagScanner::attribute($style['attributes'], 'type')) ) {
+                continue;
+            }
             $styleBlock = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
             if ( '' !== $styleBlock ) {
                 $cssParts[] = $styleBlock;
@@ -173,6 +176,29 @@ final class StylesheetAnalysisComposer
         return $assets;
     }
 
+    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, type: string}> */
+    public function inlineAuthorStylesheetAssets(string $html): array
+    {
+        $assets = array();
+        foreach ( StyleTagScanner::scan($html) as $index => $style ) {
+            $type = StyleTagScanner::attribute($style['attributes'], 'type');
+            $content = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ( '' === $content || ! StyleTagScanner::isCssType($type) ) {
+                continue;
+            }
+            $assets[] = array(
+                'path' => 'inline-style-' . ($index + 1) . '.css',
+                'source_path' => 'inline-style',
+                'content' => $content,
+                'source_hash' => hash('sha256', $content),
+                'media' => StyleTagScanner::attribute($style['attributes'], 'media'),
+                'type' => $type,
+            );
+        }
+
+        return $assets;
+    }
+
     /** @param array<string, mixed> $options @return list<string> */
     private function staticStylesheetPayloads(string $staticCss, array $options): array
     {
@@ -192,7 +218,13 @@ final class StylesheetAnalysisComposer
     /** @return list<string> */
     private function inlineStylesheetPayloads(string $html): array
     {
-        return array_map(static fn (array $style): string => trim($style['content']), StyleTagScanner::scan($html));
+        return array_values(array_map(
+            static fn (array $style): string => trim($style['content']),
+            array_filter(
+                StyleTagScanner::scan($html),
+                static fn (array $style): bool => StyleTagScanner::isCssType(StyleTagScanner::attribute($style['attributes'], 'type'))
+            )
+        ));
     }
 
     /** @param list<string> $payloads */

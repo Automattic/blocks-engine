@@ -17,6 +17,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
+use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
 use Automattic\BlocksEngine\PhpTransformer\Contract\CoreHtmlFallbackEvidence;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
@@ -1669,12 +1670,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function authoredCssText(string $html, string $staticCss): string
     {
-        $embedded = array();
-        if ( 0 < preg_match_all('/<style\b[^>]*>(.*?)<\/style>/is', $html, $matches) ) {
-            $embedded = $matches[1];
-        }
-
-        return trim($staticCss . "\n" . implode("\n", $embedded));
+        return $this->stylesheetAnalysisComposer->combinedAuthorStylesheet($html, $staticCss);
     }
 
     /**
@@ -1861,10 +1857,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $includeAuthorStyles && '' !== $this->authorStyles()->combinedCss() ) {
             $authorCss = $this->rewriteAuthorStylesheet($this->authorStyles()->combinedCss());
             $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
-            if ( '' !== trim($split['preamble']) ) {
-                $authorCssParts[] = $split['preamble'];
+            if ( array() === $this->authorStyles()->stylesheetAssets() ) {
+                if ( '' !== trim($split['preamble']) ) {
+                    $authorCssParts[] = $split['preamble'];
+                }
+                $authorCssParts[] = $split['stylesheet'];
             }
-            $authorCss = $split['stylesheet'];
         }
         $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
@@ -2107,8 +2105,47 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
-        $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
+        if ( $includeAuthorStyles && array() !== $this->authorStyles()->stylesheetAssets() ) {
+            foreach ( $authorStylesheetProjections as $projection ) {
+                $this->materializeAuthorStylesheetProjection($projection);
+            }
+        } else {
+            $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
+        }
         $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
+    }
+
+    /** @param array<string, mixed> $projection */
+    private function materializeAuthorStylesheetProjection(array $projection): void
+    {
+        $path = trim((string) ($projection['path'] ?? ''), '/');
+        $css = trim((string) ($projection['content'] ?? ''));
+        if ( '' === $path || '' === $css ) {
+            return;
+        }
+
+        $content = $css . "\n";
+        $hash = hash('sha256', $content);
+        $this->materializedAssets()->register($path, array(
+            'source' => 'author-css',
+            'source_path' => (string) ($projection['source_path'] ?? ''),
+            'path' => $path,
+            'target_path' => $path,
+            'kind' => 'css',
+            'role' => 'stylesheet',
+            'stylesheet_placement' => 'author',
+            'stylesheet_target' => 'both',
+            'mime_type' => 'text/css',
+            'media_type' => 'text/css',
+            'media' => (string) ($projection['media'] ?? ''),
+            'type' => (string) ($projection['type'] ?? ''),
+            'content' => $content,
+            'bytes' => strlen($content),
+            'encoding' => 'utf-8',
+            'binary' => false,
+            'hash' => $hash,
+            'source_hash' => (string) ($projection['source_hash'] ?? $hash),
+        ));
     }
 
     private function richTextMarkerResetCss(): string
@@ -2139,6 +2176,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 'bytes'       => strlen($content),
                 'hash'        => $hash,
                 'source_hash' => $asset['source_hash'],
+                'source_path' => $asset['source_path'],
+                'media'       => $asset['media'],
+                'type'        => $asset['type'] ?? '',
                 'attribute_state_markers' => $this->authorSelectorProjections()->attributeNegationMarkers(),
             );
         }
@@ -3146,6 +3186,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Stylesheet and document-resource links are collected by the artifact
         // compiler. They are metadata, not page-content blocks.
         if ( 'link' === $tagName ) {
+            return null;
+        }
+
+        // Source styles are collected before DOM conversion and materialized as
+        // author stylesheet assets. A collected CSS style is therefore not an
+        // unsupported content element.
+        if ( 'style' === $tagName && StyleTagScanner::isCssType($this->attr($element, 'type')) ) {
             return null;
         }
 
