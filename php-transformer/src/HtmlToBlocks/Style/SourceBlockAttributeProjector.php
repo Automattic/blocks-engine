@@ -83,6 +83,17 @@ final class SourceBlockAttributeProjector
             $context->generatedStyles,
             $facts->preserveGeneratedStyle
         );
+        if ( 'core/button' === $name
+            && $this->buttonLabelHasAuthoredColor($sourceElement, $logicalSourceElement, (string) ($attrs['text'] ?? ''), $sourceElement->getNodePath() ?? '', $logicalSourceElement->getNodePath() ?? '')
+        ) {
+            unset($attrs['style']['color']['text']);
+            if ( array() === ($attrs['style']['color'] ?? null) ) {
+                unset($attrs['style']['color']);
+            }
+            if ( array() === ($attrs['style'] ?? null) ) {
+                unset($attrs['style']);
+            }
+        }
 
         if ( 'core/group' === $name && ! isset($attrs['tagName']) ) {
             $semanticTag = self::semanticGroupTagName($sourceElement);
@@ -157,6 +168,16 @@ final class SourceBlockAttributeProjector
             $hasNativeButtonColor = $nativeButtonProjection['color_changed'];
             $hasNativeButtonStyle = '' !== $nativeButtonTextAlignment || $hasNativeButtonColor;
         }
+        $labelPaths = self::buttonLabelPaths($sourceElement, $logicalControl, (string) ($attrs['text'] ?? ''));
+        $labelProjectionPaths = self::hasStandaloneButtonLabel($logicalControl) ? $labelPaths : array();
+        if ( 'core/button' === $name && $sourceElement !== $logicalControl && in_array($presentationPath, $labelProjectionPaths, true) ) {
+            $logicalStyle = $this->styleResolver->styleAttributeMapper()->map(
+                $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($logicalControl))
+            )['style'] ?? array();
+            if ( '' !== trim((string) ($logicalStyle['color']['background'] ?? '')) ) {
+                $attrs['style']['color']['background'] = $logicalStyle['color']['background'];
+            }
+        }
         if ( $facts->hasAuthorControlProjection ) {
             $controlMarker = '' !== $logicalControlPath ? $context->selectorProjections->ensureControlMarker($logicalControlPath) : '';
             if ( '' !== $controlMarker ) {
@@ -172,14 +193,12 @@ final class SourceBlockAttributeProjector
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {
                 $context->selectorProjections->installButtonPresentationMarker($presentationPath, $controlMarker);
             }
-            // The element that renders the label is styled separately from the
-            // control that boxes it, and core/button renders the label inside
-            // the link. Register it too, so rules written for the label reach
-            // the link instead of leaving the box's own colour to paint text.
+            // core/button unwraps the label into RichText. Keep its selector
+            // surface distinct from the link that owns the control chrome.
             if ( '' !== $controlMarker ) {
-                foreach ( self::buttonLabelPaths($sourceElement, $logicalControl, (string) ($attrs['text'] ?? '')) as $labelPath ) {
+                foreach ( $labelProjectionPaths as $labelPath ) {
                     if ( $labelPath !== $logicalControlPath && $labelPath !== $presentationPath ) {
-                        $context->selectorProjections->installButtonPresentationMarker($labelPath, $controlMarker);
+                        $context->selectorProjections->installButtonLabelPath($labelPath);
                     }
                 }
             }
@@ -227,6 +246,19 @@ final class SourceBlockAttributeProjector
         }
 
         return array_keys($paths);
+    }
+
+    private static function hasStandaloneButtonLabel(DOMElement $control): bool
+    {
+        $label = trim($control->textContent ?? '');
+        if ( '' === $label ) {
+            return false;
+        }
+        $spans = $control->getElementsByTagName('span');
+        if ( 1 !== $spans->length || ! $spans->item(0) instanceof DOMElement ) {
+            return false;
+        }
+        return $label === trim($spans->item(0)->textContent ?? '');
     }
 
     private function buttonLabelHasAuthoredColor(

@@ -179,8 +179,19 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $markers = array();
+            $hasLabelProjection = false;
             foreach ( $sourceElements as $element ) {
                 $path = $element->getNodePath() ?? '';
+                if ( $context->selectorProjections->isButtonLabelPath($path) ) {
+                    $marker = $context->selectorProjections->richTextMarker($path);
+                    if ( '' === $marker ) {
+                        $markers = array();
+                        break;
+                    }
+                    $rewritten[] = $this->projectRichTextSemanticSelector($baseSelector, $parsed, $marker, $context) . $matches[2];
+                    $hasLabelProjection = true;
+                    continue;
+                }
                 if ( ! $context->selectorProjections->isButtonPresentationPath($path) ) {
                     $markers = array();
                     break;
@@ -192,7 +203,7 @@ final class AuthorStylesheetProjector
                 }
                 $markers[] = $marker;
             }
-            if ( array() === $markers ) {
+            if ( array() === $markers && ! $hasLabelProjection ) {
                 $rewritten[] = $selector;
                 continue;
             }
@@ -594,12 +605,12 @@ final class AuthorStylesheetProjector
                     $hasNonProjected = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
                     $inlineLayoutCarriers = true;
+                } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
+                    $richTextLeaves[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->controlMarker($path)) ) {
                     $controls[] = $marker;
                 } elseif ( '' !== ($marker = $context->selectorProjections->semanticMarker($path)) ) {
                     $semanticLeaves[] = $marker;
-                } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
-                    $richTextLeaves[] = $marker;
                 } else {
                     $hasNonProjected = true;
                 }

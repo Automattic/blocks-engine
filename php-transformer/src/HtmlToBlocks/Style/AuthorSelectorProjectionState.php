@@ -20,6 +20,9 @@ final class AuthorSelectorProjectionState
     private array $buttonPresentationPaths = array();
 
     /** @var array<string, true> */
+    private array $buttonLabelPaths = array();
+
+    /** @var array<string, true> */
     private array $controlPaths = array();
 
     /** @var array<string, string> */
@@ -106,6 +109,18 @@ final class AuthorSelectorProjectionState
     public function isButtonPresentationPath(string $path): bool
     {
         return isset($this->buttonPresentationPaths[$path]);
+    }
+
+    /** Register the RichText surface that replaces an unwrapped button label. */
+    public function installButtonLabelPath(string $path): void
+    {
+        $this->buttonLabelPaths[$path] = true;
+        $this->ensureRichTextMarker($path);
+    }
+
+    public function isButtonLabelPath(string $path): bool
+    {
+        return isset($this->buttonLabelPaths[$path]);
     }
 
     public function ensureSemanticMarker(string $path): string
