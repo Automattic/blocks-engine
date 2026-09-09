@@ -15,7 +15,7 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $nativeNavigationToggleRules = array();
 
-    /** @var array<string, string> */
+    /** @var array<string, array{summary: string, descendants: array<string, string>}> */
     private array $disclosureSummaryPresentation = array();
 
     /** @var array<string, string> */
@@ -114,9 +114,13 @@ final class GeneratedSupportStylesheetState
         return array_values($this->navigationInheritedPresentation);
     }
 
-    public function registerDisclosureSummaryPresentation(string $className, string $declarations): void
+    /** @param array<string, string> $descendants */
+    public function registerDisclosureSummaryPresentation(string $className, string $declarations, array $descendants = array()): void
     {
-        $this->disclosureSummaryPresentation[$className] = $declarations;
+        $this->disclosureSummaryPresentation[$className] = array(
+            'summary' => $declarations,
+            'descendants' => $descendants,
+        );
     }
 
     public function registerNavigationLinkIcon(string $className, string $declarations): void
@@ -168,11 +172,16 @@ final class GeneratedSupportStylesheetState
                 $parts[] = '.wp-block-navigation-item.' . $className . '>.wp-block-navigation__submenu-container{background-color:' . $color . '}';
             }
         }
-        foreach ($this->disclosureSummaryPresentation as $className => $declarations) {
+        foreach ($this->disclosureSummaryPresentation as $className => $presentation) {
             if (str_contains($serializedBlocks, $className)) {
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
-                $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
+                if ('' !== $presentation['summary']) {
+                    $parts[] = '.wp-block-details.' . $className . '>summary{' . $presentation['summary'] . '}';
+                }
+                foreach ($presentation['descendants'] as $selector => $declarations) {
+                    $parts[] = '.wp-block-details.' . $className . '>summary' . $selector . '{' . $declarations . '}';
+                }
             }
         }
         foreach ($this->navigationSpacing as $className => $declarations) {

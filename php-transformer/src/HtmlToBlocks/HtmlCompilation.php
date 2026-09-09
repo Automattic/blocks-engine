@@ -2803,10 +2803,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             ARRAY_FILTER_USE_KEY
         );
-        if ( array() === $carried ) {
-            return '';
-        }
-
         // The label the source painted keeps its classes but loses the toggle
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
@@ -2814,12 +2810,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
 
         $css = $this->styleResolver->cssDeclarationString($carried);
-        if ( '' === $css ) {
+        $descendants = $this->disclosureSummaryDescendantPresentation($summary);
+        if ( '' === $css && array() === $descendants ) {
             return '';
         }
 
-        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
-        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css . json_encode($descendants)), 0, 12);
+        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation(
+            $marker,
+            $css,
+            $descendants
+        );
 
         return $marker;
     }
@@ -2863,6 +2864,61 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             ARRAY_FILTER_USE_KEY
         );
+    }
+
+    /**
+     * Source selectors commonly style an icon through the summary's classes.
+     * core/details drops those classes but retains the summary children, so restate
+     * their resolved presentation under the marker-scoped core summary.
+     *
+     * @return array<string, string>
+     */
+    private function disclosureSummaryDescendantPresentation(DOMElement $summary): array
+    {
+        $rules = array();
+        foreach ($summary->getElementsByTagName('*') as $descendant) {
+            if (! $descendant instanceof DOMElement) {
+                continue;
+            }
+
+            $declarations = $this->styleResolver->safeVisualDeclarations(
+                $this->styleResolver->cssDeclarations(
+                    $this->styleResolver->resolveCssVariablesInValue(
+                        $this->styleResolver->specificityResolvedPresentationStyle($descendant)
+                    )
+                )
+            );
+            $css = $this->styleResolver->cssDeclarationString($declarations);
+            if ('' === $css) {
+                continue;
+            }
+
+            $rules[$this->disclosureSummaryDescendantSelector($summary, $descendant)] = $css;
+        }
+
+        return $rules;
+    }
+
+    private function disclosureSummaryDescendantSelector(DOMElement $summary, DOMElement $descendant): string
+    {
+        $parts = array();
+        for ($node = $descendant; $node !== $summary; $node = $node->parentNode) {
+            if (! $node instanceof DOMElement || ! $node->parentNode instanceof DOMElement) {
+                return '';
+            }
+            $position = 0;
+            foreach ($node->parentNode->childNodes as $sibling) {
+                if ($sibling instanceof DOMElement && strtolower($sibling->tagName) === strtolower($node->tagName)) {
+                    ++$position;
+                }
+                if ($sibling === $node) {
+                    break;
+                }
+            }
+            $parts[] = '>' . strtolower($node->tagName) . ':nth-of-type(' . $position . ')';
+        }
+
+        return implode('', array_reverse($parts));
     }
 
     /**

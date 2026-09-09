@@ -131,6 +131,20 @@ $assert(
     'the emitted summary stays attribute-free, matching core\'s save shape'
 );
 
+// -- A source icon styled through the lost summary classes keeps its control size.
+$iconDisclosure = $transform(
+    '<style>#comp-icon .hamburger .icon{--icon-size:24px;width:var(--icon-size);height:var(--icon-size)}</style>'
+    . '<div id="comp-icon"><details class="dla-disclosure"><summary class="hamburger" aria-label="Menu">'
+    . '<span class="icon"><svg aria-hidden="true"><path d="M0 0h1v1"/></svg></span>Menu</summary>'
+    . '<div class="dla-dialog" role="dialog"><a href="/a/">A</a></div></details><p>Body copy.</p></div>'
+);
+
+$assert(
+    (bool) preg_match('/>summary>span:nth-of-type\(1\)\{[^}]*width:24px[^}]*height:24px/', $iconDisclosure['frontend']),
+    'a disclosure icon keeps its source-sized presentation after summary classes are dropped',
+    $iconDisclosure['blocks'] . "\n" . $iconDisclosure['frontend']
+);
+
 // -- A disclosure with no authored toggle presentation emits no rule.
 $plain = $transform(
     '<details><summary>More</summary><p>Detail.</p></details><p>Body copy.</p>'

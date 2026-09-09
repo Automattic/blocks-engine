@@ -75,8 +75,19 @@ final class DetailsPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $summaryHtml = $summary instanceof DOMElement ? $innerHtml($summary) : '';
+        if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
+            $label = trim($summary->getAttribute('aria-label'));
+            if ('' === $label) {
+                $label = trim($summary->getAttribute('data-dla-disclosure-label'));
+            }
+            if ('' !== $label) {
+                $summaryHtml .= '<span class="screen-reader-text">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+            }
+        }
+
         $attrs = array_merge($presentationAttributes($element), array(
-            'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+            'summary'     => $summaryHtml,
             'showContent' => $element->hasAttribute('open') ? true : '',
         ));
         if ( '' !== $summaryMarker ) {
