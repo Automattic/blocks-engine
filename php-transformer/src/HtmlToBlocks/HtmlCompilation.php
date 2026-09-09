@@ -2788,7 +2788,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->safeVisualDeclarations(
             $this->styleResolver->cssDeclarations(
                 $this->styleResolver->resolveCssVariablesInValue(
-                    $this->styleResolver->specificityResolvedPresentationStyle($summary)
+                    $this->styleResolver->specificityResolvedPresentationStyle($summary),
+                    $summary
                 )
             )
         );
@@ -2803,10 +2804,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ),
             ARRAY_FILTER_USE_KEY
         );
-        if ( array() === $carried ) {
-            return '';
-        }
-
         // The label the source painted keeps its classes but loses the toggle
         // ancestor those rules were written against. Its type is inheritable, so
         // restating it on the summary reaches the label again, and any rule the
@@ -2850,7 +2847,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->safeVisualDeclarations(
             $this->styleResolver->cssDeclarations(
                 $this->styleResolver->resolveCssVariablesInValue(
-                    $this->styleResolver->specificityResolvedPresentationStyle($label)
+                    $this->styleResolver->specificityResolvedPresentationStyle($label),
+                    $label
                 )
             )
         );

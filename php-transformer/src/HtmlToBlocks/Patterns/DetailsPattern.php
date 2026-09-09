@@ -75,8 +75,22 @@ final class DetailsPattern implements PatternRecognizerInterface
             return null;
         }
 
+        $summaryHtml = $summary instanceof DOMElement ? $innerHtml($summary) : '';
+        if ($summary instanceof DOMElement && '' === trim(strip_tags($summaryHtml))) {
+            $label = trim($summary->getAttribute('aria-label'));
+            if ('' === $label) {
+                $label = trim($summary->getAttribute('data-dla-disclosure-label'));
+            }
+            if ('' !== $label) {
+                $summaryHtml .= '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">' . htmlspecialchars($label, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</span>';
+            }
+        }
+        if ($summary instanceof DOMElement) {
+            $summaryHtml = $this->summaryContentCarrier($summary, $summaryHtml);
+        }
+
         $attrs = array_merge($presentationAttributes($element), array(
-            'summary'     => $summary instanceof DOMElement ? $innerHtml($summary) : '',
+            'summary'     => $summaryHtml,
             'showContent' => $element->hasAttribute('open') ? true : '',
         ));
         if ( '' !== $summaryMarker ) {
@@ -84,6 +98,24 @@ final class DetailsPattern implements PatternRecognizerInterface
         }
 
         return $createBlock('core/details', array_filter($attrs, static fn ($value): bool => '' !== $value), $children, $element);
+    }
+
+    /**
+     * core/details saves a bare summary, but source CSS often addresses the
+     * summary's classes and responsive data attributes. Keep those safe styling
+     * hooks on its content rather than changing core's saved summary shape.
+     */
+    private function summaryContentCarrier(DOMElement $summary, string $html): string
+    {
+        $attributes = array();
+        foreach (SourceDom::htmlAttributes($summary) as $name => $value) {
+            $lowerName = strtolower($name);
+            if ('class' === $lowerName || 'style' === $lowerName || 'title' === $lowerName || str_starts_with($lowerName, 'data-')) {
+                $attributes[$name] = $value;
+            }
+        }
+
+        return array() === $attributes ? $html : '<span' . SourceDom::htmlAttributeString($attributes) . '>' . $html . '</span>';
     }
 
     /**
