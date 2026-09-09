@@ -167,7 +167,7 @@ $assert(
         && array('unexpected') === ($validationDiagnosticsByCode['html_content_round_trip_invented_text']['text'] ?? null),
     'required validation outcomes preserve failure diagnostics, existing fallback messages, and mixed severity and location values without retaining verbose report evidence'
 );
-$notEvaluatedOutcome = HtmlValidationOutcome::fromValidationFactsAndContentRoundTripReport('not_evaluated', array(), 'not_evaluated', array(), array());
+$notEvaluatedOutcome = HtmlValidationOutcome::fromValidationFacts('not_evaluated', array(), 'not_evaluated', array(), 'not_evaluated', array());
 $notEvaluatedDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $notEvaluatedOutcome);
 $assert(
     'not_evaluated' === $notEvaluatedOutcome->blockValidityStatus

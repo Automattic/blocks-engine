@@ -34,6 +34,18 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 
 $reporter = new ContentRoundTripReporter();
 
+$evaluation = $reporter->evaluate('<p>Invented copy</p>', '<p>Source copy</p>');
+$assert(
+    'warning' === $evaluation->status()
+        && array('content_not_in_source') === array_column($evaluation->findings, 'code'),
+    'evaluation exposes authoritative invented-text status and findings before report projection'
+);
+$evaluation = $reporter->evaluate('<p>Source copy</p>', '<p>Source copy</p>');
+$assert(
+    'pass' === $evaluation->status() && array() === $evaluation->findings,
+    'evaluation exposes authoritative valid-text facts before report projection'
+);
+
 /**
  * @param array<string, mixed> $report
  * @return array<int, string>

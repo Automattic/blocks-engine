@@ -32,35 +32,24 @@ final class HtmlValidationOutcome
      *
      * @param array<int, array<string, mixed>> $blockValidityFindings
      * @param array<int, array<string, mixed>> $semanticParityFindings
-     * @param array<string, mixed> $contentRoundTripReport
+     * @param array<int, array<string, mixed>> $contentRoundTripFindings
      */
-    public static function fromValidationFactsAndContentRoundTripReport(
+    public static function fromValidationFacts(
         string $blockValidityStatus,
         array $blockValidityFindings,
         string $semanticParityStatus,
         array $semanticParityFindings,
-        array $contentRoundTripReport
+        string $contentRoundTripStatus,
+        array $contentRoundTripFindings
     ): self {
         return new self(
             blockValidityStatus: $blockValidityStatus,
             blockValidityFindings: self::filteredFindings($blockValidityFindings, array('block_name', 'path')),
             semanticParityStatus: $semanticParityStatus,
             semanticParityFindings: self::filteredFindings($semanticParityFindings, array('selector')),
-            contentRoundTripStatus: self::status($contentRoundTripReport),
-            contentRoundTripFindings: self::findings($contentRoundTripReport, array('text'))
+            contentRoundTripStatus: $contentRoundTripStatus,
+            contentRoundTripFindings: self::filteredFindings($contentRoundTripFindings, array('text'))
         );
-    }
-
-    /** @param array<string, mixed> $report */
-    private static function status(array $report): string
-    {
-        return is_string($report['status'] ?? null) ? $report['status'] : 'not_evaluated';
-    }
-
-    /** @param array<string, mixed> $report @param array<int, string> $fields @return array<int, array<string, mixed>> */
-    private static function findings(array $report, array $fields): array
-    {
-        return self::filteredFindings(is_array($report['findings'] ?? null) ? $report['findings'] : array(), $fields);
     }
 
     /** @param array<int, mixed> $sourceFindings @param array<int, string> $fields @return array<int, array<string, mixed>> */
