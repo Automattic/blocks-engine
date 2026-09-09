@@ -119,8 +119,22 @@ $assert(
     null !== $emptyHtmlResult->blockCompilationOutput
         && array() === $emptyHtmlResult->blockCompilationOutput->sourceProvenance
         && array() === $emptyHtmlResult->blockCompilationOutput->runtimeBlockPaths
-        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths,
-    'empty HTML results carry an explicit empty block-compilation output rather than omitting required compiler facts'
+        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths
+        && 'pass' === $emptyHtmlResult->blockCompilationOutput->validationOutcome->blockValidityStatus
+        && array() === $emptyHtmlResult->blockCompilationOutput->validationOutcome->blockValidityFindings,
+    'empty HTML results carry explicit empty compiler and required-validation outcomes rather than omitting required facts'
+);
+$validationOutcomeResult = ( new HtmlTransformer() )->transform('<nav><a href="/one">One</a><a href="/two">Two</a></nav>');
+$validationOutcome = $validationOutcomeResult->blockCompilationOutput->validationOutcome;
+$validationOutcomeReports = $validationOutcomeResult->sourceReports;
+$assert(
+    $validationOutcome->blockValidityStatus === ($validationOutcomeReports['wp_block_validity']['status'] ?? null)
+        && $validationOutcome->semanticParityStatus === ($validationOutcomeReports['semantic_parity']['status'] ?? null)
+        && $validationOutcome->contentRoundTripStatus === ($validationOutcomeReports['content_round_trip']['status'] ?? null)
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->blockValidityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['wp_block_validity']['findings'] ?? array())
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->semanticParityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['semantic_parity']['findings'] ?? array())
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->contentRoundTripFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['content_round_trip']['findings'] ?? array()),
+    'producer-owned required validation outcomes retain each detailed report status and every diagnostic finding while reports remain projections'
 );
 $ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
     array('block_path' => '0', 'editability_runtime_owned' => true),

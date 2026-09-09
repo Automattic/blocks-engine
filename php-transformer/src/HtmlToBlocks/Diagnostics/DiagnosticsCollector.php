@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics;
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
+use Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 /**
@@ -28,9 +29,7 @@ final class DiagnosticsCollector
      * @param array<int, array<string, mixed>>  $runtimeIslands       Preserved runtime islands.
      * @param array<int, array<string, mixed>>  $runtimeDomPreservations Runtime contracts retained by native blocks.
      * @param array<int, array<string, mixed>>  $runtimeDomFallbacks Runtime contracts retained by bounded islands.
-     * @param array<string, mixed>              $blockValidityReport  Block serialization validity report.
-     * @param array<string, mixed>              $semanticParityReport Semantic parity report.
-     * @param array<string, mixed>              $contentRoundTripReport Content round-trip (hallucination) report.
+     * @param HtmlValidationOutcome              $validationOutcome Required validation facts.
      * @return array<int, array<string, mixed>>
      */
     public function collect(
@@ -40,9 +39,7 @@ final class DiagnosticsCollector
         array $runtimeIslands,
         array $runtimeDomPreservations,
         array $runtimeDomFallbacks,
-        array $blockValidityReport,
-        array $semanticParityReport,
-        array $contentRoundTripReport = array()
+        HtmlValidationOutcome $validationOutcome
     ): array {
         $diagnostics = array(
             array(
@@ -162,7 +159,7 @@ final class DiagnosticsCollector
             ), static fn (mixed $value): bool => null !== $value && '' !== $value);
         }
 
-        foreach ( $blockValidityReport['findings'] ?? array() as $finding ) {
+        foreach ( $validationOutcome->blockValidityFindings as $finding ) {
             if ( ! is_array($finding) ) {
                 continue;
             }
@@ -177,7 +174,7 @@ final class DiagnosticsCollector
             );
         }
 
-        foreach ( $semanticParityReport['findings'] ?? array() as $finding ) {
+        foreach ( $validationOutcome->semanticParityFindings as $finding ) {
             if ( ! is_array($finding) ) {
                 continue;
             }
@@ -191,7 +188,7 @@ final class DiagnosticsCollector
             );
         }
 
-        foreach ( $contentRoundTripReport['findings'] ?? array() as $finding ) {
+        foreach ( $validationOutcome->contentRoundTripFindings as $finding ) {
             if ( ! is_array($finding) ) {
                 continue;
             }

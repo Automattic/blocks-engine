@@ -1293,6 +1293,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
         $semanticParityReport = $this->semanticParityReporter->report($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
         $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
+        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromReports($blockValidityReport, $semanticParityReport, $contentRoundTripReport);
         $diagnostics = $this->diagnosticsCollector->collect(
             HtmlTransformer::class,
             $this->runtimeBehavior()->scriptMetadata(),
@@ -1300,9 +1301,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtimeDom()->islands(),
             $this->runtimeDom()->preservations(),
             $this->runtimeDom()->fallbacks(),
-            $blockValidityReport,
-            $semanticParityReport,
-            $contentRoundTripReport
+            $validationOutcome
         );
         $headMetadata = $this->headMetadataReport($html);
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
@@ -1340,7 +1339,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             authorStylesheetProjections: $authorStylesheetProjections,
             runtimeScriptProjections: $runtimeScriptProjections,
             shellArtifacts: $shellArtifacts,
-            coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance)
+            coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
+            validationOutcome: $validationOutcome
         );
         $compositionInput = array(
             'source' => HtmlTransformer::class,
