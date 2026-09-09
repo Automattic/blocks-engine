@@ -2450,10 +2450,10 @@ final class StyleResolver implements ElementPresentationResolver
                     if ($supportedRestingSelector && array() === $conditions && array() !== $cascadedValueDeclarations) {
                         $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
-                    if (array() !== $conditions || array() === $declarations) {
+                    if (array() === $declarations) {
                         continue;
                     }
-                    if (1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                         $state = strtolower((string) $stateMatches[1][0][0]);
                         $offset = (int) $stateMatches[0][0][1];
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
@@ -2465,7 +2465,7 @@ final class StyleResolver implements ElementPresentationResolver
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
                         $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $declarations);
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $declarations, 'conditions' => $conditions);
                         }
                     }
                 }

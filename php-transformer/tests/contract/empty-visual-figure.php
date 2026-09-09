@@ -23,6 +23,24 @@ $assert(1 === substr_count($transformMarkup, 'wp-block-group border-figure') && 
 $assert(str_contains($transformMarkup, 'border-figure') && str_contains($transformMarkup, 'gradient-figure') && str_contains($transformMarkup, 'pseudo-figure'), 'Transformer retains each visual figure identity for projected CSS.');
 $assert(! str_contains($transformMarkup, 'empty-figure') && ! str_contains($transformMarkup, '<!-- wp:html'), 'Transformer prunes nonvisual empty figures without HTML fallback.');
 
+// A pseudo-painted divider has no host geometry. Its only paint is scoped to
+// nested responsive media rules, which must still retain the host for CSS projection.
+$responsivePseudoCss = '@media screen{@media (min-width:768px){.responsive-pseudo-divider::before{content:"";display:block;height:1px;background:#345}}}';
+$responsivePseudoHtml = '<main><div class="responsive-pseudo-divider"></div><div class="responsive-empty-divider"></div></main>';
+$responsivePseudo = ( new HtmlTransformer() )->transform('<style>' . $responsivePseudoCss . '</style>' . $responsivePseudoHtml)->toArray();
+$responsivePseudoMarkup = (string) ($responsivePseudo['serialized_blocks'] ?? '');
+$assert(str_contains($responsivePseudoMarkup, 'wp-block-group responsive-pseudo-divider') && ! str_contains($responsivePseudoMarkup, 'responsive-empty-divider'), 'Nested responsive pseudo-element paint retains only its otherwise-empty host.');
+
+$responsivePseudoArtifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files'      => array(
+        'index.html' => '<link rel="stylesheet" href="assets/divider.css">' . $responsivePseudoHtml,
+        'assets/divider.css' => $responsivePseudoCss,
+    ),
+))->toArray();
+$responsivePseudoArtifactMarkup = (string) ($responsivePseudoArtifact['serialized_blocks'] ?? '');
+$assert(str_contains($responsivePseudoArtifactMarkup, 'wp-block-group responsive-pseudo-divider') && ! str_contains($responsivePseudoArtifactMarkup, 'responsive-empty-divider'), 'Artifact compilation retains a host painted only by nested responsive pseudo-element CSS.');
+
 foreach (array(1, 11) as $count) {
     $geometryGroups = ( new HtmlTransformer() )->transform(str_repeat('<div style="height:12px;overflow:hidden;width:100%"></div>', $count))->toArray();
     $geometryMetrics = $geometryGroups['source_reports']['editability_report']['metrics'] ?? array();
