@@ -145,6 +145,29 @@ $assert(
     $iconDisclosure['blocks'] . "\n" . $iconDisclosure['frontend']
 );
 
+// -- Captured menus put the icon's size on a toggle ancestor custom property.
+// The summary class is not part of core/details' save shape, so resolve it at the
+// icon's source cascade scope before carrying the rule to the core summary tree.
+$capturedIconDisclosure = $transform(
+    '<style>.menu-toggle{--size:42px}.menu-toggle .animated-icon{width:var(--size);height:var(--size)}'
+    . '.menu-toggle .animated-icon svg{width:var(--size);height:var(--size)}</style>'
+    . '<details class="dla-disclosure"><summary class="menu-toggle" aria-label="Menu">'
+    . '<div class="animated-icon"><div><svg aria-hidden="true" width="200" height="200"><path d="M0 0h1v1"/></svg></div></div>'
+    . '</summary><div class="dla-dialog" role="dialog"><a href="/">Home</a></div></details>'
+);
+
+$assert(
+    (bool) preg_match('/>summary>div:nth-of-type\(1\)\{[^}]*width:42px[^}]*height:42px/', $capturedIconDisclosure['frontend'])
+        && (bool) preg_match('/>summary>div:nth-of-type\(1\)>div:nth-of-type\(1\)>svg:nth-of-type\(1\)\{[^}]*width:42px[^}]*height:42px/', $capturedIconDisclosure['frontend']),
+    'a captured nested disclosure icon resolves its ancestor-scoped size before core summary projection',
+    $capturedIconDisclosure['frontend']
+);
+$assert(
+    str_contains($capturedIconDisclosure['blocks'], '<span class="screen-reader-text">Menu</span>'),
+    'an icon-only disclosure preserves its accessible source label in core summary markup',
+    $capturedIconDisclosure['blocks']
+);
+
 // -- A disclosure with no authored toggle presentation emits no rule.
 $plain = $transform(
     '<details><summary>More</summary><p>Detail.</p></details><p>Body copy.</p>'

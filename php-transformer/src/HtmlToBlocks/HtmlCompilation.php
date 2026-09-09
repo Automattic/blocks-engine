@@ -2788,7 +2788,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->safeVisualDeclarations(
             $this->styleResolver->cssDeclarations(
                 $this->styleResolver->resolveCssVariablesInValue(
-                    $this->styleResolver->specificityResolvedPresentationStyle($summary)
+                    $this->styleResolver->specificityResolvedPresentationStyle($summary),
+                    $summary
                 )
             )
         );
@@ -2851,7 +2852,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->safeVisualDeclarations(
             $this->styleResolver->cssDeclarations(
                 $this->styleResolver->resolveCssVariablesInValue(
-                    $this->styleResolver->specificityResolvedPresentationStyle($label)
+                    $this->styleResolver->specificityResolvedPresentationStyle($label),
+                    $label
                 )
             )
         );
@@ -2884,7 +2886,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $declarations = $this->styleResolver->safeVisualDeclarations(
                 $this->styleResolver->cssDeclarations(
                     $this->styleResolver->resolveCssVariablesInValue(
-                        $this->styleResolver->specificityResolvedPresentationStyle($descendant)
+                        $this->styleResolver->specificityResolvedPresentationStyle($descendant),
+                        $descendant
                     )
                 )
             );
