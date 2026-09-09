@@ -131,6 +131,31 @@ $assert(
     'the emitted summary stays attribute-free, matching core\'s save shape'
 );
 
+// -- Serialized Busy Bears capture: source responsive rules address the button
+// summary itself. Retaining its classes on a content carrier lets the author CSS,
+// rather than generated pixel rules, size the nested animated icon.
+$capturedIconDisclosure = $transform(
+    '<details class="dla-disclosure"><summary class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-testid="buttonContent" data-semantic-classname="button" aria-label="Menu">'
+    . '<div class="_animatedIcon_jg4gf_2 animatedIcon icon animated-icon _icon_1fj1u_79" id="animated-icon"><div data-dla-geometry-id="mobile-wrapper-6"><svg id="menu-icon" viewBox="0 0 24 24" width="100%" height="100%"><path d="M0 0h1v1"/></svg></div></div>'
+    . '</summary><div class="dla-dialog" role="dialog"><a href="/">Home</a></div></details>'
+);
+
+$assert(
+    str_contains($capturedIconDisclosure['blocks'], '<span class="_root_1fj1u_1 hamburger-open-button _button_1fj1u_20 button _fallbackDirection_uix1w_1 wixui-button _hasTransitions_1fj1u_52" data-semantic-classname="button" data-testid="buttonContent">'),
+    'a native details summary retains the captured source selector hooks on its content carrier',
+    $capturedIconDisclosure['blocks']
+);
+$assert(
+    ! str_contains($capturedIconDisclosure['frontend'], '>summary>div:nth-of-type'),
+    'the captured icon keeps source styling hooks without generated descendant projection CSS',
+    $capturedIconDisclosure['frontend']
+);
+$assert(
+    str_contains($capturedIconDisclosure['blocks'], '<span class="screen-reader-text" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">Menu</span>'),
+    'an icon-only disclosure preserves its accessible source label in core summary markup',
+    $capturedIconDisclosure['blocks']
+);
+
 // -- A disclosure with no authored toggle presentation emits no rule.
 $plain = $transform(
     '<details><summary>More</summary><p>Detail.</p></details><p>Body copy.</p>'

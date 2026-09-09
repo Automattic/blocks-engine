@@ -22,6 +22,9 @@ final class StylesheetAnalysisComposer
     {
         $cssParts = array();
         foreach ( StyleTagScanner::scan($html) as $style ) {
+            if ( ! StyleTagScanner::isCssType(StyleTagScanner::attribute($style['attributes'], 'type')) ) {
+                continue;
+            }
             $styleBlock = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
             if ( '' !== $styleBlock ) {
                 $cssParts[] = $styleBlock;
@@ -38,7 +41,11 @@ final class StylesheetAnalysisComposer
     public function stylesheetPayloads(string $html, string $staticCss, array $options): array
     {
         $staticPayloads = $this->staticStylesheetPayloads($staticCss, $options);
-        $inlinePayloads = $this->inlineStylesheetPayloads($html);
+        // Artifact compilation supplies every stylesheet occurrence, including
+        // inline styles, in document order through stylesheet_payloads.
+        $inlinePayloads = is_array($options['stylesheet_payloads'] ?? null)
+            ? array()
+            : $this->inlineStylesheetPayloads($html);
         $payloads = array_merge($staticPayloads, $inlinePayloads);
         if ( ! $this->hasSafeStylesheetBoundaries($payloads) ) {
             // Preserve the legacy parser's recovery across a concatenated stream.
@@ -173,6 +180,29 @@ final class StylesheetAnalysisComposer
         return $assets;
     }
 
+    /** @return list<array{path: string, source_path: string, content: string, source_hash: string, media: string, type: string}> */
+    public function inlineAuthorStylesheetAssets(string $html): array
+    {
+        $assets = array();
+        foreach ( StyleTagScanner::scan($html) as $index => $style ) {
+            $type = StyleTagScanner::attribute($style['attributes'], 'type');
+            $content = trim(html_entity_decode($style['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+            if ( '' === $content || ! StyleTagScanner::isCssType($type) ) {
+                continue;
+            }
+            $assets[] = array(
+                'path' => 'inline-style-' . ($index + 1) . '.css',
+                'source_path' => 'inline-style',
+                'content' => $content,
+                'source_hash' => hash('sha256', $content),
+                'media' => StyleTagScanner::attribute($style['attributes'], 'media'),
+                'type' => $type,
+            );
+        }
+
+        return $assets;
+    }
+
     /** @param array<string, mixed> $options @return list<string> */
     private function staticStylesheetPayloads(string $staticCss, array $options): array
     {
@@ -182,7 +212,12 @@ final class StylesheetAnalysisComposer
         $payloads = array();
         foreach ( $options['stylesheet_payloads'] as $payload ) {
             if ( is_array($payload) && is_string($payload['content'] ?? null) ) {
-                $payloads[] = $payload['content'];
+                $content = $payload['content'];
+                $media = is_string($payload['media'] ?? null) ? trim($payload['media']) : '';
+                // A link/style media attribute scopes the entire stylesheet.
+                // Preserve that scope for presentation analysis just as emitted
+                // stylesheet assets preserve it for browser rendering.
+                $payloads[] = '' === $media ? $content : '@media ' . $media . '{' . $content . '}';
             }
         }
 
@@ -192,7 +227,13 @@ final class StylesheetAnalysisComposer
     /** @return list<string> */
     private function inlineStylesheetPayloads(string $html): array
     {
-        return array_map(static fn (array $style): string => trim($style['content']), StyleTagScanner::scan($html));
+        return array_values(array_map(
+            static fn (array $style): string => trim($style['content']),
+            array_filter(
+                StyleTagScanner::scan($html),
+                static fn (array $style): bool => StyleTagScanner::isCssType(StyleTagScanner::attribute($style['attributes'], 'type'))
+            )
+        ));
     }
 
     /** @param list<string> $payloads */

@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
+use Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome;
 use Automattic\BlocksEngine\PhpTransformer\Contract\VisualParityReportContract;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
@@ -13,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatAdapterInterface;
 use Automattic\BlocksEngine\PhpTransformer\FormatBridge\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\TableClassificationPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
@@ -114,13 +116,58 @@ $assert(
     ) === array_keys($boundaryEnvelope),
     'internal block-compilation output does not change the public result-envelope keys or ordering'
 );
-$emptyHtmlResult = ( new HtmlTransformer() )->transform('');
+$emptyCompilationOutput = \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput::empty();
 $assert(
-    null !== $emptyHtmlResult->blockCompilationOutput
-        && array() === $emptyHtmlResult->blockCompilationOutput->sourceProvenance
-        && array() === $emptyHtmlResult->blockCompilationOutput->runtimeBlockPaths
-        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths,
-    'empty HTML results carry an explicit empty block-compilation output rather than omitting required compiler facts'
+    array() === $emptyCompilationOutput->sourceProvenance
+        && array() === $emptyCompilationOutput->runtimeBlockPaths
+        && array() === $emptyCompilationOutput->visualBlockPaths
+        && 'not_evaluated' === $emptyCompilationOutput->validationOutcome->blockValidityStatus
+        && array() === $emptyCompilationOutput->validationOutcome->blockValidityFindings,
+    'uncomputed HTML compilation paths carry explicit empty and not-evaluated validation outcomes rather than manufactured validation proof'
+);
+$validationOutcomeResult = ( new HtmlTransformer() )->transform('<nav><a href="/one">One</a><a href="/two">Two</a></nav>');
+$validationOutcome = $validationOutcomeResult->blockCompilationOutput->validationOutcome;
+$validationOutcomeReports = $validationOutcomeResult->sourceReports;
+$assert(
+    $validationOutcome->blockValidityStatus === ($validationOutcomeReports['wp_block_validity']['status'] ?? null)
+        && $validationOutcome->semanticParityStatus === ($validationOutcomeReports['semantic_parity']['status'] ?? null)
+        && $validationOutcome->contentRoundTripStatus === ($validationOutcomeReports['content_round_trip']['status'] ?? null)
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->blockValidityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['wp_block_validity']['findings'] ?? array())
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->semanticParityFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['semantic_parity']['findings'] ?? array())
+        && array_map(static fn (array $finding): string => $finding['code'], $validationOutcome->contentRoundTripFindings) === array_map(static fn (array $finding): string => (string) ($finding['code'] ?? ''), $validationOutcomeReports['content_round_trip']['findings'] ?? array()),
+    'producer-owned required validation outcomes retain each detailed report status and every diagnostic finding while reports remain projections'
+);
+$validationFailureOutcome = HtmlValidationOutcome::fromReports(
+    array('status' => 'fail', 'findings' => array(array('code' => 'invalid_save', 'summary' => null, 'severity' => 0, 'block_name' => false, 'path' => 12, 'verbose_evidence' => array('not-needed')))),
+    array('status' => 'fail', 'findings' => array(array('code' => 'missing_landmark', 'severity' => null, 'selector' => 0, 'verbose_evidence' => array('not-needed')))),
+    array('status' => 'fail', 'findings' => array(array('code' => 'invented_text', 'summary' => null, 'severity' => false, 'text' => array('unexpected'), 'verbose_evidence' => array('not-needed'))))
+);
+$validationFailureDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $validationFailureOutcome);
+$validationDiagnosticsByCode = array_column($validationFailureDiagnostics, null, 'code');
+$assert(
+    'fail' === $validationFailureOutcome->blockValidityStatus
+        && 'fail' === $validationFailureOutcome->semanticParityStatus
+        && 'fail' === $validationFailureOutcome->contentRoundTripStatus
+        && 'Generated block serialization may trigger WordPress block invalidity warnings.' === ($validationDiagnosticsByCode['wp_block_validity_invalid_save']['message'] ?? null)
+        && 0 === ($validationDiagnosticsByCode['wp_block_validity_invalid_save']['severity'] ?? null)
+        && false === ($validationDiagnosticsByCode['wp_block_validity_invalid_save']['block_name'] ?? null)
+        && 12 === ($validationDiagnosticsByCode['wp_block_validity_invalid_save']['path'] ?? null)
+        && 'Generated blocks differ from source semantic structure.' === ($validationDiagnosticsByCode['html_semantic_parity_missing_landmark']['message'] ?? null)
+        && 'warning' === ($validationDiagnosticsByCode['html_semantic_parity_missing_landmark']['severity'] ?? null)
+        && 0 === ($validationDiagnosticsByCode['html_semantic_parity_missing_landmark']['selector'] ?? null)
+        && 'Generated block text does not appear in the source content.' === ($validationDiagnosticsByCode['html_content_round_trip_invented_text']['message'] ?? null)
+        && false === ($validationDiagnosticsByCode['html_content_round_trip_invented_text']['severity'] ?? null)
+        && array('unexpected') === ($validationDiagnosticsByCode['html_content_round_trip_invented_text']['text'] ?? null),
+    'required validation outcomes preserve failure diagnostics, existing fallback messages, and mixed severity and location values without retaining verbose report evidence'
+);
+$notEvaluatedOutcome = HtmlValidationOutcome::fromReports(array(), array(), array());
+$notEvaluatedDiagnostics = (new DiagnosticsCollector())->collect('Example\\Transformer', array(), array(), array(), array(), array(), $notEvaluatedOutcome);
+$assert(
+    'not_evaluated' === $notEvaluatedOutcome->blockValidityStatus
+        && 'not_evaluated' === $notEvaluatedOutcome->semanticParityStatus
+        && 'not_evaluated' === $notEvaluatedOutcome->contentRoundTripStatus
+        && array('html_to_blocks_core_slice') === array_column($notEvaluatedDiagnostics, 'code'),
+    'missing validator reports remain explicitly not evaluated and do not emit manufactured validation diagnostics'
 );
 $ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
     array('block_path' => '0', 'editability_runtime_owned' => true),
@@ -5571,6 +5618,16 @@ $htmlAssetResult = $bridge->convertResult('<style>.logo{display:inline-flex}</st
 $htmlAssetCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $htmlAssetResult['assets'] ?? array()));
 assertSame('core/paragraph', $htmlAssetResult['blocks'][0]['blockName'] ?? '', 'HTML format conversion should keep a classed-span text logo on the paragraph path.');
 assertStringContains('.logo{display:inline-flex}', $htmlAssetCss, 'HTML format conversion should preserve generated author stylesheet assets.');
+$inlineStyleFixture = '<section class="card"><style>.card{color:rebeccapurple}</style><style type="text/css" media="(min-width:40rem)">.card{padding:1rem}</style><h1>Card</h1></section>';
+$directInlineStyleResult = (new HtmlTransformer())->transform($inlineStyleFixture)->toArray();
+$artifactInlineStyleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $inlineStyleFixture)))->toArray();
+$directInlineStyleAssets = array_values(array_filter($directInlineStyleResult['assets'], static fn (array $asset): bool => 'author-css' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '')));
+$directInlineStyleCss = implode("\n", array_column($directInlineStyleAssets, 'content'));
+assertSame(array(), array_values(array_filter($directInlineStyleResult['fallbacks'], static fn (array $fallback): bool => 'style' === ($fallback['tag'] ?? ''))), 'Direct HTML conversion collects nested CSS style elements instead of emitting unsupported fallbacks.');
+assertSame(array(), array_values(array_filter($artifactInlineStyleResult['fallbacks'], static fn (array $fallback): bool => 'style' === ($fallback['tag'] ?? ''))), 'Artifact compilation keeps collected nested CSS style elements out of fallbacks.');
+assertSame(true, str_contains($directInlineStyleCss, '.card{color:rebeccapurple}') && str_contains($directInlineStyleCss, '.card{padding:1rem}') && strpos($directInlineStyleCss, '.card{color:rebeccapurple}') < strpos($directInlineStyleCss, '.card{padding:1rem}'), 'Direct HTML stylesheet assets retain nested style source order.');
+assertSame(true, array('both', 'both') === array_column($directInlineStyleAssets, 'stylesheet_target') && array('', '(min-width:40rem)') === array_column($directInlineStyleAssets, 'media') && array('', 'text/css') === array_column($directInlineStyleAssets, 'type'), 'Direct HTML stylesheet assets preserve media/type scope and remain applicable in frontend and editor contexts.');
+assertSame(true, str_contains(implode("\n", array_column($artifactInlineStyleResult['assets'], 'content')), '.card{color:rebeccapurple}') && str_contains(implode("\n", array_column($artifactInlineStyleResult['assets'], 'content')), '.card{padding:1rem}'), 'Artifact compilation retains the same nested stylesheet content.');
 assertSame('blocks-engine/php-transformer/wp-block-validity-report/v1', $htmlAssetResult['source_reports']['wp_block_validity']['schema'] ?? '', 'HTML format conversion should preserve source transformer reports.');
 $strictHtmlResult = $bridge->convertResult(
     '<main><applet code="clock.class"></applet></main>',
