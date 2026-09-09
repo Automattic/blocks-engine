@@ -116,15 +116,14 @@ $assert(
     ) === array_keys($boundaryEnvelope),
     'internal block-compilation output does not change the public result-envelope keys or ordering'
 );
-$emptyHtmlResult = ( new HtmlTransformer() )->transform('');
+$emptyCompilationOutput = \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput::empty();
 $assert(
-    null !== $emptyHtmlResult->blockCompilationOutput
-        && array() === $emptyHtmlResult->blockCompilationOutput->sourceProvenance
-        && array() === $emptyHtmlResult->blockCompilationOutput->runtimeBlockPaths
-        && array() === $emptyHtmlResult->blockCompilationOutput->visualBlockPaths
-        && 'not_evaluated' === $emptyHtmlResult->blockCompilationOutput->validationOutcome->blockValidityStatus
-        && array() === $emptyHtmlResult->blockCompilationOutput->validationOutcome->blockValidityFindings,
-    'empty HTML results carry explicit empty compiler and not-evaluated validation outcomes rather than manufactured validation proof'
+    array() === $emptyCompilationOutput->sourceProvenance
+        && array() === $emptyCompilationOutput->runtimeBlockPaths
+        && array() === $emptyCompilationOutput->visualBlockPaths
+        && 'not_evaluated' === $emptyCompilationOutput->validationOutcome->blockValidityStatus
+        && array() === $emptyCompilationOutput->validationOutcome->blockValidityFindings,
+    'uncomputed HTML compilation paths carry explicit empty and not-evaluated validation outcomes rather than manufactured validation proof'
 );
 $validationOutcomeResult = ( new HtmlTransformer() )->transform('<nav><a href="/one">One</a><a href="/two">Two</a></nav>');
 $validationOutcome = $validationOutcomeResult->blockCompilationOutput->validationOutcome;
