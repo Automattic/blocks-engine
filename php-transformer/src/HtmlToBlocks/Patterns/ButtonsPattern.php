@@ -40,7 +40,7 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameFallback($anchor);
         }
@@ -110,7 +110,7 @@ final class ButtonsPattern
         if ( $hasAuthoredStyleRules && ($presentationElement === $anchor || $presentationElement->parentNode === $anchor) ) {
             $this->removeSourceControlClasses($attrs, $presentationElement);
         }
-        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
+        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
 
         return $context->createBlock('core/button', array_filter(array_merge($attrs, array(
             'text'       => $text,
@@ -194,6 +194,31 @@ final class ButtonsPattern
         return '';
     }
 
+    private function buttonHtml(DOMElement $anchor, ButtonPatternContext $buttons): string
+    {
+        $html = SourceDom::innerHtml($anchor);
+        return str_contains($html, 'data-blocks-engine-richtext-marker=') && $this->hasStandaloneButtonLabel($anchor)
+            ? $buttons->richText($anchor)
+            : $html;
+    }
+
+    private function hasStandaloneButtonLabel(DOMElement $anchor): bool
+    {
+        $label = trim($anchor->textContent ?? '');
+        if ( '' === $label ) {
+            return false;
+        }
+        $matches = 0;
+        $spanCount = 0;
+        foreach ( $anchor->getElementsByTagName('span') as $span ) {
+            ++$spanCount;
+            if ( trim($span->textContent ?? '') === $label ) {
+                ++$matches;
+            }
+        }
+        return 1 === $spanCount && 1 === $matches;
+    }
+
     private function buttonTitle(DOMElement $element): string
     {
         return html_entity_decode(trim($element->getAttribute('title')), ENT_QUOTES | ENT_HTML5, 'UTF-8');
@@ -250,6 +275,14 @@ final class ButtonsPattern
      */
     private function unwrapPresentationalSpan(string $html): string
     {
+        if ( str_contains($html, '--blocks-engine-richtext-marker:') ) {
+            // RichText accepts mark but strips bare span wrappers on save. Retain
+            // the marker carrier so label-owned paint has a valid saved surface.
+            $html = preg_replace_callback('/^<span\b([^>]*)>(.*)<\/span>$/is', static function (array $matches): string {
+                $attributes = preg_replace('/\sdata-blocks-engine-richtext-marker=("[^"]*"|\'[^\']*\')/i', '', $matches[1]) ?? $matches[1];
+                return '<mark' . $attributes . '>' . $matches[2] . '</mark>';
+            }, $html) ?? $html;
+        }
         while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
             $html = trim($matches[1]);
         }
