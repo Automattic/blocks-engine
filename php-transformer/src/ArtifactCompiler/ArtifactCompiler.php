@@ -792,10 +792,6 @@ final class ArtifactCompiler
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
         }
-        $sitePlanInput = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site']);
-        if (array() !== $sitePlanInput->fontMaterialization) {
-            $sourceReports['font_materialization'] = $sitePlanInput->fontMaterialization;
-        }
         $editorScripts = array();
         $editorModule = $sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null;
         if ( is_array($editorModule)
@@ -887,6 +883,17 @@ final class ArtifactCompiler
                     ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
                     : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
+        }
+        if ( null !== $wordpressSitePlan ) {
+            $fontMaterialization = $wordpressSitePlan['theme']['font_materialization'] ?? array();
+            if (is_array($fontMaterialization) && array() !== $fontMaterialization) {
+                $sourceReports['font_materialization'] = $fontMaterialization;
+            }
+        } else {
+            // Failed results have no canonical plan to project, but retain the
+            // established report-only diagnostic handoff.
+            $fontMaterialization = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site'])->fontMaterialization;
+            if (array() !== $fontMaterialization) $sourceReports['font_materialization'] = $fontMaterialization;
         }
 
         $metrics['diagnostic_count'] = count($diagnostics);
