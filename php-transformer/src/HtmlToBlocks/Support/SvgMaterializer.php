@@ -193,7 +193,14 @@ final class SvgMaterializer implements SvgElementMaterializer
             }
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
             $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
-            $this->context->layoutGeometry()->registerRule($geometryClass, ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule);
+            $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
+            if ( ! $richTextImage && null !== $this->svgPercentageWidth(trim(SourceDom::attr($element, 'width'))) ) {
+                // Core/image wraps linked media in an inline anchor. Let a responsive
+                // SVG resolve its percentage width against the sized figure, not its
+                // shrink-to-fit link wrapper.
+                $geometryCss .= '.' . $geometryClass . '>a{display:block;width:100%}';
+            }
+            $this->context->layoutGeometry()->registerRule($geometryClass, $geometryCss);
         } elseif ( ! $richTextImage ) {
             // Core/image rejects typography.lineHeight. A standalone SVG still
             // needs its source line box removed when it becomes a figure.
