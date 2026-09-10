@@ -39,7 +39,8 @@ final class FormPresentationGraphBuilder
         'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
-        'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index'
+        'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
+        'flex-direction', 'align-items', 'justify-content', 'gap'
     );
 
     private array $diagnostics = array();
@@ -79,6 +80,7 @@ final class FormPresentationGraphBuilder
         $controls = array();
         $variants = array();
         $visualParts = array();
+        $visualGroups = array();
 
         foreach ( $this->controls($form) as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
@@ -116,7 +118,8 @@ final class FormPresentationGraphBuilder
                     }
                 }
             }
-            foreach ( $this->visualParts($control, $index, $analysis['rules'], $customPropertyAnalysis['rules']) as $part ) {
+            $capturedParts = $this->visualParts($control, $index, $analysis['rules'], $customPropertyAnalysis['rules']);
+            foreach ( $capturedParts as $part ) {
                 if ( count($visualParts) >= self::MAX_VISUAL_PARTS ) {
                     $this->truncated = true;
                     $this->diagnostics[] = 'visual_part_limit';
@@ -124,6 +127,18 @@ final class FormPresentationGraphBuilder
                 }
                 $visualParts[] = $part['part'];
                 foreach ( $part['variants'] as $variant ) {
+                    if ( count($variants) >= self::MAX_VARIANTS ) {
+                        $this->truncated = true;
+                        $this->diagnostics[] = 'variant_limit';
+                        break 2;
+                    }
+                    $variants[] = $variant;
+                }
+            }
+            $visualGroup = $capturedParts === array() ? null : $capturedParts[array_key_last($capturedParts)];
+            if ( isset($visualGroup['group']) && array() === array_diff($visualGroup['group']['part_ids'], array_column($visualParts, 'id')) ) {
+                $visualGroups[] = $visualGroup['group'];
+                foreach ( $visualGroup['group_variants'] as $variant ) {
                     if ( count($variants) >= self::MAX_VARIANTS ) {
                         $this->truncated = true;
                         $this->diagnostics[] = 'variant_limit';
@@ -148,6 +163,7 @@ final class FormPresentationGraphBuilder
         );
         if ( array() !== $visualParts ) {
             $graph['visual_parts'] = $visualParts;
+            $graph['visual_groups'] = $visualGroups;
         }
         self::assertValid($graph);
         return $graph;
@@ -159,8 +175,8 @@ final class FormPresentationGraphBuilder
         $version = $graph['schema'] ?? null;
         $v1 = 'generic/computed-form-presentation/v1' === $version;
         $v2 = 'generic/computed-form-presentation/v2' === $version;
-        $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
-        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
+        $expectedKeys = $v2 ? array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'visual_parts', 'visual_groups', 'variants', 'diagnostics' ) : array( 'schema', 'basis', 'truncated', 'limits', 'controls', 'variants', 'diagnostics' );
+        if ( (! $v1 && ! $v2) || 'source_css_cascade' !== ($graph['basis'] ?? null) || ! is_bool($graph['truncated'] ?? null) || ! is_array($graph['limits'] ?? null) || array_diff(array_keys($graph['limits']), array( 'controls', 'rules_per_role' )) || self::MAX_CONTROLS !== ($graph['limits']['controls'] ?? null) || self::MAX_RULES_PER_ROLE !== ($graph['limits']['rules_per_role'] ?? null) || ! is_array($graph['controls'] ?? null) || ! array_is_list($graph['controls']) || count($graph['controls']) > self::MAX_CONTROLS || ($v2 && (! is_array($graph['visual_parts'] ?? null) || ! array_is_list($graph['visual_parts']) || count($graph['visual_parts']) > self::MAX_VISUAL_PARTS || ! is_array($graph['visual_groups'] ?? null) || ! array_is_list($graph['visual_groups']) || count($graph['visual_groups']) > self::MAX_VISUAL_PARTS)) || ! is_array($graph['variants'] ?? null) || ! array_is_list($graph['variants']) || count($graph['variants']) > self::MAX_VARIANTS || ! is_array($graph['diagnostics'] ?? null) || ! array_is_list($graph['diagnostics']) || count($graph['diagnostics']) > self::MAX_DIAGNOSTICS || array_filter($graph['diagnostics'], static fn (mixed $diagnostic): bool => ! is_string($diagnostic) || '' === trim($diagnostic) || strlen($diagnostic) > 1100) || array_diff(array_keys($graph), $expectedKeys) ) {
             throw new InvalidArgumentException('Form presentation graph envelope is invalid.');
         }
         $seen = array();
@@ -179,8 +195,16 @@ final class FormPresentationGraphBuilder
             if ( isset($partIds[$part['id']]) ) throw new InvalidArgumentException('Form presentation visual part identity is duplicated.');
             $partIds[$part['id']] = $part['index'];
         }
+        $groupIds = array();
+        foreach ( $v2 ? $graph['visual_groups'] : array() as $group ) {
+            self::assertVisualGroup($group, $partIds);
+            if ( isset($groupIds[$group['id']]) ) throw new InvalidArgumentException('Form presentation visual group identity is duplicated.');
+            $groupIds[$group['id']] = true;
+        }
         foreach ( $graph['variants'] as $variant ) {
-            if ( ! is_array($variant) || array_diff(array_keys($variant), array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' )) || ! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'visual_part' ) : array( 'control', 'label' ), true) || ('visual_part' === ($variant['role'] ?? null) ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : isset($variant['part_id'])) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
+            $isVisualPart = 'visual_part' === ($variant['role'] ?? null); $isVisualGroup = 'visual_group' === ($variant['role'] ?? null);
+            $keys = $isVisualPart ? array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : ($isVisualGroup ? array( 'role', 'group_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : array( 'index', 'role', 'condition', 'style_patch', 'precedence', 'provenance' ));
+            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
                 throw new InvalidArgumentException('Form presentation variant is invalid.');
             }
             self::assertStyles($variant['style_patch']);
@@ -208,6 +232,16 @@ final class FormPresentationGraphBuilder
             if ( array_diff(array_keys($sourceCss), array( 'state', 'styles', 'provenance' )) || ! is_array($sourceCss['styles'] ?? null) || array() === $sourceCss['styles'] || ! is_array($sourceCss['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation visual part source CSS is invalid.');
             self::assertStyles($sourceCss['styles']); self::assertProvenance($sourceCss['provenance'], $sourceCss['styles'], null);
         } elseif ( array_diff(array_keys($sourceCss), array( 'state' )) ) throw new InvalidArgumentException('Form presentation visual part unknown CSS state is invalid.');
+    }
+
+    /** A visual group retains the authored common container without assigning semantic meaning. */
+    private static function assertVisualGroup(mixed $group, array $partIds): void
+    {
+        if ( ! is_array($group) || array_diff(array_keys($group), array( 'id', 'source_selector', 'part_ids', 'source_css' )) || ! is_string($group['id'] ?? null) || ! preg_match('/^visual-group-[a-f0-9]{16}$/', $group['id']) || ! is_string($group['source_selector'] ?? null) || '' === trim($group['source_selector']) || strlen($group['source_selector']) > 2048 || ! is_array($group['part_ids'] ?? null) || ! array_is_list($group['part_ids']) || count($group['part_ids']) < 2 || count($group['part_ids']) > self::MAX_VISUAL_PARTS || count(array_unique($group['part_ids'])) !== count($group['part_ids']) || array_filter($group['part_ids'], static fn (mixed $id): bool => ! is_string($id) || ! isset($partIds[$id])) || ! is_array($group['source_css'] ?? null) || ! in_array($group['source_css']['state'] ?? null, array( 'known', 'unknown' ), true) ) throw new InvalidArgumentException('Form presentation visual group is invalid.');
+        if ( 'known' === $group['source_css']['state'] ) {
+            if ( array_diff(array_keys($group['source_css']), array( 'state', 'styles', 'provenance' )) || ! is_array($group['source_css']['styles'] ?? null) || array() === $group['source_css']['styles'] || ! is_array($group['source_css']['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation visual group source CSS is invalid.');
+            self::assertStyles($group['source_css']['styles']); self::assertProvenance($group['source_css']['provenance'], $group['source_css']['styles'], null);
+        } elseif ( array_diff(array_keys($group['source_css']), array( 'state' )) ) throw new InvalidArgumentException('Form presentation visual group unknown CSS state is invalid.');
     }
 
     private static function assertStyles(array $styles): void
@@ -239,7 +273,7 @@ final class FormPresentationGraphBuilder
         return null;
     }
 
-    /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>}> */
+    /** @return list<array{part: array<string,mixed>, variants: list<array<string,mixed>>, group?: array<string,mixed>, group_variants?: list<array<string,mixed>>}> */
     private function visualParts(DOMElement $control, int $index, array $rules, array $customPropertyRules): array
     {
         if ( null === $this->sanitizeInlineSvgMarkup ) return array();
@@ -264,9 +298,34 @@ final class FormPresentationGraphBuilder
                 $patch = $this->styles($facts, $svg, $condition, $customPropertyRules);
                 if ( array() !== $patch ) $variants[] = array( 'index' => $index, 'role' => 'visual_part', 'part_id' => $part['id'], 'condition' => $condition, 'style_patch' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition) );
             }
-            $parts[] = array( 'part' => $part, 'variants' => $variants );
+            $parts[] = array( 'part' => $part, 'variants' => $variants, 'element' => $svg );
         }
+        $svgs = array_column($parts, 'element');
+        if ( count($svgs) >= 2 && ($groupElement = $this->lowestCommonAncestor($svgs)) instanceof DOMElement ) {
+            $selector = SourceDom::elementSelector($groupElement);
+            if ( strlen($selector) <= 2048 ) {
+                $matched = $this->matched($groupElement, $rules);
+                $styles = $this->styles($matched['base'], $groupElement, null, $customPropertyRules);
+                $group = array( 'id' => 'visual-group-' . substr(hash('sha256', $selector), 0, 16), 'source_selector' => $selector, 'part_ids' => array_column(array_column($parts, 'part'), 'id'), 'source_css' => array( 'state' => 'unknown' ) );
+                if ( array() !== $styles ) $group['source_css'] = array( 'state' => 'known', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
+                $groupVariants = array();
+                foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts ) { $condition = json_decode($encoded, true); $patch = $this->styles($facts, $groupElement, $condition, $customPropertyRules); if ( array() !== $patch ) $groupVariants[] = array( 'role' => 'visual_group', 'group_id' => $group['id'], 'condition' => $condition, 'style_patch' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition) ); }
+                $parts[array_key_last($parts)]['group'] = $group;
+                $parts[array_key_last($parts)]['group_variants'] = $groupVariants;
+            }
+        }
+        foreach ( $parts as &$part ) unset($part['element']); unset($part);
         return $parts;
+    }
+
+    /** @param list<DOMElement> $elements */
+    private function lowestCommonAncestor(array $elements): ?DOMElement
+    {
+        for ( $candidate = $elements[0]->parentNode; $candidate instanceof DOMElement; $candidate = $candidate->parentNode ) {
+            foreach ( $elements as $element ) { for ( $current = $element; $current instanceof DOMElement && ! $current->isSameNode($candidate); $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {} if (! $current instanceof DOMElement) continue 2; }
+            return $candidate;
+        }
+        return null;
     }
 
     /** @param list<array<string, mixed>> $rules */
