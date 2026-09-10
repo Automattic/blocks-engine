@@ -46,8 +46,8 @@ final class FormPresentationGraphBuilder
     private array $diagnostics = array();
     private bool $truncated = false;
 
-    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup */
-    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null)
+    /** @param (Closure(DOMElement, string): string)|null $resolveValue @param (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup @param (Closure(DOMElement): ?DOMElement)|null $requiredMarker */
+    public function __construct(private readonly ?Closure $resolveValue = null, private readonly ?Closure $sanitizeInlineSvgMarkup = null, private readonly ?Closure $requiredMarker = null)
     {
     }
 
@@ -57,7 +57,7 @@ final class FormPresentationGraphBuilder
         $this->diagnostics = array();
         $this->truncated = false;
         $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
-        $controlsForCustomProperties = $this->controls($form);
+        $controlsForCustomProperties = $this->presentationElements($form);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
@@ -81,6 +81,7 @@ final class FormPresentationGraphBuilder
         $variants = array();
         $visualParts = array();
         $visualGroups = array();
+        $hasRequiredMarker = false;
 
         foreach ( $this->controls($form) as $index => $control ) {
             if ( $index >= self::MAX_CONTROLS ) {
@@ -89,13 +90,18 @@ final class FormPresentationGraphBuilder
                 break;
             }
             $row = array( 'index' => $index );
-            foreach ( array( 'control' => $control, 'label' => $this->label($control) ) as $role => $element ) {
+            $roles = array( 'control' => $control, 'label' => $this->label($control) );
+            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) {
+                $roles['required_marker'] = $marker;
+                $hasRequiredMarker = true;
+            }
+            foreach ( $roles as $role => $element ) {
                 if ( ! $element instanceof DOMElement ) {
                     continue;
                 }
                 $matched = $this->matched($element, $analysis['rules']);
                 $styles = $this->styles($matched['base'], $element, null, $customPropertyAnalysis['rules']);
-                if ( array() !== $styles ) {
+                if ( array() !== $styles || 'required_marker' === $role ) {
                     $row[$role] = array( 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null) );
                 }
                 foreach ( $this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts ) {
@@ -153,7 +159,7 @@ final class FormPresentationGraphBuilder
         }
 
         $graph = array(
-            'schema' => array() === $visualParts ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
+            'schema' => array() === $visualParts && ! $hasRequiredMarker ? 'generic/computed-form-presentation/v1' : 'generic/computed-form-presentation/v2',
             'basis' => 'source_css_cascade',
             'truncated' => $this->truncated,
             'limits' => array( 'controls' => self::MAX_CONTROLS, 'rules_per_role' => self::MAX_RULES_PER_ROLE ),
@@ -161,7 +167,7 @@ final class FormPresentationGraphBuilder
             'variants' => $variants,
             'diagnostics' => array_slice(array_values(array_unique($this->diagnostics)), 0, self::MAX_DIAGNOSTICS),
         );
-        if ( array() !== $visualParts ) {
+        if ( array() !== $visualParts || $hasRequiredMarker ) {
             $graph['visual_parts'] = $visualParts;
             $graph['visual_groups'] = $visualGroups;
         }
@@ -181,12 +187,12 @@ final class FormPresentationGraphBuilder
         }
         $seen = array();
         foreach ( $graph['controls'] as $row ) {
-            if ( ! is_array($row) || array_diff(array_keys($row), array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label'])) ) {
+            if ( ! is_array($row) || array_diff(array_keys($row), $v2 ? array( 'index', 'control', 'label', 'required_marker' ) : array( 'index', 'control', 'label' )) || ! is_int($row['index'] ?? null) || $row['index'] < 0 || $row['index'] >= self::MAX_CONTROLS || isset($seen[$row['index']]) || (! isset($row['control']) && ! isset($row['label']) && ! isset($row['required_marker'])) ) {
                 throw new InvalidArgumentException('Form presentation control is invalid.');
             }
             $seen[$row['index']] = true;
-            foreach ( array( 'control', 'label' ) as $role ) {
-                if ( isset($row[$role]) ) self::assertRole($row[$role], null);
+            foreach ( $v2 ? array( 'control', 'label', 'required_marker' ) : array( 'control', 'label' ) as $role ) {
+                if ( isset($row[$role]) ) self::assertRole($row[$role], null, 'required_marker' === $role);
             }
         }
         $partIds = array();
@@ -204,7 +210,7 @@ final class FormPresentationGraphBuilder
         foreach ( $graph['variants'] as $variant ) {
             $isVisualPart = 'visual_part' === ($variant['role'] ?? null); $isVisualGroup = 'visual_group' === ($variant['role'] ?? null);
             $keys = $isVisualPart ? array( 'index', 'role', 'part_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : ($isVisualGroup ? array( 'role', 'group_id', 'condition', 'style_patch', 'precedence', 'provenance' ) : array( 'index', 'role', 'condition', 'style_patch', 'precedence', 'provenance' ));
-            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
+            if ( ! is_array($variant) || array_diff(array_keys($variant), $keys) || (! $isVisualGroup && (! is_int($variant['index'] ?? null) || $variant['index'] < 0 || $variant['index'] >= self::MAX_CONTROLS)) || ! in_array($variant['role'] ?? null, $v2 ? array( 'control', 'label', 'required_marker', 'visual_part', 'visual_group' ) : array( 'control', 'label' ), true) || ($isVisualPart ? (! is_string($variant['part_id'] ?? null) || ! isset($partIds[$variant['part_id']]) || $variant['index'] !== $partIds[$variant['part_id']]) : ($isVisualGroup ? (! is_string($variant['group_id'] ?? null) || ! isset($groupIds[$variant['group_id']])) : (isset($variant['part_id']) || isset($variant['group_id'])))) || ! is_array($variant['condition'] ?? null) || ! self::validCondition($variant['condition']) || ! is_array($variant['style_patch'] ?? null) || array() === $variant['style_patch'] || ! is_array($variant['precedence'] ?? null) || ! is_array($variant['provenance'] ?? null) ) {
                 throw new InvalidArgumentException('Form presentation variant is invalid.');
             }
             self::assertStyles($variant['style_patch']);
@@ -215,9 +221,9 @@ final class FormPresentationGraphBuilder
         }
     }
 
-    private static function assertRole(mixed $role, ?array $condition): void
+    private static function assertRole(mixed $role, ?array $condition, bool $allowEmpty = false): void
     {
-        if ( ! is_array($role) || count($role) !== 2 || array_diff(array_keys($role), array( 'styles', 'provenance' )) || ! is_array($role['styles'] ?? null) || array() === $role['styles'] || ! is_array($role['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation role is invalid.');
+        if ( ! is_array($role) || count($role) !== 2 || array_diff(array_keys($role), array( 'styles', 'provenance' )) || ! is_array($role['styles'] ?? null) || (! $allowEmpty && array() === $role['styles']) || ! is_array($role['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation role is invalid.');
         self::assertStyles($role['styles']);
         self::assertProvenance($role['provenance'], $role['styles'], $condition);
     }
@@ -263,6 +269,18 @@ final class FormPresentationGraphBuilder
         $result = array();
         foreach ( $form->getElementsByTagName('*') as $element ) if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) $result[] = $element;
         return $result;
+    }
+
+    /** @return list<DOMElement> */
+    private function presentationElements(DOMElement $form): array
+    {
+        $elements = $this->controls($form);
+        foreach ( $this->controls($form) as $control ) {
+            $label = $this->label($control);
+            if ( $label instanceof DOMElement ) $elements[] = $label;
+            if ( null !== $this->requiredMarker && ($marker = ($this->requiredMarker)($control)) instanceof DOMElement ) $elements[] = $marker;
+        }
+        return $elements;
     }
 
     private function label(DOMElement $control): ?DOMElement
