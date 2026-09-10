@@ -17,7 +17,7 @@ const files = JSON.parse(execFileSync('php', ['-r', php, fixturePath], { encodin
 assert.match(files['index.html'], /<ol\b/, 'the synthetic fixture emits an ordered list');
 assert.doesNotMatch(files['style.css'], /counter-(?:reset|increment)|::before\{content:counter\(figma-list-item\)/, 'ordered lists do not use CSS counters');
 assert.match(files['index.html'], /figma-list-marker/, 'ordered items emit an explicit painted marker');
-assert.match(files['style.css'], /\.figma-list-marker\{flex:0 0 1\.5em\}/, 'markers reserve inline space inside the flex list item');
+assert.match(files['index.html'], /figma-list-marker" aria-hidden="true" style="flex:0 0 48px"/, 'markers reserve their decoded source inline slot inside the flex list item');
 
 const browser = await chromium.launch({ headless: true });
 try {
@@ -29,12 +29,21 @@ try {
       const items = [...list.querySelectorAll(':scope > li')];
       const markers = [...list.querySelectorAll(':scope > li > .figma-list-marker')];
       const heading = document.querySelector('[data-figma-node-id="heading:following"]');
+      const visibleBottom = (element) => {
+        const style = getComputedStyle(element);
+        return style.display === 'none' || style.visibility === 'hidden' ? null : element.getBoundingClientRect().bottom;
+      };
+      const contentBottoms = items.flatMap((item) => [item, ...item.querySelectorAll('*')])
+        .map(visibleBottom)
+        .filter((bottom) => bottom !== null);
       return {
         markers: markers.map((marker) => ({ text: marker.textContent, box: marker.getBoundingClientRect().toJSON(), display: getComputedStyle(marker).display })),
         itemOrdinalText: items.map((item) => [...item.querySelectorAll('.figma-list-marker')].map((marker) => marker.textContent)),
         itemHeights: items.map((item) => item.getBoundingClientRect().height),
         listBottom: list.getBoundingClientRect().bottom,
         headingTop: heading.getBoundingClientRect().top,
+        contentBottom: Math.max(...contentBottoms),
+        horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
 
@@ -48,7 +57,11 @@ try {
     if (viewport.name === 'mobile') {
       assert.ok(layout.itemHeights.some((height) => height > 96), `mobile hug-sized list items grow with wrapped content: ${layout.itemHeights.join(', ')}`);
     }
-    assert.ok(layout.headingTop >= layout.listBottom, `${viewport.name} emitted following heading remains below the expanded list flow`);
+    assert.ok(layout.headingTop >= layout.contentBottom, `${viewport.name} emitted following heading remains below every visible list-item descendant (${layout.headingTop} >= ${layout.contentBottom})`);
+    assert.ok(layout.listBottom >= layout.contentBottom, `${viewport.name} list container contains every visible list-item descendant (${layout.listBottom} >= ${layout.contentBottom})`);
+    if (viewport.name === 'mobile') {
+      assert.equal(layout.horizontalOverflow, false, 'mobile semantic list does not introduce horizontal overflow');
+    }
     await page.close();
   }
 } finally {

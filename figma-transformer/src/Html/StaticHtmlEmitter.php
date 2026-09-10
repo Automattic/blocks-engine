@@ -1100,10 +1100,17 @@ final class StaticHtmlEmitter
             $cssRules[] = 'ol .' . $className . ',ul .' . $className . '{text-transform:none}';
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
-            $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+            if ( $this->semanticListHasExplicitMarkers($node) ) {
+                $cssRules[] = '.' . $className . '{list-style:none;padding-left:0}';
+                if ( $this->semanticListHasVerticallyHuggedItems($node) ) {
+                    $cssRules[] = '.' . $className . '{height:auto}';
+                }
+            } else {
+                $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+            }
         }
         if ( '' !== $semanticListMarker ) {
-            $cssRules[] = '.' . $className . '>.figma-list-marker{flex:0 0 1.5em}';
+            $cssRules[] = '.figma-semantic-list-item{display:flex;flex-direction:row;flex-wrap:nowrap!important}';
             if ( $this->semanticListItemHugsVerticalSize($node) ) {
                 $cssRules[] = '.' . $className . '{height:auto;min-width:0}';
             }
@@ -1119,6 +1126,9 @@ final class StaticHtmlEmitter
 
         $layoutIntent = $plan->layoutIntent;
         $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
+        if ( '' !== $semanticListMarker ) {
+            $elementClassName .= ' figma-semantic-list-item';
+        }
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
         $attributes .= ' data-source-node-type="' . $this->sanitizeAttribute($type) . '"';
         $sourceVisualBox = is_array($node['box'] ?? null) ? $node['box'] : array();
@@ -2768,7 +2778,7 @@ final class StaticHtmlEmitter
             return '';
         }
 
-        return '<span class="figma-list-marker" aria-hidden="true">' . (string) ($ordinal + 1) . '.</span>';
+        return '<span class="figma-list-marker" aria-hidden="true" style="flex:0 0 ' . $this->semanticListMarkerInlineSize($node) . '">' . (string) ($ordinal + 1) . '.</span>';
     }
 
     /** @param array<string, mixed> $node */
@@ -2776,6 +2786,62 @@ final class StaticHtmlEmitter
     {
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         return 'HUG' === strtoupper((string) ($layout['sizing_vertical'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $container */
+    private function semanticListHasExplicitMarkers(array $container): bool
+    {
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'flex' === ($layout['display'] ?? null) && $this->semanticListItemHasNumberedMarker($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $container */
+    private function semanticListHasVerticallyHuggedItems(array $container): bool
+    {
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( is_array($child) && $this->semanticListItemHugsVerticalSize($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListMarkerInlineSize(array $node): string
+    {
+        $markerX = null;
+        $contentX = null;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $x = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] : null;
+            if ( null === $x ) {
+                continue;
+            }
+            if ( $this->isListMarkerTextChild($child) ) {
+                $markerX = $x;
+            } elseif ( null === $contentX || $x < $contentX ) {
+                $contentX = $x;
+            }
+        }
+
+        if ( null !== $markerX && null !== $contentX && $contentX > $markerX ) {
+            return $this->number($contentX - $markerX) . 'px';
+        }
+
+        return '1.5em';
     }
 
     /** @param array<string, mixed> $node */
