@@ -95,6 +95,39 @@ $utf8Staged = (new ArtifactCompiler())->compose($utf8Shared, $utf8Receipts)->toA
 $utf8MetadataDiagnostic = current(array_filter($utf8Staged['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_head_metadata_not_carried' === ($diagnostic['code'] ?? null)));
 $utf8Content = $utf8MetadataDiagnostic['entries'][0]['content'] ?? null;
 $assert(str_repeat('a', 499) === $utf8Content && 499 === strlen($utf8Content) && 1 === preg_match('//u', $utf8Content), 'Serialized shared, page, and compiled checkpoints retain the 500-byte metadata diagnostic bound at a UTF-8 character boundary without replacement or conversion.');
+$largeOptions = '';
+$largeOptionValue = str_repeat('choice-', 16);
+for ($index = 0; $index < 6400; ++$index) $largeOptions .= '<option value="' . $largeOptionValue . '">' . $largeOptionValue . '</option>';
+$largeFormsArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_total_bytes' => 10485760), 'files' => array(
+    'a.html' => '<main><form id="first"><select name="first">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+    'index.html' => '<main><form id="second"><select name="second">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+));
+$largeFormsWhole = $compiler->compile($largeFormsArtifact)->toArray();
+$largeFormsShared = json_decode(json_encode($compiler->prepareShared($largeFormsArtifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsPages = json_decode(json_encode($compiler->preparePages($largeFormsArtifact, $largeFormsShared), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsReceipts = json_decode(json_encode($compiler->compilePreparedPages($largeFormsShared, $largeFormsPages), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsStaged = $compiler->compose($largeFormsShared, array_reverse($largeFormsReceipts))->toArray();
+$unbudgetedForms = array();
+foreach ($largeFormsWhole['fallbacks'] ?? array() as $fallback) {
+    if ('html_form_fallback' !== ($fallback['diagnostic_code'] ?? null) || !is_array($fallback['controls'] ?? null)) continue;
+    $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : 'index.html';
+    $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+    $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+    foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null)) $form[$identityKey] = $fallback[$identityKey];
+    foreach (array('control_topology', 'layout_graph', 'presentation_graph') as $graph) if (is_array($fallback[$graph] ?? null) && true !== ($fallback[$graph]['truncated'] ?? false)) $form[$graph] = $fallback[$graph];
+    if (is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null)) $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
+    if (isset($form['bindings'])) $unbudgetedForms[$sourcePath . "\n" . $selector] = $form;
+}
+ksort($unbudgetedForms, SORT_STRING);
+$unbudgetedFormsBytes = strlen(RuntimeDeclarations::canonicalJson(array('schema' => 'generic/forms/v1', 'entities' => array_values($unbudgetedForms))));
+$assert($unbudgetedFormsBytes > RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, sprintf('Generated form metadata exceeds the 5 MiB runtime declaration ceiling before compiler budgeting (%d bytes across %d forms).', $unbudgetedFormsBytes, count($unbudgetedForms)));
+$largeFormsPlan = $largeFormsStaged['source_reports']['wordpress_site_plan'] ?? array();
+$largeFormsDeclarations = array_values(array_filter($largeFormsPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$largeFormsDiagnostic = current(array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_declarations_forms_budgeted' === ($diagnostic['code'] ?? null)));
+$assert(1 === count($largeFormsDeclarations) && strlen(RuntimeDeclarations::canonicalJson($largeFormsDeclarations[0]['payload'] ?? null)) <= RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES && ($largeFormsWhole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array()) === ($largeFormsPlan['runtime_declarations'] ?? array()), 'JSON shared, page, and receipt checkpoints compose one bounded forms declaration identical to whole compilation.');
+$assert(2 === ($largeFormsDiagnostic['context']['presentation_graphs_dropped'] ?? 0) && 1 === ($largeFormsDiagnostic['context']['retained_count'] ?? 0) && 1 === ($largeFormsDiagnostic['context']['omitted_count'] ?? 0) && 'a.html' === ($largeFormsDiagnostic['context']['retained_samples'][0]['source_path'] ?? '') && 'index.html' === ($largeFormsDiagnostic['context']['omitted_samples'][0]['source_path'] ?? '') && !isset($largeFormsDeclarations[0]['payload']['entities'][0]['presentation_graph']), 'Optional presentation facts are removed before deterministic source-path form omission, while retained entities remain complete.');
+$omittedFallback = current(array_filter($largeFormsStaged['fallbacks'] ?? array(), static fn(array $fallback): bool => 'index.html' === ($fallback['source'] ?? null) && 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$assert(str_contains((string) ($omittedFallback['html'] ?? ''), '<select'), 'The omitted form retains its original bounded source fallback markup.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
