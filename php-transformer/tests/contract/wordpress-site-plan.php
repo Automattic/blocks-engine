@@ -38,6 +38,11 @@ $first = (new ArtifactCompiler())->compile($artifact)->toArray();
 $second = (new ArtifactCompiler())->compile($artifact)->toArray();
 $plan = $first['source_reports']['wordpress_site_plan'] ?? array();
 $assert(array() !== $plan, 'Compiler emits a complete site plan: ' . json_encode(array($first['source_reports']['wordpress_site_plan_diagnostics'] ?? array(), $first['source_reports']['compiled_site']['template_parts'] ?? array())));
+$preReportResult = $first;
+unset($preReportResult['source_reports']['conversion_report'], $preReportResult['source_reports']['wordpress_site_plan']);
+unset($preReportResult['metrics']['html_document_transform_count'], $preReportResult['metrics']['normalization_count'], $preReportResult['metrics']['analysis_count'], $preReportResult['metrics']['terminal_reduction_count']);
+$assert($plan === (new WordPressSitePlan())->fromCompilerResult($preReportResult), 'The compiler pre-report projection retains the final canonical site plan.');
+$throws(static fn() => (new WordPressSitePlan())->fromResult($preReportResult), 'Public site-plan projection retains strict canonical conversion-report validation.');
 $writes = $writeMap($plan['writes']);
 
 $assert(WordPressSitePlan::SCHEMA === ($plan['schema'] ?? null), 'Compiler projects the v2 canonical WordPress site plan.');
@@ -98,7 +103,12 @@ $overDepthWithFailure['files']['index.html'] .= str_repeat('<div style="padding:
 $pathological = (new ArtifactCompiler())->compile($overDepthWithFailure)->toArray();
 $pathologicalPolicy = $pathological['source_reports']['editability_policy'] ?? array();
 $assert('failed' === ($pathological['status'] ?? null) && 'failed' === ($pathologicalPolicy['status'] ?? null) && 'required' === ($pathologicalPolicy['enforcement'] ?? null) && 'wrapper_to_content_ratio' === ($pathologicalPolicy['failures'][0]['metric'] ?? null) && 'index.html' === ($pathologicalPolicy['failures'][0]['source_path'] ?? null) && 25 < ($pathological['source_reports']['editability_report']['metrics']['max_nesting_depth'] ?? 0) && 'failed' === ($pathological['source_reports']['wordpress_site_plan']['quality']['status'] ?? null) && false === ($pathological['source_reports']['wordpress_site_plan']['quality']['pass'] ?? null) && 'editability_policy_failed' === ($pathological['diagnostics'][0]['code'] ?? null) && 'index.html' === ($pathological['diagnostics'][0]['context']['source_path'] ?? null), 'An over-depth artifact with a substantive editability failure still rejects with source attribution and failed-quality site-plan evidence.');
-$fallbackPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><svg><script>secretToken()</script><path onclick="secretHandler()" d="M0 0"></path></svg></main>')))->toArray()['source_reports']['wordpress_site_plan'] ?? array();
+$fallbackResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><svg><script>secretToken()</script><path onclick="secretHandler()" d="M0 0"></path></svg></main>')))->toArray();
+$fallbackPlan = $fallbackResult['source_reports']['wordpress_site_plan'] ?? array();
+$fallbackPreReportResult = $fallbackResult;
+unset($fallbackPreReportResult['source_reports']['conversion_report'], $fallbackPreReportResult['source_reports']['wordpress_site_plan']);
+unset($fallbackPreReportResult['metrics']['html_document_transform_count'], $fallbackPreReportResult['metrics']['normalization_count'], $fallbackPreReportResult['metrics']['analysis_count'], $fallbackPreReportResult['metrics']['terminal_reduction_count']);
+$assert($fallbackPlan === (new WordPressSitePlan())->fromCompilerResult($fallbackPreReportResult), 'The compiler pre-report projection retains the canonical site plan for nonempty sanitization fallback evidence.');
 $fallbackPlanEvidence = $fallbackPlan['quality']['core_html_fallback_evidence'] ?? array();
 $fallbackPlanEmission = $fallbackPlanEvidence['emissions'][0] ?? array();
 $assert('blocks-engine/core-html-fallback-evidence/v1' === ($fallbackPlanEvidence['schema'] ?? '') && $fallbackPlanEvidence === ($fallbackPlan['reporting']['core_html_fallback_evidence'] ?? null) && 'sanitization' === ($fallbackPlanEmission['reason'] ?? '') && 1 === ($fallbackPlanEvidence['totals']['emissions'] ?? 0) && !str_contains((string) ($fallbackPlanEmission['source_subtree']['snippet'] ?? ''), 'secretToken'), 'Site plans retain bounded, payload-safe core/html fallback evidence for matrix consumers.');

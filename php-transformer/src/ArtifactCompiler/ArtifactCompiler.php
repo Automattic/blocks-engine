@@ -847,8 +847,6 @@ final class ArtifactCompiler
         if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
             $provenance[0]['source_url'] = $sourceUrl;
         }
-        // WordPressSitePlan consumes a canonical result envelope, so give it a
-        // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -857,12 +855,12 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
+        $wordpressSitePlan = null;
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.
         if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) ) {
-            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
-                $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
+                $wordpressSitePlan = ( new WordPressSitePlan() )->fromCompilerResult(array(
                     'schema' => TransformerResult::SCHEMA,
                     'status' => $this->statusFromDiagnostics($diagnostics),
                     'components' => $components,
@@ -879,7 +877,7 @@ final class ArtifactCompiler
                     'context' => array(),
                     'metrics' => $metrics,
                 ));
-                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $sourceReports['wordpress_site_plan']['templates']);
+                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $wordpressSitePlan['templates']);
             } catch (DocumentIdentityException $exception) {
                 foreach ( $exception->diagnostics() as $identityDiagnostic ) {
                     $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -894,6 +892,9 @@ final class ArtifactCompiler
         $metrics['diagnostic_count'] = count($diagnostics);
         $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
         $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        if ( null !== $wordpressSitePlan ) {
+            $sourceReports['wordpress_site_plan'] = $wordpressSitePlan;
+        }
         // This counter is intentionally outside the canonical report/site-plan
         // projections: it describes process work, not output identity.
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
