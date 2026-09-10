@@ -70,6 +70,36 @@ try {
     await before.close();
     await after.close();
   }
+
+    const responsiveCropSource = '<!doctype html><style>.responsive-crop{display:block;width:300px;margin:0}.responsive-crop img{display:block;width:100%;aspect-ratio:1 / 1!important;object-fit:contain!important}@media (min-width:701px){.responsive-crop{width:960px}.responsive-crop img{aspect-ratio:4 / 3!important;object-fit:cover!important}}</style><main><figure class="responsive-crop"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Responsive crop"></figure></main>';
+    const responsiveCropResult = transform(responsiveCropSource);
+    const responsiveCrop = responsiveCropResult.blocks.find((block) => block.blockName === 'core/image');
+    assert.deepEqual(
+        { aspectRatio: responsiveCrop?.attrs.aspectRatio, scale: responsiveCrop?.attrs.scale },
+        { aspectRatio: '4/3', scale: 'cover' },
+        '#841 promotes the desktop crop selected after the base rule'
+    );
+    const responsiveCropCss = responsiveCropResult.assets
+        .filter((asset) => asset.kind === 'css')
+        .map((asset) => asset.content)
+        .join('\n');
+    const responsiveEvidence = async (html, css, width) => {
+        const page = await browser.newPage({ viewport: { width, height: 900 } });
+        await page.setContent(`<!doctype html><style>body{margin:0}${css}</style>${html}`);
+        const evidence = await page.locator('.responsive-crop img').evaluate((image) => {
+            const box = image.getBoundingClientRect();
+            const style = getComputedStyle(image);
+            return { aspectRatio: style.aspectRatio, objectFit: style.objectFit, width: box.width, height: box.height };
+        });
+        await page.close();
+        return evidence;
+    };
+    for (const [width, expected] of [[1440, { aspectRatio: '4 / 3', objectFit: 'cover', width: 960, height: 720 }], [390, { aspectRatio: '1 / 1', objectFit: 'contain', width: 300, height: 300 }]]) {
+        const source = await responsiveEvidence(responsiveCropSource, '', width);
+        const output = await responsiveEvidence(responsiveCropResult.serialized_blocks, responsiveCropCss, width);
+        assert.deepEqual(source, expected, `#841 source crop has its expected ${width}px authored behavior`);
+        assert.deepEqual(output, source, `#841 transformed core/image retains the ${width}px crop and bounds`);
+    }
 } finally {
   await browser.close();
 }
