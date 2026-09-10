@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use DOMElement;
 use InvalidArgumentException;
 
@@ -207,7 +208,7 @@ final class FormLayoutGraphBuilder
             throw new InvalidArgumentException('Form layout graph provenance exceeds its limit.');
         }
         foreach ( $provenance as $fact ) {
-            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || ! preg_match('~^(?!.*(?:^|/)\.\.(?:/|$))[A-Za-z0-9._/-]+$~', $fact['source_path']) || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count($properties) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
+            if ( ! is_array($fact) || ! is_string($fact['source_path'] ?? null) || '' === ArtifactPath::safeRelativePath($fact['source_path']) || ArtifactPath::safeRelativePath($fact['source_path']) !== $fact['source_path'] || ! preg_match('/^[a-f0-9]{64}$/', $fact['source_sha256'] ?? '') || ! is_string($fact['selector'] ?? null) || '' === trim($fact['selector']) || strlen($fact['selector']) > 1024 || ! is_array($fact['properties'] ?? null) || array() === $fact['properties'] || count($fact['properties']) > count($properties) || array_filter($fact['properties'], static fn (mixed $property): bool => ! is_string($property) || ! in_array($property, $properties, true) || ! isset($layout[self::layoutKey($property)])) || ($condition !== null && $fact['condition'] !== $condition) || ($condition === null && ($fact['condition'] ?? null) !== null) ) {
                 throw new InvalidArgumentException('Form layout graph provenance is invalid.');
             }
         }

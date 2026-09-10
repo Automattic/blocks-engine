@@ -1294,6 +1294,11 @@ $deepDeclaration = current(array_filter($deepArtifact['source_reports']['wordpre
 $projectedDeepGraph = $deepDeclaration['payload']['entities'][0]['layout_graph'] ?? array();
 $projectedWidthNodes = array_values(array_filter($projectedDeepGraph['nodes'] ?? array(), static fn(array $node): bool => 'td' === ($node['source']['tag'] ?? null) && '33.333333333333%' === ($node['layout']['width'] ?? null)));
 $assert(3 === count($projectedWidthNodes) && false === ($projectedDeepGraph['truncated'] ?? null), 'artifact compilation projects the complete deep percentage-width graph into generic/forms/v1.');
+$safeProvenanceArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/form style.css">' . $layoutGraphHtml, 'assets/form style.css' => '.form{display:grid}')))->toArray();
+$safeProvenanceDeclaration = current(array_filter($safeProvenanceArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$safeProvenanceGraph = $safeProvenanceDeclaration['payload']['entities'][0]['layout_graph'] ?? array();
+$safeProvenanceNode = array_column($safeProvenanceGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
+$assert('assets/form style.css' === ($safeProvenanceNode['provenance'][0]['source_path'] ?? null), 'artifact compilation accepts canonical stylesheet paths in emitted form layout provenance.');
 $depthBoundaryHtml = '<form>' . str_repeat('<div>', 16) . '<input name="edge">' . str_repeat('</div>', 16) . '<button type="submit">Send</button></form>';
 $depthOverflowHtml = '<form>' . str_repeat('<div>', 17) . '<input name="overflow">' . str_repeat('</div>', 17) . '<button type="submit">Send</button></form>';
 $depthBoundaryGraph = (new HtmlTransformer())->transform($depthBoundaryHtml, array('static_css' => 'input{width:100%}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
