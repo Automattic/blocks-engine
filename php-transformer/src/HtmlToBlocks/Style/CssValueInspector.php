@@ -56,4 +56,34 @@ final class CssValueInspector
         }
         return false;
     }
+
+    public static function hasDefiniteHeight(string $css): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon || 'height' !== strtolower(trim(substr($declaration, 0, $colon))) ) {
+                continue;
+            }
+            $value = strtolower(self::withoutImportant(substr($declaration, $colon + 1)));
+            if ( '' === $value || str_contains($value, 'var(') || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public static function hasAutoHeight(string $css): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false !== $colon
+                && 'height' === strtolower(trim(substr($declaration, 0, $colon)))
+                && 'auto' === strtolower(self::withoutImportant(substr($declaration, $colon + 1)))
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

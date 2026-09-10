@@ -452,12 +452,24 @@ final class AuthorStylesheetProjector
     private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = ''): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
-        if ( CssValueInspector::hasDefiniteWidth($layoutCss) ) {
+        $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
+        $hasDefiniteHeight = CssValueInspector::hasDefiniteHeight($layoutCss);
+        $hasAutoHeight = CssValueInspector::hasAutoHeight($layoutCss);
+        if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
             $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
             $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
-            $css .= $button . '{width:100%!important}'
-                . $link . '{width:100%!important;max-width:100%!important}';
+            if ( $hasDefiniteWidth ) {
+                $css .= $button . '{width:100%!important}'
+                    . $link . '{width:100%!important;max-width:100%!important}';
+            }
+            if ( $hasDefiniteHeight ) {
+                $css .= $button . '{height:100%!important}'
+                    . $link . '{height:100%!important}';
+            } elseif ( $hasAutoHeight ) {
+                $css .= $button . '{height:auto!important}'
+                    . $link . '{height:auto!important}';
+            }
         }
         return $css . $rest;
     }
