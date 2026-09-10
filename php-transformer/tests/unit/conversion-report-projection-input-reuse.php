@@ -52,6 +52,51 @@ $assert(
     'fallback diagnostics retain normalized final rows in input order'
 );
 
+$blocks = array(
+    2 => array('blockName' => 'core/image', 'attrs' => array('url' => 'https://example.test/image', 'src' => 'https://example.test/image.jpg', 'href' => 'https://example.test/image-link', 'poster' => 'https://example.test/image.mp4')),
+    4 => 'malformed block',
+    6 => array('blockName' => 'core/navigation-link', 'attrs' => array('label' => 'Top', 'url' => '/top', 'kind' => 'custom')),
+    9 => array('blockName' => 'core/group', 'attrs' => array('src' => 'https://example.test/group.jpg'), 'innerBlocks' => array(
+        1 => array('blockName' => 'core/navigation-link', 'attrs' => array('label' => 'Child', 'url' => '/child', 'kind' => 'post-type')),
+        3 => false,
+        7 => array('blockName' => 'core/navigation-link', 'attrs' => array('label' => 'Child', 'url' => '/child', 'kind' => 'post-type')),
+        8 => array('blockName' => 'core/video', 'attrs' => array('poster' => 'https://example.test/video.jpg', 'href' => array('invalid'))),
+    )),
+);
+$blockReport = ConversionReportProjection::fromResultParts('html', $blocks, array(), array(), array(), array(), array());
+$expectedBlockAssets = array(
+    array('source' => 'block_attribute', 'block_path' => 'blocks.2', 'block_name' => 'core/image', 'attribute' => 'url', 'url' => 'https://example.test/image'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.2', 'block_name' => 'core/image', 'attribute' => 'src', 'url' => 'https://example.test/image.jpg'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.2', 'block_name' => 'core/image', 'attribute' => 'href', 'url' => 'https://example.test/image-link'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.2', 'block_name' => 'core/image', 'attribute' => 'poster', 'url' => 'https://example.test/image.mp4'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.6', 'block_name' => 'core/navigation-link', 'attribute' => 'url', 'url' => '/top'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.9', 'block_name' => 'core/group', 'attribute' => 'src', 'url' => 'https://example.test/group.jpg'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.9.innerBlocks.1', 'block_name' => 'core/navigation-link', 'attribute' => 'url', 'url' => '/child'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.9.innerBlocks.7', 'block_name' => 'core/navigation-link', 'attribute' => 'url', 'url' => '/child'),
+    array('source' => 'block_attribute', 'block_path' => 'blocks.9.innerBlocks.8', 'block_name' => 'core/video', 'attribute' => 'poster', 'url' => 'https://example.test/video.jpg'),
+);
+$expectedBlockNavigation = array(
+    array('source' => 'block', 'block_path' => 'blocks.6', 'block_name' => 'core/navigation-link', 'label' => 'Top', 'url' => '/top', 'kind' => 'custom'),
+    array('source' => 'block', 'block_path' => 'blocks.9.innerBlocks.1', 'block_name' => 'core/navigation-link', 'label' => 'Child', 'url' => '/child', 'kind' => 'post-type'),
+    array('source' => 'block', 'block_path' => 'blocks.9.innerBlocks.7', 'block_name' => 'core/navigation-link', 'label' => 'Child', 'url' => '/child', 'kind' => 'post-type'),
+);
+$assert($expectedBlockAssets === ($blockReport['asset_refs'] ?? null), 'block assets retain depth-first sparse paths and attribute order');
+$assert($expectedBlockNavigation === ($blockReport['navigation_candidates'] ?? null), 'block navigation retains depth-first sparse paths and malformed-entry skipping');
+
+$artifactAsset = array('source_path' => 'index.html', 'selector' => 'img.hero', 'url' => '/hero.jpg');
+$artifactLink = array('source_path' => 'index.html', 'selector' => 'a.home', 'url' => '/home', 'target_path' => 'home/index.html');
+$artifactReport = ConversionReportProjection::fromResultParts('artifact', $blocks, array(), array(
+    'artifact' => array(
+        'asset_references' => array($artifactAsset, $artifactAsset),
+        'internal_links' => array($artifactLink, $artifactLink),
+    ),
+), array(), array(), array());
+$assert(array($artifactAsset) === ($artifactReport['asset_refs'] ?? null), 'nonempty artifact assets suppress block attribute collection and retain first-occurrence deduplication');
+$assert(
+    array_merge(array(array('source' => 'artifact_reference', 'source_path' => 'index.html', 'selector' => 'a.home', 'url' => '/home', 'target_path' => 'home/index.html')), $expectedBlockNavigation) === ($artifactReport['navigation_candidates'] ?? null),
+    'artifact links precede block navigation candidates while duplicate artifact rows are deduplicated'
+);
+
 if ( 0 < $failures ) {
     exit(1);
 }
