@@ -687,9 +687,12 @@ $assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.pn
 $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
+$assert('' === ArtifactPath::safeRelativePath("assets/\xFFlogo.png"), 'artifact paths reject raw invalid UTF-8 bytes');
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
 $assert('assets/JOHN-OATES-‘ARKANSAS.jpg' === ArtifactPath::resolveRelativePath('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'artifact references resolve percent-encoded Unicode path segments to canonical artifact paths');
+$assert('assets/%FFlogo.png' === ArtifactPath::resolveRelativePath('../assets/%fflogo.png', 'pages/home.html'), 'artifact references retain malformed percent-encoded bytes as canonical ASCII provenance');
 $assert('' === ArtifactPath::resolveRelativePath('../assets%2flogo.png', 'pages/home.html'), 'artifact references reject encoded path separators');
+$assert('' === ArtifactPath::resolveRelativePath('../assets%ff%2flogo.png', 'pages/home.html'), 'artifact references reject encoded separators even when a malformed byte escape is retained');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
