@@ -2144,6 +2144,8 @@ function blocks_engine_figma_transformer_run_inline_text_style_contract(callable
     $assert(3 === substr_count($kiwiOrderedMarkerRichTextHtml, '<li '), 'kiwi-ordered-marker-rich-text-list-items');
     blocks_engine_figma_transformer_contract_assert_tag_count($assert, $kiwiOrderedMarkerRichTextHtml, 'ol', 1, 'kiwi-ordered-marker-rich-text-single-semantic-list');
     blocks_engine_figma_transformer_contract_assert_css_rule_contains($assert, $kiwiOrderedMarkerRichTextCss, '.figma-node-kom-list-ordered-apart-list', array('list-style:decimal', 'padding-left:1.5em'), 'kiwi-ordered-marker-rich-text-list-markers-preserved');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextCss, '.figma-node-kom-item-1-numbered-list-item::before'), 'kiwi-ordered-marker-rich-text-list-does-not-duplicate-native-marker');
+    $assert(! str_contains($kiwiOrderedMarkerRichTextCss, 'counter-reset:figma-list-item'), 'kiwi-ordered-marker-rich-text-list-does-not-emit-counter-reset');
     $assert(! str_contains($kiwiOrderedMarkerRichTextHtml, '>1.<'), 'kiwi-ordered-marker-rich-text-marker-suppressed');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<p class="figma-node-kom-text-1-body"'), 'kiwi-ordered-marker-rich-text-body-paragraph');
     $assert(str_contains($kiwiOrderedMarkerRichTextHtml, '<span style="font-size:16px;text-transform:none">Movement made gentle:</span><span style="font-size:16px;font-weight:400;text-transform:none"> Tips fit your day.</span>'), 'kiwi-ordered-marker-rich-text-body-spans');
