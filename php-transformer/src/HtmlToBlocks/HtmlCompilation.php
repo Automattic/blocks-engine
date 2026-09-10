@@ -6187,9 +6187,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
     {
-        return $this->sourceElementClassifier->hasLogoBrandSignal($anchor)
-            && 0 < $anchor->getElementsByTagName('svg')->length
-            && '' === trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' ))));
+        if ( 0 === $anchor->getElementsByTagName('svg')->length
+            || '' !== trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' )))) ) {
+            return false;
+        }
+
+        if ( $this->sourceElementClassifier->hasLogoBrandSignal($anchor) ) {
+            return true;
+        }
+
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->sourceElementClassifier->hasLogoBrandSignal($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
