@@ -40,6 +40,13 @@ final class ResponsiveBreakpointSafetyPolicy
         $chromeRole = $this->layoutIntentClassifier->chromeGroupRole($node, $parentNode, $depth);
         $parentChromeRole = null === $parentNode ? null : $this->layoutIntentClassifier->chromeGroupRole($parentNode, $grandParentNode, max(1, $depth - 1));
 
+        if ( $viewportWidth <= 480.0 && $this->isFixedHeightSemanticListItem($node, $parentNode, $baseMap) ) {
+            return array(
+                'reason_code' => 'responsive_semantic_list_item_flow',
+                'declarations' => array('width:100%', 'max-width:100%', 'height:auto', 'min-width:0'),
+            );
+        }
+
         if ( null !== $parentNode && (LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $parentChromeRole || 'footer' === $parentName) ) {
             if ( $this->isFooterInsetPanel($node, $parentNode) && null !== $width ) {
                 return array('reason_code' => 'responsive_footer_inset_panel_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'fixed'), array('height:auto', 'left:24px')));
@@ -85,6 +92,25 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         return array('reason_code' => '', 'declarations' => array());
+    }
+
+    /**
+     * A semantic list item's desktop height is a measured layout fact, but it
+     * cannot bound wrapping content after the list becomes narrower on mobile.
+     * Limit this escape hatch to recognized content lists, not arbitrary frames.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed>|null $parentNode
+     * @param array<string, string> $baseMap
+     */
+    private function isFixedHeightSemanticListItem(array $node, ?array $parentNode, array $baseMap): bool
+    {
+        if ( null === $parentNode || 'absolute' === ($baseMap['position'] ?? '') || ! isset($baseMap['height']) || 'auto' === $baseMap['height'] ) {
+            return false;
+        }
+
+        $itemId = isset($node['id']) && is_scalar($node['id']) ? (string) $node['id'] : '';
+        return '' !== $itemId && in_array($itemId, $this->layoutIntentClassifier->semanticListItemIds($parentNode), true);
     }
 
     /**

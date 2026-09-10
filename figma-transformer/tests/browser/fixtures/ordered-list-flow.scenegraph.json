@@ -1,0 +1,128 @@
+{
+  "name": "Ordered List Flow Fixture",
+  "nodes": [
+    {
+      "id": "page:desktop",
+      "type": "FRAME",
+      "name": "Desktop page",
+      "width": 1440,
+      "height": 1200,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 32,
+      "children": [
+        {
+          "id": "section:list",
+          "type": "FRAME",
+          "name": "List section",
+          "width": 640,
+          "height": 700,
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 24,
+          "children": [
+            {
+              "id": "list:ordered",
+              "type": "FRAME",
+              "name": "Numbered content list",
+              "y": 0,
+              "width": 640,
+              "height": 480,
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 24,
+              "children": [
+                {
+                  "id": "item:one",
+                  "type": "FRAME",
+                  "name": "Numbered list item",
+                  "y": 0,
+                  "width": 640,
+                  "height": 96,
+                  "layoutMode": "HORIZONTAL",
+                  "children": [
+                    { "id": "marker:one", "type": "TEXT", "name": "Marker", "characters": "1.", "x": 0, "y": 0, "fontSize": 18 },
+                    { "id": "text:one", "type": "TEXT", "name": "Paragraph", "characters": "A long ordered-list item that must wrap into multiple lines when the available inline size is reduced on a narrow screen.", "x": 48, "y": 0, "width": 592, "height": 58, "fontSize": 18, "lineHeightPx": 29 }
+                  ]
+                },
+                {
+                  "id": "item:two",
+                  "type": "FRAME",
+                  "name": "Numbered list item",
+                  "y": 120,
+                  "width": 640,
+                  "height": 96,
+                  "layoutMode": "HORIZONTAL",
+                  "children": [
+                    { "id": "marker:two", "type": "TEXT", "name": "Marker", "characters": "3.", "x": 0, "y": 0, "fontSize": 18 },
+                    { "id": "text:two", "type": "TEXT", "name": "Paragraph", "characters": "Another deliberately long item confirms that normal list markers and content-sized list rows survive browser wrapping.", "x": 48, "y": 0, "width": 592, "height": 58, "fontSize": 18, "lineHeightPx": 29 }
+                  ]
+                },
+                {
+                  "id": "item:three",
+                  "type": "FRAME",
+                  "name": "Numbered list item",
+                  "y": 240,
+                  "width": 640,
+                  "height": 96,
+                  "layoutMode": "HORIZONTAL",
+                  "children": [
+                    { "id": "marker:three", "type": "TEXT", "name": "Marker", "characters": "2.", "x": 0, "y": 0, "fontSize": 18 },
+                    { "id": "text:three", "type": "TEXT", "name": "Paragraph", "characters": "The final item creates enough wrapped content to expose a fixed-height overlap with the following heading.", "x": 48, "y": 0, "width": 592, "height": 58, "fontSize": 18, "lineHeightPx": 29 }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "section:following",
+          "type": "FRAME",
+          "name": "Following section",
+          "y": 800,
+          "width": 640,
+          "height": 120,
+          "layoutMode": "VERTICAL",
+          "children": [
+            { "id": "heading:following", "type": "TEXT", "name": "Heading", "characters": "Following section", "width": 640, "height": 48, "fontSize": 40, "fontWeight": 700 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page:mobile",
+      "type": "FRAME",
+      "name": "Mobile page",
+      "width": 390,
+      "height": 1600,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 24,
+      "children": [
+        {
+          "id": "section:list:mobile",
+          "type": "FRAME",
+          "name": "List section",
+          "width": 342,
+          "height": 1050,
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 24,
+          "children": [
+            {
+              "id": "list:ordered:mobile",
+              "type": "FRAME",
+              "name": "Numbered content list",
+              "y": 0,
+              "width": 342,
+              "height": 830,
+              "layoutMode": "VERTICAL",
+              "itemSpacing": 24,
+              "children": [
+                { "id": "item:one:mobile", "type": "FRAME", "name": "Numbered list item", "y": 0, "width": 342, "height": 250, "layoutMode": "HORIZONTAL", "children": [ { "id": "marker:one:mobile", "type": "TEXT", "name": "Marker", "characters": "1.", "x": 0, "y": 0, "fontSize": 18 }, { "id": "text:one:mobile", "type": "TEXT", "name": "Paragraph", "characters": "A long ordered-list item that must wrap into multiple lines when the available inline size is reduced on a narrow screen.", "x": 48, "y": 0, "width": 294, "height": 174, "fontSize": 18, "lineHeightPx": 29 } ] },
+                { "id": "item:two:mobile", "type": "FRAME", "name": "Numbered list item", "y": 274, "width": 342, "height": 250, "layoutMode": "HORIZONTAL", "children": [ { "id": "marker:two:mobile", "type": "TEXT", "name": "Marker", "characters": "3.", "x": 0, "y": 0, "fontSize": 18 }, { "id": "text:two:mobile", "type": "TEXT", "name": "Paragraph", "characters": "Another deliberately long item confirms that normal list markers and content-sized list rows survive browser wrapping.", "x": 48, "y": 0, "width": 294, "height": 145, "fontSize": 18, "lineHeightPx": 29 } ] },
+                { "id": "item:three:mobile", "type": "FRAME", "name": "Numbered list item", "y": 548, "width": 342, "height": 250, "layoutMode": "HORIZONTAL", "children": [ { "id": "marker:three:mobile", "type": "TEXT", "name": "Marker", "characters": "2.", "x": 0, "y": 0, "fontSize": 18 }, { "id": "text:three:mobile", "type": "TEXT", "name": "Paragraph", "characters": "The final item creates enough wrapped content to expose a fixed-height overlap with the following heading.", "x": 48, "y": 0, "width": 294, "height": 145, "fontSize": 18, "lineHeightPx": 29 } ] }
+              ]
+            }
+          ]
+        },
+        { "id": "section:following:mobile", "type": "FRAME", "name": "Following section", "y": 1100, "width": 342, "height": 120, "layoutMode": "VERTICAL", "children": [ { "id": "heading:following:mobile", "type": "TEXT", "name": "Heading", "characters": "Following section", "width": 342, "height": 48, "fontSize": 40, "fontWeight": 700 } ] }
+      ]
+    }
+  ]
+}

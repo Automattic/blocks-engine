@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ordered-list-flow": "node ordered-list-flow.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0"
+  }
+}
