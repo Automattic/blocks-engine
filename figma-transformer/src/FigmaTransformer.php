@@ -139,9 +139,9 @@ final class FigmaTransformer
         $sourceReports = array(
             'figma' => array(
                 'input'   => $archive['input'],
-                'archive' => $archive['archive'],
+                'archive' => $this->jsonSafeArchiveReport($archive['archive']),
                 'meta'    => $archive['meta'],
-                'assets'  => $archive['assets'],
+                'assets'  => $this->archiveAssetReport($archive['assets']),
             ),
         );
 
@@ -221,6 +221,67 @@ final class FigmaTransformer
             $parity,
             $metrics
         );
+    }
+
+    /**
+     * Archive assets are input material for export, not report payloads. Keep
+     * their metadata for provenance without duplicating arbitrary binary bytes.
+     *
+     * @param array<int, array<string, mixed>> $assets
+     * @return array<int, array<string, mixed>>
+     */
+    private function archiveAssetReport(array $assets): array
+    {
+        return array_map(
+            static function (array $asset): array {
+                unset($asset['content']);
+                return $asset;
+            },
+            $assets
+        );
+    }
+
+    /**
+     * Decoded Kiwi archive metadata can contain raw byte strings such as image
+     * hashes and font digests. They are not needed by report consumers, so omit
+     * them instead of corrupting them with a lossy UTF-8 replacement.
+     *
+     * @param array<string, mixed> $archive
+     * @return array<string, mixed>
+     */
+    private function jsonSafeArchiveReport(array $archive): array
+    {
+        return $this->omitInvalidUtf8ArchiveValues($archive);
+    }
+
+    /**
+     * @param array<string|int, mixed> $value
+     * @return array<string|int, mixed>
+     */
+    private function omitInvalidUtf8ArchiveValues(array $value): array
+    {
+        $report = array();
+        $isList = array_is_list($value);
+
+        foreach ( $value as $key => $child ) {
+            if ( is_string($key) && ! $this->isValidUtf8($key) ) {
+                continue;
+            }
+            if ( is_string($child) && ! $this->isValidUtf8($child) ) {
+                continue;
+            }
+
+            $report[$key] = is_array($child)
+                ? $this->omitInvalidUtf8ArchiveValues($child)
+                : $child;
+        }
+
+        return $isList ? array_values($report) : $report;
+    }
+
+    private function isValidUtf8(string $value): bool
+    {
+        return 1 === preg_match('//u', $value);
     }
 
     /**
