@@ -2387,9 +2387,13 @@ final class StyleResolver implements ElementPresentationResolver
             'cascaded_values' => array(),
         );
         $imageOrder = 0;
+        $layers = array();
+        if (preg_match_all('/@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)?(?:\s*,\s*[a-z0-9_-]+(?:\.[a-z0-9_-]+)?)*)\s*;/i', $css, $layerStatements)) {
+            foreach ($layerStatements[1] as $statement) foreach (explode(',', $statement) as $name) $layers[strtolower(trim($name))] ??= count($layers);
+        }
         (new CssStylesheetTransformer())->visitStyleRules(
             $css,
-            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder): void {
+            function (string $prelude, string $body, array $conditions) use (&$analysis, &$imageOrder, &$layers): void {
                 $rawDeclarations = $this->cssDeclarations($body);
                 $declarations = $this->safeVisualDeclarations($rawDeclarations);
                 // A materialized SVG asset is an isolated document: it cannot
@@ -2418,6 +2422,12 @@ final class StyleResolver implements ElementPresentationResolver
                     ))
                     : array();
                 $imageEntries = $this->imageShapeDeclarationEntries($body);
+                $layer = null;
+                foreach ($conditions as $condition) if (preg_match('/^@layer\s+([a-z0-9_-]+(?:\.[a-z0-9_-]+)*)\b/i', trim($condition), $match)) {
+                    $name = strtolower($match[1]);
+                    $layers[$name] ??= count($layers);
+                    $layer = $name;
+                }
 
                 foreach (explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
@@ -2444,6 +2454,7 @@ final class StyleResolver implements ElementPresentationResolver
                                 'value' => $entry['value'],
                                 'conditions' => $conditions,
                                 'order' => $imageOrder++,
+                                'layer' => $layer,
                             );
                         }
                     }
@@ -2472,6 +2483,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         );
 
+        $analysis['layer_names'] = array_keys($layers);
         return $analysis;
     }
 
@@ -2492,6 +2504,52 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $entries;
+    }
+
+    /** Resolve image crop declarations at the desktop reference viewport. */
+    public function imageShapeDeclarations(DOMElement $element): array
+    {
+        $facts = array();
+        foreach ($this->context->sourceStyles()->imageShapeRules() as $rule) {
+            if (!$this->matchesCssSelector($element, $rule['selector']) || !$this->imageShapeConditionsApply($rule['conditions'])) continue;
+            CssCascade::apply($facts, $rule['property'], array(
+                'value' => $rule['value'],
+                'important' => CssValueInspector::isImportant($rule['value']),
+                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null,
+            ));
+        }
+        foreach ($this->imageShapeDeclarationEntries(SourceDom::attr($element, 'style')) as $order => $entry) {
+            CssCascade::apply($facts, $entry['property'], array(
+                'value' => $entry['value'], 'important' => CssValueInspector::isImportant($entry['value']),
+                'specificity' => array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), 'order' => PHP_INT_MAX - 1000 + $order, 'inline' => true, 'layer' => null,
+            ));
+        }
+        return $facts;
+    }
+
+    /** @param list<string> $conditions */
+    private function imageShapeConditionsApply(array $conditions): bool
+    {
+        foreach ($conditions as $condition) {
+            $condition = trim($condition);
+            if (preg_match('/^@layer\b/i', $condition)) continue;
+            if (preg_match('/^@supports\b/i', $condition)) {
+                if (!$this->knownImageShapeSupportsCondition($condition)) return false;
+            } elseif (preg_match('/^@media\b/i', $condition)) {
+                if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
+            } else return false;
+        }
+        return true;
+    }
+
+    private function knownImageShapeSupportsCondition(string $condition): bool
+    {
+        $query = strtolower(trim((string) preg_replace('/^@supports\s*/i', '', $condition)));
+        $query = preg_replace('/^\((.*)\)$/s', '$1', $query) ?? $query;
+        [$property, $value] = array_pad(array_map('trim', explode(':', $query, 2)), 2, '');
+        return ('display' === $property && in_array($value, array('flex', 'grid', 'inline-flex', 'inline-grid'), true))
+            || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
+            || ('object-fit' === $property && in_array($value, array('cover', 'contain'), true));
     }
 
     /**

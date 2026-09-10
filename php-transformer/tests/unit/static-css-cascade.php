@@ -12,6 +12,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 
 $failures = 0;
 $passes = 0;
@@ -99,6 +100,19 @@ $assert(! isset($result['display']), 'a max-width block below the reference widt
 $wide = '@media (min-width: 768px) { .main-nav { display: flex; } }';
 $result = $resolve($page, $wide, '//nav', array( 'display' ));
 $assert('flex' === ( $result['display'] ?? '' ), 'a min-width block satisfied at the reference width applies');
+
+$responsiveAlternatives = '@media (max-width:40rem), screen and (.5rem <= width < 90.0001rem) { .main-nav { display: grid; } }';
+$result = $resolve($page, $responsiveAlternatives, '//nav', array( 'display' ));
+$assert('grid' === ( $result['display'] ?? '' ), 'generic static responsive media keeps top-level alternatives and fractional range syntax at desktop');
+
+$assert(
+    CssCascade::mediaConditionApplies('print, not screen and (90.0001rem < width)', 1440.0),
+    'a negated comma alternative applies when its supported fractional strict left-sided range is false at the viewport'
+);
+$assert(
+    ! CssCascade::mediaConditionApplies('not screen and (unknown-feature: value)', 1440.0),
+    'an unknown media feature remains fail-closed when negated'
+);
 
 $result = $resolve($page, '@media print { .main-nav { display: none; } }', '//nav', array( 'display' ));
 $assert(! isset($result['display']), 'a non-visual media type does not apply');
