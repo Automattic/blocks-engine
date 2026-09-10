@@ -7,9 +7,10 @@ import { chromium } from 'playwright';
 const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const sourceFixture = `<style>
   :root { --scaling-factor: 1448px; --scrollbar-width: 8px; }
-  .cta { box-sizing:border-box; display:block; height:auto; min-height:max(.5px,.0362559 * (var(--scaling-factor) - var(--scrollbar-width))); padding:12px 24px; background:#173b64; color:#fff; }
-  @media (max-width:600px) { :root { --scaling-factor:399.164682px; } .cta { height:max(.5px,.1175977 * (var(--scaling-factor) - var(--scrollbar-width))); min-height:0; } }
-</style><main><a class="cta" href="/quote">GET A QUOTE</a></main>`;
+  ._root_1fj1u_1 { min-height:10px!important; background:#173b64; color:#fff; }
+  .cta-layout { box-sizing:border-box; display:block; height:auto; min-height:max(.5px,.0362559 * (var(--scaling-factor) - var(--scrollbar-width))); padding:12px 24px; }
+  @media (max-width:600px) { :root { --scaling-factor:399.164682px; } .cta-layout { height:max(.5px,.1175977 * (var(--scaling-factor) - var(--scrollbar-width))); min-height:0; } }
+</style><main><p class="_root_1fj1u_1">Unrelated shared skin</p><a class="_root_1fj1u_1 cta-layout" href="/quote">GET A QUOTE</a></main>`;
 const transformed = JSON.parse(execFileSync('php', ['-r', `
 require $argv[1] . '/vendor/autoload.php';
 $result = (new \\Automattic\\BlocksEngine\\PhpTransformer\\HtmlToBlocks\\HtmlTransformer())->transform(base64_decode($argv[2]))->toArray();
@@ -33,6 +34,7 @@ try {
     const mobile = await geometry();
     assert.ok(Math.abs(mobile[0] - 46) < 0.02, `mobile explicit math height: ${mobile[0]}`);
     assert.ok(mobile.every((height) => Math.abs(height - mobile[0]) < 0.02), `mobile carriers fill the authored height: ${mobile}`);
+    console.log(`Button height ownership geometry: desktop=${desktop.join(',')} mobile=${mobile.join(',')}`);
 } finally {
     await browser.close();
 }

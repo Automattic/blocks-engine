@@ -134,20 +134,27 @@ final class AuthorStylesheetProjector
                 return null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}';
             }
             [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            $nonButtonGeometryPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $directWrapperPrelude);
+            $nonButtonGeometryDeclarations = array_filter(array( $geometry, $this->collapsedButtonKeywordWidthDeclarations($body) ));
+            $nonButtonGeometry = '' === $nonButtonGeometryPrelude || array() === $nonButtonGeometryDeclarations
+                ? ''
+                : $nonButtonGeometryPrelude . '{' . implode(';', $nonButtonGeometryDeclarations) . '}';
             if ( '' === $geometry ) {
-                return '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}';
+                return ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry;
             }
-            return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}');
+            return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry);
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
+        $nonButtonLayoutPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $wrapperPrelude);
+        $nonButtonLayout = '' === $nonButtonLayoutPrelude ? '' : $nonButtonLayoutPrelude . '{' . $layout . '}';
         if ( '' === $layout ) {
             return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
         }
         if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout);
+            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout);
         }
-        return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}');
+        return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout);
     }
 
     /**
@@ -344,7 +351,7 @@ final class AuthorStylesheetProjector
                     ? $context->selectorProjections->controlMarker($path)
                     : '';
                 if ( '' === $marker ) {
-                    continue 2;
+                    continue;
                 }
                 $markers[] = $marker;
             }
@@ -376,7 +383,7 @@ final class AuthorStylesheetProjector
                 $path = $element->getNodePath() ?? '';
                 $marker = $context->selectorProjections->controlMarker($path);
                 if ( '' === $marker || $context->selectorProjections->isButtonPresentationPath($path) ) {
-                    continue 2;
+                    continue;
                 }
                 $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, true);
             }
@@ -449,6 +456,32 @@ final class AuthorStylesheetProjector
         return array( implode(';', $layout), implode(';', $control) );
     }
 
+    /**
+     * Geometry moved to a presentation wrapper must remain on other source
+     * elements matched by the same shared selector.
+     */
+    private function withoutButtonPresentationProjectionSelectors(string $projectedPrelude, string $wrapperPrelude): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($projectedPrelude);
+        if ( null === $selectors || '' === $wrapperPrelude ) {
+            return $projectedPrelude;
+        }
+        preg_match_all('/:where\(\.([^)]*)\)/', $wrapperPrelude, $matches);
+        $markers = array_unique($matches[1] ?? array());
+        if ( array() === $markers ) {
+            return $projectedPrelude;
+        }
+        return implode(',', array_filter($selectors, static function (string $selector) use ($markers): bool {
+            foreach ( $markers as $marker ) {
+                $markerSelector = ':where(.' . $marker . ')';
+                if ( str_contains($selector, $markerSelector) && ! str_contains($selector, ':not(' . $markerSelector . ')') ) {
+                    return false;
+                }
+            }
+            return true;
+        }));
+    }
+
     private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = ''): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
@@ -498,6 +531,20 @@ final class AuthorStylesheetProjector
         }
         return in_array($property, array( 'width', 'min-width', 'max-width' ), true)
             || (str_starts_with($property, '--') && str_contains($property, 'width'));
+    }
+
+    private function collapsedButtonKeywordWidthDeclarations(string $body): string
+    {
+        $collapsed = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
+            $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
+            if ( false !== $colon && $this->isCollapsedButtonKeywordWidth($name, $value) ) {
+                $collapsed[] = $declaration;
+            }
+        }
+        return implode(';', $collapsed);
     }
 
     private function isButtonWrapperLayoutProperty(string $property): bool
