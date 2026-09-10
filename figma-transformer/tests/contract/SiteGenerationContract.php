@@ -1112,8 +1112,8 @@ function blocks_engine_figma_transformer_run_site_generation_quality_contract(ca
     ));
     $responsiveFooterCss = $fileContent($responsiveFooterResult, 'style.css');
     $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-footer{height:auto}'), 'responsive-footer-shell-safety-uses-component-structure');
-    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:342px;height:auto;left:24px}'), 'responsive-footer-newsletter-safety-uses-source-clone');
-    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{height:auto;position:relative;left:auto;top:auto;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-newsletter-newsletter-signup{width:calc(100% - 48px);max-width:342px;height:auto;position:relative;left:24px;right:auto;top:auto;bottom:auto}'), 'responsive-footer-newsletter-safety-uses-source-clone');
+    $assert(str_contains($responsiveFooterCss, '.figma-node-responsive-footer-desktop-footer-shared-footer-bottom-frame-19{width:100%;max-width:100%;height:auto;position:relative;left:auto;right:auto;top:auto;bottom:auto;margin-left:0;margin-right:0;justify-content:center;flex-wrap:wrap'), 'responsive-footer-bottom-row-safety-uses-source-clone');
 
     $geometryFooterComponent = array(
         'id'       => 'geometry-footer:component',
