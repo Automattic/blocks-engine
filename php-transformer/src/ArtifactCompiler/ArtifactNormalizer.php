@@ -20,6 +20,10 @@ final class ArtifactNormalizer
     public const MAX_FILES = 5000;
     public const MAX_FILE_BYTES = 10485760;
     public const MAX_TOTAL_BYTES = 335544320;
+    private const MAX_REJECTION_SAMPLES = 10;
+    private const MAX_REJECTION_SAMPLE_PATH_BYTES = 256;
+    private const SAMPLE_ROLES = array('entry', 'document', 'stylesheet', 'script', 'image', 'audio', 'video', 'font', 'data', 'asset');
+    private const SAMPLE_TYPES = array('html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'blocks', 'asset');
 
     /**
      * @param array<string, mixed> $artifact
@@ -32,6 +36,8 @@ final class ArtifactNormalizer
         $files = array();
         $entrypoints = array();
         $rejected = 0;
+        $rejectionCounts = array();
+        $rejectionSamples = array();
         $bytes = 0;
         $truncationImpact = null;
         $seenPaths = array();
@@ -74,7 +80,10 @@ final class ArtifactNormalizer
 
         foreach ( $rawFiles as $index => $file ) {
             if ( count($files) >= $limits['max_files'] ) {
-                ++$rejected;
+                $omitted = array_slice($rawFiles, $index);
+                $rejected += count($omitted);
+                $rejectionCounts['file_limit_exceeded'] = ($rejectionCounts['file_limit_exceeded'] ?? 0) + count($omitted);
+                $this->appendRejectionSamples($rejectionSamples, $omitted, 'file_limit_exceeded');
                 $truncationImpact = $this->truncationImpact(array_slice($rawFiles, $index), $files);
                 $diagnostics[] = $this->diagnostic('file_limit_exceeded', 'warning', 'Additional artifact files were ignored because the file limit was reached.', array('max_files' => $limits['max_files'], 'truncation_impact' => $truncationImpact));
                 break;
@@ -83,6 +92,7 @@ final class ArtifactNormalizer
             $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
             if ( '' === $path ) {
                 ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'unsafe_artifact_path', $file, '', null);
                 $diagnostics[] = $this->diagnostic('unsafe_artifact_path', 'warning', 'An artifact file was ignored because its path is empty, absolute, or escapes the artifact root.', array('index' => $index));
                 continue;
             }
@@ -91,17 +101,22 @@ final class ArtifactNormalizer
             $diagnostics = array_merge($diagnostics, $payload['diagnostics']);
             if ( ! $payload['accepted'] ) {
                 ++$rejected;
+                foreach ($payload['diagnostics'] as $diagnostic) {
+                    $this->recordRejection($rejectionCounts, $rejectionSamples, (string) ($diagnostic['code'] ?? 'invalid_artifact_payload'), $file, $path, $payload['bytes']);
+                }
                 continue;
             }
 
             if ( $payload['bytes'] > $limits['max_file_bytes'] ) {
                 ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_file_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_file_bytes' => $limits['max_file_bytes']));
                 continue;
             }
 
             if ( $bytes + $payload['bytes'] > $limits['max_total_bytes'] ) {
                 ++$rejected;
+                $this->recordRejection($rejectionCounts, $rejectionSamples, 'artifact_total_too_large', $file, $path, $payload['bytes']);
                 $diagnostics[] = $this->diagnostic('artifact_total_too_large', 'warning', 'An artifact file was ignored because the bundle byte limit was reached.', array('path' => $path, 'bytes' => $payload['bytes'], 'max_total_bytes' => $limits['max_total_bytes']));
                 continue;
             }
@@ -215,6 +230,15 @@ final class ArtifactNormalizer
         }
         unset($file);
         $sourceHash = $this->sourceHash($files, $runtimeDeclarations);
+        if ( 0 < $rejected ) {
+            ksort($rejectionCounts);
+            $diagnostics[] = $this->diagnostic('artifact_inputs_rejected', 'warning', 'One or more artifact inputs were ignored during normalization.', array(
+                'rejected_count' => $rejected,
+                'rejected_by_code' => $rejectionCounts,
+                'samples' => $rejectionSamples,
+                'samples_omitted' => max(0, $rejected - count($rejectionSamples)),
+            ));
+        }
         return array(
             'files'          => $files,
             'diagnostics'    => $this->dedupeDiagnostics($diagnostics),
@@ -228,6 +252,43 @@ final class ArtifactNormalizer
             'layout_geometry_proof' => $layoutGeometryProof['proof'],
             'truncation_impact' => $truncationImpact,
         );
+    }
+
+    /** @param array<string,int> $counts @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
+    private function recordRejection(array &$counts, array &$samples, string $code, array $file, string $path, ?int $bytes): void
+    {
+        $counts[$code] = ($counts[$code] ?? 0) + 1;
+        if (count($samples) >= self::MAX_REJECTION_SAMPLES) return;
+        $samples[] = $this->rejectionSample($code, $file, $path, $bytes);
+    }
+
+    /** @param array<int,array<string,mixed>> $samples @param array<int,array<string,mixed>> $files */
+    private function appendRejectionSamples(array &$samples, array $files, string $code): void
+    {
+        foreach ($files as $file) {
+            if (count($samples) >= self::MAX_REJECTION_SAMPLES) return;
+            $path = ArtifactPath::safeRelativePath((string) ($file['path'] ?? ''));
+            $this->recordRejectionSample($samples, $code, $file, $path);
+        }
+    }
+
+    /** @param array<int,array<string,mixed>> $samples @param array<string,mixed> $file */
+    private function recordRejectionSample(array &$samples, string $code, array $file, string $path): void
+    {
+        $samples[] = $this->rejectionSample($code, $file, $path, null);
+    }
+
+    /** @param array<string,mixed> $file @return array<string,mixed> */
+    private function rejectionSample(string $code, array $file, string $path, ?int $bytes): array
+    {
+        $sample = array('code' => $code);
+        if ('' !== $path) $sample['path'] = substr($path, 0, self::MAX_REJECTION_SAMPLE_PATH_BYTES);
+        if (null !== $bytes) $sample['bytes'] = $bytes;
+        $role = $this->sanitizeKey((string) ($file['role'] ?? ''));
+        if (in_array($role, self::SAMPLE_ROLES, true)) $sample['declared_role'] = $role;
+        $type = $this->sanitizeKey((string) ($file['type'] ?? ''));
+        if (in_array($type, self::SAMPLE_TYPES, true)) $sample['declared_type'] = $type;
+        return $sample;
     }
 
     /**

@@ -24,6 +24,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognit
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanView;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
@@ -687,9 +688,12 @@ $assert('assets/logo.png' === ArtifactPath::safeRelativePath(' ./assets//logo.pn
 $assert('' === ArtifactPath::safeRelativePath('/assets/logo.png'), 'artifact paths reject root-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('C:\\assets\\logo.png'), 'artifact paths reject drive-absolute paths');
 $assert('' === ArtifactPath::safeRelativePath('../secrets/logo.png'), 'artifact paths reject traversal paths');
+$assert('' === ArtifactPath::safeRelativePath("assets/\xFFlogo.png"), 'artifact paths reject raw invalid UTF-8 bytes');
 $assert('assets/logo.png' === ArtifactPath::resolveRelativePath('../assets/logo.png?version=1#hash', 'pages/home.html'), 'artifact references resolve relative paths without query or fragment');
 $assert('assets/JOHN-OATES-‘ARKANSAS.jpg' === ArtifactPath::resolveRelativePath('../assets/JOHN-OATES-%E2%80%98ARKANSAS.jpg', 'pages/home.html'), 'artifact references resolve percent-encoded Unicode path segments to canonical artifact paths');
+$assert('assets/%FFlogo.png' === ArtifactPath::resolveRelativePath('../assets/%fflogo.png', 'pages/home.html'), 'artifact references retain malformed percent-encoded bytes as canonical ASCII provenance');
 $assert('' === ArtifactPath::resolveRelativePath('../assets%2flogo.png', 'pages/home.html'), 'artifact references reject encoded path separators');
+$assert('' === ArtifactPath::resolveRelativePath('../assets%ff%2flogo.png', 'pages/home.html'), 'artifact references reject encoded separators even when a malformed byte escape is retained');
 $assert('' === ArtifactPath::resolveRelativePath('https://example.com/logo.png', 'pages/home.html'), 'artifact references reject URL references');
 $assert('' === ArtifactPath::resolveRelativePath('../../logo.png', 'pages/home.html'), 'artifact references reject traversal above the artifact root');
 
@@ -1293,6 +1297,11 @@ $deepDeclaration = current(array_filter($deepArtifact['source_reports']['wordpre
 $projectedDeepGraph = $deepDeclaration['payload']['entities'][0]['layout_graph'] ?? array();
 $projectedWidthNodes = array_values(array_filter($projectedDeepGraph['nodes'] ?? array(), static fn(array $node): bool => 'td' === ($node['source']['tag'] ?? null) && '33.333333333333%' === ($node['layout']['width'] ?? null)));
 $assert(3 === count($projectedWidthNodes) && false === ($projectedDeepGraph['truncated'] ?? null), 'artifact compilation projects the complete deep percentage-width graph into generic/forms/v1.');
+$safeProvenanceArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/form style.css">' . $layoutGraphHtml, 'assets/form style.css' => '.form{display:grid}')))->toArray();
+$safeProvenanceDeclaration = current(array_filter($safeProvenanceArtifact['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$safeProvenanceGraph = $safeProvenanceDeclaration['payload']['entities'][0]['layout_graph'] ?? array();
+$safeProvenanceNode = array_column($safeProvenanceGraph['nodes'] ?? array(), null, 'id')['form'] ?? array();
+$assert('assets/form style.css' === ($safeProvenanceNode['provenance'][0]['source_path'] ?? null), 'artifact compilation accepts canonical stylesheet paths in emitted form layout provenance.');
 $depthBoundaryHtml = '<form>' . str_repeat('<div>', 16) . '<input name="edge">' . str_repeat('</div>', 16) . '<button type="submit">Send</button></form>';
 $depthOverflowHtml = '<form>' . str_repeat('<div>', 17) . '<input name="overflow">' . str_repeat('</div>', 17) . '<button type="submit">Send</button></form>';
 $depthBoundaryGraph = (new HtmlTransformer())->transform($depthBoundaryHtml, array('static_css' => 'input{width:100%}'))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
@@ -3707,6 +3716,34 @@ $assert(WordPressSitePlanView::SCHEMA === ($simplePlanView['schema'] ?? ''), 'Wo
 $assert(WordPressSitePlanView::SCHEMA === ($simpleObjectPlanView['schema'] ?? ''), 'Transformer result exposes the bounded WordPress site plan view directly');
 $assert(($simple['source_reports']['wordpress_site_plan'] ?? array()) === ($simplePlanView['wordpress_site_plan'] ?? null), 'WordPress site plan view preserves the exact canonical plan');
 $assert(($boundedHandoffResult->toArray()['source_reports']['wordpress_site_plan'] ?? array()) === ($simpleObjectPlanView['wordpress_site_plan'] ?? null), 'TransformerResult handoff preserves the exact canonical plan without a compatibility projection');
+$payloadPlanView = $compiler->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main>Payload view</main>', 'assets/site.css' => '.payload{color:#123}')))->toWordPressSitePlanView();
+$payloadPlanView['wordpress_site_plan']['assets'] = array(
+    array('path' => 'assets/authored-base64.css', 'content_base64' => base64_encode('.base64-css{color:#1354}'), 'transport_sha256' => 'authored-base64-transport'),
+    array('path' => 'assets/authored-base64.txt', 'content_base64' => base64_encode("base64 text\n"), 'transport_sha256' => 'authored-text-transport'),
+    array('path' => 'assets/binary.bin', 'content_base64' => base64_encode("\x00\xffbinary\x00"), 'binary' => true, 'transport_sha256' => 'binary-transport'),
+    array('path' => 'assets/utf8.css', 'content' => '.utf8{content:"cafe"}', 'transport_sha256' => 'utf8-transport'),
+);
+$payloadPlanView['wordpress_site_plan']['writes'] = array(
+    array('payload' => array('encoding' => 'base64', 'data' => base64_encode('write bytes'), 'transport' => 'authored')),
+    array('payload' => array('encoding' => 'utf8', 'data' => 'write text', 'transport' => 'authored')),
+);
+$compactPlanView = (new WordPressSitePlanView())->compact($payloadPlanView);
+$materializedCompactPlanView = WordPressSitePlanView::materialize(json_decode(json_encode($compactPlanView, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR));
+$serializedPayloadPlanView = json_decode(json_encode($payloadPlanView, JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$assert(WordPressSitePlanView::COMPACT_SCHEMA === ($compactPlanView['schema'] ?? null) && !isset($compactPlanView['wordpress_site_plan']['assets'][0]['content_base64']), 'WordPress site plan compact view removes base64 asset transports');
+$assert($payloadPlanView['wordpress_site_plan']['assets'] === $materializedCompactPlanView['wordpress_site_plan']['assets'], 'WordPress site plan compact view exactly restores asset payload transports');
+$assert($payloadPlanView['wordpress_site_plan']['writes'] === $materializedCompactPlanView['wordpress_site_plan']['writes'], 'WordPress site plan compact view exactly restores write payload transports');
+$assert($serializedPayloadPlanView === $materializedCompactPlanView, 'WordPress site plan compact view exactly restores the complete persisted v1 view');
+$assert("\x00\xffbinary\x00" === base64_decode($materializedCompactPlanView['wordpress_site_plan']['assets'][2]['content_base64'], true) && '.base64-css{color:#1354}' === base64_decode($materializedCompactPlanView['wordpress_site_plan']['assets'][0]['content_base64'], true), 'WordPress site plan compact view preserves binary and base64 payload bytes');
+$assert(WordPressSitePlan::canonicalHash($payloadPlanView['wordpress_site_plan']) === WordPressSitePlan::canonicalHash($materializedCompactPlanView['wordpress_site_plan']), 'WordPress site plan compact view preserves the canonical plan hash');
+$tamperedCompactPlanView = $compactPlanView;
+$tamperedCompactPlanView['wordpress_site_plan']['assets'][0]['view_payload_field'] = 'binary';
+try { WordPressSitePlanView::materialize($tamperedCompactPlanView); $tamperedCompactRejected = false; } catch (InvalidArgumentException) { $tamperedCompactRejected = true; }
+$assert($tamperedCompactRejected, 'WordPress site plan compact view rejects tampered payload transport metadata');
+try { WordPressSitePlanView::materialize($payloadPlanView); $canonicalViewRejected = false; } catch (InvalidArgumentException) { $canonicalViewRejected = true; }
+$assert($canonicalViewRejected, 'WordPress site plan materialization rejects canonical v1 views');
+try { (new WordPressSitePlanView())->compact($compactPlanView); $compactViewRejected = false; } catch (InvalidArgumentException) { $compactViewRejected = true; }
+$assert($compactViewRejected, 'WordPress site plan compaction rejects compact v2 views');
 $assert(($simple['source_reports']['editability_report'] ?? null) === ($simplePlanView['editability_report'] ?? null), 'WordPress site plan view preserves the producer-owned editability report exactly');
 $assert(array('schema', 'metrics', 'block_types', 'documents', 'signals', 'signal_totals') === array_keys($simplePlanView['editability_report'] ?? array()) && EditabilityReport::SCHEMA === ($simplePlanView['editability_report']['schema'] ?? null), 'WordPress site plan view exposes the current versioned editability report shape');
 $boundedEditabilityReport = (new EditabilityReport())->fromDocuments(array('large.html' => array('blocks' => array_fill(0, 101, array('blockName' => 'core/group', 'attrs' => array(), 'innerBlocks' => array(), 'innerHTML' => '')))));
@@ -5353,7 +5390,9 @@ $tooLarge = $compiler->compile(
 )->toArray();
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
-$assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
+$tooLargeAggregate = current(array_filter($tooLarge['diagnostics'], static fn(array $diagnostic): bool => 'artifact_inputs_rejected' === ($diagnostic['code'] ?? null)));
+$assert(1 === ($tooLargeAggregate['context']['rejected_count'] ?? null) && 1 === ($tooLargeAggregate['context']['rejected_by_code']['artifact_file_too_large'] ?? null), 'oversized file rejection is exposed through the bounded aggregate diagnostic');
+$assert(!in_array('artifact_file_too_large', array_column($tooLarge['diagnostics'], 'code'), true), 'final diagnostics omit detailed per-rejected file warnings');
 
 $negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
     'compiler_limits' => array(

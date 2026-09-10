@@ -21,6 +21,19 @@ final class ConversionReportProjection
      */
     public static function fromResultParts(string $sourceFormat, array $blocks, array $fallbacks, array $sourceReports, array $assets, array $provenance, array $metrics): array
     {
+        $fallbackDiagnostics = self::fallbackDiagnostics($fallbacks);
+        $runtimeIslands = self::runtimeIslands($sourceReports);
+        $runtimeIslandSummaryEntries = self::runtimeIslandSummaryEntries($runtimeIslands);
+        $blockAssetReferences = array();
+        $blockNavigationCandidates = array();
+        self::collectBlockReportRows(
+            $blocks,
+            'blocks',
+            $blockAssetReferences,
+            $blockNavigationCandidates,
+            array() === self::artifactAssetReferences($sourceReports)
+        );
+
         $report = array(
             'schema'                => self::SCHEMA,
             'finding_schema'        => ConversionFindingContract::SCHEMA,
@@ -28,17 +41,17 @@ final class ConversionReportProjection
             'source'                => self::firstString($provenance, 'source'),
             'scope'                 => self::firstString($provenance, 'scope'),
             'source_summary'        => self::sourceSummary($sourceFormat, $blocks, $fallbacks, $sourceReports, $assets, $metrics),
-            'selector_summary'      => self::selectorSummary($sourceReports, $fallbacks),
-            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbacks),
-            'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
+            'selector_summary'      => self::selectorSummary($sourceReports, $fallbackDiagnostics, $runtimeIslandSummaryEntries),
+            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbackDiagnostics, $runtimeIslandSummaryEntries),
+            'fallback_diagnostics'  => $fallbackDiagnostics,
             'core_html_fallback_evidence' => self::coreHtmlFallbackEvidence($sourceReports),
-            'asset_refs'            => self::assetReferences($blocks, $sourceReports),
-            'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
+            'asset_refs'            => self::assetReferences($blockAssetReferences, $sourceReports),
+            'navigation_candidates' => self::navigationCandidates($blockNavigationCandidates, $sourceReports),
             'semantic_parity'       => self::semanticParity($sourceReports),
             'editability_report'    => is_array($sourceReports['editability_report'] ?? null) ? $sourceReports['editability_report'] : array(),
             'editability_policy'    => is_array($sourceReports['editability_policy'] ?? null) ? $sourceReports['editability_policy'] : array(),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
-            'runtime_islands'      => self::runtimeIslands($sourceReports),
+            'runtime_islands'      => $runtimeIslands,
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
@@ -89,10 +102,11 @@ final class ConversionReportProjection
 
     /**
      * @param array<string, mixed> $sourceReports
-     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $fallbackDiagnostics
+     * @param array<int, array<string, mixed>> $runtimeIslandSummaryEntries
      * @return array<string, mixed>
      */
-    private static function selectorSummary(array $sourceReports, array $fallbacks): array
+    private static function selectorSummary(array $sourceReports, array $fallbackDiagnostics, array $runtimeIslandSummaryEntries): array
     {
         $selectors = array();
         $sources = array();
@@ -102,12 +116,12 @@ final class ConversionReportProjection
             self::appendSourcePath($sources, $entry);
         }
 
-        foreach ( self::fallbackDiagnostics($fallbacks) as $entry ) {
+        foreach ( $fallbackDiagnostics as $entry ) {
             self::appendSelector($selectors, $entry, 'fallback');
             self::appendSourcePath($sources, $entry);
         }
 
-        foreach ( self::runtimeIslandSummaryEntries($sourceReports) as $entry ) {
+        foreach ( $runtimeIslandSummaryEntries as $entry ) {
             self::appendSelector($selectors, $entry, 'runtime_island');
             self::appendSourcePath($sources, $entry);
         }
@@ -196,15 +210,16 @@ final class ConversionReportProjection
 
     /**
      * @param array<string, mixed> $sourceReports
-     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $fallbackDiagnostics
+     * @param array<int, array<string, mixed>> $runtimeIslandSummaryEntries
      * @return array<string, mixed>
      */
-    private static function conversionClassificationSummary(array $sourceReports, array $fallbacks): array
+    private static function conversionClassificationSummary(array $sourceReports, array $fallbackDiagnostics, array $runtimeIslandSummaryEntries): array
     {
         $byClassification = array();
         $byStrategy = array();
 
-        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks), self::runtimeIslandSummaryEntries($sourceReports)) as $entry ) {
+        foreach ( array_merge(self::sourceProvenance($sourceReports), $fallbackDiagnostics, $runtimeIslandSummaryEntries) as $entry ) {
             if ( ! is_array($entry) ) {
                 continue;
             }
@@ -230,28 +245,26 @@ final class ConversionReportProjection
     }
 
     /**
-     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $blockReferences
      * @param array<string, mixed> $sourceReports
      * @return array<int, array<string, mixed>>
      */
-    private static function assetReferences(array $blocks, array $sourceReports): array
+    private static function assetReferences(array $blockReferences, array $sourceReports): array
     {
         $references = self::artifactAssetReferences($sourceReports);
         if ( array() !== $references ) {
             return self::dedupeRows($references);
         }
 
-        self::collectBlockAssetReferences($blocks, 'blocks', $references);
-
-        return self::dedupeRows($references);
+        return self::dedupeRows($blockReferences);
     }
 
     /**
-     * @param array<int, array<string, mixed>> $blocks
+     * @param array<int, array<string, mixed>> $blockCandidates
      * @param array<string, mixed> $sourceReports
      * @return array<int, array<string, mixed>>
      */
-    private static function navigationCandidates(array $blocks, array $sourceReports): array
+    private static function navigationCandidates(array $blockCandidates, array $sourceReports): array
     {
         $candidates = array();
         foreach ( self::artifactInternalLinks($sourceReports) as $link ) {
@@ -267,7 +280,7 @@ final class ConversionReportProjection
             );
         }
 
-        self::collectBlockNavigationCandidates($blocks, 'blocks', $candidates);
+        $candidates = array_merge($candidates, $blockCandidates);
 
         return self::dedupeRows($candidates);
     }
@@ -370,13 +383,13 @@ final class ConversionReportProjection
     }
 
     /**
-     * @param array<string, mixed> $sourceReports
+     * @param array<int, array<string, mixed>> $runtimeIslands
      * @return array<int, array<string, mixed>>
      */
-    private static function runtimeIslandSummaryEntries(array $sourceReports): array
+    private static function runtimeIslandSummaryEntries(array $runtimeIslands): array
     {
         $entries = array();
-        foreach ( self::runtimeIslands($sourceReports) as $island ) {
+        foreach ( $runtimeIslands as $island ) {
             $entries[] = array_filter(
                 array(
                     'selector'                  => $island['selector'] ?? '',
@@ -559,8 +572,9 @@ final class ConversionReportProjection
     /**
      * @param array<int, array<string, mixed>> $blocks
      * @param array<int, array<string, mixed>> $references
+     * @param array<int, array<string, mixed>> $candidates
      */
-    private static function collectBlockAssetReferences(array $blocks, string $path, array &$references): void
+    private static function collectBlockReportRows(array $blocks, string $path, array &$references, array &$candidates, bool $collectAssetReferences): void
     {
         foreach ( $blocks as $index => $block ) {
             if ( ! is_array($block) ) {
@@ -570,38 +584,20 @@ final class ConversionReportProjection
             $blockPath = $path . '.' . $index;
             $blockName = (string) ($block['blockName'] ?? '');
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
-            foreach ( array('url', 'src', 'href', 'poster') as $attribute ) {
-                if ( is_string($attrs[$attribute] ?? null) && '' !== $attrs[$attribute] ) {
-                    $references[] = array(
-                        'source'     => 'block_attribute',
-                        'block_path' => $blockPath,
-                        'block_name' => $blockName,
-                        'attribute'  => $attribute,
-                        'url'        => $attrs[$attribute],
-                    );
+            if ( $collectAssetReferences ) {
+                foreach ( array('url', 'src', 'href', 'poster') as $attribute ) {
+                    if ( is_string($attrs[$attribute] ?? null) && '' !== $attrs[$attribute] ) {
+                        $references[] = array(
+                            'source'     => 'block_attribute',
+                            'block_path' => $blockPath,
+                            'block_name' => $blockName,
+                            'attribute'  => $attribute,
+                            'url'        => $attrs[$attribute],
+                        );
+                    }
                 }
             }
 
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                self::collectBlockAssetReferences($block['innerBlocks'], $blockPath . '.innerBlocks', $references);
-            }
-        }
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $candidates
-     */
-    private static function collectBlockNavigationCandidates(array $blocks, string $path, array &$candidates): void
-    {
-        foreach ( $blocks as $index => $block ) {
-            if ( ! is_array($block) ) {
-                continue;
-            }
-
-            $blockPath = $path . '.' . $index;
-            $blockName = (string) ($block['blockName'] ?? '');
-            $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
             if ( 'core/navigation-link' === $blockName ) {
                 $candidates[] = array_filter(
                     array(
@@ -617,7 +613,7 @@ final class ConversionReportProjection
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                self::collectBlockNavigationCandidates($block['innerBlocks'], $blockPath . '.innerBlocks', $candidates);
+                self::collectBlockReportRows($block['innerBlocks'], $blockPath . '.innerBlocks', $references, $candidates, $collectAssetReferences);
             }
         }
     }

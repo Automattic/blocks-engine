@@ -159,6 +159,7 @@
       "php tests/unit/corpus-detectors.php",
       "php tests/unit/live-wp-parity-runner.php",
       "php tests/unit/deterministic-row-deduplicator.php",
+      "php tests/unit/conversion-report-projection-input-reuse.php",
       "php tests/unit/html-transformer-shared-analysis-cache.php",
       "php tests/unit/html-transformer-session-state.php",
       "php tests/unit/reusable-component-recognition.php",
