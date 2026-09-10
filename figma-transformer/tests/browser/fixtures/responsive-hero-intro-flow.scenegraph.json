@@ -98,7 +98,7 @@
               "layoutMode": "HORIZONTAL",
               "children": [
                 { "id": "hero:mobile:header:logo", "type": "TEXT", "name": "Logo", "characters": "Logo", "width": 228, "height": 35, "fontSize": 24 },
-                { "id": "hero:mobile:header:menu", "type": "TEXT", "name": "Menu", "characters": "Menu", "width": 24, "height": 32, "fontSize": 16 }
+                { "id": "hero:mobile:header:menu", "type": "INSTANCE", "name": "Open menu", "characters": "Menu", "width": 24, "height": 32, "fontSize": 16 }
               ]
             },
             { "id": "hero:mobile:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 342, "height": 130, "fontSize": 40 },

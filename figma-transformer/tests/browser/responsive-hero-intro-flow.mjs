@@ -15,7 +15,7 @@ const php = `require ${JSON.stringify(transformerPath)}; $scenegraph = json_deco
 const files = JSON.parse(execFileSync('php', ['-r', php, fixturePath], { encoding: 'utf8' }));
 
 assert.match(files['style.css'], /min-height:470\.75px/, 'a shorter variant height replaces the primary flow reserve');
-assert.match(files['style.css'], /height:127px;min-height:127px;overflow:clip/, 'an explicit compact header bounds stale desktop navigation paint');
+assert.match(files['style.css'], /data-figma-responsive-variant="header"/, 'a structurally distinct compact header projects its variant children');
 
 const browser = await chromium.launch({ headless: true });
 try {
@@ -29,10 +29,13 @@ try {
     await page.setContent(files['index.html'].replace('<link rel="stylesheet" href="style.css">', `<style>${files['style.css']}</style>`));
     const layout = await page.evaluate(() => {
       const hero = document.querySelector('[data-figma-node-id="hero:desktop"]');
+      const header = document.querySelector('[data-figma-node-id="hero:desktop:header"]');
       const intro = document.querySelector('[data-figma-node-id="intro:desktop"]');
       const introText = document.querySelector('[data-figma-node-id="intro:desktop:copy"]');
       const media = document.querySelector('[data-figma-node-id="hero:desktop:media"]');
       const footer = document.querySelector('[data-figma-node-id="closing:desktop"]');
+      const desktopNavigation = document.querySelector('[data-figma-node-id="hero:desktop:header:navigation"]');
+      const compactMenu = document.querySelector('[data-figma-node-id="hero:mobile:header:menu"]');
       const box = (element) => element.getBoundingClientRect();
       const heroBox = box(hero);
       const introBox = box(intro);
@@ -54,6 +57,7 @@ try {
         }));
       return {
         hero: heroBox.toJSON(),
+        header: box(header).toJSON(),
         intro: introBox.toJSON(),
         introText: introTextBox.toJSON(),
         introTextRects: textRects,
@@ -61,6 +65,9 @@ try {
         introIntersectsMedia: textRects.some((rect) => intersects(rect, mediaBox)),
         introClipped: clipped,
         hitOwnsIntro: hit.some((element) => element === intro || intro.contains(element) || element.contains(intro)),
+        desktopNavigationVisible: desktopNavigation && getComputedStyle(desktopNavigation).display !== 'none',
+        compactMenuVisible: compactMenu && getComputedStyle(compactMenu).display !== 'none' && compactMenu.getBoundingClientRect().width > 0,
+        compactMenuAccessible: compactMenu?.getAttribute('data-figma-node-name') === 'Open menu',
         footer: footerBox.toJSON(),
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
@@ -69,6 +76,7 @@ try {
     });
 
     assert.equal(layout.hero.height, viewport.heroHeight, `${viewport.name} uses its source hero height`);
+    if (viewport.width <= 430) assert.equal(layout.header.height, 127, `${viewport.name} uses the compact header height`);
     assert.equal(layout.intro.top - layout.hero.bottom, viewport.gap, `${viewport.name} preserves authored hero-to-intro spacing`);
     assert.ok(layout.intro.top >= layout.hero.bottom, `${viewport.name} hero and intro do not overlap`);
     assert.ok(layout.introTextRects.length > 0, `${viewport.name} intro text has rendered range rectangles`);
@@ -76,6 +84,14 @@ try {
     assert.equal(layout.introIntersectsMedia, false, `${viewport.name} intro text does not intersect painted hero media`);
     assert.equal(layout.introClipped, false, `${viewport.name} intro text is not clipped`);
     assert.equal(layout.hitOwnsIntro, true, `${viewport.name} hit testing resolves to intro content instead of hero media`);
+    if (viewport.width <= 430) {
+      assert.equal(layout.desktopNavigationVisible, false, `${viewport.name} does not expose the desktop navigation as clipped compact chrome`);
+      assert.equal(layout.compactMenuVisible, true, `${viewport.name} exposes the compact variant navigation representation`);
+      assert.equal(layout.compactMenuAccessible, true, `${viewport.name} preserves the compact navigation control semantics`);
+    } else {
+      assert.equal(layout.desktopNavigationVisible, true, `${viewport.name} retains desktop navigation`);
+      assert.equal(layout.compactMenuVisible, false, `${viewport.name} hides compact variant navigation`);
+    }
     assert.ok(layout.footer.top >= layout.intro.bottom, `${viewport.name} footer remains after intro flow`);
     assert.ok(layout.documentHeight >= layout.footer.bottom, `${viewport.name} full page contains the footer`);
     assert.ok(layout.documentWidth <= layout.viewportWidth, `${viewport.name} has no horizontal overflow`);
