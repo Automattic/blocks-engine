@@ -14,7 +14,8 @@ const scenegraph = JSON.parse(await readFile(fixturePath, 'utf8'));
 const php = `require ${JSON.stringify(transformerPath)}; $scenegraph = json_decode(file_get_contents($argv[1]), true); $result = blocks_engine_figma_transformer_transform_scenegraph($scenegraph, array('responsive_variants' => array(array('frame_id' => 'page:desktop', 'viewport_width' => 1440, 'primary' => true), array('frame_id' => 'page:mobile', 'viewport_width' => 390)))); $files = array(); foreach ($result['files'] as $file) { if (in_array($file['path'], array('index.html', 'style.css'), true)) { $files[$file['path']] = $file['content']; } } echo json_encode($files);`;
 const files = JSON.parse(execFileSync('php', ['-r', php, fixturePath], { encoding: 'utf8' }));
 
-assert.match(files['style.css'], /min-height:0;height:470\.75px/, 'a shorter variant height clears the primary flow reserve');
+assert.match(files['style.css'], /min-height:470\.75px/, 'a shorter variant height replaces the primary flow reserve');
+assert.match(files['style.css'], /height:127px;min-height:127px;overflow:clip/, 'an explicit compact header bounds stale desktop navigation paint');
 
 const browser = await chromium.launch({ headless: true });
 try {
@@ -29,14 +30,37 @@ try {
     const layout = await page.evaluate(() => {
       const hero = document.querySelector('[data-figma-node-id="hero:desktop"]');
       const intro = document.querySelector('[data-figma-node-id="intro:desktop"]');
+      const introText = document.querySelector('[data-figma-node-id="intro:desktop:copy"]');
+      const media = document.querySelector('[data-figma-node-id="hero:desktop:media"]');
       const footer = document.querySelector('[data-figma-node-id="closing:desktop"]');
       const box = (element) => element.getBoundingClientRect();
       const heroBox = box(hero);
       const introBox = box(intro);
+      const introTextBox = box(introText);
       const footerBox = box(footer);
+      window.scrollTo(0, Math.max(0, introTextBox.top - 24));
+      const mediaBox = box(media);
+      const range = document.createRange();
+      range.selectNodeContents(introText);
+      const textRects = [...range.getClientRects()].map((rect) => rect.toJSON());
+      const intersects = (first, second) => first.left < second.right && first.right > second.left && first.top < second.bottom && first.bottom > second.top;
+      const firstTextRect = textRects[0];
+      const hit = document.elementsFromPoint(firstTextRect.left + firstTextRect.width / 2, firstTextRect.top + firstTextRect.height / 2);
+      const clipped = [...introText.parentElement.closest('.figma-root').querySelectorAll('*')]
+        .filter((element) => element.contains(introText) && ['hidden', 'clip'].includes(getComputedStyle(element).overflow))
+        .some((element) => textRects.some((rect) => {
+          const ancestor = box(element);
+          return rect.top < ancestor.top || rect.bottom > ancestor.bottom || rect.left < ancestor.left || rect.right > ancestor.right;
+        }));
       return {
         hero: heroBox.toJSON(),
         intro: introBox.toJSON(),
+        introText: introTextBox.toJSON(),
+        introTextRects: textRects,
+        media: mediaBox.toJSON(),
+        introIntersectsMedia: textRects.some((rect) => intersects(rect, mediaBox)),
+        introClipped: clipped,
+        hitOwnsIntro: hit.some((element) => element === intro || intro.contains(element) || element.contains(intro)),
         footer: footerBox.toJSON(),
         documentWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
@@ -47,6 +71,11 @@ try {
     assert.equal(layout.hero.height, viewport.heroHeight, `${viewport.name} uses its source hero height`);
     assert.equal(layout.intro.top - layout.hero.bottom, viewport.gap, `${viewport.name} preserves authored hero-to-intro spacing`);
     assert.ok(layout.intro.top >= layout.hero.bottom, `${viewport.name} hero and intro do not overlap`);
+    assert.ok(layout.introTextRects.length > 0, `${viewport.name} intro text has rendered range rectangles`);
+    assert.ok(layout.introTextRects.every((rect) => rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < layout.documentHeight), `${viewport.name} intro text ranges are visible in the document`);
+    assert.equal(layout.introIntersectsMedia, false, `${viewport.name} intro text does not intersect painted hero media`);
+    assert.equal(layout.introClipped, false, `${viewport.name} intro text is not clipped`);
+    assert.equal(layout.hitOwnsIntro, true, `${viewport.name} hit testing resolves to intro content instead of hero media`);
     assert.ok(layout.footer.top >= layout.intro.bottom, `${viewport.name} footer remains after intro flow`);
     assert.ok(layout.documentHeight >= layout.footer.bottom, `${viewport.name} full page contains the footer`);
     assert.ok(layout.documentWidth <= layout.viewportWidth, `${viewport.name} has no horizontal overflow`);

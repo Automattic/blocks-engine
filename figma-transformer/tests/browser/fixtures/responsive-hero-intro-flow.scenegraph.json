@@ -20,7 +20,24 @@
           "height": 1050,
           "layoutMode": "VERTICAL",
           "children": [
-            { "id": "hero:desktop:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 300, "height": 48, "fontSize": 40 }
+            {
+              "id": "hero:desktop:header",
+              "type": "INSTANCE",
+              "name": "Header",
+              "width": 1440,
+              "height": 92,
+              "layoutMode": "HORIZONTAL",
+              "children": [
+                { "id": "hero:desktop:header:logo", "type": "TEXT", "name": "Logo", "characters": "Logo", "width": 228, "height": 35, "fontSize": 24 },
+                { "id": "hero:desktop:header:navigation", "type": "FRAME", "name": "Navigation", "width": 100, "height": 26, "layoutMode": "HORIZONTAL", "children": [
+                  { "id": "hero:desktop:header:navigation:one", "type": "TEXT", "name": "One", "characters": "One", "width": 44, "height": 26, "fontSize": 16 },
+                  { "id": "hero:desktop:header:navigation:two", "type": "TEXT", "name": "Two", "characters": "Two", "width": 44, "height": 26, "fontSize": 16 },
+                  { "id": "hero:desktop:header:navigation:three", "type": "TEXT", "name": "Three", "characters": "Three", "width": 44, "height": 26, "fontSize": 16 }
+                ] }
+              ]
+            },
+            { "id": "hero:desktop:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 300, "height": 198, "fontSize": 40 },
+            { "id": "hero:desktop:media", "type": "INSTANCE", "name": "Image", "width": 1216, "height": 760, "layoutMode": "VERTICAL", "fills": [{ "type": "SOLID", "color": { "r": 0.12, "g": 0.12, "b": 0.12, "a": 1 } }] }
           ]
         },
         {
@@ -70,9 +87,22 @@
           "width": 390,
           "height": 470.75,
           "layoutMode": "VERTICAL",
-          "layoutSizingVertical": "HUG",
+          "layoutSizingVertical": "FIXED",
           "children": [
-            { "id": "hero:mobile:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 342, "height": 48, "fontSize": 40 }
+            {
+              "id": "hero:mobile:header",
+              "type": "INSTANCE",
+              "name": "Header",
+              "width": 390,
+              "height": 127,
+              "layoutMode": "HORIZONTAL",
+              "children": [
+                { "id": "hero:mobile:header:logo", "type": "TEXT", "name": "Logo", "characters": "Logo", "width": 228, "height": 35, "fontSize": 24 },
+                { "id": "hero:mobile:header:menu", "type": "TEXT", "name": "Menu", "characters": "Menu", "width": 24, "height": 32, "fontSize": 16 }
+              ]
+            },
+            { "id": "hero:mobile:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 342, "height": 130, "fontSize": 40 },
+            { "id": "hero:mobile:media", "type": "INSTANCE", "name": "Image", "width": 342, "height": 213.75, "layoutMode": "VERTICAL", "fills": [{ "type": "SOLID", "color": { "r": 0.12, "g": 0.12, "b": 0.12, "a": 1 } }] }
           ]
         },
         {

@@ -204,6 +204,14 @@ final class ResponsiveBreakpointSafetyPolicy
     public function responsiveChromeFlowDecision(array $node, ?array $parentNode, array $baseMap, ?array $variantNode, string $name, string $parentName, bool $isContainer, ?string $chromeRole, ?string $parentChromeRole): array
     {
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER === $chromeRole || $this->isHeaderChromeShellName($name)) && $isContainer ) {
+            $variantHeight = null === $variantNode ? null : $this->nodeBoxHeight($variantNode);
+            if ( 'INSTANCE' === strtoupper((string) ($node['type'] ?? '')) && null !== $variantHeight && $variantHeight > 0.0 && $this->headerVariantTopologyChanged($node, $variantNode) ) {
+                // A structurally different compact header can leave desktop
+                // descendants unmatched. Its explicit variant height is the
+                // paint boundary; do not let those stale descendants cover flow.
+                $height = $this->formatter->number($variantHeight) . 'px';
+                return array('reason_code' => 'responsive_header_variant_paint_boundary', 'declarations' => array('width:100%', 'max-width:100%', 'height:' . $height, 'min-height:' . $height, 'overflow:clip'));
+            }
             return array('reason_code' => 'responsive_header_chrome_safety', 'declarations' => $this->breakpointDimensionPolicy->headerChromeDeclarations($this->responsiveHeaderMinHeight($node, $baseMap, $variantNode)));
         }
 
@@ -670,6 +678,26 @@ final class ResponsiveBreakpointSafetyPolicy
         }
 
         return max($baseHeight, $variantHeight);
+    }
+
+    /**
+     * A matching header can still use normal responsive flow. Only a changed
+     * compact-header structure needs a hard paint boundary for stale children.
+     *
+     * @param array<string, mixed> $node
+     * @param array<string, mixed> $variantNode
+     */
+    private function headerVariantTopologyChanged(array $node, array $variantNode): bool
+    {
+        $signature = static function (array $header): array {
+            $children = is_array($header['children'] ?? null) ? $header['children'] : array();
+            return array_map(
+                static fn (array $child): string => strtolower(trim((string) ($child['type'] ?? '') . ':' . (string) ($child['name'] ?? ''))),
+                array_values(array_filter($children, 'is_array'))
+            );
+        };
+
+        return $signature($node) !== $signature($variantNode);
     }
 
     /**
