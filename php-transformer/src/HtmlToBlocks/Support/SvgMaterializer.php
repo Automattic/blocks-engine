@@ -1125,7 +1125,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             'height', 'id', 'image-rendering', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
             'intercept', 'k1', 'k2', 'k3', 'k4', 'kernelmatrix', 'kernelunitlength',
             'lighting-color', 'markerheight', 'markerunits', 'markerwidth', 'mask', 'mode',
-            'numoctaves', 'offset', 'opacity', 'operator', 'order', 'orient', 'paint-order',
+            'numoctaves', 'offset', 'opacity', 'operator', 'order', 'orient', 'overflow', 'paint-order',
             'href', 'patterncontentunits', 'patterntransform', 'patternunits', 'points',
             'preservealpha', 'preserveaspectratio', 'primitiveunits', 'r', 'radius', 'refx', 'refy',
             'result', 'role', 'rotate', 'rx', 'ry', 'scale', 'seed', 'shape-rendering', 'slope',

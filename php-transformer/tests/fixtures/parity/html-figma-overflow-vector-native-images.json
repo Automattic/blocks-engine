@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-figma-overflow-vector-native-images",
+  "description": "Materializes the safe overflow-visible Figma vectors left after SVG asset promotion as core/image assets, preserving their viewBox, paint, clipping semantics, and accessible name without core/html fallbacks.",
+  "source_reference": {
+    "repo": "blocks-engine",
+    "path": "php-transformer/tests/fixtures/parity/html-figma-overflow-vector-native-images.json",
+    "notes": "Distilled from the public structural forms in the real Figma import: a linked chevron, two complex marks, and two stars."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><svg viewBox=\"0 0 10.828 6.828\" width=\"100%\" height=\"100%\" role=\"img\" aria-label=\"Open subjects\" data-figma-vector=\"true\" overflow=\"visible\"><path d=\"M0 0L5 5L10 0\" fill=\"none\" stroke=\"#1f1f1f\"></path></svg><svg viewBox=\"0 0 106 106\" width=\"100%\" height=\"100%\" aria-hidden=\"true\" data-figma-vector=\"true\" overflow=\"visible\"><defs><clipPath id=\"figma-mark-clip\"><rect width=\"96\" height=\"96\"></rect></clipPath></defs><g clip-path=\"url(#figma-mark-clip)\"><path d=\"M0 0H96V96H0Z\" fill=\"#ffcf00\"></path><path d=\"M24 24H72V72H24Z\" fill=\"#000\"></path></g></svg><svg viewBox=\"0 0 35.385 16\" width=\"100%\" height=\"100%\" aria-hidden=\"true\" data-figma-vector=\"true\" overflow=\"visible\"><path d=\"M4 2H28\" fill=\"none\" stroke=\"#000\" stroke-width=\"4\"></path></svg><svg viewBox=\"0 0 24.029 23.056\" width=\"100%\" height=\"100%\" aria-hidden=\"true\" data-figma-vector=\"true\" overflow=\"visible\"><path d=\"M12 0L16 8L24 9L18 15L20 23L12 19L4 23L6 15L0 9L8 8Z\" fill=\"#1f1f1f\"></path></svg><svg viewBox=\"0 0 24.029 23.056\" width=\"100%\" height=\"100%\" aria-hidden=\"true\" data-figma-vector=\"true\" overflow=\"visible\"><path d=\"M12 0L16 8L24 9L18 15L20 23L12 19L4 23L6 15L0 9L8 8Z\" fill=\"#1f1f1f\"></path></svg></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/image", "attrs": { "alt": "Open subjects", "width": "100%" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/image", "attrs": { "width": "100%" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/image", "attrs": { "width": "100%" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/image", "attrs": { "width": "100%" } },
+    { "path": "blocks.0.innerBlocks.4", "name": "core/image", "attrs": { "width": "100%" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "assets", "assert": "count", "count": 5 },
+    { "path": "assets.1.content", "assert": "contains", "value": "clipPath" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
