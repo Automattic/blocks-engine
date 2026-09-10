@@ -721,6 +721,10 @@ final class BreakpointMediaDiffBuilder
                     }
                     continue;
                 }
+                if ( 'height' === $property && array_key_exists('min-height', $baseMap) && in_array($baseMap['display'] ?? '', array('flex', 'inline-flex'), true) ) {
+                    // A variant height is otherwise blocked by the primary frame's flow reserve.
+                    $changed[] = 'min-height:0';
+                }
                 $responsiveWidthDeclarations = 'width' === $property && ! $this->nodeHasMaxWidthConstraint($baseNode) && ! $this->nodeHasMaxWidthConstraint($variantNode)
                     ? $this->breakpointDimensionPolicy->breakpointWidthDeclarations($value, $baseMap, $baseNode, $variantNode, $baseParentNode, $variantParentNode)
                     : null;
