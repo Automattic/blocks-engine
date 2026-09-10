@@ -89,4 +89,59 @@ $qualityResult = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 $assert('gating_loss' === ($qualityResult['source_reports']['artifact']['truncation_impact']['completeness'] ?? null), 'Quality consumers receive the reachable truncation gating loss in the artifact report.');
 
+$oversizedResult = (new ArtifactCompiler())->compile(array(
+    'compiler_limits' => array('max_file_bytes' => ArtifactNormalizer::MAX_FILE_BYTES),
+    'files' => array(
+        array('path' => 'index.html', 'content' => '<main>Accepted</main>'),
+        array('path' => 'evidence.json', 'content' => str_repeat('x', 16230577), 'role' => 'evidence', 'type' => 'json'),
+    ),
+))->toArray();
+$rejectionDiagnostic = null;
+foreach ($oversizedResult['diagnostics'] as $diagnostic) {
+    if ('artifact_inputs_rejected' === ($diagnostic['code'] ?? null)) {
+        $rejectionDiagnostic = $diagnostic;
+        break;
+    }
+}
+$rejectionContext = $rejectionDiagnostic['context'] ?? array();
+$assert('success_with_warnings' === $oversizedResult['status'] && 1 === ($rejectionContext['rejected_count'] ?? null) && 1 === ($rejectionContext['rejected_by_code']['artifact_file_too_large'] ?? null), 'An ordinary compile persists a bounded final warning for an oversized artifact input.');
+$assert(array('code' => 'artifact_file_too_large', 'path' => 'evidence.json', 'bytes' => 16230577, 'declared_type' => 'json') === ($rejectionContext['samples'][0] ?? null) && 0 === ($rejectionContext['samples_omitted'] ?? null), 'The final warning retains only bounded generic artifact facts, not arbitrary declared metadata or rejected payload content.');
+
+$manyDroppedFiles = array(array('path' => 'index.html', 'content' => '<main>Accepted</main>'));
+for ($index = 0; $index < 12; ++$index) $manyDroppedFiles[] = array('path' => 'ancillary-' . $index . '.json', 'content' => '{}', 'role' => 'evidence', 'type' => 'json');
+$manyDropped = $normalizer->normalize(array('compiler_limits' => array('max_files' => 1), 'files' => $manyDroppedFiles));
+$manyDroppedSummary = current(array_filter($manyDropped['diagnostics'], static fn(array $diagnostic): bool => 'artifact_inputs_rejected' === ($diagnostic['code'] ?? null)));
+$manyDroppedContext = $manyDroppedSummary['context'] ?? array();
+$assert(12 === ($manyDroppedContext['rejected_count'] ?? null) && 12 === ($manyDroppedContext['rejected_by_code']['file_limit_exceeded'] ?? null) && 10 === count($manyDroppedContext['samples'] ?? array()) && 2 === ($manyDroppedContext['samples_omitted'] ?? null), 'Many rejected inputs retain complete counts with bounded samples.');
+
+$adversarialFiles = array(array('path' => 'index.html', 'content' => '<main>Accepted</main>'));
+for ($index = 0; $index < 12; ++$index) {
+    $adversarialFiles[] = array(
+        'path' => 'assets/' . str_repeat('p', 1024) . '-' . $index . '.json',
+        'content' => '{}',
+        'role' => str_repeat('untrusted-role-', 128),
+        'type' => str_repeat('untrusted-type-', 128),
+    );
+}
+$adversarialArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_files' => 1), 'files' => $adversarialFiles);
+$aggregate = static function (array $result): array {
+    foreach ($result['diagnostics'] as $diagnostic) {
+        if ('artifact_inputs_rejected' === ($diagnostic['code'] ?? null)) return $diagnostic['context'];
+    }
+    return array();
+};
+$direct = (new ArtifactCompiler())->compile($adversarialArtifact)->toArray();
+$directAggregate = $aggregate($direct);
+$assert(12 === ($directAggregate['rejected_count'] ?? null) && array('file_limit_exceeded' => 12) === ($directAggregate['rejected_by_code'] ?? null) && 10 === count($directAggregate['samples'] ?? array()) && 2 === ($directAggregate['samples_omitted'] ?? null), 'Direct final diagnostics preserve exact aggregate counts while bounding samples.');
+$assert(array('rejected_count', 'rejected_by_code', 'samples', 'samples_omitted') === array_keys($directAggregate) && !array_filter($directAggregate['samples'], static fn(array $sample): bool => strlen((string) ($sample['path'] ?? '')) > 256 || isset($sample['declared_role']) || isset($sample['declared_type'])), 'Direct final samples retain only capped safe paths and no arbitrary caller metadata.');
+$assert(!array_filter($direct['diagnostics'], static fn(array $diagnostic): bool => in_array($diagnostic['code'] ?? '', array('file_limit_exceeded', 'unsafe_artifact_path', 'invalid_payload_reference', 'invalid_base64_content', 'missing_file_payload', 'artifact_file_too_large', 'artifact_total_too_large'), true)), 'Direct final diagnostics do not forward detailed per-rejected warnings.');
+
+$stagedCompiler = new ArtifactCompiler();
+$stagedShared = $stagedCompiler->prepareShared($adversarialArtifact);
+$stagedPages = $stagedCompiler->preparePages($adversarialArtifact, $stagedShared);
+$stagedReceipts = $stagedCompiler->compilePreparedPages($stagedShared, $stagedPages);
+$staged = $stagedCompiler->compose($stagedShared, $stagedReceipts)->toArray();
+$assert($directAggregate === $aggregate($staged), 'Direct and staged final results expose the same exact bounded rejection aggregate.');
+$assert(!array_filter($staged['diagnostics'], static fn(array $diagnostic): bool => in_array($diagnostic['code'] ?? '', array('file_limit_exceeded', 'unsafe_artifact_path', 'invalid_payload_reference', 'invalid_base64_content', 'missing_file_payload', 'artifact_file_too_large', 'artifact_total_too_large'), true)), 'Staged final diagnostics do not forward detailed per-rejected warnings.');
+
 echo "artifact normalizer source budget: ok\n";
