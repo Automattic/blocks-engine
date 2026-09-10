@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
@@ -18,7 +19,6 @@ final class FormPresentationGraphBuilder
 {
     private const MAX_CONTROLS = 128;
     private const MAX_RULES_PER_ROLE = 32;
-    private const MAX_CSS_BYTES = 4194304;
     private const MAX_RULES = 8192;
     private const MAX_SELECTORS = 16384;
     private const MAX_CONDITION_DEPTH = 8;
@@ -64,13 +64,13 @@ final class FormPresentationGraphBuilder
     {
         $this->diagnostics = array();
         $this->truncated = false;
-        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, self::MAX_CSS_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
         $controlsForCustomProperties = $this->presentationElements($form);
         $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
             array('--*'),
-            self::MAX_CSS_BYTES,
+            CssAnalysisLimits::MAX_STYLESHEET_BYTES,
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -16,7 +17,6 @@ final class FormLayoutGraphBuilder
     private const MAX_NODES = 128;
     private const MAX_DEPTH = 16;
     private const MAX_RULES_PER_NODE = 16;
-    private const MAX_CSS_BYTES = 262144;
     private const MAX_RULES = 512;
     private const MAX_SELECTORS = 1024;
     // Parsing work and retained cascade candidates have independent bounds.
@@ -54,7 +54,7 @@ final class FormLayoutGraphBuilder
             $stylesheets,
             $inlineCss,
             self::PROPERTIES,
-            self::MAX_CSS_BYTES,
+            CssAnalysisLimits::MAX_STYLESHEET_BYTES,
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
