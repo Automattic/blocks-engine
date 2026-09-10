@@ -176,6 +176,82 @@ $assert(
         && array('html_to_blocks_core_slice') === array_column($notEvaluatedDiagnostics, 'code'),
     'missing validator reports remain explicitly not evaluated and do not emit manufactured validation diagnostics'
 );
+$validationEvidenceHtml = '<header>Header</header><nav><a href="/one">One</a></nav><main>Body</main><footer>Footer</footer>';
+$defaultValidationEvidenceResult = (new HtmlTransformer())->transform($validationEvidenceHtml);
+$fullValidationEvidenceResult = (new HtmlTransformer())->transform($validationEvidenceHtml, array('validation_evidence' => 'full'));
+$compactValidationEvidenceResult = (new HtmlTransformer())->transform($validationEvidenceHtml, array('validation_evidence' => 'compact'));
+$defaultValidationEvidence = $defaultValidationEvidenceResult->toArray();
+$fullValidationEvidence = $fullValidationEvidenceResult->toArray();
+$compactValidationEvidence = $compactValidationEvidenceResult->toArray();
+$withoutDuration = static function (array $result): array {
+    $stripDuration = static function (mixed $value) use (&$stripDuration): mixed {
+        if (!is_array($value)) {
+            return $value;
+        }
+        unset($value['transform_duration_ms']);
+        foreach ($value as $key => $child) {
+            $value[$key] = $stripDuration($child);
+        }
+        return $value;
+    };
+    $result = $stripDuration($result);
+    return $result;
+};
+$compactSemanticParity = $compactValidationEvidence['source_reports']['semantic_parity'] ?? array();
+$compactConversionSemanticParity = $compactValidationEvidence['source_reports']['conversion_report']['semantic_parity'] ?? array();
+$fullSemanticParity = $fullValidationEvidence['source_reports']['semantic_parity'];
+$fullSemanticEvaluation = new \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SemanticParityEvaluation(
+    $fullSemanticParity['landmarks']['source'],
+    $fullSemanticParity['landmarks']['blocks'],
+    $fullSemanticParity['navigation_menus']['source'],
+    $fullSemanticParity['navigation_menus']['blocks'],
+    $fullSemanticParity['findings']
+);
+$assert($fullSemanticParity === $fullSemanticEvaluation->report(), 'existing no-argument semantic report projection retains the complete full default');
+$assert(
+    $withoutDuration($defaultValidationEvidence) === $withoutDuration($fullValidationEvidence),
+    'explicit full validation evidence preserves the default envelope except transform duration'
+);
+$assert(
+    $defaultValidationEvidence['blocks'] === $compactValidationEvidence['blocks']
+        && $defaultValidationEvidence['diagnostics'] === $compactValidationEvidence['diagnostics']
+        && $defaultValidationEvidence['source_reports']['wp_block_validity'] === $compactValidationEvidence['source_reports']['wp_block_validity']
+        && $defaultValidationEvidence['source_reports']['content_round_trip'] === $compactValidationEvidence['source_reports']['content_round_trip']
+        && $defaultValidationEvidence['source_reports']['semantic_parity']['status'] === ($compactSemanticParity['status'] ?? null)
+        && $defaultValidationEvidence['source_reports']['semantic_parity']['findings'] === ($compactSemanticParity['findings'] ?? null)
+        && array('detail' => 'compact', 'omitted' => array('landmarks', 'navigation_menus')) === ($compactSemanticParity['evidence'] ?? null)
+        && !array_key_exists('landmarks', $compactSemanticParity)
+        && !array_key_exists('navigation_menus', $compactSemanticParity)
+        && $compactSemanticParity === $compactConversionSemanticParity
+        && $defaultValidationEvidenceResult->blockCompilationOutput->validationOutcome == $compactValidationEvidenceResult->blockCompilationOutput->validationOutcome,
+    'compact validation evidence omits only declared semantic inventories while preserving required validation facts'
+);
+$compactBridgeEvidence = (new FormatBridge())->convertResult($validationEvidenceHtml, 'html', 'blocks', array('validation_evidence' => 'compact'))->toArray();
+$assert(
+    'compact' === ($compactBridgeEvidence['source_reports']['semantic_parity']['evidence']['detail'] ?? null),
+    'format bridge forwards compact validation evidence to HTML conversion'
+);
+$compactFragmentEvidence = (new ArtifactCompiler())->compileFragment($validationEvidenceHtml, 'fixture:compact-fragment', 'html', array('validation_evidence' => 'compact'))->toArray();
+$assert(
+    $compactBridgeEvidence['source_reports']['semantic_parity'] === $compactFragmentEvidence['source_reports']['semantic_parity'],
+    'artifact compiler compileFragment forwards compact validation evidence to HTML conversion'
+);
+try {
+    (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => 'summary'));
+    $invalidValidationEvidenceRejected = false;
+} catch (\InvalidArgumentException $exception) {
+    $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
+}
+$assert($invalidValidationEvidenceRejected, 'invalid validation evidence detail is rejected explicitly');
+foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) {
+    try {
+        (new HtmlTransformer())->transform('<main>Invalid option</main>', array('validation_evidence' => $invalidValidationEvidence));
+        $invalidValidationEvidenceRejected = false;
+    } catch (\InvalidArgumentException $exception) {
+        $invalidValidationEvidenceRejected = 'validation_evidence must be "full" or "compact".' === $exception->getMessage();
+    }
+    $assert($invalidValidationEvidenceRejected, 'null and non-string validation evidence details are rejected explicitly');
+}
 $ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
     array('block_path' => '0', 'editability_runtime_owned' => true),
     array('block_path' => '', 'editability_visual_owned' => true),
