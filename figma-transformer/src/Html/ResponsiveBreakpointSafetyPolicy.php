@@ -42,11 +42,14 @@ final class ResponsiveBreakpointSafetyPolicy
 
         if ( null !== $parentNode && (LayoutIntentClassifier::CHROME_GROUP_ROLE_FOOTER === $parentChromeRole || 'footer' === $parentName) ) {
             if ( $this->isFooterInsetPanel($node, $parentNode) && null !== $width ) {
-                return array('reason_code' => 'responsive_footer_inset_panel_safety', 'declarations' => array_merge($this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'fixed'), array('height:auto', 'left:24px')));
+                return array('reason_code' => 'responsive_footer_inset_panel_safety', 'declarations' => array_merge(
+                    $this->mobileSafeSourceMaxWidthDeclarations($width, $viewportWidth, 'fixed'),
+                    array('height:auto', 'position:relative', 'left:24px', 'right:auto', 'top:auto', 'bottom:auto')
+                ));
             }
 
             if ( $this->isFooterBottomBand($node, $parentNode) ) {
-                return array('reason_code' => 'responsive_footer_bottom_band_safety', 'declarations' => array_merge(array('height:auto', 'position:relative', 'left:auto', 'top:auto', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start'), $this->mobilePaddingClampDeclarations($baseMap)));
+                return array('reason_code' => 'responsive_footer_bottom_band_safety', 'declarations' => array_merge(array('width:100%', 'max-width:100%', 'height:auto', 'position:relative', 'left:auto', 'right:auto', 'top:auto', 'bottom:auto', 'margin-left:0', 'margin-right:0', 'justify-content:center', 'flex-wrap:wrap', 'align-content:flex-start'), $this->mobilePaddingClampDeclarations($baseMap)));
             }
         }
 
@@ -250,7 +253,7 @@ final class ResponsiveBreakpointSafetyPolicy
     private function namedResponsiveShellDecision(array $node, ?array $parentNode, array $baseMap, string $name, string $parentName, bool $isContainer, ?float $width, string $positioning, string $display, ?string $chromeRole, float $viewportWidth): array
     {
         if ( 'footer' === $name && $isContainer && $this->hasFooterResponsiveShell($node) ) {
-            return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:' . $this->formatter->number($this->footerResponsiveMinHeight($node)) . 'px'));
+            return array('reason_code' => 'responsive_footer_shell_safety', 'declarations' => array('height:auto', 'min-height:0'));
         }
 
         if ( (LayoutIntentClassifier::CHROME_GROUP_ROLE_NAVIGATION === $chromeRole || 'navigation' === $name) && $isContainer ) {
@@ -562,18 +565,6 @@ final class ResponsiveBreakpointSafetyPolicy
     {
         $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
         return empty($layout['display']) && ! empty($this->nodeInspector->nodeList($node));
-    }
-
-    /**
-     * @param array<string, mixed> $node
-     */
-    private function footerResponsiveMinHeight(array $node): float
-    {
-        $baseHeight = $this->nodeBoxHeight($node) ?? 0.0;
-        $insetPanel = $this->footerInsetPanel($node);
-        $bottomBand = $this->footerBottomBand($node);
-
-        return max($baseHeight, ($this->nodeBoxHeight($insetPanel ?? array()) ?? 0.0) + ($this->nodeBoxHeight($bottomBand ?? array()) ?? 0.0));
     }
 
     /**
