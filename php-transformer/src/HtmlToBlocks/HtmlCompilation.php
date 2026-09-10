@@ -535,8 +535,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ), $this->styleResolver, $this->runtime);
         $this->formControlMetadataBuilder = new FormControlMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element)
         );
         $this->authoredFormControlBlockConverter = new AuthoredFormControlBlockConverter(
             $this->formControlMetadataBuilder,
@@ -618,7 +617,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
                 fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
-                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)
+                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+                fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
             ),
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,

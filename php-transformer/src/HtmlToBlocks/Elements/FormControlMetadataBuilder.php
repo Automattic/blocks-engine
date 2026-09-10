@@ -9,21 +9,14 @@ use Closure;
 use DOMDocument;
 use DOMElement;
 use DOMNode;
-use InvalidArgumentException;
 
 /** Builds provider-neutral form and control metadata from source DOM. */
 final class FormControlMetadataBuilder
 {
-    private const MAX_AUXILIARY_VISUALS = 4;
-    private const MAX_AUXILIARY_VISUAL_BYTES = 12288;
-    private const MAX_AUXILIARY_VISUAL_DIMENSION = 4096;
-
     /** @param Closure(DOMElement): string $elementSelector */
     public function __construct(
         private readonly Closure $elementSelector,
-        private readonly ?Closure $presentationAttributes = null,
-        /** @var (Closure(DOMElement): string)|null $sanitizeInlineSvgMarkup */
-        private readonly ?Closure $sanitizeInlineSvgMarkup = null
+        private readonly ?Closure $presentationAttributes = null
     ) {
     }
 
@@ -112,10 +105,6 @@ final class FormControlMetadataBuilder
                     $metadata['presentation'] = array( 'style' => $presentation['style'] );
                 }
             }
-            $auxiliaryVisuals = $this->auxiliaryVisuals($control);
-            if ( array() !== $auxiliaryVisuals ) {
-                $metadata['auxiliary_visuals'] = $auxiliaryVisuals;
-            }
         }
 
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
@@ -149,22 +138,6 @@ final class FormControlMetadataBuilder
         }
 
         return $metadata;
-    }
-
-    /** @param array<int, array<string, mixed>> $visuals */
-    public static function assertAuxiliaryVisuals(array $visuals): void
-    {
-        if ( ! array_is_list($visuals) || count($visuals) > self::MAX_AUXILIARY_VISUALS ) {
-            throw new InvalidArgumentException('Form control auxiliary visuals are invalid.');
-        }
-        foreach ( $visuals as $visual ) {
-            if ( ! is_array($visual) || array_diff(array_keys($visual), array( 'kind', 'markup', 'intrinsic_size' )) || 'inline_svg' !== ($visual['kind'] ?? null) || ! is_string($visual['markup'] ?? null) || strlen($visual['markup']) > self::MAX_AUXILIARY_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($visual['markup']) ) {
-                throw new InvalidArgumentException('Form control auxiliary visual is unsafe.');
-            }
-            if ( isset($visual['intrinsic_size']) && (! is_array($visual['intrinsic_size']) || array_diff(array_keys($visual['intrinsic_size']), array( 'width', 'height' )) || ! self::validDimension($visual['intrinsic_size']['width'] ?? null) || ! self::validDimension($visual['intrinsic_size']['height'] ?? null)) ) {
-                throw new InvalidArgumentException('Form control auxiliary visual dimensions are invalid.');
-            }
-        }
     }
 
     public function label(DOMElement $control): string
@@ -325,51 +298,6 @@ final class FormControlMetadataBuilder
 
         $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
         return '' !== $text ? $text : trim(SourceDom::attr($control, 'value'));
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function auxiliaryVisuals(DOMElement $control): array
-    {
-        if ( null === $this->sanitizeInlineSvgMarkup ) {
-            return array();
-        }
-
-        $visuals = array();
-        foreach ( $control->getElementsByTagName('svg') as $svg ) {
-            if ( ! $svg instanceof DOMElement || count($visuals) >= self::MAX_AUXILIARY_VISUALS || ! SourceDom::svgHasDrawableContent($svg) ) {
-                continue;
-            }
-            $markup = trim(($this->sanitizeInlineSvgMarkup)($svg));
-            if ( strlen($markup) > self::MAX_AUXILIARY_VISUAL_BYTES || ! SourceDom::isSafeInlineSvgMarkup($markup) ) {
-                continue;
-            }
-            $visual = array( 'kind' => 'inline_svg', 'markup' => $markup );
-            $size = $this->intrinsicSize($svg);
-            if ( array() !== $size ) {
-                $visual['intrinsic_size'] = $size;
-            }
-            $visuals[] = $visual;
-        }
-        self::assertAuxiliaryVisuals($visuals);
-        return $visuals;
-    }
-
-    /** @return array<string, int> */
-    private function intrinsicSize(DOMElement $svg): array
-    {
-        $width = $this->dimension(SourceDom::attr($svg, 'width'));
-        $height = $this->dimension(SourceDom::attr($svg, 'height'));
-        return null !== $width && null !== $height ? array( 'width' => $width, 'height' => $height ) : array();
-    }
-
-    private function dimension(string $value): ?int
-    {
-        return 1 === preg_match('/^[1-9][0-9]{0,3}$/D', trim($value)) && (int) $value <= self::MAX_AUXILIARY_VISUAL_DIMENSION ? (int) $value : null;
-    }
-
-    private static function validDimension(mixed $value): bool
-    {
-        return is_int($value) && $value > 0 && $value <= self::MAX_AUXILIARY_VISUAL_DIMENSION;
     }
 
     private function collapseRepeatedLabel(string $label): string
