@@ -188,7 +188,7 @@ final class FigmaTransformer
                 array_merge($diagnostics, $scenegraphResult['diagnostics'] ?? array()),
                 $scenegraphResult['files'] ?? array(),
                 $scenegraphResult['assets'] ?? array(),
-                $mergedSourceReports,
+                $this->jsonSafeSourceReports($mergedSourceReports),
                 $scenegraphResult['parity'] ?? $parity,
                 array_merge(
                     $metrics,
@@ -217,7 +217,7 @@ final class FigmaTransformer
             $diagnostics,
             array(),
             $archive['assets'],
-            $sourceReports,
+            $this->jsonSafeSourceReports($sourceReports),
             $parity,
             $metrics
         );
@@ -251,31 +251,59 @@ final class FigmaTransformer
      */
     private function jsonSafeArchiveReport(array $archive): array
     {
-        return $this->omitInvalidUtf8ArchiveValues($archive);
+        return $this->jsonSafeSourceReports($archive);
     }
 
     /**
+     * Source reports cross a JSON boundary while emitted files are written as
+     * bytes. Omit malformed text, non-finite measurements, and unsupported
+     * values only from reports; never alter artifact file payloads.
+     *
      * @param array<string|int, mixed> $value
      * @return array<string|int, mixed>
      */
-    private function omitInvalidUtf8ArchiveValues(array $value): array
+    private function jsonSafeSourceReports(array $value): array
     {
+        $safe = true;
+        $report = $this->jsonSafeSourceReportValue($value, $safe);
+
+        return is_array($report) ? $report : array();
+    }
+
+    private function jsonSafeSourceReportValue(mixed $value, bool &$safe): mixed
+    {
+        if ( is_string($value) ) {
+            $safe = $this->isValidUtf8($value);
+            return $value;
+        }
+        if ( is_float($value) ) {
+            $safe = is_finite($value);
+            return $value;
+        }
+        if ( null === $value || is_bool($value) || is_int($value) ) {
+            $safe = true;
+            return $value;
+        }
+        if ( ! is_array($value) ) {
+            $safe = false;
+            return null;
+        }
+
         $report = array();
         $isList = array_is_list($value);
-
         foreach ( $value as $key => $child ) {
             if ( is_string($key) && ! $this->isValidUtf8($key) ) {
                 continue;
             }
-            if ( is_string($child) && ! $this->isValidUtf8($child) ) {
+            $childSafe = true;
+            $child = $this->jsonSafeSourceReportValue($child, $childSafe);
+            if ( ! $childSafe ) {
                 continue;
             }
-
-            $report[$key] = is_array($child)
-                ? $this->omitInvalidUtf8ArchiveValues($child)
-                : $child;
+            $report[$key] = $child;
         }
 
+        $safe = true;
         return $isList ? array_values($report) : $report;
     }
 
@@ -996,10 +1024,10 @@ final class FigmaTransformer
             array_merge($diagnostics, is_array($artifact['diagnostics'] ?? null) ? $artifact['diagnostics'] : array()),
             $artifact['files'],
             $artifact['assets'],
-            array(
+            $this->jsonSafeSourceReports(array(
                 'figma' => array_merge($figmaSourceReport, array('html' => $artifact['source_report'])),
                 'compiled_site' => $this->compiledSiteSourceReport($artifact),
-            ),
+            )),
             $this->parityReportBuilder->build($options['parity'] ?? array()),
             array_merge(
                 $metrics,
