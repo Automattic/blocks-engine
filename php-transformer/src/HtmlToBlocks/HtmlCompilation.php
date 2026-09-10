@@ -1147,6 +1147,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     public function transform(string $html, array $options = array()): TransformerResult
     {
+        $validationEvidence = \Automattic\BlocksEngine\PhpTransformer\Contract\ValidationEvidencePolicy::fromOptions($options);
         $context = TransformationOptions::context($options);
         $startedAt = hrtime(true);
         $this->transformationProvenance()->installFallback(TransformationOptions::provenance($options));
@@ -1291,15 +1292,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $authorStylesheetProjections
         );
         $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
-        $blockValidityReport = $this->runtime->validateBlockSerialization($blocks);
+        $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
+        $blockValidityReport = $blockValidityEvaluation->report();
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));
-        $semanticParityReport = $semanticParityEvaluation->report();
-        $contentRoundTripReport = $this->contentRoundTripReporter->report($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
-        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromBlockValidityAndContentRoundTripReports(
-            $blockValidityReport,
+        $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
+        $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
+        $contentRoundTripReport = $contentRoundTripEvaluation->report();
+        $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
+            $blockValidityEvaluation->status,
+            $blockValidityEvaluation->findings,
             $semanticParityEvaluation->status(),
             $semanticParityEvaluation->findings,
-            $contentRoundTripReport
+            $contentRoundTripEvaluation->status(),
+            $contentRoundTripEvaluation->findings
         );
         $diagnostics = $this->diagnosticsCollector->collect(
             HtmlTransformer::class,

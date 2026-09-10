@@ -50,9 +50,9 @@ final class ContentRoundTripReporter
      *        echoes built from placeholder/value/required attributes). Such text is
      *        legitimately absent from the source's visible copy, so flagging it would
      *        be noise. Each entry is normalized with the same pipeline as output nodes.
-     * @return array<string, mixed>
+     * @return ContentRoundTripEvaluation
      */
-    public function report(string $serializedBlocks, string $sourceHtml, array $ignoredTexts = array()): array
+    public function evaluate(string $serializedBlocks, string $sourceHtml, array $ignoredTexts = array()): ContentRoundTripEvaluation
     {
         $sourceText = $this->normalize($this->htmlToPlainText($sourceHtml));
         $ignored = $this->normalizedIgnoreSet($ignoredTexts);
@@ -78,12 +78,16 @@ final class ContentRoundTripReporter
             }
         }
 
-        return array(
-            'schema'         => self::SCHEMA,
-            'finding_schema' => ConversionFindingContract::SCHEMA,
-            'status'         => array() === $findings ? 'pass' : 'warning',
-            'findings'       => $findings,
-        );
+        return new ContentRoundTripEvaluation($findings);
+    }
+
+    /**
+     * @param array<int, string> $ignoredTexts
+     * @return array<string, mixed>
+     */
+    public function report(string $serializedBlocks, string $sourceHtml, array $ignoredTexts = array()): array
+    {
+        return $this->evaluate($serializedBlocks, $sourceHtml, $ignoredTexts)->report();
     }
 
     /**

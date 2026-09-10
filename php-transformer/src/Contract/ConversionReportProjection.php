@@ -21,6 +21,10 @@ final class ConversionReportProjection
      */
     public static function fromResultParts(string $sourceFormat, array $blocks, array $fallbacks, array $sourceReports, array $assets, array $provenance, array $metrics): array
     {
+        $fallbackDiagnostics = self::fallbackDiagnostics($fallbacks);
+        $runtimeIslands = self::runtimeIslands($sourceReports);
+        $runtimeIslandSummaryEntries = self::runtimeIslandSummaryEntries($runtimeIslands);
+
         $report = array(
             'schema'                => self::SCHEMA,
             'finding_schema'        => ConversionFindingContract::SCHEMA,
@@ -28,9 +32,9 @@ final class ConversionReportProjection
             'source'                => self::firstString($provenance, 'source'),
             'scope'                 => self::firstString($provenance, 'scope'),
             'source_summary'        => self::sourceSummary($sourceFormat, $blocks, $fallbacks, $sourceReports, $assets, $metrics),
-            'selector_summary'      => self::selectorSummary($sourceReports, $fallbacks),
-            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbacks),
-            'fallback_diagnostics'  => self::fallbackDiagnostics($fallbacks),
+            'selector_summary'      => self::selectorSummary($sourceReports, $fallbackDiagnostics, $runtimeIslandSummaryEntries),
+            'conversion_classification_summary' => self::conversionClassificationSummary($sourceReports, $fallbackDiagnostics, $runtimeIslandSummaryEntries),
+            'fallback_diagnostics'  => $fallbackDiagnostics,
             'core_html_fallback_evidence' => self::coreHtmlFallbackEvidence($sourceReports),
             'asset_refs'            => self::assetReferences($blocks, $sourceReports),
             'navigation_candidates' => self::navigationCandidates($blocks, $sourceReports),
@@ -38,7 +42,7 @@ final class ConversionReportProjection
             'editability_report'    => is_array($sourceReports['editability_report'] ?? null) ? $sourceReports['editability_report'] : array(),
             'editability_policy'    => is_array($sourceReports['editability_policy'] ?? null) ? $sourceReports['editability_policy'] : array(),
             'runtime_dependency_parity' => self::runtimeDependencyParity($sourceReports),
-            'runtime_islands'      => self::runtimeIslands($sourceReports),
+            'runtime_islands'      => $runtimeIslands,
             'interaction_candidates' => self::interactionCandidates($sourceReports),
             'presentation_gaps'     => self::presentationGaps($sourceReports),
             'native_target_blocks'  => self::stringList($sourceReports, 'native_target_blocks'),
@@ -89,10 +93,11 @@ final class ConversionReportProjection
 
     /**
      * @param array<string, mixed> $sourceReports
-     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $fallbackDiagnostics
+     * @param array<int, array<string, mixed>> $runtimeIslandSummaryEntries
      * @return array<string, mixed>
      */
-    private static function selectorSummary(array $sourceReports, array $fallbacks): array
+    private static function selectorSummary(array $sourceReports, array $fallbackDiagnostics, array $runtimeIslandSummaryEntries): array
     {
         $selectors = array();
         $sources = array();
@@ -102,12 +107,12 @@ final class ConversionReportProjection
             self::appendSourcePath($sources, $entry);
         }
 
-        foreach ( self::fallbackDiagnostics($fallbacks) as $entry ) {
+        foreach ( $fallbackDiagnostics as $entry ) {
             self::appendSelector($selectors, $entry, 'fallback');
             self::appendSourcePath($sources, $entry);
         }
 
-        foreach ( self::runtimeIslandSummaryEntries($sourceReports) as $entry ) {
+        foreach ( $runtimeIslandSummaryEntries as $entry ) {
             self::appendSelector($selectors, $entry, 'runtime_island');
             self::appendSourcePath($sources, $entry);
         }
@@ -196,15 +201,16 @@ final class ConversionReportProjection
 
     /**
      * @param array<string, mixed> $sourceReports
-     * @param array<int, array<string, mixed>> $fallbacks
+     * @param array<int, array<string, mixed>> $fallbackDiagnostics
+     * @param array<int, array<string, mixed>> $runtimeIslandSummaryEntries
      * @return array<string, mixed>
      */
-    private static function conversionClassificationSummary(array $sourceReports, array $fallbacks): array
+    private static function conversionClassificationSummary(array $sourceReports, array $fallbackDiagnostics, array $runtimeIslandSummaryEntries): array
     {
         $byClassification = array();
         $byStrategy = array();
 
-        foreach ( array_merge(self::sourceProvenance($sourceReports), self::fallbackDiagnostics($fallbacks), self::runtimeIslandSummaryEntries($sourceReports)) as $entry ) {
+        foreach ( array_merge(self::sourceProvenance($sourceReports), $fallbackDiagnostics, $runtimeIslandSummaryEntries) as $entry ) {
             if ( ! is_array($entry) ) {
                 continue;
             }
@@ -370,13 +376,13 @@ final class ConversionReportProjection
     }
 
     /**
-     * @param array<string, mixed> $sourceReports
+     * @param array<int, array<string, mixed>> $runtimeIslands
      * @return array<int, array<string, mixed>>
      */
-    private static function runtimeIslandSummaryEntries(array $sourceReports): array
+    private static function runtimeIslandSummaryEntries(array $runtimeIslands): array
     {
         $entries = array();
-        foreach ( self::runtimeIslands($sourceReports) as $island ) {
+        foreach ( $runtimeIslands as $island ) {
             $entries[] = array_filter(
                 array(
                     'selector'                  => $island['selector'] ?? '',
