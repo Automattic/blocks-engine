@@ -7,7 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
@@ -123,11 +125,15 @@ $unbudgetedFormsBytes = strlen(RuntimeDeclarations::canonicalJson(array('schema'
 $assert($unbudgetedFormsBytes > RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, sprintf('Generated form metadata exceeds the 5 MiB runtime declaration ceiling before compiler budgeting (%d bytes across %d forms).', $unbudgetedFormsBytes, count($unbudgetedForms)));
 $largeFormsPlan = $largeFormsStaged['source_reports']['wordpress_site_plan'] ?? array();
 $largeFormsDeclarations = array_values(array_filter($largeFormsPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
-$largeFormsDiagnostic = current(array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_declarations_forms_budgeted' === ($diagnostic['code'] ?? null)));
-$assert(1 === count($largeFormsDeclarations) && strlen(RuntimeDeclarations::canonicalJson($largeFormsDeclarations[0]['payload'] ?? null)) <= RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES && ($largeFormsWhole['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array()) === ($largeFormsPlan['runtime_declarations'] ?? array()), 'JSON shared, page, and receipt checkpoints compose one bounded forms declaration identical to whole compilation.');
-$assert(2 === ($largeFormsDiagnostic['context']['presentation_graphs_dropped'] ?? 0) && 1 === ($largeFormsDiagnostic['context']['retained_count'] ?? 0) && 1 === ($largeFormsDiagnostic['context']['omitted_count'] ?? 0) && 'a.html' === ($largeFormsDiagnostic['context']['retained_samples'][0]['source_path'] ?? '') && 'index.html' === ($largeFormsDiagnostic['context']['omitted_samples'][0]['source_path'] ?? '') && !isset($largeFormsDeclarations[0]['payload']['entities'][0]['presentation_graph']), 'Optional presentation facts are removed before deterministic source-path form omission, while retained entities remain complete.');
-$omittedFallback = current(array_filter($largeFormsStaged['fallbacks'] ?? array(), static fn(array $fallback): bool => 'index.html' === ($fallback['source'] ?? null) && 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
-$assert(str_contains((string) ($omittedFallback['html'] ?? ''), '<select'), 'The omitted form retains its original bounded source fallback markup.');
+$largeFormRecords = $largeFormsPlan['runtime_entity_records'] ?? array();
+$largeFormsResolved = (new WordPressSitePlanResolver())->resolve($largeFormsPlan, array('theme_uri' => 'https://example.test/theme'));
+$resolvedLargeForms = $largeFormsResolved['runtime_entity_resolution'][0]['entities'] ?? array();
+$assert(1 === count($largeFormsDeclarations) && RuntimeEntityManifest::SCHEMA === ($largeFormsDeclarations[0]['payload']['schema'] ?? null) && strlen(RuntimeDeclarations::canonicalJson($largeFormsDeclarations[0]['payload'] ?? null)) <= RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES && 2 === count($largeFormRecords) && 2 === count($resolvedLargeForms), 'JSON shared, page, and receipt checkpoints retain a bounded content-addressed forms manifest while the production resolver expands every entity.');
+$assert(6400 === count($resolvedLargeForms[0]['controls'][0]['options'] ?? array()) && isset($resolvedLargeForms[0]['control_topology'], $resolvedLargeForms[0]['layout_graph'], $resolvedLargeForms[0]['presentation_graph'], $resolvedLargeForms[0]['bindings'][0]['search_block_markup']) && 6400 === count($resolvedLargeForms[1]['controls'][0]['options'] ?? array()), 'The manifest resolver materializes every source form with controls, layout and presentation graphs, bindings, and source identity intact.');
+$assert(!array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_declarations_forms_budgeted' === ($diagnostic['code'] ?? null)), 'Oversized generated forms no longer emit a lossy budget omission diagnostic.');
+$tamperedManifestPlan = $largeFormsPlan; $tamperedManifestPlan['runtime_entity_records'][0]['entity']['controls'][0]['options'][0]['label'] = 'forged';
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedManifestPlan), 'Canonical WordPress plan validation rejects a content-addressed runtime record whose entity no longer matches its hash.');
+$throws(static fn() => RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('value' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES)))), 'Runtime entity manifests reject a single entity record that exceeds the 5 MiB payload cap.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(

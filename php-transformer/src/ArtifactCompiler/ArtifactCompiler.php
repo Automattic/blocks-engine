@@ -654,7 +654,8 @@ final class ArtifactCompiler
         }
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
         $runtimeDeclarationDiagnostics = array();
-        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics);
+        $runtimeEntityRecords = array();
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
@@ -743,6 +744,7 @@ final class ArtifactCompiler
             );
         }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $sourceReports['compiled_site']['runtime_entity_records'] = $runtimeEntityRecords;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
         foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -1905,7 +1907,7 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $fallbacks
      * @return array<int,array<string,mixed>>
      */
-    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files, array &$diagnostics = array()): array
+    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files, array &$diagnostics = array(), array &$runtimeEntityRecords = array()): array
     {
         if ( '' === $entryPath ) return $declarations;
         foreach ( $declarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) if ( is_array($entity) && array_key_exists('superseded_scripts', $entity) ) throw new \InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.');
@@ -2010,10 +2012,12 @@ final class ArtifactCompiler
                 if ( 'forms' === $collection['type'] ) {
                     $budget = $this->budgetGeneratedForms($declarations, $collection['entities'], $entryPath, $entityKey, isset($keys['dependency:' . $capability]));
                     $collection['entities'] = $budget['entities'];
+                    if (isset($budget['records'])) $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
+                    if (isset($budget['payload'])) $collection['payload'] = $budget['payload'];
                     if ( null !== $budget['diagnostic'] ) $diagnostics[] = $budget['diagnostic'];
                 }
                 if ( array() === $collection['entities'] ) continue;
-                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $collection['payload'] ?? array('schema' => $collection['schema'], 'entities' => $collection['entities']));
                 $keys[$entityKey] = true;
             }
             $dependencyKey = 'dependency:' . $capability;
@@ -2031,7 +2035,7 @@ final class ArtifactCompiler
      *
      * @param array<int,array<string,mixed>> $declarations
      * @param array<int,array<string,mixed>> $forms
-     * @return array{entities:array<int,array<string,mixed>>,diagnostic:array<string,mixed>|null}
+     * @return array{entities:array<int,array<string,mixed>>,payload?:array<string,mixed>,records?:array<int,array<string,mixed>>,diagnostic:array<string,mixed>|null}
      */
     private function budgetGeneratedForms(array $declarations, array $forms, string $entryPath, string $entityKey, bool $hasDependency): array
     {
@@ -2048,42 +2052,11 @@ final class ArtifactCompiler
         };
         if ( $fits($forms) ) return array('entities' => $forms, 'diagnostic' => null);
 
-        $presentationGraphsDropped = 0;
-        foreach ( $forms as &$form ) {
-            if ( isset($form['presentation_graph']) ) {
-                unset($form['presentation_graph']);
-                ++$presentationGraphsDropped;
-                if ( $fits($forms) ) return array('entities' => $forms, 'diagnostic' => $this->formsBudgetDiagnostic($forms, array(), $presentationGraphsDropped));
-            }
-        }
-        unset($form);
-
-        $retained = array();
-        $omitted = array();
-        foreach ( $forms as $form ) {
-            $candidate = array_merge($retained, array($form));
-            if ( ! $fits($candidate) ) {
-                $omitted = array_slice($forms, count($retained));
-                break;
-            }
-            $retained[] = $form;
-        }
-        return array('entities' => $retained, 'diagnostic' => $this->formsBudgetDiagnostic($retained, $omitted, $presentationGraphsDropped));
-    }
-
-    /** @param array<int,array<string,mixed>> $retained @param array<int,array<string,mixed>> $omitted @return array<string,mixed> */
-    private function formsBudgetDiagnostic(array $retained, array $omitted, int $presentationGraphsDropped): array
-    {
-        $sample = static function (array $forms): array {
-            return array_slice(array_map(static fn(array $form): array => array('source_path' => (string) ($form['source_path'] ?? ''), 'selector' => (string) ($form['selector'] ?? '')), $forms), 0, 8);
-        };
-        return $this->diagnostic('runtime_declarations_forms_budgeted', 'warning', 'Compiler-generated form declarations exceeded the canonical runtime declaration budget; source fallback markup remains in place for omitted forms.', array(
-            'retained_count' => count($retained),
-            'omitted_count' => count($omitted),
-            'presentation_graphs_dropped' => $presentationGraphsDropped,
-            'retained_samples' => $sample($retained),
-            'omitted_samples' => $sample($omitted),
-        ));
+        $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $forms);
+        $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => $manifest['payload'])));
+        if (!$hasDependency) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
+        RuntimeDeclarations::normalizeList($candidate);
+        return array('entities' => $forms, 'payload' => $manifest['payload'], 'records' => $manifest['records'], 'diagnostic' => null);
     }
 
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */
