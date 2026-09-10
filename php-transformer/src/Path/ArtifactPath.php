@@ -8,7 +8,7 @@ final class ArtifactPath
     public static function safeRelativePath(string $path): string
     {
         $path = self::cleanInput($path);
-        if ( '' === $path || str_starts_with($path, '/') || (bool) preg_match('#^[A-Za-z]:/#', $path) ) {
+        if ( '' === $path || 1 !== preg_match('//u', $path) || str_starts_with($path, '/') || (bool) preg_match('#^[A-Za-z]:/#', $path) ) {
             return '';
         }
 
@@ -37,10 +37,10 @@ final class ArtifactPath
         $base = '' === $sourcePath || ! str_contains($sourcePath, '/') ? '' : dirname($sourcePath) . '/';
         $parts = array();
         foreach ( explode('/', $base . $reference) as $part ) {
-			$part = rawurldecode($part);
-			if ( str_contains($part, '/') || str_contains($part, '\\') ) {
-				return '';
-			}
+            $part = self::decodePathSegment($part);
+            if ( str_contains($part, '/') || str_contains($part, '\\') || (bool) preg_match('/%(?:2f|5c)/i', $part) ) {
+                return '';
+            }
             if ( '' === $part || '.' === $part ) {
                 continue;
             }
@@ -65,6 +65,18 @@ final class ArtifactPath
     private static function cleanInput(string $path): string
     {
         return str_replace('\\', '/', trim($path));
+    }
+
+    private static function decodePathSegment(string $segment): string
+    {
+        $decoded = rawurldecode($segment);
+        if ( 1 === preg_match('//u', $decoded) ) {
+            return $decoded;
+        }
+
+        // Retain malformed byte escapes as ASCII provenance rather than creating
+        // an invalid UTF-8 path that cannot be canonically serialized.
+        return preg_replace_callback('/%([0-9a-f]{2})/i', static fn (array $match): string => '%' . strtoupper($match[1]), $segment) ?? $segment;
     }
 
     private static function isAbsoluteReference(string $path): bool
