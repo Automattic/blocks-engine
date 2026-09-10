@@ -455,7 +455,8 @@ final class AuthorStylesheetProjector
         $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
         $hasDefiniteHeight = CssValueInspector::hasDefiniteHeight($layoutCss);
         $hasAutoHeight = CssValueInspector::hasAutoHeight($layoutCss);
-        if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight ) {
+        $hasMinimumHeight = CssValueInspector::hasAuthoredMinimumHeight($layoutCss);
+        if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
             $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
             $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
@@ -469,6 +470,12 @@ final class AuthorStylesheetProjector
             } elseif ( $hasAutoHeight ) {
                 $css .= $button . '{height:auto!important}'
                     . $link . '{height:auto!important}';
+            }
+            if ( $hasMinimumHeight ) {
+                // Percentage heights cannot resolve through an auto-height wrapper.
+                // Inherit the wrapper's authored computed minimum on both carriers.
+                $css .= $button . '{min-height:inherit!important}'
+                    . $link . '{min-height:inherit!important}';
             }
         }
         return $css . $rest;

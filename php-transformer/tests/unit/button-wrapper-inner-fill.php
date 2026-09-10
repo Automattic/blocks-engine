@@ -91,6 +91,33 @@ $assert(
     $responsiveHeightCss
 );
 
+$mathMinimumHeight = ( new HtmlTransformer() )->transform(
+    '<style>:root{--scaling-factor:400px;--scrollbar-width:8px}.cta{height:auto;min-height:max(.5px,.1175977*(var(--scaling-factor) - var(--scrollbar-width)));padding:12px 24px;background:#173b64;color:#fff}@media(max-width:600px){.cta{min-height:0}}</style>'
+    . '<main><a class="cta" href="/quote">GET A QUOTE</a></main>'
+)->toArray();
+$mathMinimumHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $mathMinimumHeight['assets'] ?? array()));
+$assert(
+    str_contains($mathMinimumHeightCss, 'min-height:max(.5px,.1175977*(var(--scaling-factor) - var(--scrollbar-width)))')
+        && 4 === substr_count($mathMinimumHeightCss, 'min-height:inherit!important'),
+    '8: variable-backed math minimum height stays on the outer carrier and is inherited by both native carriers',
+    $mathMinimumHeightCss
+);
+$assert(
+    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*min-height:0[^}]*\}[^@]*min-height:inherit!important/', $mathMinimumHeightCss),
+    '9: responsive minimum-height reset reaches both native carriers in the same condition',
+    $mathMinimumHeightCss
+);
+
+$pureVariableHeight = ( new HtmlTransformer() )->transform(
+    '<style>.cta{height:var(--possibly-auto);padding:12px 24px;background:#173b64;color:#fff}</style><main><a class="cta" href="/quote">GET A QUOTE</a></main>'
+)->toArray();
+$pureVariableHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $pureVariableHeight['assets'] ?? array()));
+$assert(
+    ! str_contains($pureVariableHeightCss, 'height:100%!important'),
+    '10: a bare custom-property height remains conservative because it can resolve to auto',
+    $pureVariableHeightCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "button wrapper inner fill tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);
