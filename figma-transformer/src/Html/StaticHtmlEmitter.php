@@ -1110,10 +1110,7 @@ final class StaticHtmlEmitter
             }
         }
         if ( '' !== $semanticListMarker ) {
-            $cssRules[] = '.figma-semantic-list-item{display:flex;flex-direction:row;flex-wrap:nowrap!important}';
-            if ( $this->semanticListItemHugsVerticalSize($node) ) {
-                $cssRules[] = '.' . $className . '{height:auto;min-width:0}';
-            }
+            $cssRules[] = '.figma-semantic-list-item{display:flex;flex-direction:row;flex-wrap:nowrap!important;height:auto!important;min-width:0}';
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode, $rendersInlineVectorSvg);
 

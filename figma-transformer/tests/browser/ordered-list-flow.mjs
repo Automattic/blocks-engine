@@ -33,6 +33,23 @@ try {
         const style = getComputedStyle(element);
         return style.display === 'none' || style.visibility === 'hidden' ? null : element.getBoundingClientRect().bottom;
       };
+      const textRects = (element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        return [...range.getClientRects()];
+      };
+      const overlaps = (first, second) => Math.max(first.left, second.left) < Math.min(first.right, second.right)
+        && Math.max(first.top, second.top) < Math.min(first.bottom, second.bottom);
+      const adjacentDescendantOverlaps = [];
+      for (let index = 0; index < items.length - 1; index += 1) {
+        const firstDescendants = [...items[index].querySelectorAll('*')].filter((element) => element.textContent.trim());
+        const secondDescendants = [...items[index + 1].querySelectorAll('*')].filter((element) => element.textContent.trim());
+        for (const first of firstDescendants) for (const second of secondDescendants) {
+          for (const firstRect of textRects(first)) for (const secondRect of textRects(second)) {
+            if (overlaps(firstRect, secondRect)) adjacentDescendantOverlaps.push({ index, first: first.textContent.trim(), second: second.textContent.trim() });
+          }
+        }
+      }
       const contentBottoms = items.flatMap((item) => [item, ...item.querySelectorAll('*')])
         .map(visibleBottom)
         .filter((bottom) => bottom !== null);
@@ -43,6 +60,7 @@ try {
         listBottom: list.getBoundingClientRect().bottom,
         headingTop: heading.getBoundingClientRect().top,
         contentBottom: Math.max(...contentBottoms),
+        adjacentDescendantOverlaps,
         horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
       };
     });
@@ -54,6 +72,7 @@ try {
     assert.deepEqual(layout.markers.map(({ text }) => text), ['1.', '2.', '3.', '4.'], `${viewport.name} paints each ordinal once and in order`);
     assert.ok(layout.markers.every(({ box, display }) => display !== 'none' && box.width > 0 && box.height > 0), `${viewport.name} marker boxes are visible`);
     assert.deepEqual(layout.itemOrdinalText, [['1.'], ['2.'], ['3.'], ['4.']], `${viewport.name} has no duplicate ordinal text`);
+    assert.deepEqual(layout.adjacentDescendantOverlaps, [], `${viewport.name} adjacent list-item text rectangles do not overlap`);
     if (viewport.name === 'mobile') {
       assert.ok(layout.itemHeights.some((height) => height > 96), `mobile hug-sized list items grow with wrapped content: ${layout.itemHeights.join(', ')}`);
     }
