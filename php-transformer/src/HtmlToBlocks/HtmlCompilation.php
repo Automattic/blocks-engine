@@ -1848,11 +1848,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $entries[] = array_filter(array(
                 'name'     => $name,
                 'property' => $property,
-                'content'  => substr($content, 0, 500),
+                'content'  => $this->utf8Prefix($content, 500),
             ), static fn (string $value): bool => '' !== $value);
         }
 
         return array_slice($entries, 0, 20);
+    }
+
+    /** Preserve source bytes up to the requested limit without splitting UTF-8 characters. */
+    private function utf8Prefix(string $value, int $maxBytes): string
+    {
+        $prefix = substr($value, 0, $maxBytes);
+        while ('' !== $prefix && 1 !== preg_match('//u', $prefix)) {
+            $prefix = substr($prefix, 0, -1);
+        }
+        return $prefix;
     }
 
     /**
