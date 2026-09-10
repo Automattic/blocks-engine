@@ -63,8 +63,13 @@ final class WordPressSitePlanView
      */
     public function compact(array $view): array
     {
-        $view = self::materialize($view);
+        if (self::SCHEMA !== ($view['schema'] ?? null) || !is_array($view['wordpress_site_plan'] ?? null)) {
+            throw new InvalidArgumentException('WordPress site plan view compaction requires the canonical v1 view.');
+        }
         $plan = $view['wordpress_site_plan'];
+        if (!is_array($plan['assets'] ?? null) || !is_array($plan['writes'] ?? null)) {
+            throw new InvalidArgumentException('WordPress site plan view has an invalid canonical plan.');
+        }
         $payloads = array();
         foreach ($plan['assets'] as &$asset) {
             $field = is_string($asset['content_base64'] ?? null) ? 'content_base64' : 'content';
@@ -97,8 +102,7 @@ final class WordPressSitePlanView
     /** @param array<string,mixed> $view @return array<string,mixed> */
     public static function materialize(array $view): array
     {
-        if (self::SCHEMA === ($view['schema'] ?? null)) return $view;
-        if (self::COMPACT_SCHEMA !== ($view['schema'] ?? null) || !is_array($view['wordpress_site_plan'] ?? null) || !is_array($view['view_payloads'] ?? null)) throw new InvalidArgumentException('WordPress site plan view has an unsupported schema.');
+        if (self::COMPACT_SCHEMA !== ($view['schema'] ?? null) || !is_array($view['wordpress_site_plan'] ?? null) || !is_array($view['view_payloads'] ?? null)) throw new InvalidArgumentException('WordPress site plan view materialization requires the compact v2 view.');
         $payloads = $view['view_payloads'];
         $payload = static function (mixed $key) use ($payloads): string {
             $row = is_string($key) ? ($payloads[$key] ?? null) : null;
