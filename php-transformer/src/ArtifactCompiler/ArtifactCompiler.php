@@ -891,7 +891,11 @@ final class ArtifactCompiler
 
         $metrics['diagnostic_count'] = count($diagnostics);
         $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        $reportSourceReports = $sourceReports;
+        if ( null !== $wordpressSitePlan ) {
+            $reportSourceReports['wordpress_site_plan'] = $wordpressSitePlan;
+        }
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $reportSourceReports, $assets, $provenance, $metrics);
         if ( null !== $wordpressSitePlan ) {
             $sourceReports['wordpress_site_plan'] = $wordpressSitePlan;
         }
