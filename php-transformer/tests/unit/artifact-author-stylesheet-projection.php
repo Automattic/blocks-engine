@@ -111,6 +111,12 @@ $borderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
 $borderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $borderBox['assets'] ?? array()));
 $assert(! str_contains($borderBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d;box-sizing:content-box}'), 'an authored border-box reset remains authoritative');
 
+$inheritedBorderBox = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>html{box-sizing:border-box}*,*::before,*::after{box-sizing:inherit}.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d}</style><div class="cascade-stack"><p>Copy</p></div>' ),
+) ) )->toArray();
+$inheritedBorderBoxCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $inheritedBorderBox['assets'] ?? array()));
+$assert(! str_contains($inheritedBorderBoxCss, '.cascade-stack{display:block;width:640px;padding:48px;border:2px solid #18231d;box-sizing:content-box}'), 'an inherited universal border-box reset remains authoritative');
+
 $rounded = ( new ArtifactCompiler() )->compile(array( 'files' => array(
     array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<style>.dot{width:10px;height:10px;border-radius:50%;background:#ff5f57}</style><span class="dot"></span>' ),
 ) ) )->toArray();
