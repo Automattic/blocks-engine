@@ -7,7 +7,9 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactNormalizer;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\PayloadReader;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
 $assert = static function (bool $condition, string $message): void { if (!$condition) throw new RuntimeException($message); };
 $throws = static function (callable $callback, string $message) use ($assert): void { try { $callback(); } catch (InvalidArgumentException) { return; } $assert(false, $message); };
@@ -95,6 +97,43 @@ $utf8Staged = (new ArtifactCompiler())->compose($utf8Shared, $utf8Receipts)->toA
 $utf8MetadataDiagnostic = current(array_filter($utf8Staged['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_head_metadata_not_carried' === ($diagnostic['code'] ?? null)));
 $utf8Content = $utf8MetadataDiagnostic['entries'][0]['content'] ?? null;
 $assert(str_repeat('a', 499) === $utf8Content && 499 === strlen($utf8Content) && 1 === preg_match('//u', $utf8Content), 'Serialized shared, page, and compiled checkpoints retain the 500-byte metadata diagnostic bound at a UTF-8 character boundary without replacement or conversion.');
+$largeOptions = '';
+$largeOptionValue = str_repeat('choice-', 16);
+for ($index = 0; $index < 6400; ++$index) $largeOptions .= '<option value="' . $largeOptionValue . '">' . $largeOptionValue . '</option>';
+$largeFormsArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_total_bytes' => 10485760), 'files' => array(
+    'a.html' => '<main><form id="first"><select name="first">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+    'index.html' => '<main><form id="second"><select name="second">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+));
+$largeFormsWhole = $compiler->compile($largeFormsArtifact)->toArray();
+$largeFormsShared = json_decode(json_encode($compiler->prepareShared($largeFormsArtifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsPages = json_decode(json_encode($compiler->preparePages($largeFormsArtifact, $largeFormsShared), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsReceipts = json_decode(json_encode($compiler->compilePreparedPages($largeFormsShared, $largeFormsPages), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$largeFormsStaged = $compiler->compose($largeFormsShared, array_reverse($largeFormsReceipts))->toArray();
+$unbudgetedForms = array();
+foreach ($largeFormsWhole['fallbacks'] ?? array() as $fallback) {
+    if ('html_form_fallback' !== ($fallback['diagnostic_code'] ?? null) || !is_array($fallback['controls'] ?? null)) continue;
+    $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : 'index.html';
+    $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+    $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+    foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null)) $form[$identityKey] = $fallback[$identityKey];
+    foreach (array('control_topology', 'layout_graph', 'presentation_graph') as $graph) if (is_array($fallback[$graph] ?? null) && true !== ($fallback[$graph]['truncated'] ?? false)) $form[$graph] = $fallback[$graph];
+    if (is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null)) $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
+    if (isset($form['bindings'])) $unbudgetedForms[$sourcePath . "\n" . $selector] = $form;
+}
+ksort($unbudgetedForms, SORT_STRING);
+$unbudgetedFormsBytes = strlen(RuntimeDeclarations::canonicalJson(array('schema' => 'generic/forms/v1', 'entities' => array_values($unbudgetedForms))));
+$assert($unbudgetedFormsBytes > RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES, sprintf('Generated form metadata exceeds the 5 MiB runtime declaration ceiling before compiler budgeting (%d bytes across %d forms).', $unbudgetedFormsBytes, count($unbudgetedForms)));
+$largeFormsPlan = $largeFormsStaged['source_reports']['wordpress_site_plan'] ?? array();
+$largeFormsDeclarations = array_values(array_filter($largeFormsPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$largeFormRecords = $largeFormsPlan['runtime_entity_records'] ?? array();
+$largeFormsResolved = (new WordPressSitePlanResolver())->resolve($largeFormsPlan, array('theme_uri' => 'https://example.test/theme'));
+$resolvedLargeForms = $largeFormsResolved['runtime_entity_resolution'][0]['entities'] ?? array();
+$assert(1 === count($largeFormsDeclarations) && RuntimeEntityManifest::SCHEMA === ($largeFormsDeclarations[0]['payload']['schema'] ?? null) && strlen(RuntimeDeclarations::canonicalJson($largeFormsDeclarations[0]['payload'] ?? null)) <= RuntimeDeclarations::MAX_TOTAL_DECLARATION_BYTES && 2 === count($largeFormRecords) && 2 === count($resolvedLargeForms), 'JSON shared, page, and receipt checkpoints retain a bounded content-addressed forms manifest while the production resolver expands every entity.');
+$assert(6400 === count($resolvedLargeForms[0]['controls'][0]['options'] ?? array()) && isset($resolvedLargeForms[0]['control_topology'], $resolvedLargeForms[0]['layout_graph'], $resolvedLargeForms[0]['presentation_graph'], $resolvedLargeForms[0]['bindings'][0]['search_block_markup']) && 6400 === count($resolvedLargeForms[1]['controls'][0]['options'] ?? array()), 'The manifest resolver materializes every source form with controls, layout and presentation graphs, bindings, and source identity intact.');
+$assert(!array_filter($largeFormsStaged['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_declarations_forms_budgeted' === ($diagnostic['code'] ?? null)), 'Oversized generated forms no longer emit a lossy budget omission diagnostic.');
+$tamperedManifestPlan = $largeFormsPlan; $tamperedManifestPlan['runtime_entity_records'][0]['entity']['controls'][0]['options'][0]['label'] = 'forged';
+$throws(static fn() => WordPressSitePlan::assertValid($tamperedManifestPlan), 'Canonical WordPress plan validation rejects a content-addressed runtime record whose entity no longer matches its hash.');
+$throws(static fn() => RuntimeEntityManifest::fromEntities('generic/forms/v1', array(array('value' => str_repeat('x', RuntimeDeclarations::MAX_PAYLOAD_BYTES)))), 'Runtime entity manifests reject a single entity record that exceeds the 5 MiB payload cap.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(

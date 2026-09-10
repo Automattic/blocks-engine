@@ -40,7 +40,14 @@ and `WordPressSitePlanResolver::resolve()`.
   keys. Duplicate identities, unsafe paths, unresolved requirements, contradictory
   kinds, and non-serializable or overlarge payloads fail validation before plan
    emission. Declarations are carried unchanged after canonical normalization by
-   compilation, resolution, reports, and package serialization.
+    compilation, resolution, reports, and package serialization.
+- Oversized entity collections use the additive
+  `runtime_entity_records` content-addressed store. The declaration keeps an
+  ordered bounded `blocks-engine/runtime-entity-manifest/v1` reference payload;
+  each unique record has a SHA-256 content hash and remains individually bounded
+  to 5 MiB. Resolution exposes complete records in
+  `runtime_entity_resolution`, so materializers consume every entity without
+  expanding or changing the canonical declaration.
 - Provider entity block bindings use `generic/block-binding/v1`. In addition to
   materializer-compatible `search_block_markup` and `occurrence`, each binding
   carries a `blocks-engine/runtime-binding-position/v1` emitted-block identity:
