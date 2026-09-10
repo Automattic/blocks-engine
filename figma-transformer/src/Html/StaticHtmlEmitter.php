@@ -1069,6 +1069,11 @@ final class StaticHtmlEmitter
             $content = '';
         }
 
+        $semanticListMarker = $this->semanticListMarkerMarkup($node, $tag, $parentNode, $grandParentNode);
+        if ( '' !== $semanticListMarker ) {
+            $content = $semanticListMarker . $content;
+        }
+
         $rendersInlineVectorSvg = null !== $vectorSvgMarkup && '' !== trim($vectorSvgMarkup);
         $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode, $rendersInlineVectorSvg, $plan);
         if ( ! empty($buttonLayerComposition['styles']) ) {
@@ -1096,6 +1101,12 @@ final class StaticHtmlEmitter
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
             $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+        }
+        if ( '' !== $semanticListMarker ) {
+            $cssRules[] = '.' . $className . '>.figma-list-marker{flex:0 0 1.5em}';
+            if ( $this->semanticListItemHugsVerticalSize($node) ) {
+                $cssRules[] = '.' . $className . '{height:auto;min-width:0}';
+            }
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode, $rendersInlineVectorSvg);
 
@@ -2741,6 +2752,42 @@ final class StaticHtmlEmitter
     private function listLooksOrdered(array $container): bool
     {
         return $this->layoutIntentClassifier()->semanticListLooksOrdered($container);
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListMarkerMarkup(array $node, string $tag, ?array $parentNode, ?array $grandParentNode): string
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'li' !== $tag || null === $parentNode || 'flex' !== ($layout['display'] ?? null) || ! $this->semanticListItemHasNumberedMarker($node) || $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+            return '';
+        }
+
+        $itemId = (string) ($node['id'] ?? '');
+        $ordinal = array_search($itemId, array_map(static fn (mixed $item): string => is_array($item) ? (string) ($item['id'] ?? '') : '', $this->childrenInEmissionOrder($parentNode)), true);
+        if ( false === $ordinal ) {
+            return '';
+        }
+
+        return '<span class="figma-list-marker" aria-hidden="true">' . (string) ($ordinal + 1) . '.</span>';
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListItemHugsVerticalSize(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'HUG' === strtoupper((string) ($layout['sizing_vertical'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListItemHasNumberedMarker(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->isListMarkerTextChild($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
