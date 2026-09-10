@@ -124,7 +124,10 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         )),
         array('images/' . $binaryAssetId => $binaryAssetContent)
     );
-    $binaryReportResult = blocks_engine_figma_transformer_transform_file($binaryReportFixture);
+    $binaryReportResult = blocks_engine_figma_transformer_transform_file(
+        $binaryReportFixture,
+        array('frame_ids' => array('4:1'), 'entry_frame_id' => '4:1')
+    );
     @unlink($binaryReportFixture);
     $binaryExported = false;
     foreach ( $binaryReportResult['files'] ?? array() as $file ) {
@@ -134,8 +137,27 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
         }
     }
     $binaryFontMetadata = $binaryReportResult['source_reports']['figma']['archive']['canvas']['chunks'][2]['payload']['kiwi_message']['nodeChanges'][0]['derivedTextData']['fontMetaData'] ?? array();
+    $workerFiles = array_map(
+        static function (array $file): array {
+            $payload = array('path' => (string) ($file['path'] ?? ''));
+            if (array_key_exists('content', $file)) {
+                $payload['content_base64'] = base64_encode((string) $file['content']);
+            }
+            return $payload;
+        },
+        $binaryReportResult['files'] ?? array()
+    );
+    $workerResponse = array(
+        'schema' => 'static-site-importer/import-cli-receipt/v1',
+        'status' => 'completed',
+        'response' => array(
+            'success' => true,
+            'artifact' => array('files' => $workerFiles),
+            'figma_transform_report' => array('source_reports' => $binaryReportResult['source_reports']),
+        ),
+    );
     try {
-        json_encode(array('source_reports' => $binaryReportResult['source_reports']), JSON_THROW_ON_ERROR);
+        json_encode($workerResponse, JSON_THROW_ON_ERROR);
         $binaryReportJsonEncodes = true;
     } catch (JsonException) {
         $binaryReportJsonEncodes = false;
@@ -144,7 +166,8 @@ function blocks_engine_figma_transformer_run_kiwi_parser_contract(callable $asse
     $assert($binaryExported, 'binary-report-export-preserves-asset-bytes');
     $assert(! array_key_exists('content', $binaryReportResult['source_reports']['figma']['assets'][0] ?? array()), 'binary-report-omits-asset-content');
     $assert(! array_key_exists('fontDigest', $binaryFontMetadata), 'binary-report-omits-invalid-font-digest');
-    $assert($binaryReportJsonEncodes, 'binary-report-worker-payload-json-encodes');
+    $assert(isset($binaryReportResult['source_reports']['figma']['html']['pages']), 'binary-report-selected-frame-emits-page-report');
+    $assert($binaryReportJsonEncodes, 'binary-report-selected-frame-cli-response-json-encodes');
     
     $assetMetadataFixture = SyntheticFigKiwiFixtureBuilder::figArchive(
         SyntheticFigKiwiFixtureBuilder::canvas(array(SyntheticFigKiwiFixtureBuilder::jsonZlibChunk(array('metadata' => array('ignored' => true))))),
