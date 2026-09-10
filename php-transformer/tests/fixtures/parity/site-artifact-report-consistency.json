@@ -126,6 +126,8 @@
     { "path": "source_reports.conversion_report.asset_refs", "assert": "count", "count": 5 },
     { "path": "source_reports.conversion_report.presentation_gaps.0.path", "assert": "equals", "value": "public/assets/visual-repair.css" },
     { "path": "documents.0.source_path", "assert": "equals", "value": "content/notes.md" },
-    { "path": "diagnostics.0.code", "assert": "equals", "value": "unsafe_artifact_path" }
+    { "path": "diagnostics.0.code", "assert": "equals", "value": "artifact_inputs_rejected" },
+    { "path": "diagnostics.0.context.rejected_count", "assert": "equals", "value": 1 },
+    { "path": "diagnostics.0.context.rejected_by_code.unsafe_artifact_path", "assert": "equals", "value": 1 }
   ]
 }

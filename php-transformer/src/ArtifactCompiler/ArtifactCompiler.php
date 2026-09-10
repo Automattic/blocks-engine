@@ -611,7 +611,7 @@ final class ArtifactCompiler
         $capturedDialogs = is_array($reduction['captured_dialogs'] ?? null) ? $reduction['captured_dialogs'] : array('diagnostics' => array(), 'projected_count' => 0);
         $entry = $this->entryFile($normalized['files'], $normalized['entrypoints']);
         $documents = is_array($reduction['source_documents'] ?? null) ? $reduction['source_documents'] : $this->compileSourceDocuments($normalized);
-        $diagnostics = array_merge($normalized['diagnostics'], $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
+        $diagnostics = array_merge($this->operatorFacingNormalizationDiagnostics($normalized['diagnostics']), $capturedDialogs['diagnostics'], $documents['diagnostics'], $this->svgAssetDiagnostics($normalized['files']));
 
         if ( null === $entry && array() === $documents['documents'] ) {
             $diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -921,6 +921,30 @@ final class ArtifactCompiler
             provenance: $provenance,
             metrics: $metrics
         );
+    }
+
+    /**
+     * Detailed normalization warnings remain available on normalized artifacts
+     * and staged plans. Terminal results expose their bounded aggregate only.
+     *
+     * @param array<int,array<string,mixed>> $diagnostics
+     * @return array<int,array<string,mixed>>
+     */
+    private function operatorFacingNormalizationDiagnostics(array $diagnostics): array
+    {
+        $rejectionCodes = array_fill_keys(array(
+            'file_limit_exceeded',
+            'unsafe_artifact_path',
+            'invalid_payload_reference',
+            'invalid_base64_content',
+            'missing_file_payload',
+            'artifact_file_too_large',
+            'artifact_total_too_large',
+        ), true);
+        return array_values(array_filter(
+            $diagnostics,
+            static fn(array $diagnostic): bool => !isset($rejectionCodes[$diagnostic['code'] ?? ''])
+        ));
     }
 
     /** @param array<int,array<string,mixed>> $assets */

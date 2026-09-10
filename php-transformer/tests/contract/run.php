@@ -5341,7 +5341,9 @@ $tooLarge = $compiler->compile(
 )->toArray();
 $assert('success_with_warnings' === $tooLarge['status'], 'oversized files are rejected with a warning status');
 $assert(1 === ($tooLarge['source_reports']['artifact']['rejected_count'] ?? null), 'oversized file increments rejected count');
-$assert('artifact_file_too_large' === ($tooLarge['diagnostics'][0]['code'] ?? ''), 'oversized file diagnostic is exposed');
+$tooLargeAggregate = current(array_filter($tooLarge['diagnostics'], static fn(array $diagnostic): bool => 'artifact_inputs_rejected' === ($diagnostic['code'] ?? null)));
+$assert(1 === ($tooLargeAggregate['context']['rejected_count'] ?? null) && 1 === ($tooLargeAggregate['context']['rejected_by_code']['artifact_file_too_large'] ?? null), 'oversized file rejection is exposed through the bounded aggregate diagnostic');
+$assert(!in_array('artifact_file_too_large', array_column($tooLarge['diagnostics'], 'code'), true), 'final diagnostics omit detailed per-rejected file warnings');
 
 $negotiatedLimits = (new ArtifactNormalizer())->normalize(array(
     'compiler_limits' => array(
