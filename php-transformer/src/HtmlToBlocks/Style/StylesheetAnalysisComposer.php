@@ -97,6 +97,7 @@ final class StylesheetAnalysisComposer
     public function composedStyleAnalysis(array $payloads): array
     {
         $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
+        $layers = array();
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload);
             $analysis = $this->analysisCache->style($key);
@@ -113,6 +114,7 @@ final class StylesheetAnalysisComposer
                     'image_shape' => $style['image_shape'],
                     'pseudo' => $style['pseudo'],
                     'cascaded_values' => $style['cascaded_values'],
+                    'layer_names' => $style['layer_names'],
                     'custom_properties' => $this->cssCustomPropertyAnalysis($payload),
                 );
                 $this->analysisCache->rememberStyle($key, $analysis);
@@ -122,8 +124,10 @@ final class StylesheetAnalysisComposer
             foreach ( array('static', 'conditional', 'navigation_state', 'reveal_state', 'pseudo', 'cascaded_values') as $part ) {
                 $composed[$part] = array_merge($composed[$part], $analysis[$part]);
             }
+            foreach ($analysis['layer_names'] ?? array() as $layer) $layers[$layer] ??= count($layers);
             foreach ( $analysis['image_shape'] as $rule ) {
                 $rule['order'] = count($composed['image_shape']);
+                if (null !== ($rule['layer'] ?? null)) $rule['layer'] = $layers[$rule['layer']];
                 $composed['image_shape'][] = $rule;
             }
             $composed['custom_properties']['root'] = array_merge($composed['custom_properties']['root'], $analysis['custom_properties']['root']);

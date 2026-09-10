@@ -9746,7 +9746,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // the carrier element is gone. Promote it to native aspectRatio/scale
         // attributes so WordPress reproduces the authored crop. `+` never
         // overrides an attribute already resolved above.
-        $attrs += $this->imageShapeConstraintAttributes($image);
+        $attrs += $this->imageShapeConstraintAttributes($image, $width, $height);
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -9766,10 +9766,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
-            return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $inline) ? $inline . 'px' : $inline;
+            return $this->imageDimensionValue($inline, $linked);
         }
         $attribute = trim($this->attr($image, $property));
-        return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $attribute) ? $attribute . 'px' : $attribute;
+        return $this->imageDimensionValue($attribute, $linked);
+    }
+
+    /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */
+    private function imageDimensionValue(string $value, bool $linked): string
+    {
+        $value = trim($value);
+        if (1 !== preg_match('/^(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)) {
+            return '';
+        }
+        return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
     }
 
     /** @return array<string, mixed> */
@@ -10004,12 +10014,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasCropFocusThatCoreImageCannotCarry(DOMElement $image): bool
     {
-        $scale = strtolower($this->cssValueWithoutImportant($this->imageShapeDeclaration($image, 'object-fit')));
+        $declarations = $this->styleResolver->imageShapeDeclarations($image);
+        $scale = strtolower($this->cssValueWithoutImportant((string) ($declarations['object-fit']['value'] ?? '')));
         if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
             return false;
         }
 
-        return '' !== trim($this->cssValueWithoutImportant($this->imageShapeDeclaration($image, 'object-position')));
+        return '' !== trim($this->cssValueWithoutImportant((string) ($declarations['object-position']['value'] ?? '')));
     }
 
     private function customVideoElement(DOMElement $element): ?DOMElement
@@ -12151,168 +12162,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, string>
      */
-    private function imageShapeConstraintAttributes(DOMElement $image): array
+    private function imageShapeConstraintAttributes(DOMElement $image, string $width, string $height): array
     {
-        $declarations = array(
-            'aspect-ratio' => $this->imageShapeDeclaration($image, 'aspect-ratio'),
-            'object-fit' => $this->imageShapeDeclaration($image, 'object-fit'),
-        );
+        $declarations = $this->styleResolver->imageShapeDeclarations($image);
         $aspectRatio  = $this->normalizedAspectRatio(
-            (string) $declarations['aspect-ratio']
+            (string) ($declarations['aspect-ratio']['value'] ?? '')
         );
         // `object-fit:cover !important` is a common defence against core's
         // `.wp-block-image img` rules. Strip importance symmetrically with
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
         $scale        = strtolower($this->cssValueWithoutImportant(
-            (string) $declarations['object-fit']
+            (string) ($declarations['object-fit']['value'] ?? '')
         ));
 
         if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
             return array();
         }
 
-        if ( '' === $aspectRatio ) {
-            $inlineScale = strtolower($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['object-fit'] ?? '')));
-            return $scale === $inlineScale ? array( 'scale' => $scale ) : array();
+        if ( '' === $aspectRatio || $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio) ) {
+            return (($declarations['object-fit']['inline'] ?? false) === true) ? array( 'scale' => $scale ) : array();
         }
 
         return array(
             'aspectRatio' => $aspectRatio,
             'scale'       => $scale,
         );
-    }
-
-    /** Resolve one crop declaration at the desktop viewport using the CSS cascade. */
-    private function imageShapeDeclaration(DOMElement $element, string $property): string
-    {
-        $winner = null;
-        foreach ($this->sourceStyles()->imageShapeRules() as $rule) {
-            if ($property !== $rule['property'] || ! $this->styleResolver->matchesCssSelector($element, $rule['selector'])) {
-                continue;
-            }
-            if (array() !== $rule['conditions']) {
-                $minWidth = $this->conditionsDesktopMinWidth($rule['conditions']);
-                if (null === $minWidth || $minWidth > self::DESKTOP_REFERENCE_WIDTH) {
-                    continue;
-                }
-            }
-            $candidate = array(
-                'value' => $rule['value'],
-                'specificity' => $this->styleResolver->mediaTextSelectorSpecificity($rule['selector']),
-                'order' => $rule['order'],
-                'inline' => false,
-            );
-            if ($this->imageShapeDeclarationWins($candidate, $winner)) {
-                $winner = $candidate;
-            }
-        }
-        $inlineEntries = $this->styleResolver->imageShapeDeclarationEntries($this->attr($element, 'style'));
-        foreach ($inlineEntries as $index => $entry) {
-            if ($property !== $entry['property']) {
-                continue;
-            }
-            $candidate = array('value' => $entry['value'], 'specificity' => array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), 'order' => PHP_INT_MAX - count($inlineEntries) + $index, 'inline' => true);
-            if ($this->imageShapeDeclarationWins($candidate, $winner)) {
-                $winner = $candidate;
-            }
-        }
-
-        return is_array($winner) ? $winner['value'] : '';
-    }
-
-    /** @param array{value:string,specificity:array{int,int,int},order:int,inline:bool} $candidate @param array{value:string,specificity:array{int,int,int},order:int,inline:bool}|null $current */
-    private function imageShapeDeclarationWins(array $candidate, ?array $current): bool
-    {
-        if (null === $current) {
-            return true;
-        }
-        $candidateImportant = $this->cssValueIsImportant($candidate['value']);
-        $currentImportant = $this->cssValueIsImportant($current['value']);
-        if ($candidateImportant !== $currentImportant) {
-            return $candidateImportant;
-        }
-        $specificity = $this->styleResolver->compareMediaTextSpecificity($candidate['specificity'], $current['specificity']);
-        return 0 < $specificity || (0 === $specificity && $candidate['order'] >= $current['order']);
-    }
-
-    /**
-     * The min-width (px) at which a conditional rule's `@media` prelude(s) begin
-     * to apply, or null when a condition cannot be positively evaluated at the
-     * desktop viewport. `@layer` is an unconditional grouping wrapper. A bounded
-     * set of modern crop-relevant `@supports` tests is accepted; unknown feature
-     * queries remain unresolved rather than being flattened. Nested conditions
-     * must all qualify; the effective breakpoint is the widest.
-     *
-     * @param list<string> $conditions
-     */
-    private function conditionsDesktopMinWidth(array $conditions): ?int
-    {
-        $minWidth = 0;
-
-        foreach ( $conditions as $condition ) {
-            $condition = trim($condition);
-            if ( 1 === preg_match('/^@layer\b/i', $condition) ) {
-                continue;
-            }
-            if ( 1 === preg_match('/^@supports\b/i', $condition) ) {
-                if ($this->supportsDesktopImageCropCondition($condition)) {
-                    continue;
-                }
-                return null;
-            }
-            if ( 1 !== preg_match('/^@media\b/i', $condition) ) {
-                return null;
-            }
-            // `not` inverts the feature test, so a min-width it names is the
-            // breakpoint below which the rule applies -- the opposite of a
-            // desktop override.
-            if ( 1 === preg_match('/\bnot\b/i', $condition) ) {
-                return null;
-            }
-            // Only `screen`/`all` describe the viewport the block renders at; a
-            // `print` (or speech/tv) crop must never become the block's crop.
-            if ( 1 === preg_match('/^@media\s+(?:only\s+)?([a-z-]+)/i', $condition, $typeMatch)
-                && ! in_array(strtolower($typeMatch[1]), array( 'all', 'screen' ), true)
-            ) {
-                return null;
-            }
-            if ( 1 === preg_match('/max-width\s*:/i', $condition) ) {
-                return null;
-            }
-            if ( 1 !== preg_match('/min-width\s*:\s*(\d+(?:\.\d+)?)\s*(px|r?em)\b/i', $condition, $matches) ) {
-                return null;
-            }
-            // `em`/`rem` breakpoints resolve against the root font size in a
-            // media query -- an `em` here is never the element's own font size.
-            $breakpoint = (float) $matches[1];
-            if ( 'px' !== strtolower($matches[2]) ) {
-                $breakpoint *= self::ROOT_FONT_SIZE_PX;
-            }
-            $minWidth = max($minWidth, (int) round($breakpoint));
-        }
-
-        return $minWidth;
-    }
-
-    /** Bounded browser-capability facts used for crop rules under @supports. */
-    private function supportsDesktopImageCropCondition(string $condition): bool
-    {
-        $query = strtolower(trim(preg_replace('/^@supports\s*/i', '', $condition) ?? ''));
-        $query = preg_replace('/^\((.*)\)$/s', '$1', $query) ?? $query;
-        [$property, $value] = array_pad(array_map('trim', explode(':', $query, 2)), 2, '');
-
-        if ('display' === $property) {
-            return in_array($value, array('flex', 'grid', 'inline-flex', 'inline-grid'), true);
-        }
-        if ('aspect-ratio' === $property) {
-            return '' !== $this->normalizedAspectRatio($value);
-        }
-        if ('object-fit' === $property) {
-            return in_array($value, array('cover', 'contain'), true);
-        }
-
-        return false;
     }
 
     private function cssValueWithoutImportant(string $value): string
@@ -12341,7 +12216,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return '';
         }
 
-        if ( preg_match('#^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$#', $value, $matches) ) {
+        if ( preg_match('#^(\d*\.?\d+)\s*/\s*(\d*\.?\d+)$#', $value, $matches) ) {
             if ( 0.0 === (float) $matches[1] || 0.0 === (float) $matches[2] ) {
                 return '';
             }
@@ -12349,11 +12224,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $matches[1] . '/' . $matches[2];
         }
 
-        if ( preg_match('#^\d+(?:\.\d+)?$#', $value) ) {
+        if ( preg_match('#^\d*\.?\d+$#', $value) ) {
             return 0.0 === (float) $value ? '' : $value;
         }
 
         return '';
+    }
+
+    private function imageDimensionsDetermineDifferentAspectRatio(string $width, string $height, string $aspectRatio): bool
+    {
+        if (! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $width, $widthMatch)
+            || ! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $height, $heightMatch)
+            || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio, $ratioMatch)) {
+            return false;
+        }
+        $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
+        return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
     }
 
     /**

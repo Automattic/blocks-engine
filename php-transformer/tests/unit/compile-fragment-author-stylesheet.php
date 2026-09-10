@@ -265,6 +265,22 @@ $assert(
     'an explicit inline object-fit becomes a scale-only native image attribute without inventing box geometry'
 );
 
+$cascadeSignals = (new ArtifactCompiler())->compileFragment(
+    '<img class="crop" style="aspect-ratio:4/3!important;object-fit:cover!important" width="320" height="200" src="https://example.com/cascade.jpg" alt="Cascade">',
+    'design/home.html',
+    'html',
+    array('static_css' => '@layer late, early;@layer late{.crop{aspect-ratio:1/1;object-fit:contain}}@layer early{.crop{aspect-ratio:2/1!important;object-fit:cover!important}}.crop{aspect-ratio:3/1!important;object-fit:contain!important}@media (max-width:40rem), screen and (.5rem <= width < 90.0001rem){img.crop{aspect-ratio:.5/1!important;object-fit:cover!important}}.crop{aspect-ratio:7/1!important}')
+);
+$cascadeAttrs = $cascadeSignals->blocks[0]['attrs'] ?? array();
+$assert(
+    ! isset($cascadeAttrs['aspectRatio']) && 'cover' === ($cascadeAttrs['scale'] ?? null),
+    'inline important wins author important while media alternatives, fractional ranges, selector specificity, source order, and normal/important layer ordering remain evaluated without contradicting explicit dimensions'
+);
+$assert(
+    '320px' === ($cascadeAttrs['width'] ?? null) && '200px' === ($cascadeAttrs['height'] ?? null),
+    'explicit dimensions are serialized as lengths and suppress a contradictory promoted aspect ratio'
+);
+
 if ( 0 < $failures ) {
     exit(1);
 }
