@@ -32,6 +32,11 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.runtime_dependency_parity.status", "assert": "equals", "value": "pass" },
+    { "path": "source_reports.conversion_report.source_summary.page_count", "assert": "equals", "value": 1 },
+    { "path": "source_reports.conversion_report.source_summary.asset_count", "assert": "equals", "value": 0 },
+    { "path": "source_reports.conversion_report.source_summary.route_count", "assert": "equals", "value": 1 },
+    { "path": "source_reports.conversion_report.source_summary.navigation_link_count", "assert": "equals", "value": 0 },
+    { "path": "source_reports.conversion_report.source_summary.menu_count", "assert": "equals", "value": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:button {\"className\":\"donate-submit\",\"type\":\"button\",\"tagName\":\"button\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"button\" class=\"wp-block-button__link wp-element-button\">Donate Now</button>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "data-lightbox=\"Foggy cliff portrait\"" },
