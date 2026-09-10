@@ -83,6 +83,18 @@ $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($stage
 $assert(!isset($whole['source_reports']['materialization_plan'], $staged['source_reports']['materialization_plan']), 'Whole and staged results remove the superseded projection while preserving their byte-identical canonical plan.');
 $compiledStaged = $compiler->compose($shared, array($compiledPages['contact.html'], $compiledPages['index.html'], $compiledPages['about.html']))->toArray();
 $assert(($whole['source_reports']['wordpress_site_plan'] ?? array()) === ($compiledStaged['source_reports']['wordpress_site_plan'] ?? array()), 'Terminal composition consumes persisted compiled page receipts without changing the canonical site plan.');
+$utf8Description = str_repeat('a', 499) . "\xC3\xA9" . ' retained after the diagnostic boundary';
+$assert(1 !== preg_match('//u', substr($utf8Description, 0, 500)), 'The UTF-8 metadata fixture splits a valid multibyte character at byte 500.');
+$utf8Artifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => '<!doctype html><html><head><meta name="description" content="' . $utf8Description . '"></head><body><main><h1>UTF-8 metadata</h1></main></body></html>'),
+));
+$utf8Shared = json_decode(json_encode((new ArtifactCompiler())->prepareShared($utf8Artifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8Pages = json_decode(json_encode((new ArtifactCompiler())->preparePages($utf8Artifact, $utf8Shared), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8Receipts = json_decode(json_encode((new ArtifactCompiler())->compilePreparedPages($utf8Shared, $utf8Pages), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);
+$utf8Staged = (new ArtifactCompiler())->compose($utf8Shared, $utf8Receipts)->toArray();
+$utf8MetadataDiagnostic = current(array_filter($utf8Staged['diagnostics'] ?? array(), static fn (array $diagnostic): bool => 'html_head_metadata_not_carried' === ($diagnostic['code'] ?? null)));
+$utf8Content = $utf8MetadataDiagnostic['entries'][0]['content'] ?? null;
+$assert(str_repeat('a', 499) === $utf8Content && 499 === strlen($utf8Content) && 1 === preg_match('//u', $utf8Content), 'Serialized shared, page, and compiled checkpoints retain the 500-byte metadata diagnostic bound at a UTF-8 character boundary without replacement or conversion.');
 $rootAssetPath = "website/external/Happy Women's Day.jpg";
 $rootAssetUrl = "/external/Happy%20Women's%20Day.jpg";
 $rootAssetArtifact = array('entrypoint' => 'website/index.html', 'files' => array(
