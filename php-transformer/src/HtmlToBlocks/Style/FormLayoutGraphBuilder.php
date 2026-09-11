@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -16,7 +17,6 @@ final class FormLayoutGraphBuilder
     private const MAX_NODES = 128;
     private const MAX_DEPTH = 16;
     private const MAX_RULES_PER_NODE = 16;
-    private const MAX_CSS_BYTES = 262144;
     private const MAX_RULES = 512;
     private const MAX_SELECTORS = 1024;
     // Parsing work and retained cascade candidates have independent bounds.
@@ -48,13 +48,13 @@ final class FormLayoutGraphBuilder
 
         $entries = array();
         $wrapper = 0;
-        // The form root is outside the topology depth coordinate; its children are depth zero.
+        // The graph root is outside the topology depth coordinate; its children are depth zero.
         $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,
             self::PROPERTIES,
-            self::MAX_CSS_BYTES,
+            CssAnalysisLimits::MAX_STYLESHEET_BYTES,
             self::MAX_RULES,
             self::MAX_SELECTORS,
             self::MAX_CONDITION_DEPTH,
@@ -71,12 +71,43 @@ final class FormLayoutGraphBuilder
         );
         $this->diagnostics = array_merge($this->diagnostics, $analysis['diagnostics']);
         $this->truncated = $this->truncated || $analysis['truncated'];
+        $customPropertyAnalysis = (new CssRuleAnalyzer())->analyze(
+            $stylesheets,
+            $inlineCss,
+            array('--*'),
+            CssAnalysisLimits::MAX_STYLESHEET_BYTES,
+            self::MAX_RULES,
+            self::MAX_SELECTORS,
+            self::MAX_CONDITION_DEPTH,
+            static function (array $selector) use ($entries): bool {
+                foreach ( $entries as $entry ) {
+                    for ( $ancestor = $entry['element']; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode instanceof DOMElement ? $ancestor->parentNode : null ) {
+                        if ( CssSelectorMatcher::matches($ancestor, $selector)['matches'] ) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            },
+            self::MAX_SCANNED_SELECTORS
+        );
+        $this->diagnostics = array_merge($this->diagnostics, $customPropertyAnalysis['diagnostics']);
+        $this->truncated = $this->truncated || $customPropertyAnalysis['truncated'];
         $nodes = array();
         $variants = array();
         foreach ( $entries as $entry ) {
             $matched = $this->matched($entry['element'], $analysis['rules']);
-            $layout = $this->layout($matched['base']);
+            $layout = $this->layout($matched['base'], $entry['element'], null, $customPropertyAnalysis['rules']);
             $conditional = $this->effectiveConditional($matched['conditional'], $matched['base']);
+            foreach ( $matched['base'] as $property => $fact ) {
+                foreach ( FormCustomPropertyResolver::conditionsChanging($fact['value'], $entry['element'], $customPropertyAnalysis['rules']) as $condition ) {
+                    $encoded = json_encode($condition);
+                    if ( ! isset($conditional[$encoded][$property]) ) {
+                        $this->truncated = true;
+                        $this->diagnostics[] = 'conditional_custom_property_layout';
+                    }
+                }
+            }
             if ( array() === $layout && array() === $conditional ) {
                 continue;
             }
@@ -89,7 +120,7 @@ final class FormLayoutGraphBuilder
                     break;
                 }
                 $condition = json_decode($encoded, true);
-                $patch = $this->layout($facts);
+                $patch = $this->layout($facts, $entry['element'], $condition, $customPropertyAnalysis['rules']);
                 if ( array() !== $patch ) {
                     $variants[] = array( 'node' => $entry['id'], 'condition' => $condition, 'layout_patch' => $patch, 'precedence' => $this->precedence($facts), 'provenance' => $this->provenance($facts, $condition) );
                 }
@@ -249,7 +280,7 @@ final class FormLayoutGraphBuilder
     private function collect(DOMElement $element, ?string $parent, int $order, int $depth, array $controls, array $relevant, array &$entries, int &$wrapper): void
     {
         $path = $element->getNodePath();
-        $root = 'form' === strtolower($element->tagName) && null === $parent;
+        $root = null === $parent;
         if ( ! $root && ! isset($controls[$path]) && ! isset($relevant[$path]) ) {
             return;
         }
@@ -359,11 +390,11 @@ final class FormLayoutGraphBuilder
     }
 
     /** @return array<string, string> */
-    private function layout(array $facts): array
+    private function layout(array $facts, DOMElement $element, ?array $condition, array $customPropertyRules): array
     {
         $result = array();
         foreach ( $facts as $property => $fact ) {
-            $result[self::layoutKey($property)] = $fact['value'];
+            $result[self::layoutKey($property)] = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $customPropertyRules);
         }
         ksort($result);
         return $result;

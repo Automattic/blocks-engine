@@ -134,6 +134,18 @@ $assert(
     'a non-image data URL is rejected even on src'
 );
 
+// --- strict inline SVG payloads ---------------------------------------------
+
+$assert(SourceDom::isSafeInlineSvgMarkup('<svg viewBox="0 0 20 20"><path d="M1 1h18v18H1z"/></svg>'), 'a passive globe SVG is accepted as inline markup');
+$assert(SourceDom::isSafeInlineSvgMarkup('<svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 7l6 6 6-6"/></svg>'), 'a 20px intrinsic chevron SVG is accepted without conflating CSS presentation size');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><a href="java&#x73;cript:alert(1)"><text>Click</text></a></svg>'), 'an entity-encoded javascript SVG link is rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><path d="M0 0"/></svg><div>extra root</div>'), 'SVG markup with an extra HTML root is rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><animate attributeName="href" to="javascript:alert(1)"/></svg>'), 'scriptable SVG animation is rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><set attributeName="href" to="javascript:alert(1)"/></svg>'), 'SVG mutation elements are rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><image href="https://example.test/image.svg"/></svg>'), 'external SVG resources are rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<svg><path fill="url(&#x68;ttps://example.test/paint.svg)" d="M0 0"/></svg>'), 'decoded external paint URLs are rejected');
+$assert(! SourceDom::isSafeInlineSvgMarkup('<!DOCTYPE svg [<!ENTITY payload SYSTEM "file:///etc/passwd">]><svg><path d="M0 0"/></svg>'), 'DOCTYPE and entity declarations are rejected');
+
 // --- statelessness ----------------------------------------------------------
 
 $probe = $element('<div class="a">x</div>');

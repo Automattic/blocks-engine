@@ -80,7 +80,7 @@ final class CssRuleAnalyzer
         for ( $offset = 0, $length = strlen($css); $offset < $length; ) {
             $boundary = $this->nextRuleBoundary($css, $offset);
             if ( null === $boundary ) {
-                if ( '' !== trim(substr($css, $offset)) ) {
+                if ( $this->hasNonTrivia($css, $offset) ) {
                     $result['diagnostics'][] = 'malformed_stylesheet:' . $path;
                 }
                 return;
@@ -247,6 +247,29 @@ final class CssRuleAnalyzer
             $offset = $next;
         }
         return null;
+    }
+
+    /**
+     * A stylesheet may legally end with whitespace and comments, including a
+     * source-map comment. Preserve malformed-input diagnostics for every other
+     * incomplete trailing token.
+     */
+    private function hasNonTrivia(string $css, int $offset): bool
+    {
+        $state = CssSyntaxScanner::state();
+        for ($length = strlen($css); $offset < $length; ) {
+            $insideComment = $state['comment'];
+            $startsComment = ! $insideComment && '' === $state['quote'] && '/*' === substr($css, $offset, 2);
+            $next = CssSyntaxScanner::consume($css, $offset, $state);
+            if ( null === $next ) {
+                return true;
+            }
+            if (! $insideComment && ! $startsComment && ! CssSyntaxScanner::isCssWhitespace($css[$offset])) {
+                return true;
+            }
+            $offset = $next;
+        }
+        return ! CssSyntaxScanner::isComplete($state);
     }
 
     /**

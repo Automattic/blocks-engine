@@ -617,7 +617,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
                 fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
-                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element)
+                fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
+                fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
             ),
             $this->formControlMetadataBuilder,
             $this->formSuccessPanelMetadataBuilder,
@@ -1928,7 +1929,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // core Group and its children. Keep authored grid/flex children as
             // direct layout items, matching the saved frontend markup.
             $beforeAuthorCssParts[] = ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks,'
-                . ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}';
+                . ':root :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>.block-editor-inner-blocks>.block-editor-block-list__layout{display:contents}'
+                // Empty Group placeholders have an additional unadorned editor wrapper.
+                . ':root .editor-styles-wrapper :where(.' . self::CSS_OWNED_LAYOUT_CLASS . ')>div:not([class]):not([id]):not([style]):has(>[data-block].wp-block-group__placeholder){display:contents}';
         }
         $layoutShellBlockName = $this->generatedBlocks()->blockName('layout-shell');
         if ( str_contains($serializedBlocks, '<!-- wp:' . $layoutShellBlockName) ) {
