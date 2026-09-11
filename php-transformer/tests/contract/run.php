@@ -5154,16 +5154,15 @@ $rootedScriptCompanion = $compiler->compile(
 )->toArray();
 $rootedScriptPayload = $rootedScriptCompanion['source_reports']['companion_plugin_payload'] ?? array();
 $rootedPreservedJs = $rootedScriptPayload['preserved_js'] ?? array();
-$assert(1 === count($rootedPreservedJs), 'root-relative first-party script is resolved against the artifact root and carried once');
-$assert(str_contains((string) ($rootedPreservedJs[0]['content'] ?? ''), 'totalAmplitude'), 'application identifiers containing a telemetry vendor name remain first-party companion code');
+$assert(array() === $rootedPreservedJs, 'theme-declared root-relative first-party script is not duplicated in the companion payload');
 $rootedPlan = $rootedScriptCompanion['source_reports']['wordpress_site_plan'] ?? array();
 $rootedPageMarkup = (string) ($rootedPlan['pages'][0]['canonical_block_markup'] ?? '');
 $assert(str_contains($rootedPageMarkup, '<canvas id="canvas"></canvas>'), 'root-relative first-party canvas runtime preserves its script-addressable markup');
 $rootedPlanWriteSources = array_column($rootedPlan['writes'] ?? array(), 'source_path');
-$assert(!in_array('website/script.js', $rootedPlanWriteSources, true), 'companion-owned first-party script is not duplicated into the theme plan');
+$assert(in_array('website/script.js', $rootedPlanWriteSources, true), 'theme-owned root-relative first-party script remains in the theme plan');
 $assert(!in_array('website/.netlify/scripts/rum.js', $rootedPlanWriteSources, true), 'dropped telemetry script is not written into the theme plan');
 $rootedPlanScripts = array_merge(...array_map(static fn(array $page): array => $page['document_metadata']['scripts'] ?? array(), $rootedPlan['pages'] ?? array()));
-$assert(array() === $rootedPlanScripts, 'companion-owned and dropped script declarations are absent from theme loading');
+$assert(1 === count($rootedPlanScripts) && isset($rootedPlanScripts[0]['asset_reference']), 'theme loading retains the first-party declaration and removes dropped telemetry');
 
 $companionNoSite = $compiler->compile(
     array(
@@ -5315,7 +5314,33 @@ foreach ( $runtimeIslandFixture['cases'] as $runtimeIslandCase ) {
         $firstParty = array_values(array_filter($island['scripts'] ?? array(), static fn (array $s): bool => 'first_party' === ($s['role'] ?? '')));
         $assert(count($firstParty) >= (int) ($expect['first_party_scripts_min'] ?? 0), 'island carries the expected first-party scripts for case ' . $caseName);
     }
+
 }
+
+$canvasScriptOwnership = $compiler->compile($runtimeIslandFixture['cases'][2]['artifact'])->toWordPressSitePlanView();
+$canvasThemeScripts = array_merge(...array_map(static fn(array $page): array => $page['document_metadata']['scripts'] ?? array(), $canvasScriptOwnership['wordpress_site_plan']['pages'] ?? array()));
+$canvasCompanionScripts = $canvasScriptOwnership['companion_plugin_payload']['preserved_js'] ?? array();
+$assert(array() === $canvasCompanionScripts && 2 === count($canvasThemeScripts), 'theme-owned canvas scripts are omitted from the companion payload by source document and script occurrence');
+$assert(isset($canvasThemeScripts[0]['asset_reference']) && isset($canvasThemeScripts[1]['asset_reference']), 'theme-owned canvas scripts retain their original declaration order and loading path');
+
+$inlineCanvasOwnership = $compiler->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><canvas id="chart"></canvas><script>document.getElementById("chart").getContext("2d");</script></main>',
+    ),
+))->toWordPressSitePlanView();
+$inlineCanvasScripts = $inlineCanvasOwnership['wordpress_site_plan']['pages'][0]['document_metadata']['scripts'] ?? array();
+$assert(array() === ($inlineCanvasOwnership['companion_plugin_payload']['preserved_js'] ?? array()) && 1 === count($inlineCanvasScripts) && isset($inlineCanvasScripts[0]['asset_reference']), 'inline-only canvas execution remains once in its theme declaration');
+
+$repeatedInlineDocuments = $compiler->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<main><canvas id="chart"></canvas><script>document.getElementById("chart").getContext("2d");</script></main>',
+        'about.html' => '<main><canvas id="chart"></canvas><script>document.getElementById("chart").getContext("2d");</script></main>',
+    ),
+))->toWordPressSitePlanView();
+$repeatedThemeScripts = array_map(static fn (array $page): int => count($page['document_metadata']['scripts'] ?? array()), $repeatedInlineDocuments['wordpress_site_plan']['pages'] ?? array());
+$assert(array(1, 1) === $repeatedThemeScripts && array() === ($repeatedInlineDocuments['companion_plugin_payload']['preserved_js'] ?? array()), 'identical inline scripts in separate documents remain distinct theme declarations without multipage companion packaging');
 
 $normalized = $compiler->compile(
     array(
