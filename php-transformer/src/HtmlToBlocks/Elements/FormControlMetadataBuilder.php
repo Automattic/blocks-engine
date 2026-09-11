@@ -98,6 +98,10 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
+                $labelClasses = $this->buttonLabelClasses($control, $text);
+                if ( null !== $labelClasses ) {
+                    $metadata['label_classes'] = $labelClasses;
+                }
             }
             if ( null !== $this->presentationAttributes ) {
                 $presentation = ($this->presentationAttributes)($control);
@@ -285,6 +289,38 @@ final class FormControlMetadataBuilder
         }
 
         return $text;
+    }
+
+    /**
+     * A button can carry its label in a dedicated inline element that authored
+     * rules address as a descendant, so the rendered line box belongs to that
+     * element rather than the button. Report it, including when it declares no
+     * classes, so a consumer can keep the element the source styles.
+     *
+     * @return list<string>|null
+     */
+    private function buttonLabelClasses(DOMElement $control, string $text): ?string
+    {
+        $labelElement = null;
+        foreach ( $control->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $labelElement ) {
+                    return null;
+                }
+                $labelElement = $child;
+                continue;
+            }
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return null;
+            }
+        }
+        if ( ! $labelElement instanceof DOMElement || 'span' !== strtolower($labelElement->tagName) ) {
+            return null;
+        }
+        if ( trim(preg_replace('/\s+/', ' ', $labelElement->textContent ?? '') ?? '') !== $text ) {
+            return null;
+        }
+        return $this->classNames($labelElement);
     }
 
     private function buttonText(DOMElement $control): string
