@@ -351,8 +351,10 @@ final class FormPresentationGraphBuilder
 
     private function label(DOMElement $control): ?DOMElement
     {
-        $id = $control->getAttribute('id');
-        if ( '' !== $id && $control->ownerDocument instanceof DOMDocument ) foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) if ( $label instanceof DOMElement && $label->getAttribute('for') === $id ) return $label;
+        $label = SourceDom::associatedLabel($control);
+        if ( $label instanceof DOMElement ) {
+            return $label;
+        }
         for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) if ( 'label' === strtolower($parent->tagName) ) return $parent;
         return null;
     }

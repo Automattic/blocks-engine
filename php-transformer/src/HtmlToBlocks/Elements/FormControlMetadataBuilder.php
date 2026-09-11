@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
-use DOMDocument;
 use DOMElement;
 use DOMNode;
 
@@ -184,18 +183,7 @@ final class FormControlMetadataBuilder
     /** Label associated by `for`; wrapping labels are handled with their control. */
     public function associatedLabel(DOMElement $control): ?DOMElement
     {
-        $id = SourceDom::attr($control, 'id');
-        if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
-        }
-
-        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement && $id === SourceDom::attr($label, 'for') ) {
-                return $label;
-            }
-        }
-
-        return null;
+        return SourceDom::associatedLabel($control);
     }
 
     /** The explicit decorative required marker also supplies provider presentation identity. */

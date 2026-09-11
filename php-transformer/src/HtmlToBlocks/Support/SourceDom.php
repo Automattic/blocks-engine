@@ -164,6 +164,47 @@ final class SourceDom
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
     }
 
+    /**
+     * Captured desktop/mobile documents reuse control ids. A `for` lookup that
+     * walks the whole document would bind a mobile control to the desktop label
+     * and drop the mobile-scoped presentation that actually sizes that label.
+     */
+    public static function documentVariantRoot(DOMElement $element): ?DOMElement
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            foreach ( preg_split('/\s+/', trim($node->getAttribute('class'))) ?: array() as $class ) {
+                if ( str_starts_with($class, 'site-document-variant-') || in_array($class, array( 'data-liberation-desktop-document', 'data-liberation-mobile-document' ), true) ) {
+                    return $node;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public static function associatedLabel(DOMElement $control): ?DOMElement
+    {
+        $id = self::attr($control, 'id');
+        if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
+            return null;
+        }
+
+        $scope = self::documentVariantRoot($control);
+        $fallback = null;
+        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
+            if ( ! $label instanceof DOMElement || $id !== self::attr($label, 'for') ) {
+                continue;
+            }
+            $labelScope = self::documentVariantRoot($label);
+            if ( ( null === $scope && null === $labelScope ) || ( $scope instanceof DOMElement && $labelScope instanceof DOMElement && $scope->isSameNode($labelScope) ) ) {
+                return $label;
+            }
+            $fallback ??= $label;
+        }
+
+        return $fallback;
+    }
+
     public static function elementSelector(DOMElement $element): string
     {
         $parts = array();
