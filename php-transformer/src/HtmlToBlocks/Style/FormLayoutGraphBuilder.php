@@ -24,8 +24,8 @@ final class FormLayoutGraphBuilder
     private const MAX_CONDITION_DEPTH = 8;
     private const MAX_VARIANTS = 256;
     private const MAX_PROVENANCE = 16;
-    private const PROPERTIES = array( 'display', 'width', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
-    private const LAYOUT_KEYS = array( 'display', 'width', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
+    private const PROPERTIES = array( 'display', 'width', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-items', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end' );
+    private const LAYOUT_KEYS = array( 'display', 'width', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
     private const V1_LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
 
@@ -428,7 +428,7 @@ final class FormLayoutGraphBuilder
 
     private static function layoutKey(string $property): string
     {
-        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis' )[$property] ?? $property;
+        return array( 'grid-template-columns' => 'columns', 'grid-template-rows' => 'rows', 'row-gap' => 'row_gap', 'column-gap' => 'column_gap', 'grid-column' => 'column', 'grid-row' => 'row', 'grid-area' => 'area', 'flex-direction' => 'direction', 'flex-wrap' => 'wrap', 'align-items' => 'align_items', 'align-content' => 'align_content', 'justify-content' => 'justify_content', 'align-self' => 'align_self', 'justify-items' => 'justify_items', 'justify-self' => 'justify_self', 'flex-grow' => 'flex_grow', 'flex-shrink' => 'flex_shrink', 'flex-basis' => 'flex_basis', 'margin-block-start' => 'margin_block_start', 'margin-block-end' => 'margin_block_end', 'margin-inline-start' => 'margin_inline_start', 'margin-inline-end' => 'margin_inline_end' )[$property] ?? $property;
     }
 
     /** @return array<string, array<string, array<string, mixed>>> */
