@@ -98,9 +98,17 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
-                $labelClasses = $this->buttonLabelClasses($control, $text);
-                if ( null !== $labelClasses ) {
-                    $metadata['label_classes'] = $labelClasses;
+                $labelElement = $this->buttonLabelElement($control, $text);
+                if ( $labelElement instanceof DOMElement ) {
+                    $metadata['label_classes'] = $this->classNames($labelElement);
+                    // Author rules that addressed this element are projected onto its
+                    // rich-text marker, so the marker travels with it. A consumer that
+                    // reproduces the element without it would keep the markup and lose
+                    // the styles.
+                    $labelMarker = SourceDom::attr($labelElement, 'data-blocks-engine-richtext-marker');
+                    if ( '' !== $labelMarker ) {
+                        $metadata['label_marker'] = $labelMarker;
+                    }
                 }
             }
             if ( null !== $this->presentationAttributes ) {
@@ -297,9 +305,8 @@ final class FormControlMetadataBuilder
      * element rather than the button. Report it, including when it declares no
      * classes, so a consumer can keep the element the source styles.
      *
-     * @return list<string>|null
      */
-    private function buttonLabelClasses(DOMElement $control, string $text): ?string
+    private function buttonLabelElement(DOMElement $control, string $text): ?DOMElement
     {
         $labelElement = null;
         foreach ( $control->childNodes as $child ) {
@@ -320,7 +327,7 @@ final class FormControlMetadataBuilder
         if ( trim(preg_replace('/\s+/', ' ', $labelElement->textContent ?? '') ?? '') !== $text ) {
             return null;
         }
-        return $this->classNames($labelElement);
+        return $labelElement;
     }
 
     private function buttonText(DOMElement $control): string
