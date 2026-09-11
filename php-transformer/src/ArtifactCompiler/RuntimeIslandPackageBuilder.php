@@ -118,6 +118,47 @@ final class RuntimeIslandPackageBuilder
     }
 
     /**
+     * Return required non-script runtime-island scripts already declared by a
+     * compiled theme document, keyed by source path and script occurrence.
+     *
+     * @param array<string, mixed>             $package
+     * @param array<int, array<string, mixed>> $pages
+     * @return array<string, bool>
+     */
+    public static function themeOwnedRequiredScriptOccurrences(array $package, array $pages): array
+    {
+        $themeScriptOccurrences = array();
+        foreach ( $pages as $page ) {
+            $sourcePath = is_string($page['source_path'] ?? null) ? $page['source_path'] : '';
+            foreach ( $page['document_metadata']['scripts'] ?? array() as $script ) {
+                if ( '' !== $sourcePath && is_array($script) && is_int($script['order'] ?? null) ) {
+                    $themeScriptOccurrences[$sourcePath . "\nscript:nth-of-type(" . ($script['order'] + 1) . ')'] = true;
+                }
+            }
+        }
+
+        $owned = array();
+        foreach ( $package['islands'] ?? array() as $island ) {
+            if ( ! is_array($island) || 'script' === ($island['kind'] ?? null) ) {
+                continue;
+            }
+            $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
+            foreach ( $island['scripts'] ?? array() as $script ) {
+                if ( ! is_array($script) || 'telemetry' === ($script['role'] ?? null) ) {
+                    continue;
+                }
+                $selector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                $identity = $sourcePath . "\n" . $selector;
+                if ( '' !== $sourcePath && '' !== $selector && isset($themeScriptOccurrences[$identity]) ) {
+                    $owned[$identity] = true;
+                }
+            }
+        }
+
+        return $owned;
+    }
+
+    /**
      * @param array<string, mixed>             $runtimeIsland One preserved runtime island.
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>
@@ -189,7 +230,7 @@ final class RuntimeIslandPackageBuilder
                 }
             }
 
-            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath);
+            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath, is_scalar($runtimeIsland['selector'] ?? null) ? (string) $runtimeIsland['selector'] : '');
 
             return $this->dedupeRows($scripts);
         }
@@ -214,7 +255,7 @@ final class RuntimeIslandPackageBuilder
                     }
                 }
             }
-            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath);
+            $scripts[] = $this->buildScript($sourceKind, $attributes, $scriptRole, $inline, $files, $sourcePath, is_scalar($requiredScript['selector'] ?? null) ? (string) $requiredScript['selector'] : '');
         }
 
         return $this->dedupeRows($scripts);
@@ -225,7 +266,7 @@ final class RuntimeIslandPackageBuilder
      * @param array<int, array<string, mixed>> $files
      * @return array<string, mixed>
      */
-    private function buildScript(string $sourceKind, array $attributes, string $scriptRole, string $inline, array $files, string $sourcePath): array
+    private function buildScript(string $sourceKind, array $attributes, string $scriptRole, string $inline, array $files, string $sourcePath, string $selector): array
     {
         $src = trim((string) ($attributes['src'] ?? ''));
         $script = array(
@@ -245,6 +286,10 @@ final class RuntimeIslandPackageBuilder
             }
         } elseif ( '' !== $inline ) {
             $script['content'] = $inline;
+        }
+
+        if ( '' !== $selector ) {
+            $script['selector'] = $selector;
         }
 
         $role = $this->scriptRole($scriptRole, $src, (string) ($script['content'] ?? ''));

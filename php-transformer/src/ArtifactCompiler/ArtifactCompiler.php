@@ -808,7 +808,8 @@ final class ArtifactCompiler
                 'dependencies' => $editorModule['script_dependencies'],
             );
         }
-        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts);
+        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $sourceReports['compiled_site']['pages'] ?? array());
+        $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
         }
@@ -4034,7 +4035,7 @@ final class ArtifactCompiler
         }
 
         $metadata = array();
-        foreach ( $matches[0] as $tag ) {
+        foreach ( $matches[0] as $index => $tag ) {
             $src = $this->htmlAttribute((string) $tag, 'src');
             if ( '' === $src ) {
                 continue;
@@ -4047,7 +4048,7 @@ final class ArtifactCompiler
 
             $metadata[] = array_filter(array(
                 'path'               => (string) ($asset['path'] ?? ''),
-                'selector'           => 'script[src="' . $src . '"]',
+                'selector'           => 'script:nth-of-type(' . ($index + 1) . ')',
                 'attributes'         => array_filter(array(
                     'src'   => $src,
                     'type'  => $this->htmlAttribute((string) $tag, 'type'),

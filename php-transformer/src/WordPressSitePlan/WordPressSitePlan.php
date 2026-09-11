@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeIslandPackageBuilder;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -1382,6 +1383,7 @@ final class WordPressSitePlan
             if ( is_array($script) && is_string($script['source_path'] ?? null) && is_string($script['selector'] ?? null) ) $superseded[$script['source_path'] . "\n" . $script['selector']] = true;
         }
         $package = is_array($sourceReports['runtime_island_package'] ?? null) ? $sourceReports['runtime_island_package'] : array();
+        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($package, $sourceReports['compiled_site']['pages'] ?? array());
         foreach ( $package['islands'] ?? array() as $island ) {
             if ( !is_array($island) ) continue;
             $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
@@ -1391,6 +1393,8 @@ final class WordPressSitePlan
             $carried = false;
             foreach ( $island['scripts'] ?? array() as $script ) {
                 if ( !is_array($script) ) continue;
+                $scriptSelector = is_string($script['selector'] ?? null) ? $script['selector'] : '';
+                if ( isset($themeOwnedRequiredScripts[$sourcePath . "\n" . $scriptSelector]) ) continue;
                 $scriptDropped = 'telemetry' === ($script['role'] ?? null);
                 $scriptCarried = !$scriptDropped && is_string($script['content'] ?? null) && '' !== trim($script['content']);
                 $carried = $carried || $scriptCarried;

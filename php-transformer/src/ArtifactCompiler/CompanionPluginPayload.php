@@ -43,9 +43,10 @@ final class CompanionPluginPayload
      * @param array<int, array<string, mixed>> $generatedBlocks     Static-render blocks generated at core/html fallbacks (issue #497).
      * @param array<string, mixed>             $runtimeIslandPackage Generic runtime-island package.
      * @param array<int, array<string, mixed>> $editorScripts Editor-only scripts for existing core blocks.
+     * @param array<string, bool>               $themeOwnedRequiredScripts Theme-owned required scripts keyed by source path and selector.
      * @return array<string, mixed> Empty array when there are no generated blocks or scripts.
      */
-    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array()): array
+    public function fromBlockTypes(array $blockTypes, array $files, array $artifact, array $generatedBlocks = array(), array $runtimeIslandPackage = array(), array $editorScripts = array(), array $themeOwnedRequiredScripts = array()): array
     {
         $blocks = array();
         $seenNames = array();
@@ -77,7 +78,7 @@ final class CompanionPluginPayload
             $blocks[] = $block;
         }
 
-        $preservedJs = $this->preservedJs($runtimeIslandPackage);
+        $preservedJs = $this->preservedJs($runtimeIslandPackage, $themeOwnedRequiredScripts);
         if ( array() === $blocks && array() === $preservedJs && array() === $editorScripts ) {
             return array();
         }
@@ -110,9 +111,10 @@ final class CompanionPluginPayload
      * Map preserved first-party runtime scripts into SSI's companion payload.
      *
      * @param array<string, mixed> $runtimeIslandPackage
+     * @param array<string, bool>  $themeOwnedRequiredScripts
      * @return array<int, array<string, string>>
      */
-    private function preservedJs(array $runtimeIslandPackage): array
+    private function preservedJs(array $runtimeIslandPackage, array $themeOwnedRequiredScripts): array
     {
         $entries = array();
         $seen = array();
@@ -134,6 +136,11 @@ final class CompanionPluginPayload
                 if ( '' === $content ) {
                     continue;
                 }
+                $selector = is_scalar($script['selector'] ?? null) ? (string) $script['selector'] : ( is_scalar($island['selector'] ?? null) ? (string) $island['selector'] : '' );
+                $sourcePath = is_scalar($island['source_path'] ?? null) ? (string) $island['source_path'] : '';
+                if ( isset($themeOwnedRequiredScripts[$sourcePath . "\n" . $selector]) ) {
+                    continue;
+                }
                 $handle = trim($handleHint . '-' . ((int) $index + 1), '-');
                 $block = '';
                 $signature = hash('sha256', $block . "\0" . $content);
@@ -145,8 +152,8 @@ final class CompanionPluginPayload
                     'handle'      => $handle,
                     'content'     => $content,
                     'block'       => $block,
-                    'selector'    => is_scalar($island['selector'] ?? null) ? (string) $island['selector'] : '',
-                    'source_path' => is_scalar($island['source_path'] ?? null) ? (string) $island['source_path'] : '',
+                    'selector'    => $selector,
+                    'source_path' => $sourcePath,
                 ), static fn (string $value): bool => '' !== $value);
             }
         }
