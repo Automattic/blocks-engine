@@ -1019,6 +1019,29 @@ $capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
 $capturedMobileMenuDisclosureMarkup = (string) ($capturedMobileMenuDisclosure['serialized_blocks'] ?? '');
 $assert(str_contains($capturedMobileMenuDisclosureMarkup, '"overlayMenu":"never"') && ! str_contains($capturedMobileMenuDisclosureMarkup, 'blocks-engine-native-responsive-navigation'), 'navigation inside a captured native disclosure does not create a nested mobile overlay', $capturedMobileMenuDisclosureMarkup);
 
+// Separate desktop and mobile source surfaces are not an overlay pair when the
+// mobile menu keeps its own native details interaction. In particular, the
+// desktop menu must retain its authored display at desktop widths instead of
+// receiving the global native-responsive display:flex bridge.
+$separateResponsiveMenuArtifact = ( new ArtifactCompiler() )->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><style>'
+                . '.data-liberation-mobile-document{display:none!important}'
+                . '@media(max-width:768px){.data-liberation-desktop-document{display:none!important}.data-liberation-mobile-document{display:contents!important}}'
+                . '@media(min-width:769px){.desktop-navbar{display:block}}'
+                . '</style></head><body><div class="data-liberation-desktop-document"><header><nav class="desktop-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></header></div>'
+                . '<div class="data-liberation-mobile-document"><header><details class="dla-disclosure"><summary aria-label="Menu"><svg aria-hidden="true"></svg></summary><div class="dla-dialog" role="dialog"><nav class="mobile-navbar"><ul><li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></div></details></header></div></body></html>',
+        ),
+    )
+)->toArray();
+$separateResponsiveMenuMarkup = (string) ($separateResponsiveMenuArtifact['serialized_blocks'] ?? '');
+$separateResponsiveMenuCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $separateResponsiveMenuArtifact['assets'] ?? array()));
+$assert(! str_contains($separateResponsiveMenuMarkup, 'blocks-engine-native-responsive-navigation') && 2 === substr_count($separateResponsiveMenuMarkup, '"overlayMenu":"never"'), 'a separately preserved disclosure menu does not promote its desktop companion to native responsive navigation', $separateResponsiveMenuMarkup);
+$assert(str_contains($separateResponsiveMenuMarkup, '<!-- wp:details') && str_contains($separateResponsiveMenuMarkup, '<summary><svg aria-hidden="true">'), 'the mobile source summary remains the emitted interactive menu control', $separateResponsiveMenuMarkup);
+$assert(str_contains($separateResponsiveMenuCss, '@media(max-width:768px)') && str_contains($separateResponsiveMenuCss, '@media(min-width:769px)') && ! str_contains($separateResponsiveMenuCss, 'blocks-engine-native-responsive-navigation{display:flex!important}'), 'the emitted artifact retains authored mobile and desktop menu visibility without a native host override', $separateResponsiveMenuCss);
+
 $linkedCapturedDisclosure = ( new HtmlTransformer() )->transform('<details><summary>&nbsp;</summary><div role="dialog" data-blocks-engine-triggers="menu-trigger"><nav><a href="/about">About</a></nav></div></details>')->toArray();
 $linkedCapturedDisclosureBlock = $linkedCapturedDisclosure['blocks'][0] ?? array();
 $assert(str_ends_with((string) ($linkedCapturedDisclosureBlock['blockName'] ?? ''), '/captured-dialog') && array('menu-trigger') === ($linkedCapturedDisclosureBlock['attrs']['triggerIds'] ?? null), 'explicitly linked captured disclosures lower to the typed dialog block');

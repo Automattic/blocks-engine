@@ -2076,6 +2076,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // became 155x82 and menu 1005 at x=265. `max-width:100%` keeps the
             // block shrinkable, so a narrow viewport still hands over to core's
             // responsive overlay rather than overflowing the page.
+            // core's navigation renderer repeats the block's class list on the
+            // inner container, so a single authored box is painted twice: once
+            // on the <nav> and again on its <ul>. Measured on busybearscleaning
+            // at 1440px, an authored 19.3517px padding produced a 105.78px menu
+            // against the source's 68.09px. The source declared that box on one
+            // element, so the repeated container copy is neutralized and the
+            // authored geometry keeps its single application.
+            // An authored selector can outrank any generated one, so the reset
+            // is declared important. The <nav> keeps the authored class list and
+            // therefore still paints the source box exactly once, whether the
+            // source declared it on the menu element or on its list.
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container{padding:0!important;margin:0!important;border-width:0!important}';
             $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
@@ -2560,7 +2572,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             new NavigationPatternContext(
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement), $sourceElement),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
@@ -2569,7 +2581,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
                 },
-                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement)
+                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolvedConditionalDisplay($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
