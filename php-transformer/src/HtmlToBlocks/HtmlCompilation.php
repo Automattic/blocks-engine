@@ -2083,7 +2083,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // against the source's 68.09px. The source declared that box on one
             // element, so the repeated container copy is neutralized and the
             // authored geometry keeps its single application.
-            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container{padding:0;margin:0;border-width:0}';
+            // An authored selector can outrank any generated one, so the reset
+            // is declared important. The <nav> keeps the authored class list and
+            // therefore still paints the source box exactly once, whether the
+            // source declared it on the menu element or on its list.
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container{padding:0!important;margin:0!important;border-width:0!important}';
             $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
