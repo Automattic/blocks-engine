@@ -79,6 +79,12 @@ final class TransformerResult
         return ( new WordPressSitePlanView() )->fromResult($this);
     }
 
+    /** @return array<string,mixed> */
+    public function toCompactWordPressSitePlanView(): array
+    {
+        return ( new WordPressSitePlanView() )->compact($this->toWordPressSitePlanView());
+    }
+
     /**
      * Validate the public result shape downstream wrappers should depend on.
      *
