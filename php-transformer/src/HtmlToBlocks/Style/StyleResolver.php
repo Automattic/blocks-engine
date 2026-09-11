@@ -2534,22 +2534,12 @@ final class StyleResolver implements ElementPresentationResolver
             $condition = trim($condition);
             if (preg_match('/^@layer\b/i', $condition)) continue;
             if (preg_match('/^@supports\b/i', $condition)) {
-                if (!$this->knownImageShapeSupportsCondition($condition)) return false;
+                if (!CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition))) return false;
             } elseif (preg_match('/^@media\b/i', $condition)) {
                 if (!CssCascade::mediaConditionApplies((string) preg_replace('/^@media\s*/i', '', $condition), 1440.0)) return false;
             } else return false;
         }
         return true;
-    }
-
-    private function knownImageShapeSupportsCondition(string $condition): bool
-    {
-        $query = strtolower(trim((string) preg_replace('/^@supports\s*/i', '', $condition)));
-        $query = preg_replace('/^\((.*)\)$/s', '$1', $query) ?? $query;
-        [$property, $value] = array_pad(array_map('trim', explode(':', $query, 2)), 2, '');
-        return ('display' === $property && in_array($value, array('flex', 'grid', 'inline-flex', 'inline-grid'), true))
-            || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
-            || ('object-fit' === $property && in_array($value, array('cover', 'contain'), true));
     }
 
     /**

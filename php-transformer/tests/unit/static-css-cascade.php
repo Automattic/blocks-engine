@@ -113,6 +113,18 @@ $assert(
     ! CssCascade::mediaConditionApplies('not screen and (unknown-feature: value)', 1440.0),
     'an unknown media feature remains fail-closed when negated'
 );
+$assert(
+    CssCascade::supportsConditionApplies('((display:grid) and (object-fit:cover)) or not (display:flex)'),
+    'compound known @supports expressions honor parentheses, and, or, and not'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(display:grid) and not (object-fit:cover)'),
+    'known-false compound @supports expressions do not apply'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(display:grid) and (unknown-feature:value)'),
+    'unknown @supports terms remain fail-closed inside compound expressions'
+);
 
 $result = $resolve($page, '@media print { .main-nav { display: none; } }', '//nav', array( 'display' ));
 $assert(! isset($result['display']), 'a non-visual media type does not apply');
