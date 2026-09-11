@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-responsive-image-crop-cascade",
+  "description": "Crop promotion follows the desktop author cascade: comma media alternatives, em/rem and chained range widths, known @supports wrappers, normal and important layer order, selector/inline importance, and exact 1440px boundaries. Unknown conditional wrappers remain authored CSS but fail closed for promotion. Explicit HTML dimensions win over a conflicting promoted ratio; CSS auto ratios do not force a replaced image ratio.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-responsive-image-crop-cascade.json",
+    "notes": "Regression coverage for #841 crop-promotion cascade resolution at the 1440px reference viewport."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Upstream primitive image behavior; no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.media{aspect-ratio:1/1;object-fit:contain}@media (max-width:40rem), screen and (.5rem <= width < 90.0001rem){@supports (display:grid){.media{aspect-ratio:.5 / 1;object-fit:cover}}}@supports (unknown-feature:value){.media{aspect-ratio:7/1}}@layer early{#layered{aspect-ratio:2/1!important;object-fit:cover!important}}@layer late{#layered{aspect-ratio:.25/1!important;object-fit:contain!important}}#layered{aspect-ratio:3/1!important;object-fit:contain!important}.inline{aspect-ratio:3/2!important;object-fit:contain!important}</style><figure><img class=\"media\" src=\"https://example.com/media.jpg\" alt=\"Media\"></figure><figure><img id=\"layered\" src=\"https://example.com/layered.jpg\" alt=\"Layered\"></figure><figure><img class=\"inline\" style=\"aspect-ratio:4/3!important;object-fit:cover!important\" src=\"https://example.com/inline.jpg\" alt=\"Inline\"></figure><figure><img style=\"object-fit:cover\" width=\"320\" height=\"200\" src=\"https://example.com/dimensions.jpg\" alt=\"Dimensions\"></figure><figure><img style=\"aspect-ratio:auto .5/1;object-fit:cover\" src=\"https://example.com/auto.jpg\" alt=\"Auto\"></figure>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "https://example.com/media.jpg", "aspectRatio": ".5/1", "scale": "cover" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "https://example.com/layered.jpg", "aspectRatio": "2/1", "scale": "cover" } },
+    { "path": "blocks.2", "name": "core/image", "attrs": { "url": "https://example.com/inline.jpg", "aspectRatio": "4/3", "scale": "cover" } },
+    { "path": "blocks.3", "name": "core/image", "attrs": { "url": "https://example.com/dimensions.jpg", "width": "320px", "height": "200px", "scale": "cover" } },
+    { "path": "blocks.4", "name": "core/image", "attrs": { "url": "https://example.com/auto.jpg", "scale": "cover" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 5 },
+    { "path": "blocks.0.attrs.aspectRatio", "assert": "equals", "value": ".5/1" },
+    { "path": "blocks.1.attrs.aspectRatio", "assert": "equals", "value": "2/1" },
+    { "path": "blocks.2.attrs.aspectRatio", "assert": "equals", "value": "4/3" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:.5/1;object-fit:cover\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"object-fit:cover;width:320px;height:200px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "\"aspectRatio\":\"7/1\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

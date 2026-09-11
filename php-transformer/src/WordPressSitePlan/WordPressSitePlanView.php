@@ -48,7 +48,7 @@ final class WordPressSitePlanView
             'wordpress_site_plan' => $wordpressSitePlan,
             'gutenberg_gaps' => $this->arrayValue($sourceReports, 'gutenberg_gaps'),
             'companion_plugin_payload' => $this->arrayValue($sourceReports, 'companion_plugin_payload'),
-            'font_materialization' => $this->arrayValue($sourceReports, 'font_materialization'),
+            'font_materialization' => $this->arrayValue($wordpressSitePlan['theme'] ?? array(), 'font_materialization') ?: $this->arrayValue($sourceReports, 'font_materialization'),
             'editability_report' => $this->arrayValue($sourceReports, 'editability_report'),
             'diagnostics' => $diagnostics,
         );

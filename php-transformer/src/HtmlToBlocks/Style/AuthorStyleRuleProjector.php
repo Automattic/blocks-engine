@@ -125,25 +125,37 @@ final class AuthorStyleRuleProjector
         }
 
         $usesBorderBox = false;
+        $rootUsesBorderBox = false;
+        $universalInheritsBoxSizing = false;
         ( new CssStylesheetTransformer() )->visitStyleRules(
             $authorStyles->combinedCss(),
-            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox): void {
+            function (string $prelude, string $body, array $ancestors) use (&$usesBorderBox, &$rootUsesBorderBox, &$universalInheritsBoxSizing): void {
                 if ( $usesBorderBox || array() !== $ancestors ) {
                     return;
                 }
                 $boxSizing = CssValueInspector::comparable((string) ($this->styleResolver->cssDeclarations($body)['box-sizing'] ?? ''));
-                if ( 'border-box' !== $boxSizing ) {
+                if ( ! in_array($boxSizing, array( 'border-box', 'inherit' ), true) ) {
                     return;
                 }
                 foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
-                    if ( '*' === trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector)) ) {
+                    $selector = trim((string) preg_replace('/\/\*.*?\*\//s', '', $selector));
+                    if ( '*' === $selector && 'border-box' === $boxSizing ) {
                         $usesBorderBox = true;
                         return;
+                    }
+                    if ( '*' === $selector && 'inherit' === $boxSizing ) {
+                        $universalInheritsBoxSizing = true;
+                    }
+                    if ( in_array(strtolower($selector), array( 'html', ':root' ), true) && 'border-box' === $boxSizing ) {
+                        $rootUsesBorderBox = true;
                     }
                 }
             }
         );
-        return $this->universalBorderBoxResets[$authorStyles] = $usesBorderBox;
+        // The common reset sets the root to border-box and makes every element
+        // inherit it. Materialized core Groups preserve that inherited model.
+        return $this->universalBorderBoxResets[$authorStyles] = $usesBorderBox
+            || ( $rootUsesBorderBox && $universalInheritsBoxSizing );
     }
 
     /** @param array<string, string> $declarations */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan;
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use InvalidArgumentException;
 
 /** Resolves declared asset tokens using explicit runtime destination context. */
@@ -33,6 +34,7 @@ final class WordPressSitePlanResolver
         // Provider bindings replace page markup, so their anchors must use the
         // same destination projection as the page materialized by consumers.
         $plan['runtime_declarations'] = self::resolveEntityBindings($plan['runtime_declarations'], $plan['pages'], $references);
+        $plan['runtime_entity_resolution'] = self::resolveManifestEntities($plan['runtime_declarations'], $plan['runtime_entity_records'], $plan['pages'], $references);
         foreach ($plan['writes'] as &$write) if ('utf8' === $write['payload']['encoding']) { $write['canonical_payload'] = $write['payload']['data']; $write['canonical_payload_hash'] = WordPressSitePlan::contentHash($write['canonical_payload']); $write['payload']['data'] = self::resolveWritePayload($write['canonical_payload'], $plan['reference_tokens'], $themeUri, $write['target_path']); $write['payload_hash'] = WordPressSitePlan::contentHash($write['payload']['data']); }
         unset($write);
         foreach (array('pages', 'template_parts') as $documents) foreach ($plan[$documents] as &$document) foreach (array('links', 'scripts') as $kind) { if (!is_array($document['document_metadata'][$kind] ?? null)) continue; foreach ($document['document_metadata'][$kind] as &$declaration) if (is_string($declaration['asset_reference'] ?? null)) $declaration['resolved_url'] = self::resolvePayload($declaration['asset_reference'], $references); }
@@ -56,7 +58,7 @@ final class WordPressSitePlanResolver
         return self::resolvePayload($content, self::referencesForWrite($tokens, $themeUri, $targetPath));
     }
     /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
-    private static function resolveEntityBindings(array $declarations, array $pages, array $references): array
+    private static function resolveEntityBindings(array $declarations, array $pages, array $references, bool $normalize = true): array
     {
         $pagesBySource = array_column($pages, null, 'source_path');
         foreach ($declarations as $declarationIndex => $declaration) {
@@ -89,7 +91,20 @@ final class WordPressSitePlanResolver
         }
         foreach ($declarations as &$declaration) unset($declaration['payload_hash'], $declaration['content_hash']);
         unset($declaration);
-        return RuntimeDeclarations::normalizeList($declarations);
+        return $normalize ? RuntimeDeclarations::normalizeList($declarations) : $declarations;
+    }
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records @param array<int,array<string,mixed>> $pages @param array<string,string> $references @return array<int,array<string,mixed>> */
+    private static function resolveManifestEntities(array $declarations, array $records, array $pages, array $references): array
+    {
+        $resolved = array();
+        foreach ($declarations as $declaration) {
+            $payload = $declaration['payload'] ?? null;
+            if (!is_array($payload) || RuntimeEntityManifest::SCHEMA !== ($payload['schema'] ?? null)) continue;
+            $entities = RuntimeEntityManifest::resolve($payload, $records);
+            $expanded = self::resolveEntityBindings(array(array('payload' => array('entities' => $entities))), $pages, $references, false);
+            $resolved[] = array('reconciliation_identity' => $declaration['reconciliation_identity'], 'kind' => $declaration['kind'], 'type' => $declaration['type'] ?? null, 'entity_schema' => $payload['entity_schema'], 'entities' => $expanded[0]['payload']['entities']);
+        }
+        return $resolved;
     }
     /** @return array<int,array{offset:int,length:int}> */
     private static function blockRanges(string $markup): array

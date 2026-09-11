@@ -39,7 +39,8 @@ final class LogoPattern implements PatternRecognizerInterface
      */
     public function match(DOMElement $element, callable $presentationAttributes, callable $innerHtml, callable $outerHtml, callable $materializeSvgImages, callable $createBlock): ?array
     {
-        if ( ! $this->hasLogoSignal($element) || '' === trim($element->textContent ?? '') ) {
+        if ( ! $this->hasLogoSignal($element)
+            || ( '' === trim($element->textContent ?? '') && 0 === $element->getElementsByTagName('svg')->length ) ) {
             return null;
         }
 
@@ -129,7 +130,7 @@ final class LogoPattern implements PatternRecognizerInterface
         $html = $this->semanticMarkerSpansAsMarks($html);
         $html = trim($html);
         $text = $this->plainText($html);
-        if ( '' === $text ) {
+        if ( '' === $text && ! preg_match('/<img\b[^>]*>/i', $html) ) {
             return '';
         }
 

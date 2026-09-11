@@ -185,6 +185,91 @@ $assert(
     ! isset($unsupportedCropAttrs['aspectRatio']) && ! isset($unsupportedCropAttrs['scale']),
     'unresolved supports conditions do not flatten into crop declarations'
 );
+$compoundSupportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and (object-fit:cover)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundSupportedCropAttrs = is_array($compoundSupportedCrop->blocks[0]['attrs'] ?? null) ? $compoundSupportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($compoundSupportedCropAttrs['aspectRatio'] ?? null) && 'cover' === ($compoundSupportedCropAttrs['scale'] ?? null),
+    'compound known @supports conditions promote crop declarations'
+);
+$compoundUnsupportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and not (object-fit:cover)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundUnsupportedCropAttrs = is_array($compoundUnsupportedCrop->blocks[0]['attrs'] ?? null) ? $compoundUnsupportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($compoundUnsupportedCropAttrs['aspectRatio']) && ! isset($compoundUnsupportedCropAttrs['scale']),
+    'compound known-false @supports conditions do not promote crop declarations'
+);
+$compoundUnknownCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and (unknown-crop-feature:value)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundUnknownCropAttrs = is_array($compoundUnknownCrop->blocks[0]['attrs'] ?? null) ? $compoundUnknownCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($compoundUnknownCropAttrs['aspectRatio']) && ! isset($compoundUnknownCropAttrs['scale']),
+    'compound unknown @supports conditions fail closed rather than promoting crop declarations'
+);
+$zeroHeightCrop = $compiler->compileFragment(
+    '<img src="https://example.com/zero-height.jpg" alt="Zero height" width="100" height="0" style="aspect-ratio:4/3;object-fit:cover">',
+    'design/home.html',
+    'html'
+);
+$zeroHeightCropAttrs = is_array($zeroHeightCrop->blocks[0]['attrs'] ?? null) ? $zeroHeightCrop->blocks[0]['attrs'] : array();
+$assert(
+    '100px' === ($zeroHeightCropAttrs['width'] ?? null) && '0px' === ($zeroHeightCropAttrs['height'] ?? null)
+        && ! isset($zeroHeightCropAttrs['aspectRatio']) && ! isset($zeroHeightCropAttrs['scale']),
+    'zero HTML height survives serialization without crop promotion or division'
+);
+$zeroWidthCrop = $compiler->compileFragment(
+    '<img src="https://example.com/zero-width.jpg" alt="Zero width" width="0" height="100" style="aspect-ratio:4/3;object-fit:cover">',
+    'design/home.html',
+    'html'
+);
+$zeroWidthCropAttrs = is_array($zeroWidthCrop->blocks[0]['attrs'] ?? null) ? $zeroWidthCrop->blocks[0]['attrs'] : array();
+$assert(
+    '0px' === ($zeroWidthCropAttrs['width'] ?? null) && '100px' === ($zeroWidthCropAttrs['height'] ?? null)
+        && ! isset($zeroWidthCropAttrs['aspectRatio']) && ! isset($zeroWidthCropAttrs['scale']),
+    'zero HTML width survives serialization without manufactured crop geometry'
+);
+$signedZeroCssCrop = $compiler->compileFragment(
+    '<img class="signed-zero-css" src="https://example.com/signed-zero-css.jpg" alt="Signed zero CSS">',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.signed-zero-css{width:+0;height:+0px;aspect-ratio:4/3;object-fit:cover}' )
+);
+$signedZeroCssCropAttrs = is_array($signedZeroCssCrop->blocks[0]['attrs'] ?? null) ? $signedZeroCssCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($signedZeroCssCropAttrs['aspectRatio']) && ! isset($signedZeroCssCropAttrs['scale']),
+    'signed zero CSS dimensions fail closed for crop promotion'
+);
+$negativeHtmlDimensionCrop = null;
+$negativeHtmlDimensionError = null;
+try {
+    $negativeHtmlDimensionCrop = $compiler->compileFragment(
+        '<img src="https://example.com/negative-width.jpg" alt="Negative width" width="-100" height="100" style="aspect-ratio:4/3;object-fit:cover">',
+        'design/home.html',
+        'html'
+    );
+} catch (\Throwable $error) {
+    $negativeHtmlDimensionError = $error;
+}
+$negativeHtmlDimensionCropAttrs = is_array($negativeHtmlDimensionCrop?->blocks[0]['attrs'] ?? null) ? $negativeHtmlDimensionCrop->blocks[0]['attrs'] : array();
+$assert(
+    null === $negativeHtmlDimensionError
+        && ! isset($negativeHtmlDimensionCropAttrs['width'])
+        && ! isset($negativeHtmlDimensionCropAttrs['aspectRatio'])
+        && ! isset($negativeHtmlDimensionCropAttrs['scale']),
+    'negative HTML dimensions are omitted before core/image serialization and fail closed for crop promotion without throwing'
+);
 
 /**
  * Resolve the first block's attributes for a fragment compiled against $css.
@@ -263,6 +348,22 @@ $inlineScaleOnlyAttrs = is_array($inlineScaleOnly->blocks[0]['attrs'] ?? null) ?
 $assert(
     'cover' === ($inlineScaleOnlyAttrs['scale'] ?? null) && ! isset($inlineScaleOnlyAttrs['aspectRatio']),
     'an explicit inline object-fit becomes a scale-only native image attribute without inventing box geometry'
+);
+
+$cascadeSignals = (new ArtifactCompiler())->compileFragment(
+    '<img class="crop" style="aspect-ratio:4/3!important;object-fit:cover!important" width="320" height="200" src="https://example.com/cascade.jpg" alt="Cascade">',
+    'design/home.html',
+    'html',
+    array('static_css' => '@layer late, early;@layer late{.crop{aspect-ratio:1/1;object-fit:contain}}@layer early{.crop{aspect-ratio:2/1!important;object-fit:cover!important}}.crop{aspect-ratio:3/1!important;object-fit:contain!important}@media (max-width:40rem), screen and (.5rem <= width < 90.0001rem){img.crop{aspect-ratio:.5/1!important;object-fit:cover!important}}.crop{aspect-ratio:7/1!important}')
+);
+$cascadeAttrs = $cascadeSignals->blocks[0]['attrs'] ?? array();
+$assert(
+    ! isset($cascadeAttrs['aspectRatio']) && 'cover' === ($cascadeAttrs['scale'] ?? null),
+    'inline important wins author important while media alternatives, fractional ranges, selector specificity, source order, and normal/important layer ordering remain evaluated without contradicting explicit dimensions'
+);
+$assert(
+    '320px' === ($cascadeAttrs['width'] ?? null) && '200px' === ($cascadeAttrs['height'] ?? null),
+    'explicit dimensions are serialized as lengths and suppress a contradictory promoted aspect ratio'
 );
 
 if ( 0 < $failures ) {

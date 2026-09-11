@@ -1,0 +1,110 @@
+{
+  "name": "Responsive Footer Flow Fixture",
+  "nodes": [
+    {
+      "id": "component:footer",
+      "type": "COMPONENT",
+      "name": "Footer",
+      "width": 1440,
+      "height": 602,
+      "children": [
+        {
+          "id": "component:footer:newsletter",
+          "type": "FRAME",
+          "name": "Inset signup panel",
+          "x": 112,
+          "y": 0,
+          "width": 1216,
+          "height": 409,
+          "layoutPositioning": "ABSOLUTE",
+          "children": [
+            {
+              "id": "component:footer:newsletter:copy",
+              "type": "TEXT",
+              "name": "Signup copy",
+              "characters": "A compact signup panel with enough copy to prove that mobile flow remains content-sized.",
+              "width": 544,
+              "height": 58,
+              "fontSize": 18,
+              "lineHeightPx": 29
+            }
+          ]
+        },
+        {
+          "id": "component:footer:band",
+          "type": "FRAME",
+          "name": "Footer band",
+          "x": 0,
+          "y": 409,
+          "width": 1440,
+          "height": 193,
+          "layoutPositioning": "ABSOLUTE",
+          "layoutMode": "HORIZONTAL",
+          "children": [
+            {
+              "id": "component:footer:band:links",
+              "type": "TEXT",
+              "name": "Footer links",
+              "characters": "About Contact Privacy",
+              "width": 240,
+              "height": 26,
+              "fontSize": 16
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page:desktop",
+      "type": "FRAME",
+      "name": "Desktop page",
+      "width": 1440,
+      "height": 1200,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 64,
+      "children": [
+        {
+          "id": "page:desktop:hero",
+          "type": "FRAME",
+          "name": "Hero",
+          "width": 1440,
+          "height": 420
+        },
+        {
+          "id": "page:desktop:footer",
+          "type": "INSTANCE",
+          "name": "Footer",
+          "componentId": "component:footer",
+          "width": 1440,
+          "height": 602
+        }
+      ]
+    },
+    {
+      "id": "page:mobile",
+      "type": "FRAME",
+      "name": "Mobile page",
+      "width": 390,
+      "height": 1086,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 64,
+      "children": [
+        {
+          "id": "page:mobile:hero",
+          "type": "FRAME",
+          "name": "Hero",
+          "width": 390,
+          "height": 420
+        },
+        {
+          "id": "page:mobile:footer",
+          "type": "INSTANCE",
+          "name": "Footer",
+          "componentId": "component:footer",
+          "width": 390,
+          "height": 602
+        }
+      ]
+    }
+  ]
+}

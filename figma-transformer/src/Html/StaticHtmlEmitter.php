@@ -296,6 +296,9 @@ final class StaticHtmlEmitter
      */
     private array $suppressedVisualNodeIds = array();
 
+    /** @var array<string, array{children: array<int, array<string, mixed>>, breakpoint: int, class: string, height: float}> */
+    private array $responsiveHeaderVariantProjections = array();
+
     /**
      * Reset state whose lifetime is one public emission call.
      *
@@ -668,6 +671,7 @@ final class StaticHtmlEmitter
             $pageDecisionTraceOffset = $this->emissionSession->decisionTraceState()->count();
             $pageResponsiveTraceOffset = count($this->breakpointMediaDiffBuilder()->decisionTraces());
             $pageLinkDiagnosticsBefore = $this->linkState->diagnostics();
+            $this->responsiveHeaderVariantProjections = $this->responsiveHeaderVariantProjections($frameNode, $page, $nodeMap);
             $pageDocument = $this->emitPageDocument(array($frameNode), $path, $this->sanitizeText($pageName), $pageName, is_scalar($page['page_type'] ?? null) ? (string) $page['page_type'] : '', is_scalar($page['slug'] ?? null) ? (string) $page['slug'] : $this->templateSlugFromPath($path), 1, $emission['css_rules'], $diagnostics, $nodeStyleDiagnostics, $options);
             $pageRules = array_splice($emission['css_rules'], $pageCssRuleOffset);
             $pageSharedStyles = $this->staticHtmlCssRuleSet()->applySharedStyleClasses($pageRules, true);
@@ -714,6 +718,10 @@ final class StaticHtmlEmitter
             foreach ( $pageMediaBlocks as $mediaBlock ) {
                 $mediaBlocks[] = $mediaBlock;
             }
+            foreach ( $this->responsiveHeaderVariantProjectionRules() as $rule ) {
+                $mediaBlocks[] = $rule;
+            }
+            $this->responsiveHeaderVariantProjections = array();
 
             $pages[] = array(
                 'frame_id'   => $frameId,
@@ -1034,6 +1042,13 @@ final class StaticHtmlEmitter
                     $content .= $this->emitNode($child, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
                 }
             }
+            if ( isset($this->responsiveHeaderVariantProjections[$id]) ) {
+                $content .= '<div data-figma-responsive-variant="header">';
+                foreach ( $this->responsiveHeaderVariantProjections[$id]['children'] as $variantChild ) {
+                    $content .= $this->emitNode($variantChild, $cssRules, $diagnostics, $nodeStyleDiagnostics, $depth + 1, $node, $parentNode, $insideForm || 'form' === $tag, $insideLink || $nodeIntroducesLink);
+                }
+                $content .= '</div>';
+            }
             if ( $formControlAccessoryControl && ! $insertedAccessoryInput ) {
                 $content .= $this->syntheticFormControlMarkup($node, $className, $textareaAccessoryControl ? 'textarea' : 'input', $parentNode);
                 $cssRules[] = $this->syntheticFormControlResetCss($className, $textareaAccessoryControl ? 'textarea' : 'input');
@@ -1069,6 +1084,11 @@ final class StaticHtmlEmitter
             $content = '';
         }
 
+        $semanticListMarker = $this->semanticListMarkerMarkup($node, $tag, $parentNode, $grandParentNode);
+        if ( '' !== $semanticListMarker ) {
+            $content = $semanticListMarker . $content;
+        }
+
         $rendersInlineVectorSvg = null !== $vectorSvgMarkup && '' !== trim($vectorSvgMarkup);
         $styles = $this->styleDeclarations($node, $type, $parentNode, $grandParentNode, $rendersInlineVectorSvg, $plan);
         if ( ! empty($buttonLayerComposition['styles']) ) {
@@ -1095,12 +1115,17 @@ final class StaticHtmlEmitter
             $cssRules[] = 'ol .' . $className . ',ul .' . $className . '{text-transform:none}';
         }
         if ( in_array($tag, array('ol', 'ul'), true) && $this->listShouldRenderMarkers($node, null !== $sourceTextList) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
-            $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em' . ( 'ol' === $tag ? ';counter-reset:figma-list-item' : '' ) . '}';
+            if ( $this->semanticListHasExplicitMarkers($node) ) {
+                $cssRules[] = '.' . $className . '{list-style:none;padding-left:0}';
+                if ( $this->semanticListHasVerticallyHuggedItems($node) ) {
+                    $cssRules[] = '.' . $className . '{height:auto}';
+                }
+            } else {
+                $cssRules[] = '.' . $className . '{list-style:' . ( 'ol' === $tag ? 'decimal' : 'disc' ) . ';padding-left:1.5em}';
+            }
         }
-        if ( 'li' === $tag && null !== $parentNode && $this->isListItemOf($node, $parentNode) && $this->listShouldRenderMarkers($parentNode, false) && ! $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
-            $marker = $this->listLooksOrdered($parentNode) ? 'counter(figma-list-item) ". "' : '"\2022"';
-            $cssRules[] = '.' . $className . '{position:relative}';
-            $cssRules[] = '.' . $className . '::before{content:' . $marker . ';counter-increment:figma-list-item;display:inline-block;min-width:1.5em;margin-left:-1.5em;flex-shrink:0}';
+        if ( '' !== $semanticListMarker ) {
+            $cssRules[] = '.figma-semantic-list-item{display:flex;flex-direction:row;flex-wrap:nowrap!important;height:auto!important;min-width:0}';
         }
         $nodeStyleDiagnostics[] = $this->nodeStyleDiagnostic($node, $type, $className, $tag, $styles, $parentNode, $rendersInlineVectorSvg);
 
@@ -1113,6 +1138,9 @@ final class StaticHtmlEmitter
 
         $layoutIntent = $plan->layoutIntent;
         $elementClassName = null === $imageElement ? $className : $className . ' figma-image-asset';
+        if ( '' !== $semanticListMarker ) {
+            $elementClassName .= ' figma-semantic-list-item';
+        }
         $attributes = sprintf(' class="%1$s" data-figma-node-id="%2$s" data-figma-node-name="%3$s"', $elementClassName, $id, $attributeName);
         $attributes .= ' data-source-node-type="' . $this->sanitizeAttribute($type) . '"';
         $sourceVisualBox = is_array($node['box'] ?? null) ? $node['box'] : array();
@@ -2748,6 +2776,98 @@ final class StaticHtmlEmitter
         return $this->layoutIntentClassifier()->semanticListLooksOrdered($container);
     }
 
+    /** @param array<string, mixed> $node */
+    private function semanticListMarkerMarkup(array $node, string $tag, ?array $parentNode, ?array $grandParentNode): string
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        if ( 'li' !== $tag || null === $parentNode || 'flex' !== ($layout['display'] ?? null) || ! $this->semanticListItemHasNumberedMarker($node) || $this->isChromeListContext($node, $parentNode, $grandParentNode) ) {
+            return '';
+        }
+
+        $itemId = (string) ($node['id'] ?? '');
+        $ordinal = array_search($itemId, array_map(static fn (mixed $item): string => is_array($item) ? (string) ($item['id'] ?? '') : '', $this->childrenInEmissionOrder($parentNode)), true);
+        if ( false === $ordinal ) {
+            return '';
+        }
+
+        return '<span class="figma-list-marker" aria-hidden="true" style="flex:0 0 ' . $this->semanticListMarkerInlineSize($node) . '">' . (string) ($ordinal + 1) . '.</span>';
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListItemHugsVerticalSize(array $node): bool
+    {
+        $layout = is_array($node['layout'] ?? null) ? $node['layout'] : array();
+        return 'HUG' === strtoupper((string) ($layout['sizing_vertical'] ?? ''));
+    }
+
+    /** @param array<string, mixed> $container */
+    private function semanticListHasExplicitMarkers(array $container): bool
+    {
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $layout = is_array($child['layout'] ?? null) ? $child['layout'] : array();
+            if ( 'flex' === ($layout['display'] ?? null) && $this->semanticListItemHasNumberedMarker($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $container */
+    private function semanticListHasVerticallyHuggedItems(array $container): bool
+    {
+        foreach ( $this->nodeList($container) as $child ) {
+            if ( is_array($child) && $this->semanticListItemHugsVerticalSize($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListMarkerInlineSize(array $node): string
+    {
+        $markerX = null;
+        $contentX = null;
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( ! is_array($child) ) {
+                continue;
+            }
+            $box = is_array($child['box'] ?? null) ? $child['box'] : array();
+            $x = isset($box['x']) && is_numeric($box['x']) ? (float) $box['x'] : null;
+            if ( null === $x ) {
+                continue;
+            }
+            if ( $this->isListMarkerTextChild($child) ) {
+                $markerX = $x;
+            } elseif ( null === $contentX || $x < $contentX ) {
+                $contentX = $x;
+            }
+        }
+
+        if ( null !== $markerX && null !== $contentX && $contentX > $markerX ) {
+            return $this->number($contentX - $markerX) . 'px';
+        }
+
+        return '1.5em';
+    }
+
+    /** @param array<string, mixed> $node */
+    private function semanticListItemHasNumberedMarker(array $node): bool
+    {
+        foreach ( $this->nodeList($node) as $child ) {
+            if ( is_array($child) && $this->isListMarkerTextChild($child) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * @param array<string, mixed> $node
      */
@@ -3878,6 +3998,79 @@ final class StaticHtmlEmitter
         $this->linkState->increment('anchors_emitted');
 
         return $this->linkedElementMarkup($element, $href, $type, $buttonLike ? 'figma-link button' : 'figma-link', $buttonLike);
+    }
+
+    /** @return array<string, array{children: array<int, array<string, mixed>>, breakpoint: int, class: string, height: float}> */
+    private function responsiveHeaderVariantProjections(array $frameNode, array $page, array $nodeMap): array
+    {
+        $projections = array();
+        $matcher = new ResponsiveNodeMatcher($this->valueFormatter());
+        $primaryWidth = $this->boxValue($frameNode, 'width') ?? 0.0;
+        foreach ( is_array($page['variants'] ?? null) ? $page['variants'] : array() as $variant ) {
+            $id = is_scalar($variant['frame_id'] ?? null) ? (string) $variant['frame_id'] : '';
+            $width = is_numeric($variant['viewport_width'] ?? null) ? (int) round((float) $variant['viewport_width']) : 0;
+            if ( '' !== $id && $width > 0 && isset($nodeMap[$id]) && is_array($nodeMap[$id]) ) {
+                $breakpoint = $width < $primaryWidth ? (int) round(($primaryWidth + $width) / 2) : $width;
+                $this->collectResponsiveHeaderVariantProjections($frameNode, $nodeMap[$id], null, 0, $breakpoint, $matcher, $projections);
+            }
+        }
+        return $projections;
+    }
+
+    /** @param array<string, array{children: array<int, array<string, mixed>>, breakpoint: int, class: string, height: float}> $projections */
+    private function collectResponsiveHeaderVariantProjections(array $base, array $variant, ?array $parent, int $depth, int $width, ResponsiveNodeMatcher $matcher, array &$projections): void
+    {
+        $baseChildren = array_values(array_filter($this->nodeInspector()->nodeList($base), 'is_array'));
+        $variantChildren = array_values(array_filter($this->nodeInspector()->nodeList($variant), 'is_array'));
+        $id = is_scalar($base['id'] ?? null) ? (string) $base['id'] : '';
+        if ( '' !== $id && $this->layoutIntentClassifier()->chromeGroupRole($base, $parent, $depth) === LayoutIntentClassifier::CHROME_GROUP_ROLE_HEADER && $this->responsiveChildTopology($baseChildren, $matcher) !== $this->responsiveChildTopology($variantChildren, $matcher) ) {
+            $height = $this->boxValue($variant, 'height') ?? 0.0;
+            $projections[$id] = array('children' => $variantChildren, 'breakpoint' => $width, 'class' => 'figma-node-' . $this->slug($id . '-' . (string) ($base['name'] ?? '')), 'height' => $height);
+            return;
+        }
+        $baseCounts = $matcher->siblingSignatureCounts($baseChildren);
+        $baseSources = $matcher->siblingSourceIdentityCounts($baseChildren);
+        $variantCounts = $matcher->siblingSignatureCounts($variantChildren);
+        $variantSources = $matcher->siblingSourceIdentityCounts($variantChildren);
+        $byKey = array();
+        foreach ( $variantChildren as $index => $child ) {
+            foreach ( $matcher->childKeys($child, $index, $variantCounts, $variantSources) as $key ) {
+                $byKey[$key] = $child;
+            }
+        }
+        foreach ( $baseChildren as $index => $child ) {
+            foreach ( $matcher->childKeys($child, $index, $baseCounts, $baseSources) as $key ) {
+                if ( isset($byKey[$key]) ) {
+                    $this->collectResponsiveHeaderVariantProjections($child, $byKey[$key], $base, $depth + 1, $width, $matcher, $projections);
+                    break;
+                }
+            }
+        }
+    }
+
+    /** @param array<int, array<string, mixed>> $children */
+    private function responsiveChildTopology(array $children, ResponsiveNodeMatcher $matcher): array
+    {
+        $counts = $matcher->siblingSignatureCounts($children);
+        $sources = $matcher->siblingSourceIdentityCounts($children);
+        $topology = array();
+        foreach ( $children as $index => $child ) {
+            $topology[] = $matcher->childKeys($child, $index, $counts, $sources)[0] ?? (string) $index;
+        }
+        return $topology;
+    }
+
+    /** @return array<int, string> */
+    private function responsiveHeaderVariantProjectionRules(): array
+    {
+        $rules = array();
+        foreach ( $this->responsiveHeaderVariantProjections as $projection ) {
+            $class = $projection['class'];
+            $rules[] = '.' . $class . '>[data-figma-responsive-variant="header"]{display:none}';
+            $height = $projection['height'] > 0 ? ';height:' . $this->valueFormatter()->number($projection['height']) . 'px;min-height:' . $this->valueFormatter()->number($projection['height']) . 'px' : '';
+            $rules[] = '@media (max-width:' . $projection['breakpoint'] . 'px){.' . $class . '>[data-figma-responsive-variant="header"]{display:contents}.' . $class . '>:not([data-figma-responsive-variant="header"]){display:none}.' . $class . '{width:100%;max-width:100%;' . ltrim($height, ';') . '}}';
+        }
+        return $rules;
     }
 
     /**
