@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+
 /** Shared author-origin importance, specificity, and source-order cascade. */
 final class CssCascade
 {
@@ -43,6 +45,93 @@ final class CssCascade
             }
         }
         return false;
+    }
+
+    /**
+     * Evaluate the supported subset of a CSS @supports condition.
+     *
+     * The tri-state evaluator preserves unknown terms through `not`, `and`, and
+     * `or`; callers only receive true when the condition is positively known.
+     */
+    public static function supportsConditionApplies(string $condition): bool
+    {
+        return true === self::booleanConditionValue($condition, static function (string $term): ?bool {
+            [$property, $value] = array_pad(array_map('trim', explode(':', strtolower($term), 2)), 2, '');
+            return ('display' === $property && in_array($value, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true))
+                || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
+                || ('object-fit' === $property && in_array($value, array( 'cover', 'contain' ), true))
+                ? true
+                : null;
+        });
+    }
+
+    /** @param callable(string): ?bool $termValue */
+    private static function booleanConditionValue(string $condition, callable $termValue): ?bool
+    {
+        $condition = self::stripBooleanOuterParentheses(trim($condition));
+        if ('' === $condition) return null;
+        foreach (array( 'or', 'and' ) as $operator) {
+            $terms = self::splitTopLevelBooleanOperator($condition, $operator);
+            if (null === $terms) return null;
+            if (1 < count($terms)) {
+                $result = 'and' === $operator ? true : false;
+                foreach ($terms as $term) {
+                    $value = self::booleanConditionValue($term, $termValue);
+                    if ('and' === $operator && false === $value) return false;
+                    if ('or' === $operator && true === $value) return true;
+                    if (null === $value) $result = null;
+                }
+                return $result;
+            }
+        }
+        if (1 === preg_match('/^not\b\s*/i', $condition, $match)) {
+            $value = self::booleanConditionValue(substr($condition, strlen($match[0])), $termValue);
+            return null === $value ? null : ! $value;
+        }
+        return $termValue($condition);
+    }
+
+    private static function stripBooleanOuterParentheses(string $condition): string
+    {
+        while (str_starts_with($condition, '(') && str_ends_with($condition, ')')) {
+            $state = CssSyntaxScanner::state();
+            $closing = null;
+            for ($offset = 0, $length = strlen($condition); $offset < $length; ) {
+                $next = CssSyntaxScanner::consume($condition, $offset, $state);
+                if (null === $next) return $condition;
+                if (0 === $state['parens']) { $closing = $next - 1; break; }
+                $offset = $next;
+            }
+            if (strlen($condition) - 1 !== $closing) break;
+            $condition = trim(substr($condition, 1, -1));
+        }
+        return $condition;
+    }
+
+    /** @return list<string>|null */
+    private static function splitTopLevelBooleanOperator(string $condition, string $operator): ?array
+    {
+        $terms = array();
+        $start = 0;
+        $state = CssSyntaxScanner::state();
+        for ($offset = 0, $length = strlen($condition); $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($condition, $offset, $state);
+            if (null === $next) return null;
+            if (CssSyntaxScanner::isTopLevel($state)
+                && 0 === strcasecmp(substr($condition, $offset, strlen($operator)), $operator)
+                && ! preg_match('/[a-z0-9_-]/i', $condition[$offset - 1] ?? '')
+                && ! preg_match('/[a-z0-9_-]/i', $condition[$offset + strlen($operator)] ?? '')
+            ) {
+                $terms[] = trim(substr($condition, $start, $offset - $start));
+                $start = $offset + strlen($operator);
+                $offset = $start;
+                continue;
+            }
+            $offset = $next;
+        }
+        if (! CssSyntaxScanner::isComplete($state)) return null;
+        $terms[] = trim(substr($condition, $start));
+        return $terms;
     }
 
     private static function mediaAlternativeApplies(string $alternative, float $viewportWidth, float $rootFontSize): bool

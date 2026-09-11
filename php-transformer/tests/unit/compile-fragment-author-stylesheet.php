@@ -185,6 +185,91 @@ $assert(
     ! isset($unsupportedCropAttrs['aspectRatio']) && ! isset($unsupportedCropAttrs['scale']),
     'unresolved supports conditions do not flatten into crop declarations'
 );
+$compoundSupportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and (object-fit:cover)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundSupportedCropAttrs = is_array($compoundSupportedCrop->blocks[0]['attrs'] ?? null) ? $compoundSupportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    '5/6' === ($compoundSupportedCropAttrs['aspectRatio'] ?? null) && 'cover' === ($compoundSupportedCropAttrs['scale'] ?? null),
+    'compound known @supports conditions promote crop declarations'
+);
+$compoundUnsupportedCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and not (object-fit:cover)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundUnsupportedCropAttrs = is_array($compoundUnsupportedCrop->blocks[0]['attrs'] ?? null) ? $compoundUnsupportedCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($compoundUnsupportedCropAttrs['aspectRatio']) && ! isset($compoundUnsupportedCropAttrs['scale']),
+    'compound known-false @supports conditions do not promote crop declarations'
+);
+$compoundUnknownCrop = $compiler->compileFragment(
+    $arbitraryFragment,
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@supports ((display:grid) and (unknown-crop-feature:value)){.n3x img{aspect-ratio:5 / 6;object-fit:cover}}' )
+);
+$compoundUnknownCropAttrs = is_array($compoundUnknownCrop->blocks[0]['attrs'] ?? null) ? $compoundUnknownCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($compoundUnknownCropAttrs['aspectRatio']) && ! isset($compoundUnknownCropAttrs['scale']),
+    'compound unknown @supports conditions fail closed rather than promoting crop declarations'
+);
+$zeroHeightCrop = $compiler->compileFragment(
+    '<img src="https://example.com/zero-height.jpg" alt="Zero height" width="100" height="0" style="aspect-ratio:4/3;object-fit:cover">',
+    'design/home.html',
+    'html'
+);
+$zeroHeightCropAttrs = is_array($zeroHeightCrop->blocks[0]['attrs'] ?? null) ? $zeroHeightCrop->blocks[0]['attrs'] : array();
+$assert(
+    '100px' === ($zeroHeightCropAttrs['width'] ?? null) && '0px' === ($zeroHeightCropAttrs['height'] ?? null)
+        && ! isset($zeroHeightCropAttrs['aspectRatio']) && ! isset($zeroHeightCropAttrs['scale']),
+    'zero HTML height survives serialization without crop promotion or division'
+);
+$zeroWidthCrop = $compiler->compileFragment(
+    '<img src="https://example.com/zero-width.jpg" alt="Zero width" width="0" height="100" style="aspect-ratio:4/3;object-fit:cover">',
+    'design/home.html',
+    'html'
+);
+$zeroWidthCropAttrs = is_array($zeroWidthCrop->blocks[0]['attrs'] ?? null) ? $zeroWidthCrop->blocks[0]['attrs'] : array();
+$assert(
+    '0px' === ($zeroWidthCropAttrs['width'] ?? null) && '100px' === ($zeroWidthCropAttrs['height'] ?? null)
+        && ! isset($zeroWidthCropAttrs['aspectRatio']) && ! isset($zeroWidthCropAttrs['scale']),
+    'zero HTML width survives serialization without manufactured crop geometry'
+);
+$signedZeroCssCrop = $compiler->compileFragment(
+    '<img class="signed-zero-css" src="https://example.com/signed-zero-css.jpg" alt="Signed zero CSS">',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.signed-zero-css{width:+0;height:+0px;aspect-ratio:4/3;object-fit:cover}' )
+);
+$signedZeroCssCropAttrs = is_array($signedZeroCssCrop->blocks[0]['attrs'] ?? null) ? $signedZeroCssCrop->blocks[0]['attrs'] : array();
+$assert(
+    ! isset($signedZeroCssCropAttrs['aspectRatio']) && ! isset($signedZeroCssCropAttrs['scale']),
+    'signed zero CSS dimensions fail closed for crop promotion'
+);
+$negativeHtmlDimensionCrop = null;
+$negativeHtmlDimensionError = null;
+try {
+    $negativeHtmlDimensionCrop = $compiler->compileFragment(
+        '<img src="https://example.com/negative-width.jpg" alt="Negative width" width="-100" height="100" style="aspect-ratio:4/3;object-fit:cover">',
+        'design/home.html',
+        'html'
+    );
+} catch (\Throwable $error) {
+    $negativeHtmlDimensionError = $error;
+}
+$negativeHtmlDimensionCropAttrs = is_array($negativeHtmlDimensionCrop?->blocks[0]['attrs'] ?? null) ? $negativeHtmlDimensionCrop->blocks[0]['attrs'] : array();
+$assert(
+    null === $negativeHtmlDimensionError
+        && ! isset($negativeHtmlDimensionCropAttrs['width'])
+        && ! isset($negativeHtmlDimensionCropAttrs['aspectRatio'])
+        && ! isset($negativeHtmlDimensionCropAttrs['scale']),
+    'negative HTML dimensions are omitted before core/image serialization and fail closed for crop promotion without throwing'
+);
 
 /**
  * Resolve the first block's attributes for a fragment compiled against $css.

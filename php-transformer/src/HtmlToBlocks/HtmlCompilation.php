@@ -12180,6 +12180,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array();
         }
 
+        // A zero authored box is serializable but core image crop attributes
+        // would manufacture positive geometry. Negative HTML dimensions are not
+        // serializable by core/image and are discarded before block creation.
+        // In either case, fail closed rather than promoting the crop.
+        if ($this->imageHasNonPositiveDimension($image, 'width') || $this->imageHasNonPositiveDimension($image, 'height')) {
+            return array();
+        }
+
         if ( '' === $aspectRatio || $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio) ) {
             return (($declarations['object-fit']['inline'] ?? false) === true) ? array( 'scale' => $scale ) : array();
         }
@@ -12236,11 +12244,29 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $width, $widthMatch)
             || ! preg_match('/^(\d*\.?\d+)([a-z]+)$/i', $height, $heightMatch)
             || strtolower($widthMatch[2]) !== strtolower($heightMatch[2])
-            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio, $ratioMatch)) {
+            || ! preg_match('#^(\d*\.?\d+)(?:\s*/\s*(\d*\.?\d+))?$#', $aspectRatio, $ratioMatch)
+            || 0.0 >= (float) $widthMatch[1]
+            || 0.0 >= (float) $heightMatch[1]
+            || 0.0 >= (float) $ratioMatch[1]
+            || 0.0 >= (float) ($ratioMatch[2] ?? '1')) {
             return false;
         }
         $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
         return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
+    }
+
+    private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
+    {
+        $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
+        $value = $inline;
+        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+            $value = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->presentationDeclarations($image)[ $property ] ?? '')));
+        }
+        if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+            $value = trim($this->attr($image, $property));
+        }
+        return 1 === preg_match('/^[+-]?(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)
+            && 0.0 >= (float) $value;
     }
 
     /**
