@@ -1577,7 +1577,7 @@ final class WordPressSitePlan
         foreach ($assets as $asset) if ('css' === $asset['kind'] && 'frontend' !== ($asset['stylesheet_target'] ?? 'both')) {
             $partSlugs = array();
             foreach ($asset['scopes'] as $scope) foreach ($partSlugsBySource[(string) ($scope['source_path'] ?? '')] ?? array() as $slug) $partSlugs[$slug] = true;
-            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
+            $editorStyles[] = array_filter(array('target_path' => $asset['target_path'], 'content_hash' => $asset['content_hash'], 'scopes' => $asset['scopes'], 'template_part_slugs' => array_keys($partSlugs), 'media' => $asset['media'] ?? null, 'author_css' => 'engine-support' !== ($asset['source'] ?? ''), 'editor_only' => 'editor' === ($asset['stylesheet_target'] ?? 'both')), static fn(mixed $value): bool => null !== $value);
         }
         if (array() !== $editorStyles) {
             $lines[] = '$blocks_engine_presentation_styles = ' . var_export($editorStyles, true) . ';';
@@ -1592,8 +1592,13 @@ final class WordPressSitePlan
             $lines[] = "};";
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( empty( \$style['author_css'] ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
+            $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, WP_Block_Editor_Context \$context ) use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): array {";
+            $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' );";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) { if ( empty( \$style['author_css'] ) || ! \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) continue; \$path = get_theme_file_path( \$style['target_path'] ); if ( ! is_file( \$path ) || false === ( \$css = file_get_contents( \$path ) ) ) continue; if ( '' !== trim( (string) ( \$style['media'] ?? '' ) ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => \$css, 'baseURL' => get_theme_file_uri( \$style['target_path'] ), '__unstableType' => 'theme', 'isGlobalStyles' => false ); }";
+            $lines[] = "    return \$settings;";
+            $lines[] = "}, 20, 2 );";
         }
         $inlineShellSlugs = array_values(array_map(static fn(array $part): string => (string) $part['slug'], array_filter($parts, static fn(array $part): bool => 'inline_shared_shell' === ($part['placement']['kind'] ?? null))));
         if (array() !== $inlineShellSlugs) {
