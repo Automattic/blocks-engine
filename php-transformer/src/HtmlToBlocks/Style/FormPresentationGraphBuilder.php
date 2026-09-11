@@ -445,10 +445,9 @@ final class FormPresentationGraphBuilder
     /** @param list<array<string, mixed>> $rules */
     private function styles(array $facts, DOMElement $element, ?array $condition, array $rules): array
     {
-        $customProperties = $this->cascadedCustomProperties($element, $condition, $rules);
         $result = array();
         foreach ( $facts as $property => $fact ) {
-            $value = $this->expandCustomProperties($fact['value'], $customProperties);
+            $value = FormCustomPropertyResolver::resolve($fact['value'], $element, $condition, $rules);
             if ( null !== $this->resolveValue && str_contains($value, 'var(') ) $value = ($this->resolveValue)($element, $value);
             $result[self::key($property)] = $value;
         }
@@ -456,45 +455,6 @@ final class FormPresentationGraphBuilder
         return $result;
     }
 
-    /**
-     * Resolve source custom properties at the control's cascade scope. Conditional
-     * presentation variants only admit declarations from their own condition, so a
-     * mobile token cannot replace the desktop value in a separate emitted rule.
-     *
-     * @param list<array<string, mixed>> $rules
-     * @return array<string, string>
-     */
-    private function cascadedCustomProperties(DOMElement $element, ?array $condition, array $rules): array
-    {
-        $properties = array();
-        $ancestors = array();
-        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) $ancestors[] = $current;
-        foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $rules as $rule ) {
-                if ( ( null !== ($rule['condition'] ?? null) && ($rule['condition'] ?? null) !== $condition ) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) continue;
-                foreach ( $rule['declarations'] as $declaration ) {
-                    if ( ! str_starts_with($declaration['name'], '--') ) continue;
-                    $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                    $fact = array( 'value' => $value, 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => 1 === preg_match('/\s*!important\s*$/i', $declaration['value']) );
-                    CssCascade::apply($properties, $declaration['name'], $fact);
-                }
-            }
-        }
-        return array_map(static fn (array $fact): string => $fact['value'], $properties);
-    }
-
-    /** @param array<string, string> $customProperties */
-    private function expandCustomProperties(string $value, array $customProperties): string
-    {
-        for ( $pass = 0; $pass < 5 && str_contains($value, 'var('); ++$pass ) {
-            $expanded = preg_replace_callback('/var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([^()]*))?\)/', static function (array $matches) use ($customProperties): string {
-                return $customProperties[$matches[1]] ?? ( isset($matches[2]) ? trim($matches[2]) : $matches[0] );
-            }, $value);
-            if ( ! is_string($expanded) || $expanded === $value ) break;
-            $value = $expanded;
-        }
-        return trim($value);
-    }
     private static function key(string $property): string { return str_replace('-', '_', $property); }
     /** @return array<string, int> */
     private function intrinsicSize(DOMElement $svg): array { $width = $this->dimension(SourceDom::attr($svg, 'width')); $height = $this->dimension(SourceDom::attr($svg, 'height')); return null !== $width && null !== $height ? array( 'width' => $width, 'height' => $height ) : array(); }

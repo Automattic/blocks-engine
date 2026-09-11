@@ -2613,6 +2613,11 @@ final class ArtifactCompiler
                 if ( is_array($file) && ! isset($seenPaths[$file['path']]) ) {
                     $assets[] = array( 'path' => $file['path'], 'source_path' => $file['source_path'] ?? $file['path'], 'content' => $file['content'], 'source_hash' => (string) ($file['provenance']['hash'] ?? hash('sha256', $file['content']) ), 'media' => (string) ($file['media'] ?? ''), 'type' => (string) ($file['type'] ?? '') );
                     $seenPaths[$file['path']] = true;
+                } elseif ( '' !== ($content = trim(html_entity_decode($tagRecord['content'], ENT_QUOTES | ENT_HTML5, 'UTF-8'))) ) {
+                    // Generated inline-style files can be omitted at the artifact
+                    // file limit. Their source HTML was accepted independently,
+                    // so retain the authored stylesheet for source analysis.
+                    $assets[] = array( 'path' => 'inline-style-' . $inlineIndex . '.css', 'source_path' => 'inline-style', 'content' => $content, 'source_hash' => hash('sha256', $content), 'media' => $this->htmlAttribute($attributes, 'media'), 'type' => $this->htmlAttribute($attributes, 'type') );
                 }
                 continue;
             }

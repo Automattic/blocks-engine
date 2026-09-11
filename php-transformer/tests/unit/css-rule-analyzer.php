@@ -78,6 +78,28 @@ $commentInput = $commentDom->getElementsByTagName('input')->item(0);
 $commentMatch = CssSelectorMatcher::matches($commentInput, $commentRule['parsed_selector'] ?? array());
 $assert('.field input' === ($commentRule['selector'] ?? null) && $commentMatch['supported'] && $commentMatch['matches'], 'comments separating identifier-like selector tokens retain descendant boundaries');
 
+$sourceMapCommentAnalysis = (new CssRuleAnalyzer())->analyze(
+    array( array( 'content' => ".field{display:grid}\n/*# sourceMappingURL=site.css.map */", 'source_path' => 'source-map.css', 'source_hash' => hash('sha256', 'source-map.css') ) ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4
+);
+$assert(1 === count($sourceMapCommentAnalysis['rules']) && ! in_array('malformed_stylesheet:source-map.css', $sourceMapCommentAnalysis['diagnostics'], true), 'accepts a complete trailing source-map comment as browser-valid stylesheet trivia');
+
+$unterminatedCommentAnalysis = (new CssRuleAnalyzer())->analyze(
+    array( array( 'content' => '.field{display:grid}/* source map', 'source_path' => 'unterminated.css', 'source_hash' => hash('sha256', 'unterminated.css') ) ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4
+);
+$assert(in_array('malformed_stylesheet:unterminated.css', $unterminatedCommentAnalysis['diagnostics'], true), 'retains malformed stylesheet diagnostics for unterminated trailing comments');
+
 $unrelatedCss = '';
 for ( $index = 0; $index < 1200; ++$index ) {
     $unrelatedCss .= '.unrelated-' . $index . '{display:grid}';
