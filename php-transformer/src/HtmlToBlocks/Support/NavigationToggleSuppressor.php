@@ -766,8 +766,17 @@ final class NavigationToggleSuppressor
         }
 
         $navigationRoot = $this->navigationLandmarkAncestor($navigation) ?? $navigation;
+        // A captured details disclosure owns its summary and panel navigation.
+        // It remains an independent mobile surface, rather than evidence that a
+        // sibling desktop navigation should be replaced by Core's overlay toggle.
+        if ( $this->isInsideCapturedDisclosure($navigationRoot) ) {
+            return false;
+        }
         $signature = $this->sourceNavigationSignature($navigationRoot);
         if ( '' === $signature ) {
+            return false;
+        }
+        if ( $this->hasCapturedDisclosureNavigation($document, $signature) ) {
             return false;
         }
 
@@ -775,6 +784,7 @@ final class NavigationToggleSuppressor
             if ( ! $candidate instanceof DOMElement
                 || $candidate->isSameNode($navigationRoot)
                 || $this->isProjectedNavigationSuppressed($candidate)
+                || $this->isInsideCapturedDisclosure($candidate)
                 || SourceDom::elementContains($navigationRoot, $candidate)
                 || SourceDom::elementContains($candidate, $navigationRoot)
             ) {
@@ -783,6 +793,34 @@ final class NavigationToggleSuppressor
             if ( $signature === $this->sourceNavigationSignature($candidate)
                 && ($this->hasMobileNavigationSignal($navigationRoot) || $this->hasMobileNavigationSignal($candidate))
             ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasCapturedDisclosureNavigation(DOMDocument $document, string $signature): bool
+    {
+        foreach ( $document->getElementsByTagName('details') as $disclosure ) {
+            if ( ! $disclosure instanceof DOMElement || ! $this->isCapturedDialogControl($disclosure) ) {
+                continue;
+            }
+
+            foreach ( $disclosure->getElementsByTagName('nav') as $candidate ) {
+                if ( $candidate instanceof DOMElement && $signature === $this->sourceNavigationSignature($candidate) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private function isInsideCapturedDisclosure(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 'details' === strtolower($node->tagName) && $this->isCapturedDialogControl($node) ) {
                 return true;
             }
         }

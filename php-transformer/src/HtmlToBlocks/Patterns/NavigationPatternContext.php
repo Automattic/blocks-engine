@@ -12,6 +12,7 @@ final class NavigationPatternContext
     private readonly ?Closure $runtimeDomTarget;
     private readonly Closure $underlineColor;
     private readonly Closure $resolvedStyle;
+    private readonly ?Closure $resolvedDisplay;
     private readonly ?Closure $colorInteractionStates;
     private readonly ?Closure $overlayMenu;
     private readonly ?Closure $responsiveToggleMarker;
@@ -23,6 +24,7 @@ final class NavigationPatternContext
      * @param callable(DOMElement): bool|null $runtimeDomTarget
      * @param callable(DOMElement, DOMElement): string $underlineColor
      * @param callable(DOMElement): string $resolvedStyle
+     * @param callable(DOMElement): string|null $resolvedDisplay
      * @param callable(DOMElement): list<string>|null $colorInteractionStates
      * @param callable(DOMElement): string|null $overlayMenu
      * @param callable(DOMElement): string|null $responsiveToggleMarker
@@ -39,7 +41,8 @@ final class NavigationPatternContext
         ?callable $responsiveToggleMarker = null,
         ?callable $linkIconMarker = null,
         ?callable $inheritedPresentation = null,
-        ?callable $labelPresentationMarkers = null
+        ?callable $labelPresentationMarkers = null,
+        ?callable $resolvedDisplay = null
     ) {
         $this->linkIconMarker         = null === $linkIconMarker ? null : Closure::fromCallable($linkIconMarker);
         $this->inheritedPresentation  = null === $inheritedPresentation ? null : Closure::fromCallable($inheritedPresentation);
@@ -47,6 +50,7 @@ final class NavigationPatternContext
         $this->runtimeDomTarget       = null === $runtimeDomTarget ? null : Closure::fromCallable($runtimeDomTarget);
         $this->underlineColor         = Closure::fromCallable($underlineColor);
         $this->resolvedStyle          = Closure::fromCallable($resolvedStyle);
+        $this->resolvedDisplay        = null === $resolvedDisplay ? null : Closure::fromCallable($resolvedDisplay);
         $this->colorInteractionStates = null === $colorInteractionStates ? null : Closure::fromCallable($colorInteractionStates);
         $this->overlayMenu            = null === $overlayMenu ? null : Closure::fromCallable($overlayMenu);
         $this->responsiveToggleMarker = null === $responsiveToggleMarker ? null : Closure::fromCallable($responsiveToggleMarker);
@@ -76,6 +80,11 @@ final class NavigationPatternContext
     public function resolvedStyle(DOMElement $element): string
     {
         return ($this->resolvedStyle)($element);
+    }
+
+    public function resolvedDisplay(DOMElement $element): string
+    {
+        return null === $this->resolvedDisplay ? '' : ($this->resolvedDisplay)($element);
     }
 
     /** @return list<string> */

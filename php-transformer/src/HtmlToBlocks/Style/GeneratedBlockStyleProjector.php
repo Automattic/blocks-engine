@@ -44,7 +44,9 @@ final class GeneratedBlockStyleProjector
                 }
             }
         }
-        if ( 'core/navigation' === $name && is_array($fallback['spacing'] ?? null) ) {
+        if ( 'core/navigation' === $name
+            && ! in_array('blocks-engine-list-navigation', $classes, true)
+            && is_array($fallback['spacing'] ?? null) ) {
             $declarations = $this->styleResolver->styleAttributeMapper()->serialize(array( 'spacing' => $fallback['spacing'] ))['style'];
             foreach ( $classes as $class ) {
                 if ( '' !== $declarations && 'blocks-engine-list-navigation' !== $class && ! str_starts_with($class, 'blocks-engine-') ) {

@@ -278,7 +278,7 @@ final class SourceElementClassifier
     public function isVisibleEmptyVisualPaint(string $value): bool
     {
         $value = strtolower(trim($value));
-        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
+        if ( '' === $value || 'none' === $value || 'transparent' === $value || preg_match('/^0(?:px|%)?(?:\s+0(?:px|%)?)?$/', $value) || preg_match('/^rgba?\([^)]*,\s*0(?:\.0+)?\s*\)$/', $value) ) {
             return false;
         }
 

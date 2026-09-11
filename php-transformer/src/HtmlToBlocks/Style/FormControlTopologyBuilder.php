@@ -53,6 +53,38 @@ final class FormControlTopologyBuilder
     }
 
     /**
+     * Return each control's nearest-to-farthest wrapper ancestors that contain no
+     * other form controls. Labels and other non-controls intentionally do not
+     * make a wrapper shared.
+     *
+     * @return array<int, list<DOMElement>>
+     */
+    public function exclusiveWrapperAncestors(DOMElement $form): array
+    {
+        $result = array();
+        $controls = $this->controls($form);
+        $owners = array();
+        foreach ( $controls as $control ) {
+            $depth = 0;
+            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($form) && $depth < self::MAX_DEPTH; $ancestor = $ancestor->parentNode, ++$depth ) {
+                $path = $ancestor->getNodePath();
+                $owners[$path] = ($owners[$path] ?? 0) + 1;
+            }
+        }
+        foreach ( $controls as $index => $control ) {
+            $ancestors = array();
+            $depth = 0;
+            for ( $ancestor = $control->parentNode; $ancestor instanceof DOMElement && ! $ancestor->isSameNode($form) && $depth < self::MAX_DEPTH; $ancestor = $ancestor->parentNode, ++$depth ) {
+                if ( 1 === ($owners[$ancestor->getNodePath()] ?? 0) ) {
+                    $ancestors[] = $ancestor;
+                }
+            }
+            $result[$index] = $ancestors;
+        }
+        return $result;
+    }
+
+    /**
      * @param array<string, int> $controlIndexes
      * @param array<string, bool> $relevantElements
      * @param array<int, array<string, mixed>> $nodes

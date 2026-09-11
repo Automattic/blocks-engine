@@ -121,14 +121,8 @@ final class FormControlMetadataBuilder
 
         if ( $control->hasAttribute('required') || 'true' === strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
             $metadata['required'] = true;
-            if ( $labelElement instanceof DOMElement ) {
-                foreach ( $labelElement->getElementsByTagName('span') as $marker ) {
-                    $text = trim($marker->textContent ?? '');
-                    if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) ) {
-                        $metadata['required_text'] = $text;
-                        break;
-                    }
-                }
+            if ( ($marker = $this->requiredMarker($control)) instanceof DOMElement ) {
+                $metadata['required_text'] = trim($marker->textContent ?? '');
             }
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
@@ -201,6 +195,25 @@ final class FormControlMetadataBuilder
             }
         }
 
+        return null;
+    }
+
+    /** The explicit decorative required marker also supplies provider presentation identity. */
+    public function requiredMarker(DOMElement $control): ?DOMElement
+    {
+        if ( ! $control->hasAttribute('required') && 'true' !== strtolower(trim(SourceDom::attr($control, 'aria-required'))) ) {
+            return null;
+        }
+        $label = $this->labelElement($control);
+        if ( ! $label instanceof DOMElement ) {
+            return null;
+        }
+        foreach ( $label->getElementsByTagName('span') as $marker ) {
+            $text = trim($marker->textContent ?? '');
+            if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden')) && preg_match('/^\*{1,4}$/D', $text) ) {
+                return $marker;
+            }
+        }
         return null;
     }
 

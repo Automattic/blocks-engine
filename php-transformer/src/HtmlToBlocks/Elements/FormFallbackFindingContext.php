@@ -18,6 +18,7 @@ final class FormFallbackFindingContext
      * @param Closure(DOMElement): array<string, mixed>                                             $classifyFallbackSubtree
      * @param Closure(array<string, mixed>, string, array<int, string>): array<string, mixed>       $blockBinding
      * @param (Closure(DOMElement, string): string)|null                                            $resolvePresentationValue
+     * @param (Closure(DOMElement): string)|null                                                    $sanitizeInlineSvgMarkup
      */
     public function __construct(
         private readonly HtmlTransformerSession $session,
@@ -26,7 +27,8 @@ final class FormFallbackFindingContext
         private readonly Closure $sourceContext,
         private readonly Closure $classifyFallbackSubtree,
         private readonly Closure $blockBinding,
-        private readonly ?Closure $resolvePresentationValue = null
+        private readonly ?Closure $resolvePresentationValue = null,
+        private readonly ?Closure $sanitizeInlineSvgMarkup = null
     ) {
     }
 
@@ -78,6 +80,11 @@ final class FormFallbackFindingContext
     public function resolvePresentationValue(DOMElement $element, string $value): string
     {
         return null !== $this->resolvePresentationValue ? ($this->resolvePresentationValue)($element, $value) : $value;
+    }
+
+    public function sanitizeInlineSvgMarkup(DOMElement $element): string
+    {
+        return null !== $this->sanitizeInlineSvgMarkup ? ($this->sanitizeInlineSvgMarkup)($element) : '';
     }
 
     /** @param array<string, mixed> $finding @return array<string, mixed> */
