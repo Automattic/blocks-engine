@@ -61,6 +61,16 @@ $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding
 $controlCss = $css($controls);
 $assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
 
+$sharedReset = $transform('<style>div,a,button{padding:0}.box{padding-left:24px}</style><div class="box"><a class="cta" href="/go" style="padding:1px;background:#000">Go</a></div>');
+$sharedResetCss = $css($sharedReset);
+$assert(
+    str_contains($sharedResetCss, 'padding:0!important')
+        && str_contains($sharedResetCss, 'padding-left:24px')
+        && 1 === preg_match('/wp-block-button__link\)\{[^}]*padding:0!important/', $sharedResetCss)
+        && ! preg_match('/blocks-engine-source-div-[^\{]*wp-block-button__link[^\{]*\{[^}]*padding:0!important/', $sharedResetCss),
+    'button-link !important padding stays on the native link and does not poison a shared type reset'
+);
+
 $dormantAncestorState = $transform('<style>.nav.scrolled .nav-logo{color:#211}.nav.scrolled .nav-logo:hover{color:#a42}</style><main class="nav"><button class="nav-logo" style="padding:1px;background:#eee">Brand</button><p>Copy</p></main>');
 $dormantAncestorStateCss = $css($dormantAncestorState);
 $assert(str_contains($dormantAncestorStateCss, '.nav.scrolled :where(.blocks-engine-control-') && 2 === substr_count($dormantAncestorStateCss, '> :where(.wp-block-button__link)') && str_contains($dormantAncestorStateCss, ':hover'), 'dormant ancestor-state selectors retain their runtime state while projecting native control leaves');

@@ -125,13 +125,22 @@ final class AuthorStylesheetProjector
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
         }
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
+        $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
+        $nonButtonLinkRule = '';
+        if ( $body !== $authoredBody ) {
+            $partition = $this->partitionProjectedButtonLinkSelectors($projectedPrelude);
+            if ( is_array($partition) ) {
+                [ $projectedPrelude, $nonButtonPrelude ] = $partition;
+                $nonButtonLinkRule = $nonButtonPrelude . '{' . $authoredBody . '}';
+            }
+        }
         $wrapperPrelude = $this->buttonPresentationWrapperPrelude($prelude, $context);
         if ( '' === $wrapperPrelude ) {
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude, $context);
             if ( '' === $directWrapperPrelude ) {
                 $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
-                return null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}';
+                return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' );
             }
             [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
             $nonButtonGeometryPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $directWrapperPrelude);
@@ -140,21 +149,21 @@ final class AuthorStylesheetProjector
                 ? ''
                 : $nonButtonGeometryPrelude . '{' . implode(';', $nonButtonGeometryDeclarations) . '}';
             if ( '' === $geometry ) {
-                return ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry;
+                return $nonButtonLinkRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry;
             }
-            return $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry);
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry);
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
         $nonButtonLayoutPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $wrapperPrelude);
         $nonButtonLayout = '' === $nonButtonLayoutPrelude ? '' : $nonButtonLayoutPrelude . '{' . $layout . '}';
         if ( '' === $layout ) {
-            return '' === $control ? '' : $projectedPrelude . '{' . $control . '}';
+            return $nonButtonLinkRule . ( '' === $control ? '' : $projectedPrelude . '{' . $control . '}' );
         }
         if ( '' === $control ) {
-            return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout);
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout);
         }
-        return $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout);
+        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout);
     }
 
     /**
@@ -249,6 +258,37 @@ final class AuthorStylesheetProjector
             $declarations[] = $name . ':' . $value . '!important';
         }
         return implode(';', $declarations);
+    }
+
+    /**
+     * Split a projected selector list that mixed native button links with other
+     * source tags. Button-link !important must not ride along onto those tags:
+     * a shared `div,a,button{padding:0}` reset would otherwise beat later
+     * authored padding on the non-button matches.
+     *
+     * @return array{0: string, 1: string}|null
+     */
+    private function partitionProjectedButtonLinkSelectors(string $projectedPrelude): ?array
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($projectedPrelude);
+        if ( null === $selectors ) {
+            return null;
+        }
+
+        $buttonSelectors = array();
+        $otherSelectors = array();
+        foreach ( $selectors as $selector ) {
+            if ( str_contains($selector, '.wp-block-button__link') ) {
+                $buttonSelectors[] = $selector;
+            } else {
+                $otherSelectors[] = $selector;
+            }
+        }
+        if ( array() === $buttonSelectors || array() === $otherSelectors ) {
+            return null;
+        }
+
+        return array( implode(',', $buttonSelectors), implode(',', $otherSelectors) );
     }
 
     private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool
