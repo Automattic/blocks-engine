@@ -95,6 +95,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
             : $this->navigationContainerAttributes($element, $presentationAttributes);
+        $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
@@ -600,6 +601,30 @@ final class NavigationPattern implements PatternRecognizerInterface
         $style = $navigationContext->resolvedStyle($element);
         if ( 1 === preg_match('/(?:^|;)\s*display\s*:\s*inline(?:-block|-flex)?(?:\s*!important)?\s*(?:;|$)/i', $style) ) {
             return $this->withClassName($attrs, self::INLINE_NAVIGATION_CLASS);
+        }
+
+        return $attrs;
+    }
+
+    /** @param array<string, mixed> $attrs @return array<string, mixed> */
+    private function withResolvedNonFlexNavigationLayout(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext || is_array($attrs['layout'] ?? null) ) {
+            return $attrs;
+        }
+
+        $display = '';
+        foreach ( CssValueSplitter::splitTopLevel($navigationContext->resolvedStyle($element), array( ';' )) as $declaration ) {
+            $separator = strpos($declaration, ':');
+            if ( false !== $separator && 'display' === strtolower(trim(substr($declaration, 0, $separator))) ) {
+                $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', substr($declaration, $separator + 1)) ?? ''));
+            }
+        }
+
+        if ( '' !== $display && ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            // core/navigation defaults to flex when layout is omitted. Core maps
+            // the explicit default layout to is-layout-flow at render time.
+            $attrs['layout'] = array( 'type' => 'default' );
         }
 
         return $attrs;
