@@ -43,6 +43,9 @@ final class FormPresentationGraphBuilder
         'border-radius', 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius',
         'box-sizing', 'color', 'display', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight',
         'height', 'letter-spacing', 'line-height', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+        // Margin carries the same logical longhands padding already reports, so a
+        // source that spaces an element with `margin-inline-start` keeps that box.
+        'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end',
         'max-width', 'min-height', 'min-width', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
         'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',

@@ -48,7 +48,11 @@ final class CssRuleAnalyzer
             }
         }
 
-        if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
+        // A document's inline CSS participates in the same cascade as its linked
+        // stylesheets, so it is analyzed alongside them rather than only when a
+        // document has none. It is analyzed last, which is where a source's own
+        // inline rules sit relative to the sheets it links.
+        if ( ! $scanLimitReached && '' !== trim($inlineCss) ) {
             $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors);
         }
 
