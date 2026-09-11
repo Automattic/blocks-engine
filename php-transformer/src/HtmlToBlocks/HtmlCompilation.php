@@ -2076,6 +2076,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // became 155x82 and menu 1005 at x=265. `max-width:100%` keeps the
             // block shrinkable, so a narrow viewport still hands over to core's
             // responsive overlay rather than overflowing the page.
+            // core's navigation renderer repeats the block's class list on the
+            // inner container, so a single authored box is painted twice: once
+            // on the <nav> and again on its <ul>. Measured on busybearscleaning
+            // at 1440px, an authored 19.3517px padding produced a 105.78px menu
+            // against the source's 68.09px. The source declared that box on one
+            // element, so the repeated container copy is neutralized and the
+            // authored geometry keeps its single application.
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container{padding:0;margin:0;border-width:0}';
             $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
