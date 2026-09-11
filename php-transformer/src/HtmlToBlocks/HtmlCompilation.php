@@ -2560,7 +2560,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             new NavigationPatternContext(
                 $includeRuntimeDomTarget ? fn (DOMElement $sourceElement): bool => $this->runtimeIslands->isRuntimeDomTarget($sourceElement) : null,
                 fn (DOMElement $item, DOMElement $anchor): string => $this->navigationUnderlineColor($item, $anchor),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement)),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement), $sourceElement),
                 fn (DOMElement $sourceElement): array => $this->navigationStyleProjector->navigationColorInteractionStates($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->navigationToggleSuppressor->navigationOverlayMenu($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->responsiveNavigationToggleMarker($sourceElement),
@@ -2569,7 +2569,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
                 },
-                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement)
+                fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolvedConditionalDisplay($sourceElement)
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),

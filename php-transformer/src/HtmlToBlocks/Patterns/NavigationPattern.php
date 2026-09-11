@@ -613,13 +613,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             return $attrs;
         }
 
-        $display = '';
-        foreach ( CssValueSplitter::splitTopLevel($navigationContext->resolvedStyle($element), array( ';' )) as $declaration ) {
-            $separator = strpos($declaration, ':');
-            if ( false !== $separator && 'display' === strtolower(trim(substr($declaration, 0, $separator))) ) {
-                $display = strtolower(trim(preg_replace('/\s*!important\s*$/i', '', substr($declaration, $separator + 1)) ?? ''));
-            }
-        }
+        $display = strtolower(trim($navigationContext->resolvedDisplay($element)));
 
         if ( '' !== $display && ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             // core/navigation defaults to flex when layout is omitted. Core maps

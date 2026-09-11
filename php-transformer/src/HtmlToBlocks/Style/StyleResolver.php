@@ -404,6 +404,21 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Resolve a source display declaration with the conditional custom-property
+     * scope that a responsive capture applies to the rendered element.
+     */
+    public function resolvedConditionalDisplay(DOMElement $element): string
+    {
+        $display = $this->conditionalDeclaration($element, 'display');
+        if ( '' === $display ) {
+            $display = (string) ($this->cssDeclarations($this->specificityResolvedPresentationStyle($element))['display'] ?? '');
+        }
+
+        $display = trim(preg_replace('/\s*!important\s*$/i', '', $display) ?? $display);
+        return $this->expandCssVariableReferences($display, $this->conditionalCascadedCustomProperties($element));
+    }
+
+    /**
      * Value a rule states for this element that the matcher cannot evaluate.
      *
      * Selectors using `:is`, `:where`, `:not` or `:has` are not matched
@@ -2443,8 +2458,13 @@ final class StyleResolver implements ElementPresentationResolver
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                         );
                     }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && array() !== $declarations) {
-                        $analysis['conditional'][] = array('selector' => $selector, 'declarations' => $declarations, 'conditions' => $conditions);
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
+                        $analysis['conditional'][] = array(
+                            'selector' => $selector,
+                            'declarations' => $declarations,
+                            'cascadedDeclarations' => $cascadedValueDeclarations,
+                            'conditions' => $conditions,
+                        );
                     }
                     if ($supportedRestingSelector) {
                         foreach ($imageEntries as $entry) {
@@ -3139,6 +3159,30 @@ final class StyleResolver implements ElementPresentationResolver
             foreach ( $this->matchedCascadedDeclarations($ancestor) as $name => $propertyValue ) {
                 if ( str_starts_with($name, '--') ) {
                     $customProperties[$name] = $propertyValue;
+                }
+            }
+        }
+
+        return $customProperties;
+    }
+
+    /** @return array<string, string> */
+    private function conditionalCascadedCustomProperties(DOMElement $element): array
+    {
+        $customProperties = $this->cascadedCustomProperties($element);
+        $ancestors = array();
+        for ( $current = $element; $current instanceof DOMElement; $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null ) {
+            $ancestors[] = $current;
+        }
+        foreach ( array_reverse($ancestors) as $ancestor ) {
+            foreach ( $this->styleRuleCandidates($ancestor, 'conditional') as $rule ) {
+                if ( ! $this->matchesCssSelector($ancestor, (string) ($rule['selector'] ?? '')) ) {
+                    continue;
+                }
+                foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $value ) {
+                    if ( str_starts_with((string) $name, '--') ) {
+                        $customProperties[(string) $name] = (string) $value;
+                    }
                 }
             }
         }

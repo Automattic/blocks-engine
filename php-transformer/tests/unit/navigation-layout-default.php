@@ -28,6 +28,18 @@ $serialized = (string) ($block['serialized_blocks'] ?? '');
 $assert('default' === ($attrs['layout']['type'] ?? null), 'a resolver-proven block navigation records the core flow layout');
 $assert(str_contains($serialized, '"layout":{"type":"default"}'), 'the flow layout survives canonical navigation serialization', $serialized);
 
+$conditional = ( new HtmlTransformer() )->transform(
+    '<style>:root{--navbar-display:flex}.captured-header{--navbar-display:flex}'
+    . '@media(min-width:769px){.captured-header{--navbar-display:block}}'
+    . '.navbar{display:var(--navbar-display,block)}</style>'
+    . '<header class="captured-header"><nav class="navbar"><ul><li><a href="/">Home</a></li></ul></nav></header>'
+)->toArray();
+$conditionalNavigation = $conditional['blocks'][0]['innerBlocks'][0] ?? array();
+$assert(
+    'default' === ($conditionalNavigation['attrs']['layout']['type'] ?? null),
+    'a captured desktop custom-property override resolves on its navigation ancestor rather than from the global flex fallback'
+);
+
 $vertical = ( new HtmlTransformer() )->transform('<nav style="display:flex;flex-direction:column"><ul><li><a href="/">Home</a></li></ul></nav>')->toArray();
 $assert(
     array( 'type' => 'flex', 'orientation' => 'vertical' ) === ($vertical['blocks'][0]['attrs']['layout'] ?? null),
