@@ -70,6 +70,93 @@ try {
     await before.close();
     await after.close();
   }
+
+    const responsiveCropSource = '<!doctype html><style>@supports ((display:grid) and (object-fit:cover)){.responsive-crop{display:block;width:300px;margin:0}.responsive-crop img{display:block;width:100%;aspect-ratio:1 / 1!important;object-fit:contain!important}@media (min-width:701px){.responsive-crop{width:960px}.responsive-crop img{aspect-ratio:4 / 3!important;object-fit:cover!important}}}</style><main><figure class="responsive-crop"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Responsive crop"></figure></main>';
+    const responsiveCropResult = transform(responsiveCropSource);
+    const responsiveCrop = responsiveCropResult.blocks.find((block) => block.blockName === 'core/image');
+    assert.deepEqual(
+        { aspectRatio: responsiveCrop?.attrs.aspectRatio, scale: responsiveCrop?.attrs.scale },
+        { aspectRatio: '4/3', scale: 'cover' },
+        '#841 promotes the desktop crop selected after the base rule'
+    );
+    const responsiveCropCss = responsiveCropResult.assets
+        .filter((asset) => asset.kind === 'css')
+        .map((asset) => asset.content)
+        .join('\n');
+    const responsiveEvidence = async (html, css, width) => {
+        const page = await browser.newPage({ viewport: { width, height: 900 } });
+        await page.setContent(`<!doctype html><style>body{margin:0}${css}</style>${html}`);
+        const evidence = await page.locator('.responsive-crop img').evaluate((image) => {
+            const box = image.getBoundingClientRect();
+            const style = getComputedStyle(image);
+            return { aspectRatio: style.aspectRatio, objectFit: style.objectFit, width: box.width, height: box.height };
+        });
+        await page.close();
+        return evidence;
+    };
+    for (const [width, expected] of [[1440, { aspectRatio: '4 / 3', objectFit: 'cover', width: 960, height: 720 }], [390, { aspectRatio: '1 / 1', objectFit: 'contain', width: 300, height: 300 }]]) {
+        const source = await responsiveEvidence(responsiveCropSource, '', width);
+        const output = await responsiveEvidence(responsiveCropResult.serialized_blocks, responsiveCropCss, width);
+        assert.deepEqual(source, expected, `#841 source crop has its expected ${width}px authored behavior`);
+        assert.deepEqual(output, source, `#841 transformed core/image retains the ${width}px crop and bounds`);
+    }
+
+    const supportsEvidence = async (html, css) => {
+        const page = await browser.newPage({ viewport: { width: 600, height: 300 } });
+        await page.setContent(`<!doctype html><style>body{margin:0}${css}</style>${html}`);
+        const evidence = await page.locator('.supports-crop img').evaluate((image) => {
+            const box = image.getBoundingClientRect();
+            const style = getComputedStyle(image);
+            return { aspectRatio: style.aspectRatio, objectFit: style.objectFit, width: box.width, height: box.height };
+        });
+        await page.close();
+        return evidence;
+    };
+    for (const fixture of [
+        { name: 'true compound @supports', condition: '(display:grid) and (object-fit:cover)', promoted: true },
+        { name: 'known-false compound @supports', condition: '(display:grid) and (object-fit:invalid)', promoted: false },
+        { name: 'unknown-term compound @supports', condition: '(display:grid) and (unrecognized-property:value)', promoted: false },
+    ]) {
+        const source = `<style>.supports-crop{display:block;width:120px}.supports-crop img{display:block;width:120px;height:90px}@supports (${fixture.condition}){.supports-crop img{aspect-ratio:4 / 3;object-fit:cover}}</style><figure class="supports-crop"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" alt="Supports crop"></figure>`;
+        const result = transform(source);
+        const image = result.blocks.find((block) => block.blockName === 'core/image');
+        assert.ok(image, `${fixture.name} compiles to core/image`);
+        assert.deepEqual(
+            { aspectRatio: image.attrs.aspectRatio, scale: image.attrs.scale },
+            fixture.promoted ? { aspectRatio: '4/3', scale: 'cover' } : { aspectRatio: undefined, scale: undefined },
+            `${fixture.name} ${fixture.promoted ? 'promotes' : 'does not promote'} crop attributes`
+        );
+        const css = result.assets.filter((asset) => asset.kind === 'css').map((asset) => asset.content).join('\n');
+        const before = await supportsEvidence(source, '');
+        const after = await supportsEvidence(result.serialized_blocks, css);
+        assert.deepEqual(after, before, `${fixture.name} preserves rendered crop and bounds`);
+    }
+
+    const zeroSizeSource = '<style>.zero-size-crop{display:block}.zero-size-crop img{display:block;width:+0;height:+0px;aspect-ratio:4 / 3;object-fit:cover}</style><figure class="zero-size-crop"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" width="0" height="0" alt="Zero size crop"></figure>';
+    let zeroSizeResult;
+    assert.doesNotThrow(() => { zeroSizeResult = transform(zeroSizeSource); }, '#841 signed-zero authored crop compiles');
+    const zeroSizeImage = zeroSizeResult.blocks.find((block) => block.blockName === 'core/image');
+    assert.ok(zeroSizeImage, 'zero-sized authored crop compiles to core/image');
+    assert.deepEqual(
+        { aspectRatio: zeroSizeImage.attrs.aspectRatio, scale: zeroSizeImage.attrs.scale },
+        { aspectRatio: undefined, scale: undefined },
+        'signed-zero authored crop does not manufacture promoted crop geometry'
+    );
+    const zeroSizeCss = zeroSizeResult.assets.filter((asset) => asset.kind === 'css').map((asset) => asset.content).join('\n');
+    const zeroSizeEvidence = async (html, css) => {
+        const page = await browser.newPage({ viewport: { width: 600, height: 300 } });
+        await page.setContent(`<!doctype html><style>body{margin:0}${css}</style>${html}`);
+        const evidence = await page.locator('.zero-size-crop img').evaluate((image) => {
+            const box = image.getBoundingClientRect();
+            return { width: box.width, height: box.height };
+        });
+        await page.close();
+        return evidence;
+    };
+    const zeroSizeBefore = await zeroSizeEvidence(zeroSizeSource, '');
+    const zeroSizeAfter = await zeroSizeEvidence(zeroSizeResult.serialized_blocks, zeroSizeCss);
+    assert.deepEqual(zeroSizeBefore, { width: 0, height: 0 }, 'signed-zero source keeps zero bounds');
+    assert.deepEqual(zeroSizeAfter, zeroSizeBefore, 'signed-zero transformed output keeps zero bounds');
 } finally {
   await browser.close();
 }

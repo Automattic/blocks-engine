@@ -187,6 +187,72 @@ final class FontMaterializationPlanBuilder
         $sorted = $contract['svg_consumers']; usort($sorted, static fn(array $left, array $right): int => strcmp($left['id'], $right['id'])); if ($sorted !== $contract['svg_consumers']) throw new InvalidArgumentException('Webfont SVG consumers are not canonically sorted.');
     }
 
+    /** @param array<string,mixed> $plan @param array<int,array<string,mixed>> $assets */
+    public static function assertPlan(array $plan, array $assets): void
+    {
+        if (self::SCHEMA !== ($plan['schema'] ?? null) || !in_array($plan['provider'] ?? null, array('google_fonts', 'direct', 'mixed'), true)) throw new InvalidArgumentException('Font materialization plan has an unsupported schema or provider.');
+        $fonts = $plan['fonts'] ?? array();
+        if (!is_array($fonts) || !array_is_list($fonts)) throw new InvalidArgumentException('Font materialization plan fonts are malformed.');
+        $families = array();
+        foreach ($fonts as $font) {
+            $weights = is_array($font['weights'] ?? null) ? $font['weights'] : array(); $sorted = $weights; sort($sorted, SORT_NUMERIC);
+            if (!is_array($font) || !is_string($font['family'] ?? null) || '' === trim($font['family']) || !array_is_list($weights) || $weights !== array_values(array_unique($weights)) || $weights !== $sorted || array_filter($weights, static fn(mixed $weight): bool => !is_int($weight) || $weight < 1)) throw new InvalidArgumentException('Font materialization plan has invalid typed fonts.');
+            $families[] = $font['family'];
+        }
+        $sortedFamilies = $families; sort($sortedFamilies, SORT_STRING);
+        if ($families !== array_values(array_unique($families)) || $families !== $sortedFamilies) throw new InvalidArgumentException('Font materialization plan fonts are not canonical.');
+        foreach ($plan['roles'] ?? array() as $family) if (!is_string($family) || !in_array($family, $families, true)) throw new InvalidArgumentException('Font materialization plan role references an unknown font.');
+        $css = $plan['css'] ?? ''; $stylesheets = $plan['stylesheets'] ?? array();
+        if (!is_string($css) || !is_array($stylesheets) || !array_is_list($stylesheets)) throw new InvalidArgumentException('Font materialization plan stylesheets are malformed.');
+        foreach ($stylesheets as $stylesheet) {
+            if (!is_array($stylesheet) || !self::safeRelativePath($stylesheet['path'] ?? null) || !is_string($stylesheet['content'] ?? null) || !array_key_exists('role', $stylesheet) || 'stylesheet' !== ($stylesheet['role'] ?? null) || !array_key_exists('mime_type', $stylesheet) || 'text/css' !== ($stylesheet['mime_type'] ?? null) || (isset($stylesheet['content_hash']) && $stylesheet['content_hash'] !== hash('sha256', $stylesheet['content'])) || (isset($stylesheet['expected_content_hash']) && $stylesheet['expected_content_hash'] !== hash('sha256', $stylesheet['content']))) throw new InvalidArgumentException('Font materialization plan stylesheet is malformed.');
+        }
+        if ('' !== $css && (1 !== count($stylesheets) || $stylesheets[0]['content'] !== $css . "\n")) throw new InvalidArgumentException('Font materialization plan CSS and stylesheet projection disagree.');
+        if (!isset($plan['webfont_contract'])) return;
+        $contract = $plan['webfont_contract'];
+        if (!is_array($contract) || 'blocks-engine/webfont-materialization/v1' !== ($contract['schema'] ?? null) || !is_array($contract['imports'] ?? null) || !array_is_list($contract['imports']) || !is_array($contract['faces'] ?? null) || !array_is_list($contract['faces']) || !is_array($contract['receipts'] ?? null) || !array_is_list($contract['receipts']) || !is_array($contract['browser_readiness'] ?? null)) throw new InvalidArgumentException('Webfont materialization contract is malformed.');
+        $imports = array();
+        foreach ($contract['imports'] as $import) {
+            $source = is_array($import['source'] ?? null) ? $import['source'] : array(); $id = $import['id'] ?? null;
+            if (!is_array($import) || !is_string($id) || '' === $id || isset($imports[$id]) || !in_array($import['provider'] ?? null, array('google_fonts', 'direct', 'unsupported'), true) || !in_array($import['state'] ?? null, array('declared', 'unresolved', 'unsupported'), true) || !is_string($source['url'] ?? null) || '' === $source['url'] || !in_array($source['format'] ?? null, array('css', 'font'), true) || !is_array($import['provenance'] ?? null) || !is_array($import['diagnostics'] ?? null)) throw new InvalidArgumentException('Webfont materialization import is malformed.');
+            if (('google_fonts' === $import['provider'] && 'css' !== $source['format']) || ('direct' === $import['provider'] && 'font' !== $source['format']) || ('unsupported' === $import['provider'] && 'unsupported' !== $import['state'])) throw new InvalidArgumentException('Webfont materialization import provider is inconsistent.');
+            $imports[$id] = $import;
+        }
+        $receipts = array();
+        foreach ($contract['receipts'] as $receipt) {
+            if (!is_array($receipt) || !is_string($receipt['id'] ?? null) || '' === $receipt['id'] || isset($receipts[$receipt['id']]) || !is_string($receipt['face_id'] ?? null) || !is_string($receipt['import_id'] ?? null) || true !== ($receipt['required'] ?? null) || 'pending_browser_readiness' !== ($receipt['state'] ?? null)) throw new InvalidArgumentException('Webfont materialization receipt is malformed.');
+            $receipts[$receipt['id']] = $receipt;
+        }
+        $faces = array();
+        foreach ($contract['faces'] as $face) {
+            if (!is_array($face) || !is_string($face['id'] ?? null) || '' === $face['id'] || isset($faces[$face['id']]) || 'declared' !== ($face['state'] ?? null) || !isset($imports[$face['import_id'] ?? ''], $receipts[$face['receipt_id'] ?? '']) || $receipts[$face['receipt_id']]['face_id'] !== $face['id'] || $receipts[$face['receipt_id']]['import_id'] !== $face['import_id'] || !is_string($face['family'] ?? null) || '' === trim($face['family']) || !in_array($face['style'] ?? null, array('normal', 'italic', 'oblique'), true) || !self::validTypedWeight($face['weight'] ?? null) || !is_array($face['axes'] ?? null) || !is_array($face['unicode_ranges'] ?? null) || !is_array($face['sources'] ?? null) || !array_is_list($face['sources']) || array() === $face['sources']) throw new InvalidArgumentException('Webfont materialization face or receipt graph is inconsistent.');
+            foreach ($face['axes'] as $axis => $value) if (!is_string($axis) || !preg_match('/^[A-Za-z0-9]{4}$/', $axis) || !self::validAxis($axis, $value)) throw new InvalidArgumentException('Webfont materialization face axes are malformed.');
+            $faces[$face['id']] = $face;
+        }
+        if (count($faces) !== count($receipts)) throw new InvalidArgumentException('Webfont materialization receipts do not cover declared faces.');
+        $readiness = $contract['browser_readiness'];
+        $requiredIds = $readiness['required_receipt_ids'] ?? null;
+        if ('blocks-engine/webfont-browser-readiness/v1' !== ($readiness['schema'] ?? null) || !is_array($requiredIds) || !array_is_list($requiredIds) || !in_array($readiness['state'] ?? null, array('required', 'not_required'), true) || array_column($contract['receipts'], 'id') !== $requiredIds || ('required' === $readiness['state']) !== (array() !== $faces)) throw new InvalidArgumentException('Webfont materialization readiness is inconsistent.');
+        self::assertWebFontContract($contract, $assets);
+    }
+
+    private static function validTypedWeight(mixed $weight): bool
+    {
+        return is_array($weight) && (('static' === ($weight['kind'] ?? null) && is_int($weight['value'] ?? null)) || ('range' === ($weight['kind'] ?? null) && is_int($weight['min'] ?? null) && is_int($weight['max'] ?? null) && $weight['min'] <= $weight['max']));
+    }
+
+    private static function validAxis(string $axis, mixed $value): bool
+    {
+        return 'ital' === $axis
+            ? is_array($value) && 'static' === ($value['kind'] ?? null) && in_array($value['value'] ?? null, array(0, 1), true)
+            : self::validTypedWeight($value);
+    }
+
+    private static function safeRelativePath(mixed $path): bool
+    {
+        return is_string($path) && '' !== $path && !str_starts_with($path, '/') && !str_contains($path, '\\') && !preg_match('~(?:^|/)\.\.?(?:/|$)|[\x00-\x20\x7f]~', $path);
+    }
+
     /** @param array<int,array<string,mixed>> $imports @param array<int,array<string,mixed>> $faces @param array<int,array<string,mixed>> $diagnostics */
     private function webFontContract(array $imports, array $faces, array $diagnostics): array
     {

@@ -1,0 +1,138 @@
+{
+  "name": "Responsive hero intro flow fixture",
+  "nodes": [
+    {
+      "id": "page:desktop",
+      "type": "FRAME",
+      "name": "Desktop page",
+      "width": 1440,
+      "height": 3158,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 96,
+      "children": [
+        {
+          "id": "hero:desktop",
+          "type": "FRAME",
+          "name": "Hero section",
+          "y": 0,
+          "layoutOrder": 1,
+          "width": 1440,
+          "height": 1050,
+          "layoutMode": "VERTICAL",
+          "children": [
+            {
+              "id": "hero:desktop:header",
+              "type": "INSTANCE",
+              "name": "Header",
+              "width": 1440,
+              "height": 92,
+              "layoutMode": "HORIZONTAL",
+              "children": [
+                { "id": "hero:desktop:header:logo", "type": "TEXT", "name": "Logo", "characters": "Logo", "width": 228, "height": 35, "fontSize": 24 },
+                { "id": "hero:desktop:header:navigation", "type": "FRAME", "name": "Navigation", "width": 100, "height": 26, "layoutMode": "HORIZONTAL", "children": [
+                  { "id": "hero:desktop:header:navigation:one", "type": "TEXT", "name": "One", "characters": "One", "width": 44, "height": 26, "fontSize": 16 },
+                  { "id": "hero:desktop:header:navigation:two", "type": "TEXT", "name": "Two", "characters": "Two", "width": 44, "height": 26, "fontSize": 16 },
+                  { "id": "hero:desktop:header:navigation:three", "type": "TEXT", "name": "Three", "characters": "Three", "width": 44, "height": 26, "fontSize": 16 }
+                ] }
+              ]
+            },
+            { "id": "hero:desktop:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 300, "height": 198, "fontSize": 40 },
+            { "id": "hero:desktop:media", "type": "INSTANCE", "name": "Image", "width": 1216, "height": 760, "layoutMode": "VERTICAL", "fills": [{ "type": "SOLID", "color": { "r": 0.12, "g": 0.12, "b": 0.12, "a": 1 } }] }
+          ]
+        },
+        {
+          "id": "intro:desktop",
+          "type": "FRAME",
+          "name": "Intro section",
+          "y": 1146,
+          "layoutOrder": 2,
+          "width": 640,
+          "height": 810,
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 32,
+          "children": [
+            { "id": "intro:desktop:copy", "type": "TEXT", "name": "Intro copy", "characters": "Intro content remains in normal flow.", "width": 640, "height": 58, "fontSize": 18, "lineHeightPx": 29 }
+          ]
+        },
+        {
+          "id": "closing:desktop",
+          "type": "FRAME",
+          "name": "Closing section",
+          "y": 2052,
+          "layoutOrder": 3,
+          "width": 1440,
+          "height": 110,
+          "layoutMode": "VERTICAL",
+          "children": [
+            { "id": "closing:desktop:copy", "type": "TEXT", "name": "Closing copy", "characters": "Footer", "width": 200, "height": 26, "fontSize": 16 }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "page:mobile",
+      "type": "FRAME",
+      "name": "Mobile page",
+      "width": 390,
+      "height": 2608.75,
+      "layoutMode": "VERTICAL",
+      "itemSpacing": 64,
+      "children": [
+        {
+          "id": "hero:mobile",
+          "type": "FRAME",
+          "name": "Hero section",
+          "y": 0,
+          "layoutOrder": 1,
+          "width": 390,
+          "height": 470.75,
+          "layoutMode": "VERTICAL",
+          "layoutSizingVertical": "FIXED",
+          "children": [
+            {
+              "id": "hero:mobile:header",
+              "type": "INSTANCE",
+              "name": "Header",
+              "width": 390,
+              "height": 127,
+              "layoutMode": "HORIZONTAL",
+              "children": [
+                { "id": "hero:mobile:header:logo", "type": "TEXT", "name": "Logo", "characters": "Logo", "width": 228, "height": 35, "fontSize": 24 },
+                { "id": "hero:mobile:header:menu", "type": "INSTANCE", "name": "Open menu", "characters": "Menu", "width": 24, "height": 32, "fontSize": 16 }
+              ]
+            },
+            { "id": "hero:mobile:copy", "type": "TEXT", "name": "Hero copy", "characters": "Hero", "width": 342, "height": 130, "fontSize": 40 },
+            { "id": "hero:mobile:media", "type": "INSTANCE", "name": "Image", "width": 342, "height": 213.75, "layoutMode": "VERTICAL", "fills": [{ "type": "SOLID", "color": { "r": 0.12, "g": 0.12, "b": 0.12, "a": 1 } }] }
+          ]
+        },
+        {
+          "id": "intro:mobile",
+          "type": "FRAME",
+          "name": "Intro section",
+          "y": 534.75,
+          "layoutOrder": 2,
+          "width": 342,
+          "height": 1964,
+          "layoutMode": "VERTICAL",
+          "itemSpacing": 48,
+          "children": [
+            { "id": "intro:mobile:copy", "type": "TEXT", "name": "Intro copy", "characters": "Intro content remains in normal flow.", "width": 342, "height": 58, "fontSize": 18, "lineHeightPx": 29 }
+          ]
+        },
+        {
+          "id": "closing:mobile",
+          "type": "FRAME",
+          "name": "Closing section",
+          "y": 2562.75,
+          "layoutOrder": 3,
+          "width": 390,
+          "height": 110,
+          "layoutMode": "VERTICAL",
+          "children": [
+            { "id": "closing:mobile:copy", "type": "TEXT", "name": "Closing copy", "characters": "Footer", "width": 200, "height": 26, "fontSize": 16 }
+          ]
+        }
+      ]
+    }
+  ]
+}

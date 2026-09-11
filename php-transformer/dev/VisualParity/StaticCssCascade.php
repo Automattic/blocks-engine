@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use DOMDocument;
 use DOMElement;
 
@@ -155,25 +156,14 @@ final class StaticCssCascade
         foreach ($declarations as $name => $rawValue) {
             $important = 1 === preg_match('/\s*!important\s*$/i', $rawValue);
             $value = preg_replace('/\s*!important\s*$/i', '', $rawValue) ?? $rawValue;
-            $current = $resolved[$name] ?? null;
-            if (is_array($current)
-                && (int) $current['important'] > (int) $important) {
-                continue;
-            }
-            if (is_array($current)
-                && (bool) $current['important'] === $important
-                && ($current['specificity'] > $specificity
-                    || ($current['specificity'] === $specificity && $current['order'] > $order)
-                    || ($current['specificity'] === $specificity && $current['order'] === $order && $current['inline'] && ! $inline))) {
-                continue;
-            }
-            $resolved[$name] = array(
+            CssCascade::apply($resolved, $name, array(
                 'value' => $value,
                 'important' => $important,
                 'specificity' => $specificity,
                 'order' => $order,
                 'inline' => $inline,
-            );
+                'layer' => null,
+            ));
         }
     }
 
@@ -336,35 +326,7 @@ final class StaticCssCascade
      */
     private function mediaConditionApplies(string $condition): bool
     {
-        $condition = strtolower(trim($condition));
-
-        if ( '' === $condition ) {
-            return true;
-        }
-
-        if ( preg_match('/\b(?:print|speech|aural|braille|embossed|tty)\b/', $condition) ) {
-            return false;
-        }
-
-        foreach ( array( 'min' => '>=', 'max' => '<=' ) as $bound => $comparison ) {
-            if ( ! preg_match_all('/\(\s*' . $bound . '-width\s*:\s*([0-9.]+)\s*(px|rem|em)?\s*\)/', $condition, $matches, PREG_SET_ORDER) ) {
-                continue;
-            }
-            foreach ( $matches as $widthMatch ) {
-                $value = (float) $widthMatch[1];
-                if ( in_array($widthMatch[2] ?? 'px', array( 'rem', 'em' ), true) ) {
-                    $value *= self::ROOT_FONT_SIZE_PX;
-                }
-                $holds = '>=' === $comparison
-                    ? self::REFERENCE_VIEWPORT_WIDTH_PX >= $value
-                    : self::REFERENCE_VIEWPORT_WIDTH_PX <= $value;
-                if ( ! $holds ) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
+        return CssCascade::mediaConditionApplies($condition, self::REFERENCE_VIEWPORT_WIDTH_PX, self::ROOT_FONT_SIZE_PX);
     }
 
     /**

@@ -7,8 +7,10 @@ use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityPolicy;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
+use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeEntityManifest;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
+use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
 use InvalidArgumentException;
 
 /** A complete, destination-independent block-theme materialization contract. */
@@ -39,7 +41,7 @@ final class WordPressSitePlan
     public static function planIdentity(array $plan): array
     {
         $canonical = $plan;
-        unset($canonical['resolution']);
+        unset($canonical['resolution'], $canonical['runtime_entity_resolution']);
         // The identity describes the plan; including it would make its hash recursive.
         unset($canonical['plan_identity']);
         return array('schema' => self::IDENTITY_SCHEMA, 'hash' => RuntimeDeclarations::hash($canonical));
@@ -60,6 +62,24 @@ final class WordPressSitePlan
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
         TransformerResult::assertCanonicalEnvelope($data);
+        return $this->fromCompilerResultData($data, $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array());
+    }
+
+    /**
+     * Projects compiler-owned result data before its terminal conversion report exists.
+     *
+     * @internal ArtifactCompiler builds this data and retains public canonical-envelope validation in fromResult().
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    public function fromCompilerResult(array $data): array
+    {
+        return $this->fromCompilerResultData($data, $data['source_reports']['core_html_fallback_evidence'] ?? array());
+    }
+
+    /** @param array<string,mixed> $data @param array<string,mixed> $coreHtmlFallbackEvidence @return array<string,mixed> */
+    private function fromCompilerResultData(array $data, array $coreHtmlFallbackEvidence): array
+    {
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrlFromProvenance($data['provenance'] ?? array()));
         $editabilityPolicy = $data['source_reports']['editability_policy'] ?? null;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
@@ -76,6 +96,8 @@ final class WordPressSitePlan
         }
 
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
+        $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
+        $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
         $runtimeScriptOwnership = $this->runtimeScriptOwnership($data['source_reports'], $runtimeDeclarations);
         $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $documentScriptAssets = $this->documentScriptAssets($documents);
@@ -114,6 +136,9 @@ final class WordPressSitePlan
         // extraction. Asset and route projection can make source anchors equal,
         // so assign occurrences only after that shared projection is complete.
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
+        $factoredRuntimeDeclarations = RuntimeDeclarations::factor($runtimeDeclarations);
+        $runtimeDeclarations = $factoredRuntimeDeclarations['declarations'];
+        $runtimeRecords = $factoredRuntimeDeclarations['records'];
         $pages = $this->pageHierarchy($pages, $routeMap);
         $assets = $this->scopeAssets($assets, $pages);
         $projector = new ThemeJsonProjection();
@@ -156,12 +181,14 @@ final class WordPressSitePlan
             'routes' => $routes,
             'navigation_links' => $input->navigationLinks,
             'menus' => $input->menus,
-            'theme' => array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts'], $parts, $templates) ? 'functions.php' : null, 'design_token_provenance' => $themeProjection['provenance']),
+            'theme' => array_merge(array('stylesheet' => 'style.css', 'theme_json' => 'theme.json', 'bootstrap' => self::needsBootstrap($assets, $scriptLoading['scripts'], $parts, $templates) ? 'functions.php' : null, 'design_token_provenance' => $themeProjection['provenance']), array() === $input->fontMaterialization ? array() : array('font_materialization' => $input->fontMaterialization)),
             'visual_repair' => $compiled['visual_repair'] ?? array(),
             'runtime_declarations' => $runtimeDeclarations,
+            'runtime_records' => $runtimeRecords,
+            'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
-            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'editability_policy' => $editabilityPolicy ?? array()),
-            'reporting' => $this->reporting($pages, $data, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
+            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy ?? array()),
+            'reporting' => $this->reporting($pages, $data, $coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -205,7 +232,7 @@ final class WordPressSitePlan
         if ( self::SCHEMA !== ($plan['schema'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan has an unsupported schema.');
         }
-        foreach ( array('plan_identity', 'source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'diagnostics', 'quality', 'reporting') as $key ) {
+        foreach ( array('plan_identity', 'source', 'pages', 'templates', 'template_parts', 'assets', 'reference_tokens', 'reference_semantics', 'writes', 'operations', 'routes', 'navigation_links', 'menus', 'theme', 'visual_repair', 'runtime_declarations', 'runtime_entity_records', 'diagnostics', 'quality', 'reporting') as $key ) {
             if ( ! is_array($plan[$key] ?? null) ) {
                 throw new InvalidArgumentException(sprintf('WordPress site plan %s must be an array.', $key));
             }
@@ -216,6 +243,9 @@ final class WordPressSitePlan
         self::assertSource($plan['source']);
         $sourceCatalog = self::sourceDocumentCatalogFromSource($plan['source']);
         RuntimeDeclarations::assertNormalized($plan['runtime_declarations']);
+        $records = RuntimeEntityManifest::normalizeRecords($plan['runtime_entity_records']);
+        if ($records !== $plan['runtime_entity_records']) throw new InvalidArgumentException('WordPress site plan runtime entity records are not canonically normalized.');
+        foreach ($plan['runtime_declarations'] as $declaration) if (RuntimeEntityManifest::SCHEMA === ($declaration['payload']['schema'] ?? null)) RuntimeEntityManifest::resolve($declaration['payload'], $records);
         self::assertEntityBindingsRemainPageOwned($plan['runtime_declarations'], $plan['pages'], $plan['assets']);
         if ('declared_tokens_only' !== ($plan['reference_semantics']['static_browser_references'] ?? null) || !in_array($plan['reference_semantics']['dynamic_script_references'] ?? null, array('proven', 'not_proven'), true) || !is_array($plan['reference_semantics']['dynamic_client_assets'] ?? null) || !in_array($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null, array('proven', 'not_proven'), true) || !is_bool($plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'] ?? null) || ($plan['reference_semantics']['dynamic_script_references'] ?? null) !== ($plan['reference_semantics']['dynamic_client_assets']['status'] ?? null) || ('proven' === $plan['reference_semantics']['dynamic_client_assets']['status'] && true === $plan['reference_semantics']['dynamic_client_assets']['materializer_may_reject'])) throw new InvalidArgumentException('WordPress site plan reference capability semantics are invalid.');
         self::assertRows($plan['routes'], 'route', array('kind', 'source_path', 'target_path', 'target_slug', 'source_relation', 'order'));
@@ -336,10 +366,32 @@ final class WordPressSitePlan
         if ( ! is_string($plan['theme']['stylesheet'] ?? null) || ! is_string($plan['theme']['theme_json'] ?? null) || (null !== ($plan['theme']['bootstrap'] ?? null) && ! is_string($plan['theme']['bootstrap'])) ) {
             throw new InvalidArgumentException('WordPress site plan theme is structurally invalid.');
         }
+        self::assertFontMaterialization($plan['theme'], $plan['assets'], $writesByTarget);
         $policyStatus = 'failed' === ($plan['quality']['status'] ?? null) ? 'failed' : 'passed';
         if ( !in_array($plan['quality']['status'] ?? null, array('success', 'success_with_warnings', 'failed'), true) || !is_bool($plan['quality']['pass'] ?? null) || ('failed' !== $plan['quality']['status']) !== $plan['quality']['pass'] || ! is_array($plan['quality']['metrics'] ?? null) || ! is_array($plan['quality']['fallbacks'] ?? null) || !is_array($plan['quality']['core_html_fallback_evidence'] ?? null) || EditabilityPolicy::SCHEMA !== ($plan['quality']['editability_policy']['schema'] ?? null) || 'required' !== ($plan['quality']['editability_policy']['enforcement'] ?? null) || $policyStatus !== ($plan['quality']['editability_policy']['status'] ?? null) ) {
             throw new InvalidArgumentException('WordPress site plan quality is structurally invalid.');
         }
+    }
+
+    /** @param array<string,mixed> $theme @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writesByTarget */
+    private static function assertFontMaterialization(array $theme, array $assets, array $writesByTarget): void
+    {
+        if (!array_key_exists('font_materialization', $theme)) return;
+        $fontMaterialization = $theme['font_materialization'];
+        if (!is_array($fontMaterialization)) throw new InvalidArgumentException('WordPress site plan font materialization is structurally invalid.');
+        $assetsBySource = array_column($assets, null, 'source_path');
+        $fontAssets = array();
+        foreach ($assets as $asset) {
+            $targetPath = (string) ($asset['target_path'] ?? '');
+            $fontAssets[] = array('source' => $asset['source'] ?? null, 'path' => $asset['source_path'] ?? null, 'target_path' => str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath, 'mime_type' => $asset['mime_type'] ?? null, 'content' => $asset['content'] ?? null);
+        }
+        foreach (($fontMaterialization['webfont_contract']['svg_consumers'] ?? array()) as $consumer) {
+            $asset = is_array($consumer) ? ($assetsBySource[$consumer['source_path'] ?? ''] ?? null) : null;
+            $targetPath = is_array($asset) ? (string) ($asset['target_path'] ?? '') : '';
+            $writePath = str_starts_with($targetPath, 'assets/') ? substr($targetPath, 7) : $targetPath;
+            if (!is_array($asset) || $writePath !== ($consumer['write_path'] ?? null) || !isset($writesByTarget[$targetPath])) throw new InvalidArgumentException('WordPress site plan webfont SVG consumer is detached from canonical assets or writes.');
+        }
+        FontMaterializationPlanBuilder::assertPlan($fontMaterialization, $fontAssets);
     }
 
     /**
@@ -1235,8 +1287,8 @@ final class WordPressSitePlan
         foreach ($value as $child) if (is_array($child)) $rows = array_merge($rows, $this->jsonLdPublicationEvidence($child, $timestamp));
         return $rows;
     }
-    /** @param array<string,mixed> $compiled @param array<string,mixed> $data @return array<string,mixed> */
-    private function reporting(array $pages, array $data, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array(), 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
+    /** @param array<string,mixed> $compiled @param array<string,mixed> $data @param array<string,mixed> $coreHtmlFallbackEvidence @return array<string,mixed> */
+    private function reporting(array $pages, array $data, array $coreHtmlFallbackEvidence, array $scriptDiagnostics = array(), array $surfaces = array()): array { $documents = array(); foreach ($pages as $page) if (is_array($page)) $documents[] = array('source_path' => $page['source_path'] ?? '', 'kind' => 'page', 'body_format' => 'blocks', 'block_document' => true, 'provenance' => $page['provenance'] ?? array()); foreach ($surfaces as $surface) $documents[] = array('source_path' => $surface['source_path'] ?? '', 'kind' => 'template_surface', 'body_format' => 'blocks', 'block_document' => true, 'template_surface' => $surface['template_surface'] ?? array(), 'provenance' => $surface['provenance'] ?? array()); return array('source_documents' => $documents, 'metrics' => array('source_document_count' => count($documents), 'block_document_count' => count($documents), 'native_block_count' => $data['metrics']['block_count'] ?? 0, 'fallback_count' => $data['metrics']['fallback_count'] ?? 0), 'core_html_fallback_evidence' => $coreHtmlFallbackEvidence, 'diagnostic_codes' => array_values(array_map(static fn(array $diagnostic): string => (string) ($diagnostic['code'] ?? ''), array_merge($data['diagnostics'], $scriptDiagnostics)))); }
 
     /** @param mixed $documents @param array<int,array<string,mixed>> $legacyRoutes @return array<int,array<string,mixed>> */
     private function canonicalRoutes(mixed $documents, array $legacyRoutes): array { if (!is_array($documents)) throw new InvalidArgumentException('Compiled site documents must be an array.'); $legacy = array(); foreach ($legacyRoutes as $route) if (is_array($route) && is_string($route['source_path'] ?? null)) $legacy[$route['source_path']] = $route; $entryRoot = self::entryRootFromDocuments($documents); $routes = array(); $paths = array(); foreach ($documents as $order => $document) { if (!is_array($document) || !self::safePath($document['source_path'] ?? null)) throw new InvalidArgumentException('Compiled site route source is invalid.'); $metadata = is_array($document['metadata'] ?? null) ? $document['metadata'] : array(); $explicitRoute = is_string($metadata['route_path'] ?? null) && '' !== $metadata['route_path']; if ('' !== $entryRoot && ! str_starts_with((string) $document['source_path'], $entryRoot . '/') && !$explicitRoute) throw new InvalidArgumentException('Compiled site document is outside the entrypoint content root.'); $path = $explicitRoute ? self::canonicalRoutePath($metadata['route_path']) : self::pageRoutePath($document['source_path'], $entryRoot); if (isset($paths[$path])) throw new InvalidArgumentException('WordPress site plan has colliding page routes.'); $paths[$path] = true; $previous = $legacy[$document['source_path']] ?? array(); $routes[] = array('kind' => 'route', 'source_path' => $document['source_path'], 'target_path' => $path, 'target_slug' => self::value($document, 'slug', self::routeSlug($path)), 'title' => self::value($document, 'title'), 'parent_source_path' => self::value($metadata, 'parent_source_path'), 'source_relation' => !empty($document['entrypoint']) ? 'entrypoint' : ($previous['source_relation'] ?? 'document'), 'order' => $order); } return $routes; }

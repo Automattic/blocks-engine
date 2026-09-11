@@ -653,7 +653,9 @@ final class ArtifactCompiler
             $coreHtmlFallbackEvidence[] = $compiledHtmlDocument['core_html_fallback_evidence'] ?? array();
         }
         $allGutenbergGaps = $this->dedupeRows($allGutenbergGaps);
-        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files']);
+        $runtimeDeclarationDiagnostics = array();
+        $runtimeEntityRecords = array();
+        $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
@@ -695,7 +697,7 @@ final class ArtifactCompiler
         }
         $assets = $this->deduplicateVisualAssets($assets);
         $assets = $this->coalesceStylesheetAssets($assets);
-        $diagnostics = array_merge($diagnostics, $allDiagnostics);
+        $diagnostics = array_merge($diagnostics, $allDiagnostics, $runtimeDeclarationDiagnostics);
         $serializedBlocks = $entryBlocks['serialized_blocks'];
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
@@ -742,6 +744,7 @@ final class ArtifactCompiler
             );
         }
         $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $sourceReports['compiled_site']['runtime_entity_records'] = $runtimeEntityRecords;
         $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
         foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -791,10 +794,6 @@ final class ArtifactCompiler
         }
         if ( array() !== $allGutenbergGaps ) {
             $sourceReports['gutenberg_gaps'] = $allGutenbergGaps;
-        }
-        $sitePlanInput = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site']);
-        if (array() !== $sitePlanInput->fontMaterialization) {
-            $sourceReports['font_materialization'] = $sitePlanInput->fontMaterialization;
         }
         $editorScripts = array();
         $editorModule = $sourceReports['responsive_counterpart_contracts']['editor_module'] ?? null;
@@ -847,8 +846,6 @@ final class ArtifactCompiler
         if ( is_array($sourceUrlParts) && in_array(strtolower((string) ($sourceUrlParts['scheme'] ?? '')), array( 'http', 'https' ), true) && '' !== (string) ($sourceUrlParts['host'] ?? '') && !isset($sourceUrlParts['user'], $sourceUrlParts['pass']) ) {
             $provenance[0]['source_url'] = $sourceUrl;
         }
-        // WordPressSitePlan consumes a canonical result envelope, so give it a
-        // provisional report before final diagnostics and metrics are projected.
         $metrics = array(
             'input_bytes'           => $normalized['bytes'],
             'block_count'           => $this->countBlocks($entryBlocks['blocks']),
@@ -857,12 +854,12 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
+        $wordpressSitePlan = null;
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.
         if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) ) {
-            $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
             try {
-                $sourceReports['wordpress_site_plan'] = ( new WordPressSitePlan() )->fromResult(array(
+                $wordpressSitePlan = ( new WordPressSitePlan() )->fromCompilerResult(array(
                     'schema' => TransformerResult::SCHEMA,
                     'status' => $this->statusFromDiagnostics($diagnostics),
                     'components' => $components,
@@ -879,7 +876,7 @@ final class ArtifactCompiler
                     'context' => array(),
                     'metrics' => $metrics,
                 ));
-                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $sourceReports['wordpress_site_plan']['templates']);
+                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $wordpressSitePlan['templates']);
             } catch (DocumentIdentityException $exception) {
                 foreach ( $exception->diagnostics() as $identityDiagnostic ) {
                     $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -890,10 +887,28 @@ final class ArtifactCompiler
                     : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
             }
         }
+        if ( null !== $wordpressSitePlan ) {
+            $fontMaterialization = $wordpressSitePlan['theme']['font_materialization'] ?? array();
+            if (is_array($fontMaterialization) && array() !== $fontMaterialization) {
+                $sourceReports['font_materialization'] = $fontMaterialization;
+            }
+        } else {
+            // Failed results have no canonical plan to project, but retain the
+            // established report-only diagnostic handoff.
+            $fontMaterialization = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site'])->fontMaterialization;
+            if (array() !== $fontMaterialization) $sourceReports['font_materialization'] = $fontMaterialization;
+        }
 
         $metrics['diagnostic_count'] = count($diagnostics);
         $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
+        $reportSourceReports = $sourceReports;
+        if ( null !== $wordpressSitePlan ) {
+            $reportSourceReports['wordpress_site_plan'] = $wordpressSitePlan;
+        }
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $reportSourceReports, $assets, $provenance, $metrics);
+        if ( null !== $wordpressSitePlan ) {
+            $sourceReports['wordpress_site_plan'] = $wordpressSitePlan;
+        }
         // This counter is intentionally outside the canonical report/site-plan
         // projections: it describes process work, not output identity.
         $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
@@ -1904,7 +1919,7 @@ final class ArtifactCompiler
      * @param array<int,array<string,mixed>> $fallbacks
      * @return array<int,array<string,mixed>>
      */
-    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files): array
+    private function runtimeDeclarationsFromFallbacks(array $declarations, array $fallbacks, string $entryPath, array $files, array &$diagnostics = array(), array &$runtimeEntityRecords = array()): array
     {
         if ( '' === $entryPath ) return $declarations;
         foreach ( $declarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) if ( is_array($entity) && array_key_exists('superseded_scripts', $entity) ) throw new \InvalidArgumentException('Caller runtime declarations cannot provide compiler-reserved script supersession proofs.');
@@ -2006,7 +2021,15 @@ final class ArtifactCompiler
             $entityKey = 'entity_collection:' . $collection['type'];
             foreach ( $collection['aliases'] as $alias ) if ( isset($keys['entity_collection:' . $alias]) ) { $entityKey = 'entity_collection:' . $alias; break; }
             if ( array() !== $collection['entities'] && ! isset($keys[$entityKey]) ) {
-                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => array('schema' => $collection['schema'], 'entities' => $collection['entities']));
+                if ( 'forms' === $collection['type'] ) {
+                    $budget = $this->budgetGeneratedForms($declarations, $collection['entities'], $entryPath, $entityKey, isset($keys['dependency:' . $capability]));
+                    $collection['entities'] = $budget['entities'];
+                    if (isset($budget['records'])) $runtimeEntityRecords = array_merge($runtimeEntityRecords, $budget['records']);
+                    if (isset($budget['payload'])) $collection['payload'] = $budget['payload'];
+                    if ( null !== $budget['diagnostic'] ) $diagnostics[] = $budget['diagnostic'];
+                }
+                if ( array() === $collection['entities'] ) continue;
+                $declarations[] = array('kind' => 'entity_collection', 'type' => $collection['type'], 'source_path' => $entryPath, 'payload' => $collection['payload'] ?? array('schema' => $collection['schema'], 'entities' => $collection['entities']));
                 $keys[$entityKey] = true;
             }
             $dependencyKey = 'dependency:' . $capability;
@@ -2016,6 +2039,36 @@ final class ArtifactCompiler
             }
         }
         return RuntimeDeclarations::normalizeList($declarations);
+    }
+
+    /**
+     * Keep generated form declarations within the same canonical limit enforced
+     * for caller declarations, without ever trimming a JSON entity in place.
+     *
+     * @param array<int,array<string,mixed>> $declarations
+     * @param array<int,array<string,mixed>> $forms
+     * @return array{entities:array<int,array<string,mixed>>,payload?:array<string,mixed>,records?:array<int,array<string,mixed>>,diagnostic:array<string,mixed>|null}
+     */
+    private function budgetGeneratedForms(array $declarations, array $forms, string $entryPath, string $entityKey, bool $hasDependency): array
+    {
+        $fits = static function (array $entities) use ($declarations, $entryPath, $entityKey, $hasDependency): bool {
+            $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => array('schema' => 'generic/forms/v1', 'entities' => $entities))));
+            if ( ! $hasDependency ) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
+            try {
+                RuntimeDeclarations::normalizeList($candidate);
+                return true;
+            } catch (\InvalidArgumentException $error) {
+                if (str_contains($error->getMessage(), 'payload exceeds the byte limit') || str_contains($error->getMessage(), 'aggregate canonical byte limit')) return false;
+                throw $error;
+            }
+        };
+        if ( $fits($forms) ) return array('entities' => $forms, 'diagnostic' => null);
+
+        $manifest = RuntimeEntityManifest::fromEntities('generic/forms/v1', $forms);
+        $candidate = array_merge($declarations, array(array('kind' => 'entity_collection', 'type' => 'forms', 'source_path' => $entryPath, 'payload' => $manifest['payload'])));
+        if (!$hasDependency) $candidate[] = array('kind' => 'dependency', 'capability' => 'form', 'source_path' => $entryPath, 'required_for' => array($entityKey));
+        RuntimeDeclarations::normalizeList($candidate);
+        return array('entities' => $forms, 'payload' => $manifest['payload'], 'records' => $manifest['records'], 'diagnostic' => null);
     }
 
     /** @param array<string,mixed> $fallback @param array<int,array<string,mixed>> $files @return array<int,array<string,string>> */

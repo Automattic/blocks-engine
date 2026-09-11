@@ -19,8 +19,10 @@ final class RuntimeDeclarations
     public const MAX_PROVENANCE_DEPTH = 32;
     // Declarations are metadata, so keep their aggregate below one artifact file.
     public const MAX_TOTAL_DECLARATION_BYTES = ArtifactNormalizer::DEFAULT_MAX_FILE_BYTES;
-    private const MAX_PAYLOAD_BYTES = self::MAX_TOTAL_DECLARATION_BYTES;
+    public const MAX_PAYLOAD_BYTES = self::MAX_TOTAL_DECLARATION_BYTES;
     private const MAX_CANONICAL_DEPTH = self::MAX_PROVENANCE_DEPTH + 1;
+    public const RECORD_MANIFEST_SCHEMA = 'blocks-engine/runtime-record-references/v1';
+    public const RECORD_SCHEMA = 'blocks-engine/runtime-record/v1';
 
     /** @param array<string,mixed> $artifact @return array<int,array<string,mixed>> */
     public static function normalize(array $artifact): array
@@ -67,10 +69,15 @@ final class RuntimeDeclarations
                 try { $encoded = self::canonicalJson($payload); } catch (InvalidArgumentException) { throw new InvalidArgumentException("Runtime declaration {$index} payload is not serializable."); }
                 if (strlen($encoded) > self::MAX_PAYLOAD_BYTES) throw new InvalidArgumentException("Runtime declaration {$index} payload exceeds the byte limit.");
                 $normalized['payload'] = $payload;
+                $manifest = RuntimeEntityManifest::SCHEMA === ($payload['schema'] ?? null);
+                if ($manifest && (!is_string($payload['entity_schema'] ?? null) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity manifest is invalid.");
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['layout_graph'])) { if (!is_array($entity['layout_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form layout graph must be an object."); FormLayoutGraphBuilder::assertValid($entity['layout_graph']); }
                 if ('entity_collection' === $kind && 'forms' === $name && 'generic/forms/v1' === ($payload['schema'] ?? null)) foreach ($payload['entities'] ?? array() as $entity) if (is_array($entity) && isset($entity['presentation_graph'])) { if (!is_array($entity['presentation_graph'])) throw new InvalidArgumentException("Runtime declaration {$index} form presentation graph must be an object."); FormPresentationGraphBuilder::assertValid($entity['presentation_graph']); }
             }
-            if ('entity_collection' === $kind && (!isset($normalized['type'], $normalized['payload']['entities']) || !array_is_list($normalized['payload']['entities']))) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
+            if ('entity_collection' === $kind && !isset($normalized['type'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
+            if ('entity_collection' === $kind && !isset($normalized['payload']['entities']) && self::RECORD_MANIFEST_SCHEMA !== ($normalized['payload']['schema'] ?? null)) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
+            if ('entity_collection' === $kind && isset($normalized['payload']['entities']) && !array_is_list($normalized['payload']['entities'])) throw new InvalidArgumentException("Runtime declaration {$index} entity collections require a typed entities payload.");
+            if (self::RECORD_MANIFEST_SCHEMA === ($normalized['payload']['schema'] ?? null)) self::assertRecordManifest($normalized['payload'], $index);
             if (isset($declaration['required_for'])) {
                 if (!is_array($declaration['required_for']) || !array_is_list($declaration['required_for']) || array_filter($declaration['required_for'], static fn(mixed $value): bool => !is_string($value) || '' === $value)) throw new InvalidArgumentException("Runtime declaration {$index} required_for must be a list of declaration keys.");
                 if (count($declaration['required_for']) !== count(array_unique($declaration['required_for']))) throw new InvalidArgumentException("Runtime declaration {$index} required_for must not contain duplicates.");
@@ -149,6 +156,45 @@ final class RuntimeDeclarations
         if ($declarations !== self::normalizeList($declarations)) throw new InvalidArgumentException('Runtime declarations are not canonically normalized or have stale hashes.');
     }
 
+    /** @param array<int,array<string,mixed>> $declarations @return array{declarations:array<int,array<string,mixed>>,records:array<int,array<string,mixed>>} */
+    public static function factor(array $declarations): array
+    {
+        try { return array('declarations' => self::normalizeList($declarations), 'records' => array()); }
+        catch (InvalidArgumentException $error) { if (!str_contains($error->getMessage(), 'payload exceeds the byte limit') && !str_contains($error->getMessage(), 'aggregate canonical byte limit')) throw $error; }
+        $records = array();
+        foreach ($declarations as $index => &$declaration) {
+            $payload = $declaration['payload'] ?? null;
+            if (!is_array($payload) || !is_array($payload['entities'] ?? null) || !array_is_list($payload['entities'])) continue;
+            $chunks = array(); $chunk = array();
+            foreach ($payload['entities'] as $entity) { $candidate = array_merge($chunk, array($entity)); if (strlen(self::canonicalJson(array('schema' => $payload['schema'], 'entities' => $candidate))) > self::MAX_PAYLOAD_BYTES) { if (array() === $chunk) throw new InvalidArgumentException("Runtime declaration {$index} contains an entity that exceeds the byte limit."); $chunks[] = $chunk; $chunk = array($entity); } else $chunk = $candidate; }
+            if (array() !== $chunk) $chunks[] = $chunk;
+            $references = array(); foreach ($chunks as $chunk) { $recordPayload = array('schema' => $payload['schema'], 'entities' => $chunk); $encoded = self::canonicalJson($recordPayload); $hash = self::hash($recordPayload); $id = 'runtime-record-' . $hash; $records[$id] = array('schema' => self::RECORD_SCHEMA, 'id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded), 'payload' => $recordPayload); $references[] = array('id' => $id, 'content_hash' => $hash, 'bytes' => strlen($encoded)); }
+            $declaration['payload'] = array('schema' => self::RECORD_MANIFEST_SCHEMA, 'record_schema' => $payload['schema'], 'records' => $references); unset($declaration['reconciliation_identity'], $declaration['payload_hash'], $declaration['content_hash']);
+        }
+        unset($declaration); ksort($records, SORT_STRING); return array('declarations' => self::normalizeList($declarations), 'records' => array_values($records));
+    }
+
+    /** @param array<int,array<string,mixed>> $records @return array<int,array<string,mixed>> */
+    public static function normalizeRecords(array $records): array
+    {
+        if (!array_is_list($records) || count($records) > self::MAX_DECLARATIONS) throw new InvalidArgumentException('Runtime records must be a bounded ordered collection.');
+        $normalized = array(); foreach ($records as $index => $record) { if (!is_array($record) || self::RECORD_SCHEMA !== ($record['schema'] ?? null) || !is_string($record['id'] ?? null) || !preg_match('/^runtime-record-[a-f0-9]{64}$/', $record['id']) || !self::isHash($record['content_hash'] ?? null) || !is_int($record['bytes'] ?? null) || $record['bytes'] < 1 || $record['bytes'] > self::MAX_PAYLOAD_BYTES || !is_array($record['payload'] ?? null) || !is_string($record['payload']['schema'] ?? null) || !is_array($record['payload']['entities'] ?? null) || !array_is_list($record['payload']['entities'])) throw new InvalidArgumentException("Runtime record {$index} is invalid."); $payload = self::canonical($record['payload']); $encoded = self::canonicalJson($payload); $hash = self::hash($payload); if ($record['id'] !== 'runtime-record-' . $hash || $record['content_hash'] !== $hash || $record['bytes'] !== strlen($encoded)) throw new InvalidArgumentException("Runtime record {$index} has a stale identity or content hash."); $normalized[] = array('schema' => self::RECORD_SCHEMA, 'id' => $record['id'], 'content_hash' => $hash, 'bytes' => strlen($encoded), 'payload' => $payload); }
+        usort($normalized, static fn(array $left, array $right): int => strcmp($left['id'], $right['id'])); if (count(array_unique(array_column($normalized, 'id'))) !== count($normalized)) throw new InvalidArgumentException('Runtime records must have unique content-addressed ids.'); return $normalized;
+    }
+
+    /** @param array<int,array<string,mixed>> $declarations @param array<int,array<string,mixed>> $records @return array<int,array<string,mixed>> */
+    public static function materialize(array $declarations, array $records): array
+    {
+        $recordsById = array_column(self::normalizeRecords($records), null, 'id'); foreach ($declarations as &$declaration) { $payload = $declaration['payload'] ?? array(); if (self::RECORD_MANIFEST_SCHEMA !== ($payload['schema'] ?? null)) continue; $entities = array(); foreach ($payload['records'] as $reference) { $record = $recordsById[$reference['id']] ?? null; if (!is_array($record) || $record['content_hash'] !== $reference['content_hash'] || $record['bytes'] !== $reference['bytes'] || $record['payload']['schema'] !== $payload['record_schema']) throw new InvalidArgumentException('Runtime declaration record reference is unresolved or stale.'); array_push($entities, ...$record['payload']['entities']); } $declaration['payload'] = array('schema' => $payload['record_schema'], 'entities' => $entities); } unset($declaration); return $declarations;
+    }
+
+    /** @param array<string,mixed> $payload */
+    private static function assertRecordManifest(array $payload, int $index): void
+    {
+        if (!is_string($payload['record_schema'] ?? null) || !is_array($payload['records'] ?? null) || !array_is_list($payload['records']) || array() === $payload['records'] || count($payload['records']) > self::MAX_DECLARATIONS) throw new InvalidArgumentException("Runtime declaration {$index} record manifest is invalid.");
+        $seen = array(); foreach ($payload['records'] as $reference) { if (!is_array($reference) || !is_string($reference['id'] ?? null) || !preg_match('/^runtime-record-[a-f0-9]{64}$/', $reference['id']) || !self::isHash($reference['content_hash'] ?? null) || !is_int($reference['bytes'] ?? null) || $reference['bytes'] < 1 || $reference['bytes'] > self::MAX_PAYLOAD_BYTES || $reference['id'] !== 'runtime-record-' . $reference['content_hash'] || isset($seen[$reference['id']])) throw new InvalidArgumentException("Runtime declaration {$index} record manifest has an invalid reference."); $seen[$reference['id']] = true; }
+    }
+
     public static function canonicalJson(mixed $value): string
     {
         try { return json_encode(self::canonical($value), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); } catch (JsonException) { throw new InvalidArgumentException('Runtime declaration payload is not serializable.'); }
@@ -217,7 +263,7 @@ final class RuntimeDeclarations
         hash_update($context, '"');
     }
 
-    private static function canonical(mixed $value, int $depth = 0): mixed
+    public static function canonical(mixed $value, int $depth = 0): mixed
     {
         if ($depth > self::MAX_CANONICAL_DEPTH || is_resource($value) || is_object($value)) throw new InvalidArgumentException('Runtime declaration payload contains an unsupported value.');
         if (!is_array($value)) return $value;

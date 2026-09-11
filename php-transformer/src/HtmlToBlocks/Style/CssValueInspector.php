@@ -56,4 +56,50 @@ final class CssValueInspector
         }
         return false;
     }
+
+    public static function hasDefiniteHeight(string $css): bool
+    {
+        return self::hasAuthoredLengthProperty($css, 'height');
+    }
+
+    public static function hasAuthoredMinimumHeight(string $css): bool
+    {
+        return self::hasAuthoredLengthProperty($css, 'min-height');
+    }
+
+    private static function hasAuthoredLengthProperty(string $css, string $property): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon || $property !== strtolower(trim(substr($declaration, 0, $colon))) ) {
+                continue;
+            }
+            $value = strtolower(self::withoutImportant(substr($declaration, $colon + 1)));
+            if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'none', 'min-content', 'max-content', 'fit-content', 'content' ), true) ) {
+                continue;
+            }
+            // A bare custom property may resolve to a keyword such as auto. CSS math
+            // functions, including ones containing vars, remain authored lengths.
+            if ( str_contains($value, 'var(')
+                && 1 !== preg_match('/^(?:calc|min|max|clamp|round|mod|rem|sin|cos|tan|asin|acos|atan|atan2|pow|sqrt|hypot|log|exp|abs|sign)\(/', $value) ) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public static function hasAutoHeight(string $css): bool
+    {
+        foreach ( CssValueSplitter::splitTopLevel($css, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false !== $colon
+                && 'height' === strtolower(trim(substr($declaration, 0, $colon)))
+                && 'auto' === strtolower(self::withoutImportant(substr($declaration, $colon + 1)))
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
