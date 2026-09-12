@@ -692,4 +692,130 @@ final class SourceDom
 
         return false;
     }
+
+    /**
+     * Recover a missing image URL from ancestor host metadata such as
+     * `data-image-info` JSON. Non-JSON values are ignored.
+     */
+    public static function imageUrlFromHostMetadata(DOMElement $image): string
+    {
+        for ( $node = $image; $node instanceof DOMElement; $node = $node->parentNode ) {
+            $url = self::imageUrlFromInfoValue(trim(self::attr($node, 'data-image-info')));
+            if ( '' !== $url ) {
+                return $url;
+            }
+        }
+
+        return '';
+    }
+
+    public static function materializeMissingImageSources(DOMElement $root): void
+    {
+        $images = array();
+        if ( 'img' === strtolower($root->tagName) ) {
+            $images[] = $root;
+        }
+        foreach ( $root->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement ) {
+                $images[] = $image;
+            }
+        }
+        foreach ( $images as $image ) {
+            if ( '' !== trim(self::attr($image, 'src')) ) {
+                continue;
+            }
+            $url = self::imageUrlFromHostMetadata($image);
+            if ( '' !== $url ) {
+                $image->setAttribute('src', $url);
+            }
+        }
+        self::dropSourcelessPictures($root);
+    }
+
+    private static function dropSourcelessPictures(DOMElement $root): void
+    {
+        $pictures = array();
+        foreach ( $root->getElementsByTagName('picture') as $picture ) {
+            if ( $picture instanceof DOMElement ) {
+                $pictures[] = $picture;
+            }
+        }
+        foreach ( $pictures as $picture ) {
+            if ( self::pictureHasRenderableSource($picture) || $picture === $root || ! $picture->parentNode ) {
+                continue;
+            }
+            $picture->parentNode->removeChild($picture);
+        }
+    }
+
+    private static function pictureHasRenderableSource(DOMElement $picture): bool
+    {
+        foreach ( $picture->getElementsByTagName('source') as $source ) {
+            if ( $source instanceof DOMElement && ( '' !== trim(self::attr($source, 'srcset')) || '' !== trim(self::attr($source, 'src')) ) ) {
+                return true;
+            }
+        }
+        foreach ( $picture->getElementsByTagName('img') as $image ) {
+            if ( $image instanceof DOMElement && ( '' !== trim(self::attr($image, 'src')) || '' !== trim(self::attr($image, 'srcset')) ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function imageUrlFromInfoValue(string $value): string
+    {
+        $decoded = trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if ( '' === $decoded || ( ! str_starts_with($decoded, '{') && ! str_starts_with($decoded, '[') ) ) {
+            return '';
+        }
+        $data = json_decode($decoded, true);
+        if ( ! is_array($data) ) {
+            return '';
+        }
+        $stack = array( $data );
+        $depth = 0;
+        while ( array() !== $stack && $depth < 8 ) {
+            $node = array_pop($stack);
+            ++$depth;
+            if ( ! is_array($node) ) {
+                continue;
+            }
+            foreach ( $node as $key => $item ) {
+                if ( is_string($item) && is_string($key) && 1 === preg_match('/(?:url|src)$/i', $key) && self::isSafeImageSourceUrl($item) ) {
+                    return $item;
+                }
+                if ( is_array($item) ) {
+                    $stack[] = $item;
+                }
+            }
+        }
+
+        return '';
+    }
+
+    private static function isSafeImageSourceUrl(string $url): bool
+    {
+        if ( ! self::safeFallbackUrl($url, 'src') ) {
+            return false;
+        }
+        $normalized = strtolower(preg_replace('/[\x00-\x20\x7f]+/', '', html_entity_decode($url, ENT_QUOTES | ENT_HTML5, 'UTF-8')) ?? '');
+        for ( $index = 0; $index < 2 && str_contains($normalized, '%'); ++$index ) {
+            $normalized = rawurldecode($normalized);
+        }
+        if ( '' === $normalized ) {
+            return false;
+        }
+        $parts = parse_url($url);
+        if ( is_array($parts) && ( isset($parts['user']) || isset($parts['pass']) ) ) {
+            return false;
+        }
+        if ( ! preg_match('/^([a-z][a-z0-9+.-]*):/i', $normalized, $scheme) ) {
+            return true;
+        }
+
+        return in_array($scheme[1], array( 'http', 'https' ), true)
+            || (bool) preg_match('#^data:image/(?:avif|gif|jpeg|png|webp);base64,[a-z0-9+/=]+$#i', $normalized);
+    }
 }

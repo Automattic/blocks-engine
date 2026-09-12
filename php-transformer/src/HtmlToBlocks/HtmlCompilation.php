@@ -150,6 +150,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\DomHelpersTrait;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializationContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer;
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMaterializationPlanBuilder;
@@ -9960,6 +9961,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( '' !== $candidate ) {
                 return $candidate;
             }
+        }
+
+        $fromHost = $this->safeImageUrl(SourceDom::imageUrlFromHostMetadata($image));
+        if ( '' !== $fromHost ) {
+            return $fromHost;
         }
 
         return $src;
