@@ -120,7 +120,7 @@ final class FlowContainerElementConverter implements ElementConverter
             && in_array($tagName, array( 'div', 'section', 'article', 'aside', 'header', 'footer', 'main' ), true)
         ) {
             if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) && $this->context->shouldPreserveEmptyVisualElement($element) ) {
-                return ConversionOutcome::handled($this->context->createBlock('core/group', $this->context->emptyVisualElementAttributes($element), array(), $element));
+                return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }

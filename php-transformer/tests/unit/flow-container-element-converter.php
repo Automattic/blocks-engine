@@ -45,15 +45,14 @@ $operations = array(
     'canCaptureExternalSvgFragmentDependency' => static fn (): bool => true,
     'sourceElementClassifier' => new SourceElementClassifier(),
     'responsiveMediaBlock' => static fn (): array => array( 'blockName' => 'responsive-media' ),
-    'isDirectChildOfAuthorOwnedLayout' => $false,
+    'isDirectChildOfAuthorOwnedLayout' => static fn (): bool => 'author-layout-child-empty' === $state->mode,
     'authorLayoutBlock' => static fn (): array => array( 'blockName' => 'author-layout' ),
     'hasMultipleRuntimeInlineTextTargets' => $false,
     'paragraphBlockFromInlineContentWrapper' => $null,
     'isGeneratedComponentCandidate' => $false,
     'isAuthorOwnedLayout' => static fn (): bool => 'author-layout' === $state->mode,
     'proofBackedWrapperCoalescing' => $null,
-    'shouldPreserveEmptyVisualElement' => static fn (): bool => 'visual-empty' === $state->mode,
-    'emptyVisualElementAttributes' => static fn (): array => array(),
+    'shouldPreserveEmptyVisualElement' => static fn (): bool => in_array($state->mode, array( 'visual-empty', 'author-layout-child-empty' ), true),
     'createBlock' => new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, ?DOMElement $sourceElement): array => array(
         'blockName' => $name,
         'attrs' => $attributes,
@@ -115,8 +114,10 @@ $assert('core/paragraph' === ($converter->convert($div, 'div', $fallbacks)->bloc
 $state->mode = 'multiple-children';
 $group = $converter->convert($div, 'div', $fallbacks)->block;
 $assert('core/group' === ($group['blockName'] ?? '') && 2 === count($group['innerBlocks'] ?? array()), 'multiple-children-grouped');
-$state->mode = 'visual-empty';
-$assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-preserved');
+    $state->mode = 'visual-empty';
+    $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-preserved');
+    $state->mode = 'author-layout-child-empty';
+    $assert('core/spacer' === ($converter->convert($div, 'div', $fallbacks)->block['blockName'] ?? ''), 'empty-visual-inside-authored-layout-uses-empty-visual-path');
 $state->mode = 'empty';
 $empty = $converter->convert($div, 'div', $fallbacks);
 $assert($empty->handled && null === $empty->block, 'empty-flow-handled-without-block');
