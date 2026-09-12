@@ -124,6 +124,7 @@ trait DomHelpersTrait
         if ( ! $clone instanceof DOMElement ) {
             return null;
         }
+        SourceDom::materializeMissingImageSources($clone);
         $this->materializeFallbackSourceTagMarker($clone);
         foreach ( $clone->getElementsByTagName('*') as $descendant ) {
             if ( $descendant instanceof DOMElement ) {

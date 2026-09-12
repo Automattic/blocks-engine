@@ -148,6 +148,21 @@ $assert(! SourceDom::isSafeInlineSvgMarkup('<!DOCTYPE svg [<!ENTITY payload SYST
 
 // --- statelessness ----------------------------------------------------------
 
+$host = $element('<wow-image data-image-info="{&quot;imageData&quot;:{&quot;url&quot;:&quot;https://cdn.example.test/logo.png&quot;,&quot;alt&quot;:&quot;Logo&quot;}}"><picture><img alt="Logo"></picture></wow-image>');
+$img = $host->getElementsByTagName('img')->item(0);
+$assert($img instanceof DOMElement && SourceDom::imageUrlFromHostMetadata($img) === 'https://cdn.example.test/logo.png', 'host JSON image metadata exposes the image URL');
+SourceDom::materializeMissingImageSources($host);
+$assert($img instanceof DOMElement && $img->getAttribute('src') === 'https://cdn.example.test/logo.png', 'missing img src is materialized from host metadata');
+
+$bounded = $element('<media-frame data-image-info="bounded"><picture><img alt="Mark"></picture></media-frame>');
+$boundedImg = $bounded->getElementsByTagName('img')->item(0);
+$assert($boundedImg instanceof DOMElement && '' === SourceDom::imageUrlFromHostMetadata($boundedImg), 'non-JSON host metadata is not treated as an image URL');
+SourceDom::materializeMissingImageSources($bounded);
+$assert(0 === $bounded->getElementsByTagName('picture')->length, 'a sourceless picture without recoverable metadata is dropped');
+
+$unsafe = $element('<wow-image data-image-info="{&quot;url&quot;:&quot;javascript:alert(1)&quot;}"><img alt="x"></wow-image>');
+$assert('' === SourceDom::imageUrlFromHostMetadata($unsafe->getElementsByTagName('img')->item(0)), 'javascript image metadata URLs are rejected');
+
 $probe = $element('<div class="a">x</div>');
 $first = SourceDom::attr($probe, 'class');
 SourceDom::mergeClassNames('x', 'y');

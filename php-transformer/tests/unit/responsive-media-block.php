@@ -116,6 +116,15 @@ $assert('custom/responsive-media' === ($srcsetWrapper['blocks'][0]['blockName'] 
 $selectorDependentWrapper = ( new HtmlTransformer() )->transform('<style>.media-frame .media-image{border-radius:50%}</style><a href="/profile"><media-frame class="media-frame"><img class="media-image" src="profile.png" alt="Profile"></media-frame></a>')->toArray();
 $assert('custom/responsive-media' === ($selectorDependentWrapper['blocks'][0]['blockName'] ?? null), 'a custom wrapper whose descendant selector would change remains responsive media');
 
+$deferredHost = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage" data-image-info="{&quot;alignType&quot;:&quot;center&quot;,&quot;imageData&quot;:{&quot;name&quot;:&quot;Logo.png&quot;,&quot;url&quot;:&quot;https://cdn.example.test/logo.png&quot;,&quot;alt&quot;:&quot;Logo.png&quot;}}"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
+$deferredContent = (string) ($deferredHost['blocks'][0]['attrs']['content'] ?? $deferredHost['serialized_blocks'] ?? '');
+$assert(str_contains($deferredContent, 'src="https://cdn.example.test/logo.png"'), 'a custom image host with JSON image metadata fills a missing img src');
+$assert(! str_contains($deferredContent, '<picture><img alt="Logo.png"></picture>') || str_contains($deferredContent, '<img alt="Logo.png" src="https://cdn.example.test/logo.png">') || str_contains($deferredContent, '<img src="https://cdn.example.test/logo.png" alt="Logo.png">'), 'the recovered source is serialized onto the captured img');
+
+$emptyPicture = ( new HtmlTransformer() )->transform('<wow-image class="_wowImage"><picture><img alt="Logo.png"></picture></wow-image>')->toArray();
+$emptyContent = (string) ($emptyPicture['blocks'][0]['attrs']['content'] ?? $emptyPicture['serialized_blocks'] ?? '');
+$assert(! str_contains($emptyContent, '<picture><img alt="Logo.png"></picture>'), 'a picture with no src and no recoverable metadata is not emitted');
+
 $labeledWrapper = ( new HtmlTransformer() )->transform('<a href="/profile"><div><wow-image><img src="profile.png" alt="Profile"></wow-image><span>Profile</span></div></a>')->toArray();
 $assert('custom/responsive-media' !== ($labeledWrapper['blocks'][0]['blockName'] ?? null), 'a linked image wrapper with authored label content is not collapsed into responsive media');
 
