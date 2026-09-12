@@ -1472,6 +1472,7 @@ final class WordPressSitePlan
             $source = $document['source_path'] . '#' . ($script['order'] ?? '');
             $unsupported = static function (string $code, string $message) use (&$diagnostics, $source): void { $diagnostics[] = array('code' => $code, 'severity' => 'warning', 'message' => $message, 'source_path' => $source); };
             if (!is_array($script)) { $unsupported('wordpress_site_plan_script_invalid', 'Document script metadata is invalid.'); continue; }
+            if (!self::isExecutableScriptType((string) ($script['type'] ?? ''), true === ($script['module'] ?? false))) continue;
             $supersessionKey = $document['source_path'] . "\n" . ($script['selector'] ?? '') . "\n" . ($script['body_hash'] ?? '') . "\n" . ($script['superseded_by'] ?? '');
             if ( isset($superseded[$supersessionKey]) ) continue;
             // A form-runtime script (marked with a supersession target) that a
@@ -1502,6 +1503,12 @@ final class WordPressSitePlan
             $scripts[$identity]['scopes'][] = $scope;
         }
         return array('scripts' => array_values($scripts), 'diagnostics' => $diagnostics);
+    }
+
+    private static function isExecutableScriptType(string $type, bool $module): bool
+    {
+        $type = strtolower(trim($type));
+        return $module || '' === $type || in_array($type, array('module', 'text/javascript', 'application/javascript', 'text/ecmascript', 'application/ecmascript'), true);
     }
 
     private function hasDynamicScriptReferences(string $content): bool { return preg_match('/\bimport\s*\(|\b(?:document\s*\.\s*createElement\s*\(\s*["\']script|appendChild\s*\(|insertBefore\s*\(|\.\s*src\s*=|new\s+URL\s*\()/i', $content) === 1; }
