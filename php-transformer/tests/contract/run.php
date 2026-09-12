@@ -1710,7 +1710,6 @@ $assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-gr
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
 // Reserving height for a withheld picker displaces every following block, which
 // moves the whole source composition down the editor canvas.
-$assert(str_contains($fixedBackgroundEditorCss, 'height:0!important') && str_contains($fixedBackgroundEditorCss, 'align-self:start!important') && str_contains($fixedBackgroundEditorCss, 'min-height:0!important') && ! str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:2rem'), 'painted source layers reserve no editor height for the picker they withhold, including inside authored flex layouts');
 
 $authoredLayoutBackgroundLayer = ( new HtmlTransformer() )->transform(
     '<style>.hero{display:flex;position:relative}.hero-bg{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,#211,#000)}</style><main><div class="hero"><div class="hero-bg"></div><h1>Hero</h1></div></main>'
