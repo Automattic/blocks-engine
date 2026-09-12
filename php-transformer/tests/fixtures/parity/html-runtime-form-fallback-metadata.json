@@ -39,7 +39,7 @@
     { "path": "fallbacks.0.control_count", "assert": "equals", "value": 4 },
     { "path": "fallbacks.0.controls.0.name", "assert": "equals", "value": "name" },
     { "path": "fallbacks.0.controls.0.order", "assert": "equals", "value": 0 },
-    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Name" },
+    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Name " },
     { "path": "fallbacks.0.controls.0.autocomplete", "assert": "equals", "value": "name" },
     { "path": "fallbacks.0.controls.0.maxlength", "assert": "equals", "value": "80" },
     { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },

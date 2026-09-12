@@ -277,7 +277,26 @@ final class FormControlMetadataBuilder
 
     public function labelText(DOMElement $label): string
     {
-        return $this->collapseRepeatedLabel(trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? ''));
+        $collapsed = preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '';
+        $text = $this->collapseRepeatedLabel(trim($collapsed));
+        if ( '' !== $text && 1 === preg_match('/\s$/u', $collapsed) && $this->hasDecorativeRequiredMarker($label) ) {
+            return $text . ' ';
+        }
+
+        return $text;
+    }
+
+    private function hasDecorativeRequiredMarker(DOMElement $label): bool
+    {
+        foreach ( $label->getElementsByTagName('span') as $marker ) {
+            if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden'))
+                && 1 === preg_match('/^\*{1,4}$/D', trim($marker->textContent ?? ''))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function labelTextWithoutControls(DOMNode $node): string

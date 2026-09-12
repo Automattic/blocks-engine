@@ -48,6 +48,13 @@ $assert(
     'required marker text is captured separately from the accessible label only when present'
 );
 
+$spacedMarker = $transformer->transform('<main><form><label for="details">Details (please include size)' . "\n\n" . '<span aria-hidden="true">*</span></label><textarea id="details" name="details" required></textarea><button type="submit">Send</button></form></main>')->toArray();
+$assert(
+    'Details (please include size) ' === ($spacedMarker['fallbacks'][0]['controls'][0]['label'] ?? null)
+        && '*' === ($spacedMarker['fallbacks'][0]['controls'][0]['required_text'] ?? null),
+    'whitespace before a required marker remains a trailing label space'
+);
+
 $assert(
     str_contains($serialized, 'Claim My Spot') && ! str_contains($serialized, '>Button<'),
     '1: type=button submit keeps visible copy instead of the type name',

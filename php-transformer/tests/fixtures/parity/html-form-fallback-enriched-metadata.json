@@ -30,7 +30,7 @@
     { "path": "fallbacks.0.control_count", "assert": "equals", "value": 3 },
     { "path": "fallbacks.0.controls.0.order", "assert": "equals", "value": 0 },
     { "path": "fallbacks.0.controls.0.tag", "assert": "equals", "value": "select" },
-    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Ticket Type" },
+    { "path": "fallbacks.0.controls.0.label", "assert": "equals", "value": "Ticket Type " },
     { "path": "fallbacks.0.controls.0.required", "assert": "equals", "value": true },
     { "path": "fallbacks.0.controls.0.options.0.placeholder", "assert": "equals", "value": true },
     { "path": "fallbacks.0.controls.0.options.1.value", "assert": "equals", "value": "standard" },

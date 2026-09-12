@@ -3260,6 +3260,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $customImage = $this->imageOnlyCustomElement($element);
         if ( $customImage instanceof DOMElement ) {
+            $this->fillParentImageViewportPair($customImage);
             if ( ! $this->canPromoteImageOnlyCustomElement($element, $customImage) ) {
                 return $this->responsiveMediaBlock($element);
             }
@@ -9635,6 +9636,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $image instanceof DOMElement ) {
             return null;
         }
+        $this->fillParentImageViewportPair($image);
 
         if ( $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture);
@@ -9725,6 +9727,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function convertImageElement(DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array
     {
+        $this->fillParentImageViewportPair($image);
         if ( $picture instanceof DOMElement && $this->sourceElementClassifier->hasPictureSourceSelection($picture) ) {
             return $this->responsiveMediaBlock($link ?? $figure ?? $picture ?? $image);
         }
@@ -9780,7 +9783,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function imageDisplayDimension(DOMElement $image, string $property, bool $linked): string
     {
-        $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        $inline = trim($this->cssValueWithoutImportant((string) ($declarations[ $property ] ?? '')));
+        $other = 'width' === $property ? 'height' : 'width';
+        $otherInline = trim($this->cssValueWithoutImportant((string) ($declarations[ $other ] ?? '')));
+        if ( $this->imageViewportPairFillsParent($inline, $otherInline) ) {
+            return '100%';
+        }
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline, $linked);
         }
@@ -9796,6 +9805,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return '';
         }
         return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
+    }
+
+    /**
+     * A capture often inlines the stylesheet's viewport pair onto the img while
+     * the live document later pins integer px from the already-sized parent.
+     * Filling that parent keeps the designed box instead of a truncated vw.
+     */
+    private function imageViewportPairFillsParent(string $first, string $second): bool
+    {
+        return 1 === preg_match('/^(?:\d+|\d*\.\d+)vw$/i', $first)
+            && 1 === preg_match('/^(?:\d+|\d*\.\d+)v(?:w|h)$/i', $second);
+    }
+
+    private function fillParentImageViewportPair(DOMElement $image): void
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        $width = trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')));
+        $height = trim($this->cssValueWithoutImportant((string) ($declarations['height'] ?? '')));
+        if ( ! $this->imageViewportPairFillsParent($width, $height) ) {
+            return;
+        }
+        $declarations['width'] = '100%';
+        $declarations['height'] = '100%';
+        $style = array();
+        foreach ( $declarations as $property => $value ) {
+            $style[] = $property . ':' . $value;
+        }
+        $image->setAttribute('style', implode(';', $style));
     }
 
     /** @return array<string, mixed> */

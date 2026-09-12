@@ -45,4 +45,12 @@ if ( ! str_contains($imageMarkup, 'style="width:100%"') || str_contains($imageMa
     throw new RuntimeException('Percentage-width core/image must match the WordPress 7.0.4 width-only save shape.');
 }
 
+$viewportImage = ( new HtmlTransformer() )->transform(
+    '<main><img src="logo.png" alt="Logo" style="width: 9.74vw;height: 9.95vw;object-fit: cover;"></main>'
+)->toArray();
+$viewportMarkup = (string) ($viewportImage['serialized_blocks'] ?? '');
+if ( str_contains($viewportMarkup, '9.74vw') || str_contains($viewportMarkup, '9.95vw') || ! str_contains($viewportMarkup, 'width:100%') || ! str_contains($viewportMarkup, 'height:100%') ) {
+    throw new RuntimeException('A captured viewport-sized image fills its parent box instead of keeping truncated vw lengths.');
+}
+
 fwrite(STDOUT, "WordPress 7.0.4 save-shape tests passed.\n");
