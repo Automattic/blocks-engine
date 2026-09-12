@@ -295,6 +295,14 @@ $nativeColumnsResult = ( new HtmlTransformer() )->transform($nativeColumnsHtml, 
 $nativeColumnsBlock = $nativeColumnsResult['blocks'][0] ?? array();
 $assert('core/columns' === ($nativeColumnsBlock['blockName'] ?? ''), '29: explicit native Columns markup remains core Columns', (string) ($nativeColumnsBlock['blockName'] ?? '(none)'));
 
+$blockFlowSidebarHtml = '<div class="plain-wrapper"><aside>Sidebar</aside><main>Content</main></div>';
+$blockFlowSidebarResult = ( new HtmlTransformer() )->transform($blockFlowSidebarHtml, array('static_css' => '.plain-wrapper{display:block}.lightbox{display:none}'))->toArray();
+$blockFlowSidebarBlock = $blockFlowSidebarResult['blocks'][0] ?? array();
+$blockFlowSidebarMarkup = (string) ($blockFlowSidebarResult['serialized_blocks'] ?? '');
+
+$assert('core/group' === ($blockFlowSidebarBlock['blockName'] ?? ''), '29a: explicit block flow overrides semantic sidebar/content column inference', (string) ($blockFlowSidebarBlock['blockName'] ?? '(none)'));
+$assert(! str_contains($blockFlowSidebarMarkup, '<!-- wp:columns'), '29b: explicit block flow never serializes core Columns', $blockFlowSidebarMarkup);
+
 $labelHtml = '<section class="pricing"><div class="section-head"><div class="tag" style="padding:4px 12px;border:1px solid #6b4f2d;border-radius:100px;background:#f2e3c6;width:137px;height:28px">Pricing</div><h2>Simple plans</h2></div><article class="pricing-card"><div class="tier-name">Team</div><div class="tier-price"><span class="amount">$29</span>/mo</div><div class="use-case-result">Launch faster</div></article></section>';
 $labelCss = '.tag{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:100px}.pricing-card{padding:2rem}.tier-name{font-family:monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase}.tier-price{display:flex;align-items:flex-end;gap:6px}.use-case-result{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:6px}';
 $labelResult = ( new HtmlTransformer() )->transform($labelHtml, array('static_css' => $labelCss))->toArray();
