@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
-use DOMDocument;
 use DOMElement;
 use DOMNode;
 
@@ -98,6 +97,18 @@ final class FormControlMetadataBuilder
             $text = $this->buttonText($control);
             if ( '' !== $text ) {
                 $metadata['text'] = $text;
+                $labelElement = $this->buttonLabelElement($control, $text);
+                if ( $labelElement instanceof DOMElement ) {
+                    $metadata['label_classes'] = $this->classNames($labelElement);
+                    // Author rules that addressed this element are projected onto its
+                    // rich-text marker, so the marker travels with it. A consumer that
+                    // reproduces the element without it would keep the markup and lose
+                    // the styles.
+                    $labelMarker = SourceDom::attr($labelElement, 'data-blocks-engine-richtext-marker');
+                    if ( '' !== $labelMarker ) {
+                        $metadata['label_marker'] = $labelMarker;
+                    }
+                }
             }
             if ( null !== $this->presentationAttributes ) {
                 $presentation = ($this->presentationAttributes)($control);
@@ -172,18 +183,7 @@ final class FormControlMetadataBuilder
     /** Label associated by `for`; wrapping labels are handled with their control. */
     public function associatedLabel(DOMElement $control): ?DOMElement
     {
-        $id = SourceDom::attr($control, 'id');
-        if ( '' === $id || ! $control->ownerDocument instanceof DOMDocument ) {
-            return null;
-        }
-
-        foreach ( $control->ownerDocument->getElementsByTagName('label') as $label ) {
-            if ( $label instanceof DOMElement && $id === SourceDom::attr($label, 'for') ) {
-                return $label;
-            }
-        }
-
-        return null;
+        return SourceDom::associatedLabel($control);
     }
 
     /** The explicit decorative required marker also supplies provider presentation identity. */
@@ -277,7 +277,26 @@ final class FormControlMetadataBuilder
 
     public function labelText(DOMElement $label): string
     {
-        return $this->collapseRepeatedLabel(trim(preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? ''));
+        $collapsed = preg_replace('/\s+/', ' ', $this->labelTextWithoutControls($label)) ?? '';
+        $text = $this->collapseRepeatedLabel(trim($collapsed));
+        if ( '' !== $text && 1 === preg_match('/\s$/u', $collapsed) && $this->hasDecorativeRequiredMarker($label) ) {
+            return $text . ' ';
+        }
+
+        return $text;
+    }
+
+    private function hasDecorativeRequiredMarker(DOMElement $label): bool
+    {
+        foreach ( $label->getElementsByTagName('span') as $marker ) {
+            if ( 'true' === strtolower(SourceDom::attr($marker, 'aria-hidden'))
+                && 1 === preg_match('/^\*{1,4}$/D', trim($marker->textContent ?? ''))
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function labelTextWithoutControls(DOMNode $node): string
@@ -298,6 +317,37 @@ final class FormControlMetadataBuilder
         }
 
         return $text;
+    }
+
+    /**
+     * A button can carry its label in a dedicated inline element that authored
+     * rules address as a descendant, so the rendered line box belongs to that
+     * element rather than the button. Report it, including when it declares no
+     * classes, so a consumer can keep the element the source styles.
+     *
+     */
+    private function buttonLabelElement(DOMElement $control, string $text): ?DOMElement
+    {
+        $labelElement = null;
+        foreach ( $control->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( null !== $labelElement ) {
+                    return null;
+                }
+                $labelElement = $child;
+                continue;
+            }
+            if ( $child instanceof DOMText && '' !== trim($child->textContent) ) {
+                return null;
+            }
+        }
+        if ( ! $labelElement instanceof DOMElement || 'span' !== strtolower($labelElement->tagName) ) {
+            return null;
+        }
+        if ( trim(preg_replace('/\s+/', ' ', $labelElement->textContent ?? '') ?? '') !== $text ) {
+            return null;
+        }
+        return $labelElement;
     }
 
     private function buttonText(DOMElement $control): string
