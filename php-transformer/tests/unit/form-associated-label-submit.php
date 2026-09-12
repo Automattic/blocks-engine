@@ -88,6 +88,33 @@ $assert(
     $nativeSubmit
 );
 
+$labelOf = static function (string $html) use ($transformer): string {
+    $fallbacks = $transformer->transform($html)->toArray()['fallbacks'] ?? array();
+    foreach ( $fallbacks as $fallback ) {
+        foreach ( $fallback['controls'] ?? array() as $control ) {
+            if ( isset($control['label']) && str_starts_with((string) $control['label'], 'Details') ) {
+                return (string) $control['label'];
+            }
+        }
+    }
+
+    return '';
+};
+
+$spacedMarkerForm = '<main><form aria-label="Quote"><label for="d">Details<span aria-hidden="true">*</span></label><textarea id="d" aria-label="Details " required></textarea><button type="submit">Send</button></form></main>';
+$assert(
+    'Details ' === $labelOf($spacedMarkerForm),
+    '5: an accessible name keeps the space that separates it from a decorative required marker',
+    json_encode($labelOf($spacedMarkerForm))
+);
+
+$plainMarkerForm = '<main><form aria-label="Quote"><label for="d2">Details<span aria-hidden="true">*</span></label><textarea id="d2" aria-label="Details" required></textarea><button type="submit">Send</button></form></main>';
+$assert(
+    'Details' === $labelOf($plainMarkerForm),
+    '6: an accessible name without that separator is reported unchanged',
+    json_encode($labelOf($plainMarkerForm))
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "form associated-label/submit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);
