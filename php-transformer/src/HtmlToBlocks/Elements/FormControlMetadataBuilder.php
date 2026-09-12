@@ -147,12 +147,25 @@ final class FormControlMetadataBuilder
 
     public function label(DOMElement $control): string
     {
-        $ariaLabel = trim(SourceDom::attr($control, 'aria-label'));
+        $authoredAriaLabel = SourceDom::attr($control, 'aria-label');
+        $ariaLabel = trim($authoredAriaLabel);
+        $label = $this->labelElement($control);
         if ( '' !== $ariaLabel ) {
-            return $this->collapseRepeatedLabel($ariaLabel);
+            $collapsed = $this->collapseRepeatedLabel($ariaLabel);
+            // An authored label can carry the space that separates its own text
+            // from a decorative required marker rendered beside it. Reported text
+            // keeps that separator, exactly as the label element's text does, so
+            // the rendered line box matches the source instead of closing up.
+            if ( 1 === preg_match('/\s$/u', $authoredAriaLabel)
+                && $label instanceof DOMElement
+                && $this->hasDecorativeRequiredMarker($label)
+            ) {
+                return $collapsed . ' ';
+            }
+
+            return $collapsed;
         }
 
-        $label = $this->labelElement($control);
         if ( $label instanceof DOMElement ) {
             return $this->labelText($label);
         }
