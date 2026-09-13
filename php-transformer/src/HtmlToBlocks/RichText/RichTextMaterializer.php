@@ -96,8 +96,7 @@ final class RichTextMaterializer implements RichTextMaterialization
             if ( '' !== $marker ) {
                 $headerCarrier = array_intersect_key($inline, array( 'place-items' => true, 'box-shadow' => true ));
                 if ( array() !== $headerCarrier && SourceDom::hasAncestorTag($sourceInline, array( 'header' )) ) {
-                    $selector = 'mark[style*="--blocks-engine-richtext-marker:' . $marker . '"]'
-                        . ',span[data-blocks-engine-richtext-marker="' . $marker . '"]';
+                    $selector = RichTextMarkerSelector::carrierSelectorList($marker);
                     $this->session->generatedSupportStylesheetState()->registerHeaderRichText($marker, $selector . '{' . $this->styleResolver->cssDeclarationString($headerCarrier) . '}');
                 }
                 $inline['--blocks-engine-richtext-marker'] = $marker;

@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 
@@ -306,7 +307,7 @@ preg_match('/--blocks-engine-richtext-marker:([^;" ]+)/', $headerLockupMarkup, $
 $headerRichTextRule = '';
 if ( isset($headerRichTextMarker[1])
     && preg_match(
-        '/mark\[style\*="--blocks-engine-richtext-marker:' . preg_quote($headerRichTextMarker[1], '/') . '"\],span\[data-blocks-engine-richtext-marker="' . preg_quote($headerRichTextMarker[1], '/') . '"\]\{([^}]*)\}/',
+        '/mark\[style\*="--blocks-engine-richtext-marker:' . preg_quote($headerRichTextMarker[1], '/') . ';"\],mark\[style\$="--blocks-engine-richtext-marker:' . preg_quote($headerRichTextMarker[1], '/') . '"\],span\[data-blocks-engine-richtext-marker="' . preg_quote($headerRichTextMarker[1], '/') . '"\]\{([^}]*)\}/',
         $headerLockupCss,
         $headerRichTextRuleMatch
     )
@@ -459,6 +460,30 @@ $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);
 $assert(str_contains($richTextColorMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && ! str_contains($richTextColorMarkup, 'color:inherit') && ! str_contains($richTextColorMarkup, 'background-color:transparent') && str_contains($richTextColorCss, ':where(mark)[style*="--blocks-engine-richtext-marker:"]{background-color:transparent;color:inherit}') && str_contains($richTextColorCss, '{font-size:4rem;color:var(--amber)}') && strpos($richTextColorCss, 'color:inherit') < strpos($richTextColorCss, 'color:var(--amber)'), 'RichText marker defers transparent background to the preceding reset CSS while explicit author color remains authoritative');
+
+$markerPrefixDocument = new DOMDocument();
+$markerPrefixDocument->loadHTML('<!doctype html><body><mark id="terminal" style="--blocks-engine-richtext-marker:marker-19">Terminal</mark><mark id="middle" style="--blocks-engine-richtext-marker:marker-19;color:red">Middle</mark><mark id="long" style="--blocks-engine-richtext-marker:marker-1928">Long</mark></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$terminalMarker = $markerPrefixDocument->getElementById('terminal');
+$middleMarker = $markerPrefixDocument->getElementById('middle');
+$longMarker = $markerPrefixDocument->getElementById('long');
+$markerSelectors = RichTextMarkerSelector::markSelectors('marker-19');
+$matchesAny = static function (DOMElement $element) use ($markerSelectors): bool {
+    foreach ($markerSelectors as $selector) {
+        if (CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector))['matches']) {
+            return true;
+        }
+    }
+    return false;
+};
+$assert(
+    $terminalMarker instanceof DOMElement
+        && $middleMarker instanceof DOMElement
+        && $longMarker instanceof DOMElement
+        && $matchesAny($terminalMarker)
+        && $matchesAny($middleMarker)
+        && ! $matchesAny($longMarker),
+    'RichText marker selectors match terminal and middle declarations without treating marker 19 as a prefix of marker 1928'
+);
 
 $markStaticLonghand = $transform('<style>.hl{background-color:gold}</style><p><span class="hl">Static longhand</span></p>');
 $markStaticLonghandMarkup = (string) ($markStaticLonghand['serialized_blocks'] ?? '');
