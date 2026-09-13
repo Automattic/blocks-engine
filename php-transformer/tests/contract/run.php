@@ -1245,10 +1245,13 @@ $generatedMarkupBeforeForm = (new ArtifactCompiler())->compile(array('entrypoint
 $generatedMarkupFormDeclaration = current(array_filter($generatedMarkupBeforeForm['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $generatedMarkupFormBinding = $generatedMarkupFormDeclaration['payload']['entities'][0]['bindings'][0] ?? array();
 $generatedMarkupSerializedBlocks = (string) ($generatedMarkupBeforeForm['serialized_blocks'] ?? '');
+$generatedMarkupResolved = (new WordPressSitePlanResolver())->resolve($generatedMarkupBeforeForm['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme'));
+$generatedMarkupResolvedForm = current(array_filter($generatedMarkupResolved['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $assert(
     str_contains($generatedMarkupSerializedBlocks, '<!-- wp:custom/responsive-media')
         && 'blocks-engine/runtime-binding-position/v1' === ($generatedMarkupFormBinding['position']['schema'] ?? null)
-        && ($generatedMarkupFormBinding['search_block_markup'] ?? '') === substr($generatedMarkupSerializedBlocks, (int) ($generatedMarkupFormBinding['position']['offset'] ?? -1), (int) ($generatedMarkupFormBinding['position']['length'] ?? 0)),
+        && ($generatedMarkupFormBinding['search_block_markup'] ?? '') === substr($generatedMarkupSerializedBlocks, (int) ($generatedMarkupFormBinding['position']['offset'] ?? -1), (int) ($generatedMarkupFormBinding['position']['length'] ?? 0))
+        && !empty($generatedMarkupResolvedForm['payload']['entities'][0]['bindings'][0]['search_block_markup']),
     'generated block attributes containing HTML do not shift a later provider binding out of serialized block range alignment'
 );
 $requiredFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form><input name="email" required><textarea name="message" aria-required="true"></textarea><button type="submit">Send</button></form></main>')))->toArray();

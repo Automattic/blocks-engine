@@ -110,7 +110,7 @@ final class WordPressSitePlanResolver
     private static function blockRanges(string $markup): array
     {
         $ranges = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        if (!preg_match_all('/<!--\s*(\/?)wp:.*?-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
         foreach ($matches[0] as $match) { $token = $match[0]; $offset = $match[1]; if (str_starts_with($token, '<!-- /wp:')) { $open = array_pop($stack); if (is_array($open)) $ranges[$open['index']]['length'] = $offset + strlen($token) - $open['offset']; } elseif (str_ends_with(rtrim($token), '/-->')) $ranges[] = array('offset' => $offset, 'length' => strlen($token)); else { $index = count($ranges); $ranges[] = array('offset' => $offset, 'length' => 0); $stack[] = array('index' => $index, 'offset' => $offset); } }
         return array_values(array_filter($ranges, static fn(array $range): bool => 0 < $range['length']));
     }
