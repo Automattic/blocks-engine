@@ -20,6 +20,7 @@ final class ThemeJsonProjection
     public function project(array $assets): array
     {
         $candidates = array();
+        $conditionalProperties = array();
         foreach ($assets as $assetIndex => $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $path = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
@@ -33,10 +34,20 @@ final class ThemeJsonProjection
                 }
                 return $prelude . '{' . $body . '}';
             });
+            // Global Styles cannot reproduce a declaration that source CSS varies
+            // inside a nested cascade, so keep that property source-owned.
+            (new CssStylesheetTransformer())->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$conditionalProperties): void {
+                if (array() === $ancestors) return;
+                $target = $this->target(strtolower(trim($prelude)));
+                if (null === $target) return;
+                foreach ($this->declarations($body) as $name => $value) {
+                    if ($this->representable($target, $name, $value)) $conditionalProperties[$target . "\n" . $name] = true;
+                }
+            });
         }
 
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
-        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => 1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:')));
+        $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
         $presets = $this->presets($selected);
 
         return array('assets' => $assets, 'theme' => $this->theme($selected, $presets), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);
