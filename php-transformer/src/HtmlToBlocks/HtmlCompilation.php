@@ -7307,7 +7307,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function serializedBlockRanges(string $markup): array
     {
         $ranges = array(); $stack = array();
-        if (!preg_match_all('/<!--\s*(\/?)wp:[^>]*?(\/?)\s*-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
+        if (!preg_match_all('/<!--\s*(\/?)wp:.*?-->/s', $markup, $matches, PREG_OFFSET_CAPTURE)) return $ranges;
         foreach ($matches[0] as $match) {
             $token = $match[0]; $offset = $match[1];
             if (str_starts_with($token, '<!-- /wp:')) {
