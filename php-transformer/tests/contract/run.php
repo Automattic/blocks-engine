@@ -1019,6 +1019,13 @@ $capturedMobileMenuDisclosure = ( new ArtifactCompiler() )->compile(
 $capturedMobileMenuDisclosureMarkup = (string) ($capturedMobileMenuDisclosure['serialized_blocks'] ?? '');
 $assert(str_contains($capturedMobileMenuDisclosureMarkup, '"overlayMenu":"never"') && ! str_contains($capturedMobileMenuDisclosureMarkup, 'blocks-engine-native-responsive-navigation'), 'navigation inside a captured native disclosure does not create a nested mobile overlay', $capturedMobileMenuDisclosureMarkup);
 
+$structuralDisclosureReveal = ( new HtmlTransformer() )->transform(
+    '<style>details.dla-disclosure[open]>.dla-dialog>:first-child{display:block!important;visibility:visible!important}</style>'
+    . '<details class="dla-disclosure"><summary>Menu</summary><div class="dla-dialog"><button>Close</button><nav><a href="/">Home</a></nav></div></details>'
+)->toArray();
+$structuralDisclosureRevealCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $structuralDisclosureReveal['assets'] ?? array()));
+$assert(str_contains($structuralDisclosureRevealCss, 'details.dla-disclosure[open]>.dla-dialog>:first-child{display:block!important;visibility:visible!important}'), 'universal structural child selectors preserve their relationship instead of binding to the captured child identity', $structuralDisclosureRevealCss);
+
 // Separate desktop and mobile source surfaces are not an overlay pair when the
 // mobile menu keeps its own native details interaction. In particular, the
 // desktop menu must retain its authored display at desktop widths instead of

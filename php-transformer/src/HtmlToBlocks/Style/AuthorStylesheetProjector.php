@@ -377,7 +377,7 @@ final class AuthorStylesheetProjector
                 array_push($rewritten, ...$this->projectUnsupportedFunctionalControlSelector($selector, $context, true));
                 continue;
             }
-            if ( null !== $parsed['pseudo_state_suffix_span'] ) {
+            if ( null !== $parsed['pseudo_state_suffix_span'] || $this->hasUniversalStructuralLeaf($parsed) ) {
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
@@ -412,7 +412,7 @@ final class AuthorStylesheetProjector
         foreach ( $selectors as $selector ) {
             $selector = $this->projectSourceBodyStateSelector($selector, $context);
             $parsed = $context->sourceStyles->parsedSelector($selector);
-            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] ) {
+            if ( ! $parsed['supported'] || null !== $parsed['pseudo_state_suffix_span'] || $this->hasUniversalStructuralLeaf($parsed) ) {
                 continue;
             }
             $matches = $this->matchingSourceElements($selector, $parsed, $context);
@@ -609,6 +609,11 @@ final class AuthorStylesheetProjector
         }
         $rewritten = array();
         foreach ( $selectors as $selector ) {
+            $structuralParsed = $context->sourceStyles->parsedSelector($selector);
+            if ( $structuralParsed['supported'] && $this->hasUniversalStructuralLeaf($structuralParsed) ) {
+                $rewritten[] = $this->rewriteSourceTagTypes($selector, $structuralParsed, $context);
+                continue;
+            }
             $runtimeProjection = $this->projectRuntimeAttributeSelector($selector, $context);
             if ( null !== $runtimeProjection ) {
                 array_push($rewritten, ...$runtimeProjection);
@@ -636,6 +641,7 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context);
                 continue;
             }
+
             $attributeAncestryProjection = $this->projectSourceAttributeAncestrySelector($selector, $parsed, $matches, $context);
             if ( null !== $attributeAncestryProjection ) {
                 array_push($rewritten, ...$attributeAncestryProjection);
@@ -1229,6 +1235,18 @@ final class AuthorStylesheetProjector
             }
         }
         return $shims;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function hasUniversalStructuralLeaf(array $parsed): bool
+    {
+        $rightmost = $parsed['compounds'][array_key_last($parsed['compounds'])] ?? array();
+        return null === ($rightmost['type'] ?? null)
+            && array() === ($rightmost['classes'] ?? array())
+            && array() === ($rightmost['ids'] ?? array())
+            && array() === ($rightmost['attributes'] ?? array())
+            && array() === ($rightmost['not'] ?? array())
+            && ( null !== ($rightmost['nth_child'] ?? null) || ($rightmost['first_child'] ?? false) || ($rightmost['last_child'] ?? false) );
     }
 
     /** @param array<int, array{end: int, value: string}> $replacements */
