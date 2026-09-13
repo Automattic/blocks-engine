@@ -1248,6 +1248,19 @@ $nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports
 $nestedFormBinding = $nestedFormDeclaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] ?? '';
 $assert(is_string($nestedFormBinding) && str_contains($nestedFormBinding, '<!-- wp:') && !str_contains($nestedFormBinding, '<!-- wp:html'), 'nested form binding slot uses the normal native converter instead of preserved HTML');
 $assert(0 === substr_count((string) ($nestedControlSlot['serialized_blocks'] ?? ''), '<!-- wp:html'), 'nested form controls and bounded iframe avoid core/html fallbacks');
+$generatedMarkupBeforeForm = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><a href="https://example.com/work"><picture><source media="(min-width: 800px)" srcset="https://example.com/wide.jpg"><img src="https://example.com/small.jpg" alt="Work"></picture></a><form><div class="controls"><input name="email" type="email"><button type="submit">Send</button></div></form></main>')))->toArray();
+$generatedMarkupFormDeclaration = current(array_filter($generatedMarkupBeforeForm['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$generatedMarkupFormBinding = $generatedMarkupFormDeclaration['payload']['entities'][0]['bindings'][0] ?? array();
+$generatedMarkupSerializedBlocks = (string) ($generatedMarkupBeforeForm['serialized_blocks'] ?? '');
+$generatedMarkupResolved = (new WordPressSitePlanResolver())->resolve($generatedMarkupBeforeForm['source_reports']['wordpress_site_plan'], array('theme_uri' => 'https://example.test/theme'));
+$generatedMarkupResolvedForm = current(array_filter($generatedMarkupResolved['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(
+    str_contains($generatedMarkupSerializedBlocks, '<!-- wp:custom/responsive-media')
+        && 'blocks-engine/runtime-binding-position/v1' === ($generatedMarkupFormBinding['position']['schema'] ?? null)
+        && ($generatedMarkupFormBinding['search_block_markup'] ?? '') === substr($generatedMarkupSerializedBlocks, (int) ($generatedMarkupFormBinding['position']['offset'] ?? -1), (int) ($generatedMarkupFormBinding['position']['length'] ?? 0))
+        && !empty($generatedMarkupResolvedForm['payload']['entities'][0]['bindings'][0]['search_block_markup']),
+    'generated block attributes containing HTML do not shift a later provider binding out of serialized block range alignment'
+);
 $requiredFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form><input name="email" required><textarea name="message" aria-required="true"></textarea><button type="submit">Send</button></form></main>')))->toArray();
 $requiredFormDeclarations = array_values(array_filter($requiredFormPlan['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $requiredFormControls = $requiredFormDeclarations[0]['payload']['entities'][0]['controls'] ?? array();
