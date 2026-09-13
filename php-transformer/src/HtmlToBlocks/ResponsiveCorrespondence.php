@@ -25,6 +25,7 @@ final class ResponsiveCorrespondence
 {
     public const SCHEMA = 'blocks-engine/responsive-counterpart-contracts/v1';
     public const TOKEN_CLASS_PREFIX = ResponsiveDocumentVariants::CORRESPONDENCE_CLASS_PREFIX;
+    private const CAPTURE_TOKEN_CLASS_PREFIX = 'data-liberation-responsive-counterpart-';
     private const VARIANT_CLASS_PREFIX = 'site-document-variant-';
     private const MAX_DECLINED = 50;
 
@@ -33,6 +34,8 @@ final class ResponsiveCorrespondence
         'core/paragraph' => array('kind' => 'text', 'attribute' => 'content'),
         'core/heading' => array('kind' => 'text', 'attribute' => 'content'),
         'core/button' => array('kind' => 'link', 'attribute' => 'text'),
+        'core/navigation-link' => array('kind' => 'link', 'attribute' => 'label'),
+        'core/navigation-submenu' => array('kind' => 'link', 'attribute' => 'label'),
     );
 
     /**
@@ -104,10 +107,12 @@ final class ResponsiveCorrespondence
         }
         $supported = self::SUPPORTED_ATTRIBUTES[$default['name']];
         return array(
-            'token' => self::TOKEN_CLASS_PREFIX . $token,
+            'token' => $token,
             'kind' => $supported['kind'],
             'attribute' => $supported['attribute'],
-            'source_id' => (string) ($default['provenance']['source_attributes']['id'] ?? ''),
+            'source_id' => (string) ($default['provenance']['context']['data_attributes']['data-dla-responsive-source']
+                ?? $default['provenance']['source_attributes']['id']
+                ?? ''),
             'variants' => array(
                 'default' => $this->side($default),
                 $variant['variant'] => $this->side($variant),
@@ -130,7 +135,7 @@ final class ResponsiveCorrespondence
     private function declined(string $token, array $entries): array
     {
         return array(
-            'token' => self::TOKEN_CLASS_PREFIX . $token,
+            'token' => $token,
             'reason' => 2 !== count($entries) ? 'single_structure_occurrence' : 'unsupported_variant_structure',
             'variants' => array_values(array_map(static fn(array $entry): string => (string) $entry['variant'], $entries)),
             'block_names' => array_values(array_map(static fn(array $entry): string => (string) $entry['name'], $entries)),
@@ -151,7 +156,7 @@ final class ResponsiveCorrespondence
             $name = is_string($block['blockName'] ?? null) ? $block['blockName'] : '';
             $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
             $blockPath = $path . '.' . $index;
-            $blockVariant = $this->variantClassContext((string) ($attrs['className'] ?? '')) ?? $variant;
+            $blockVariant = $this->variantContext($attrs) ?? $variant;
             foreach ($this->tokenClasses((string) ($attrs['className'] ?? '')) as $token) {
                 $byToken[$token][] = array(
                     'path' => $blockPath,
@@ -172,8 +177,8 @@ final class ResponsiveCorrespondence
     {
         $tokens = array();
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
-            if (preg_match('/^' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '([a-f0-9]{12})$/', (string) $class, $match)) {
-                $tokens[] = $match[1];
+            if (preg_match('/^(?:' . preg_quote(self::TOKEN_CLASS_PREFIX, '/') . '|' . preg_quote(self::CAPTURE_TOKEN_CLASS_PREFIX, '/') . ')[a-f0-9]{12}$/', (string) $class)) {
+                $tokens[] = (string) $class;
             }
         }
         return $tokens;
@@ -182,8 +187,34 @@ final class ResponsiveCorrespondence
     private function variantClassContext(string $className): ?string
     {
         foreach (preg_split('/\s+/', trim($className)) ?: array() as $class) {
+            if ('data-liberation-desktop-document' === $class) {
+                return 'default';
+            }
+            if ('data-liberation-mobile-document' === $class) {
+                return 'mobile';
+            }
             if (preg_match('/^' . preg_quote(self::VARIANT_CLASS_PREFIX, '/') . '([a-z][a-z0-9_-]{0,31})$/', (string) $class, $match)) {
                 return $match[1];
+            }
+        }
+        return null;
+    }
+
+    /** @param array<string, mixed> $attrs */
+    private function variantContext(array $attrs): ?string
+    {
+        $variant = $this->variantClassContext((string) ($attrs['className'] ?? ''));
+        if (null !== $variant) {
+            return $variant;
+        }
+        foreach (is_array($attrs['wrappers'] ?? null) ? $attrs['wrappers'] : array() as $wrapper) {
+            if (!is_array($wrapper)) {
+                continue;
+            }
+            $attributes = is_array($wrapper['attributes'] ?? null) ? $wrapper['attributes'] : array();
+            $variant = $this->variantClassContext((string) ($attributes['class'] ?? ''));
+            if (null !== $variant) {
+                return $variant;
             }
         }
         return null;

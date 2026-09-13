@@ -163,7 +163,8 @@ $assert(str_contains($script, '1 !== matches.length') && str_contains($script, '
 $assert(str_contains($script, "data.dispatch( 'core/block-editor' ).updateBlockAttributes"), '4: applying a change targets the counterpart through the editor store');
 $assert(str_contains($script, "data.dispatch( 'core/notices' ).createNotice"), '4: manual copy surfaces an auditable editor notice');
 $assert(str_contains($script, 'CONTENT_ATTRIBUTES') && str_contains($script, 'setAttributes') && str_contains($script, 'Object.prototype.hasOwnProperty.call( nextAttributes, attribute )'), '4: module mirrors only declared compatible attribute updates');
-$assert(str_contains($script, 'components.ToggleControl') && str_contains($script, 'Mirror changes to '), '4: module exposes a visible opt-out for counterpart mirroring');
+$assert(str_contains($script, "blockEditor.useBlockEditingMode( 'disabled' )") && str_contains($script, "'default' !== ownVariant"), '4: module keeps generated responsive counterparts read-only');
+$assert(!str_contains($script, 'components.ToggleControl') && str_contains($script, 'owns its declared'), '4: module exposes one explicit default-document content owner without a divergent opt-out');
 $payload = $result['source_reports']['companion_plugin_payload'] ?? array();
 $editorScripts = is_array($payload['editor_scripts'] ?? null) ? $payload['editor_scripts'] : array();
 $assert(1 === count($editorScripts) && 'blocks-engine-responsive-counterparts' === ($editorScripts[0]['handle'] ?? '') && $script === ($editorScripts[0]['content'] ?? '') && ($module['script_dependencies'] ?? null) === ($editorScripts[0]['dependencies'] ?? null), '4: the declared editor module is delivered through the generic companion editor-script contract');
@@ -209,6 +210,39 @@ $assert(array() === $shellSignals, '6: responsive correspondence metadata does n
 // ---------------------------------------------------------------------------
 $standalone = (new HtmlTransformer())->transform($desktopHtml)->toArray();
 $assert(!isset($standalone['source_reports']['responsive_counterpart_contracts']), '7: the plain transformer declares nothing without a composed responsive document');
+
+// ---------------------------------------------------------------------------
+// 8. Captured per-device documents retain producer-declared source slots.
+// ---------------------------------------------------------------------------
+$captureHeadingToken = 'data-liberation-responsive-counterpart-a1b2c3d4e5f6';
+$captureNavToken = 'data-liberation-responsive-counterpart-123456abcdef';
+$capturedResponsive = (new HtmlTransformer())->transform(
+    '<html><body>'
+    . '<div class="data-liberation-desktop-document"><main><section id="hero"><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Desktop title</h1></section><nav><a class="' . $captureNavToken . '" data-dla-responsive-source="primary-nav:a:1" href="/">Home</a></nav></main></div>'
+    . '<div class="data-liberation-mobile-document"><main><section id="hero"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Mobile title</h1></div></section><nav><div><a class="' . $captureNavToken . '" data-dla-responsive-source="primary-nav:a:1" href="/">Mobile home</a></div></nav></main></div>'
+    . '</body></html>'
+)->toArray();
+$captureContracts = $capturedResponsive['source_reports']['responsive_counterpart_contracts'] ?? array();
+$captureByToken = array_column($captureContracts['counterparts'] ?? array(), null, 'token');
+$assert(2 === count($captureByToken), '8: producer-declared source slots pair across captured desktop/mobile roots', json_encode($captureContracts));
+$assert('hero:h1:1' === ($captureByToken[$captureHeadingToken]['source_id'] ?? null), '8: heading correspondence reports its stable ancestor-owned source slot');
+$assert('content' === ($captureByToken[$captureHeadingToken]['attribute'] ?? null), '8: captured heading correspondence mirrors native heading content');
+$assert('label' === ($captureByToken[$captureNavToken]['attribute'] ?? null), '8: captured navigation correspondence mirrors the native navigation label');
+$assert(str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), 'data-liberation-responsive-counterpart-') && str_contains((string) ($captureContracts['editor_module']['content'] ?? ''), "'core/navigation-link': 'label'"), '8: the bounded editor module consumes captured tokens and navigation labels');
+
+$capturedLayoutShell = (new HtmlTransformer())->transform(
+    '<html><body><div class="data-liberation-desktop-document"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Desktop title</h1></div></div><div class="data-liberation-mobile-document"><div><h1 class="' . $captureHeadingToken . '" data-dla-responsive-source="hero:h1:1">Mobile title</h1></div></div></body></html>',
+    array('computed_layout_graph' => array(
+        'schema' => 'generic/computed-layout-graph/v2',
+        'nodes' => array(),
+        'variants' => array(),
+        'diagnostics' => array(),
+        'truncated' => false,
+        'limits' => array('nodes' => 2000, 'variants' => 4000, 'depth' => 16, 'provenance' => 10000),
+    ))
+)->toArray();
+$layoutShellContracts = $capturedLayoutShell['source_reports']['responsive_counterpart_contracts']['counterparts'] ?? array();
+$assert(1 === count($layoutShellContracts), '8: captured variant context survives layout-shell wrapper serialization', json_encode($capturedLayoutShell['blocks'] ?? array()));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "Responsive counterpart contract tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

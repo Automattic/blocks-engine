@@ -12,8 +12,8 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks;
  *    counterpart token class with a compatible content attribute;
  *  - it requires exactly one other block in the editor carrying the same
  *    token, resolved under the declared responsive variant roots;
- *  - it mirrors only the compatible content attribute while the paired block
- *    is selected, with a visible per-selection opt-out and manual copy action.
+ *  - the default document is the single content owner; its compatible content
+ *    attribute mirrors to the generated variant while the variant stays read-only.
  */
 final class ResponsiveCounterpartEditorModule
 {
@@ -35,10 +35,9 @@ final class ResponsiveCounterpartEditorModule
 ( function( hooks, element, components, blockEditor, data ) {
     var createElement = element.createElement;
     var Fragment = element.Fragment;
-    var useState = element.useState;
-    var TOKEN_CLASS = /^be-responsive-counterpart-([a-f0-9]{12})$/;
+    var TOKEN_CLASS = /^(?:be-responsive-counterpart-|data-liberation-responsive-counterpart-)([a-f0-9]{12})$/;
     var VARIANT_CLASS = /^site-document-variant-([a-z][a-z0-9_-]{0,31})$/;
-    var CONTENT_ATTRIBUTES = { 'core/paragraph': 'content', 'core/heading': 'content', 'core/button': 'text' };
+    var CONTENT_ATTRIBUTES = { 'core/paragraph': 'content', 'core/heading': 'content', 'core/button': 'text', 'core/navigation-link': 'label', 'core/navigation-submenu': 'label' };
     var VARIANT_LABELS = { default: 'default (desktop)' };
 
     function classes( value ) {
@@ -51,8 +50,21 @@ final class ResponsiveCounterpartEditorModule
     }
     function variantLabelFrom( value ) {
         var found = '';
-        classes( value ).some( function( name ) { var match = VARIANT_CLASS.exec( name ); if ( match ) { found = match[ 1 ]; return true; } return false; } );
+        classes( value ).some( function( name ) {
+            if ( 'data-liberation-desktop-document' === name ) { found = 'default'; return true; }
+            if ( 'data-liberation-mobile-document' === name ) { found = 'mobile'; return true; }
+            var match = VARIANT_CLASS.exec( name ); if ( match ) { found = match[ 1 ]; return true; } return false;
+        } );
         return found;
+    }
+    function variantLabelFromAttributes( attributes ) {
+        var label = variantLabelFrom( attributes && attributes.className );
+        if ( label ) { return label; }
+        ( attributes && attributes.wrappers || [] ).some( function( wrapper ) {
+            label = variantLabelFrom( wrapper && wrapper.attributes && wrapper.attributes.class );
+            return Boolean( label );
+        } );
+        return label;
     }
     function listBlocks() {
         var store = data.select( 'core/block-editor' );
@@ -70,11 +82,11 @@ final class ResponsiveCounterpartEditorModule
     function variantOf( block ) {
         var store = data.select( 'core/block-editor' );
         var parents = store.getBlockParents ? store.getBlockParents( block.clientId ) : [];
-        var label = variantLabelFrom( block.attributes && block.attributes.className );
+        var label = variantLabelFromAttributes( block.attributes );
         if ( label ) { return label; }
         for ( var index = parents.length - 1; 0 <= index; index-- ) {
             var parent = store.getBlock ? store.getBlock( parents[ index ] ) : null;
-            label = parent ? variantLabelFrom( parent.attributes && parent.attributes.className ) : '';
+            label = parent ? variantLabelFromAttributes( parent.attributes ) : '';
             if ( label ) { return label; }
         }
         return '';
@@ -97,20 +109,23 @@ final class ResponsiveCounterpartEditorModule
         }
     }
     hooks.addFilter( 'editor.BlockEdit', 'blocks-engine/responsive-counterparts', function( BlockEdit ) {
+        function ReadOnlyVariant( props ) {
+            blockEditor.useBlockEditingMode( 'disabled' );
+            return createElement( BlockEdit, props );
+        }
         return function( props ) {
             var token = tokenFrom( props.attributes && props.attributes.className );
             var attribute = CONTENT_ATTRIBUTES[ props.name ] || '';
             var counterpart = token && attribute ? counterpartFor( props.clientId, token ) : null;
             var edited = createElement( BlockEdit, props );
-            var mirrorState = useState( true );
-            var isMirroring = mirrorState[ 0 ];
-            var setMirroring = mirrorState[ 1 ];
             if ( ! counterpart ) { return edited; }
+            var ownVariant = variantOf( { clientId: props.clientId, attributes: props.attributes } );
+            if ( 'default' !== ownVariant ) { return createElement( ReadOnlyVariant, props ); }
             var variantLabel = VARIANT_LABELS[ counterpart.variant ] || counterpart.variant;
             var mirroredProps = Object.assign( {}, props, {
                 setAttributes: function( nextAttributes ) {
                     props.setAttributes( nextAttributes );
-                    if ( isMirroring && Object.prototype.hasOwnProperty.call( nextAttributes, attribute ) ) {
+                    if ( Object.prototype.hasOwnProperty.call( nextAttributes, attribute ) ) {
                         applyToCounterpart( { attributes: Object.assign( {}, props.attributes, nextAttributes ) }, counterpart, attribute, false );
                     }
                 }
@@ -121,13 +136,7 @@ final class ResponsiveCounterpartEditorModule
                 createElement( blockEditor.InspectorControls, null,
                     createElement( components.PanelBody, { title: 'Responsive counterpart', initialOpen: true },
                         createElement( 'p', { className: 'blocks-engine-responsive-counterpart-note' },
-                            'Declared ' + variantLabel + ' counterpart for this ' + ( 'text' === attribute ? 'text' : 'link' ) + ' block.' ),
-                        createElement( components.ToggleControl, {
-                            label: 'Mirror changes to ' + variantLabel,
-                            checked: isMirroring,
-                            onChange: setMirroring,
-                            help: isMirroring ? 'Changes to this content are mirrored while this block is selected.' : 'Changes remain independent until mirroring is enabled.'
-                        } ),
+                            'This ' + ( 'text' === attribute ? 'content' : 'link' ) + ' owns its declared ' + variantLabel + ' counterpart.' ),
                         createElement( components.Button, {
                             variant: 'secondary',
                             className: 'blocks-engine-responsive-counterpart-apply',
