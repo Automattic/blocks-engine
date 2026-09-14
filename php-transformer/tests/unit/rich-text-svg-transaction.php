@@ -10,6 +10,11 @@ $result = ( new HtmlTransformer() )->transform(
 )->toArray();
 
 $failures = array();
+$label = (new HtmlTransformer())->transform('<div><b><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 0h16v16z"/></svg> Assistant</b><p>Message</p></div>')->toArray();
+$labelMarkup = (string) ($label['serialized_blocks'] ?? '');
+if (str_contains($labelMarkup, '<svg') || !str_contains($labelMarkup, '<b><img') || !str_contains($labelMarkup, ' Assistant</b>') || array() === ($label['assets'] ?? array()) || 0 !== ($label['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'] ?? -1) || 'pass' !== ($label['source_reports']['wp_block_validity']['status'] ?? '')) {
+    $failures[] = 'Standalone formatted SVG labels retain their icon and editable formatting as valid native RichText.';
+}
 if ( 'core/html' !== ($result['blocks'][0]['blockName'] ?? '') ) {
     $failures[] = 'RichText with an unsafe later SVG falls back to core/html.';
 }
