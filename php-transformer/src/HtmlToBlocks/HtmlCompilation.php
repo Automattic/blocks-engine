@@ -2593,7 +2593,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 function (DOMElement $sourceElement, array $authorClasses): void {
                     $this->recordInheritedNavigationPresentation($sourceElement, $authorClasses);
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
-                    $this->recordNavigationContainerGeometryReset($sourceElement, $authorClasses);
                 },
                 fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement),
                 fn (DOMElement $sourceElement): string => $this->styleResolver->resolvedConditionalDisplay($sourceElement),
@@ -3096,34 +3095,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // wrapper, so a child combinator never reaches it.
         $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
         $this->session->sourceTargetProjectionState()->record($this->elementSelector($navigation), $selector, 'background:none!important;border-radius:0!important;box-shadow:none!important');
-    }
-
-    /**
-     * The rendered navigation container replaces the source list, not its nav
-     * landmark. Core repeats block classes on that container, so a fixed or
-     * transformed source landmark would otherwise position the replacement list
-     * as a second copy of the rail.
-     *
-     * @param array<int, string> $authorClasses
-     */
-    private function recordNavigationContainerGeometryReset(DOMElement $navigation, array $authorClasses): void
-    {
-        if ( array() === $authorClasses || ! in_array(strtolower($navigation->tagName), array( 'nav', 'header' ), true) ) {
-            return;
-        }
-
-        $position = strtolower($this->navigationItemPresentationValue($navigation, $navigation, 'position'));
-        $transform = strtolower($this->navigationItemPresentationValue($navigation, $navigation, 'transform'));
-        if ( in_array($position, array( '', 'static' ), true) && in_array($transform, array( '', 'none' ), true) ) {
-            return;
-        }
-
-        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
-        $this->session->sourceTargetProjectionState()->record(
-            $this->elementSelector($navigation),
-            $selector,
-            'position:static!important;inset:auto!important;transform:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important'
-        );
     }
 
     /**

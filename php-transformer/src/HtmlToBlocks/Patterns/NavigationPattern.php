@@ -92,9 +92,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $label = $this->directSectionLabel($element);
+        $listSource = $this->navigationListSource($element);
+        $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
-            : $this->navigationContainerAttributes($element, $presentationAttributes);
+            : $this->navigationContainerAttributes(
+                $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element,
+                $presentationAttributes
+            );
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
@@ -113,17 +118,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         // container and enqueues the `navigation/view` Interactivity module so the
         // hamburger menu functions on the rendered site (#native-interactivity).
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
-        $listSource = $this->navigationListSource($element);
         if ( $listSource instanceof DOMElement ) {
             unset($commonTextAttrs['style']['typography']);
-            // Core repeats navigation classes on its generated list container.
-            // Reset that one replacement box, never individual items: per-item
-            // compensation would shift each following label again.
-            $navigationContext?->projectSourceToNativeTarget(
-                $listSource,
-                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
-                'padding:0!important;margin:0!important;border-width:0!important'
-            );
+            if ( ! $splitLandmarkOwnership ) {
+                // In-flow core/navigation still owns the source list directly.
+                // Its generated list needs the existing single-box reset.
+                $navigationContext?->projectSourceToNativeTarget(
+                    $listSource,
+                    '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
+                    'padding:0!important;margin:0!important;border-width:0!important'
+                );
+            }
             $this->projectBlockListDisplay($listSource, $navigationContext);
         }
         $navigationAttrs = array_replace_recursive(
@@ -165,6 +170,16 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         if ( ! $label instanceof DOMElement ) {
+            if ( $splitLandmarkOwnership ) {
+                return new PatternRecognitionResult(
+                    $createBlock(
+                        'core/group',
+                        array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+                        array( $navigation ),
+                        $element
+                    )
+                );
+            }
             return new PatternRecognitionResult($navigation);
         }
 
@@ -481,9 +496,8 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $navigationAttrs['style']['spacing']['padding'] = $padding;
                 }
             }
-            // Core repeats navigation classes on its generated list container.
-            // Reset that one replacement box, never individual items: per-item
-            // compensation would shift each following label again.
+            // The brand carrier retains the existing in-flow list replacement
+            // shape, so its generated list still needs one neutralized box.
             $navigationContext->projectSourceToNativeTarget(
                 $listSource,
                 '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
@@ -699,6 +713,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return true;
+    }
+
+    /**
+     * Core repeats a navigation block's class list on generated descendants. An
+     * out-of-flow landmark therefore needs its own host; otherwise fixed rail
+     * geometry is applied to both the rail and the replacement list.
+     */
+    private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( ! $listSource instanceof DOMElement
+            || $listSource->isSameNode($element)
+            || 'nav' !== strtolower($element->tagName)
+            || ! $navigationContext instanceof NavigationPatternContext
+        ) {
+            return false;
+        }
+
+        return 1 === preg_match(
+            '/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i',
+            $navigationContext->resolvedStyle($element)
+        );
     }
 
     /**

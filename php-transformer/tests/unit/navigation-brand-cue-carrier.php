@@ -216,14 +216,25 @@ $assert(
 );
 
 $fixedRail = $transform(
-    '<style>.rail{position:fixed;inset:0 auto 0 0;width:250px;transform:translateY(0)}.menu{display:block}</style>'
+    '<style>.rail{position:fixed;inset:0 auto 0 0;width:250px;transform:translateY(0)}.menu{display:block;width:202px}.menu a{color:#fff}</style>'
         . '<nav class="rail"><ul class="menu"><li><a href="/">Home</a></li></ul></nav>'
 );
 $fixedRailCss = implode("\n", array_column($fixedRail['assets'] ?? array(), 'content'));
+$fixedRailBlocks = is_array($fixedRail['blocks'] ?? null) ? $fixedRail['blocks'] : array();
+$fixedRailCarriers = array_values(array_filter(
+    $findBlocks($fixedRailBlocks, 'core/group'),
+    static fn (array $block): bool => 'nav' === (string) ($block['attrs']['tagName'] ?? '')
+));
+$fixedRailNavigations = $findBlocks($fixedRailBlocks, 'core/navigation');
 $assert(
-    str_contains($fixedRailCss, '.wp-block-navigation.rail.menu .wp-block-navigation__container{position:static!important;inset:auto!important;transform:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important}'),
-    'a positioned navigation landmark does not transfer its geometry to Core\'s list replacement',
-    $fixedRailCss
+    1 === count($fixedRailCarriers)
+        && str_contains((string) ($fixedRailCarriers[0]['attrs']['className'] ?? ''), 'rail')
+        && 1 === count($fixedRailNavigations)
+        && ! str_contains((string) ($fixedRailNavigations[0]['attrs']['className'] ?? ''), 'rail')
+        && str_contains((string) ($fixedRailNavigations[0]['attrs']['className'] ?? ''), 'menu')
+        && ! str_contains($fixedRailCss, 'position:static!important;inset:auto!important;transform:none!important'),
+    'a positioned rail stays on its landmark carrier while the native navigation owns only list layout',
+    json_encode(array('carriers' => $fixedRailCarriers, 'navigations' => $fixedRailNavigations, 'css' => $fixedRailCss))
 );
 
 // The list remains the layout source even though core/navigation replaces it.
