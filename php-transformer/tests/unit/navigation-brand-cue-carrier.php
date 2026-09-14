@@ -222,6 +222,7 @@ $imageBrandRail = $transform(
 );
 $imageBrandBlocks = is_array($imageBrandRail['blocks'] ?? null) ? $imageBrandRail['blocks'] : array();
 $imageBrandNavigations = $findBlocks($imageBrandBlocks, 'core/navigation');
+$imageBrandImages = $findBlocks($imageBrandBlocks, 'core/image');
 $assert(
     1 === count(array_values(array_filter(
         $findBlocks($imageBrandBlocks, 'core/group'),
@@ -229,7 +230,9 @@ $assert(
     )))
         && 1 === count($imageBrandNavigations)
         && 'vertical' === ($imageBrandNavigations[0]['attrs']['layout']['orientation'] ?? null)
-        && 1 === count($findBlocks($imageBrandBlocks, 'custom/responsive-media')),
+        && 1 === count($imageBrandImages)
+        && '/' === ($imageBrandImages[0]['attrs']['href'] ?? null)
+        && 'Site home' === ($imageBrandImages[0]['attrs']['alt'] ?? null),
     'an image-only accessible brand remains beside a fixed rail navigation',
     json_encode($imageBrandBlocks)
 );

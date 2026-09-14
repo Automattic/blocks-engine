@@ -91,7 +91,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
         $carrierFallbacks = array();
-        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext);
+        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext, $context->galleryContext());
         if ( null !== $hoisted ) {
             return new PatternRecognitionResult($hoisted, $carrierFallbacks);
         }
@@ -363,7 +363,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext, ?GalleryPatternContext $galleryContext): ?array
     {
         if ( null === $converter ) {
             return null;
@@ -490,8 +490,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $brandImage = 'a' === strtolower($anchor->tagName) && 1 === $anchor->getElementsByTagName('img')->length
             ? $anchor->getElementsByTagName('img')->item(0)
             : null;
-        $brand = $brandImage instanceof DOMElement
-            ? $converter->element($brandImage, $fallbacks, true)
+        $brand = $brandImage instanceof DOMElement && null !== $galleryContext
+            ? $galleryContext->convertImage($brandImage, null, null, $anchor)
             : ( null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
             ? $createBlock(
                 'core/paragraph',

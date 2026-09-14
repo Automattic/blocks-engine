@@ -133,9 +133,16 @@ final class NavigationBlockNormalizer
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
+                // Each responsive document is displayed independently. A menu
+                // in a hidden sibling document cannot replace this one's menu.
+                $variantSeen = array();
+                $childSeen =& $seen;
+                if ( $this->isDocumentVariant($block) ) {
+                    $childSeen =& $variantSeen;
+                }
                 $block['innerBlocks'] = $this->normalizeRecursive(
                     $block['innerBlocks'],
-                    $seen,
+                    $childSeen,
                     $sourceProvenance,
                     $sourceBaseHiddenStates,
                     $preserveDisclosureNavigation || $this->isNativeDisclosure($block)
@@ -164,6 +171,14 @@ final class NavigationBlockNormalizer
     {
         return 'core/details' === ($block['blockName'] ?? '')
             && (bool) preg_match('/(?:^|\s)dla-disclosure(?:\s|$)/', (string) ($block['attrs']['className'] ?? ''));
+    }
+
+    private function isDocumentVariant(array $block): bool
+    {
+        return (bool) preg_match(
+            '/(?:^|\s)(?:data-liberation-(?:desktop|mobile)-document|site-document-variant-[a-z][a-z0-9_-]{0,31})(?:\s|$)/',
+            (string) ($block['attrs']['className'] ?? '')
+        );
     }
 
     /**
