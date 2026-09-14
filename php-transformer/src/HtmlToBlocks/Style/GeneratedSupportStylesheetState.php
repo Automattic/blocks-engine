@@ -31,9 +31,6 @@ final class GeneratedSupportStylesheetState
     private array $navigationLinkColors = array();
 
     /** @var array<string, string> */
-    private array $navigationInheritedPresentation = array();
-
-    /** @var array<string, string> */
     private array $navigationLinkIcons = array();
 
     /** @var array<string, string> */
@@ -101,17 +98,6 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkColor(string $className): string
     {
         return $this->navigationLinkColors[$className] ?? '';
-    }
-
-    public function registerNavigationInheritedPresentation(string $selector, string $rule): void
-    {
-        $this->navigationInheritedPresentation[$selector] = $rule;
-    }
-
-    /** @return array<int, string> */
-    public function navigationInheritedPresentationRules(): array
-    {
-        return array_values($this->navigationInheritedPresentation);
     }
 
     public function registerDisclosureSummaryPresentation(string $className, string $declarations): void

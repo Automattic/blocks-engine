@@ -30,18 +30,7 @@ final class NavigationStyleProjector
             return '';
         }
 
-        $host = '.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-direct-navigation';
         $rules = array();
-        foreach ( array(
-            'margin' => 'margin:0',
-            'padding' => 'padding:0',
-            'max-width' => 'max-width:none',
-        ) as $family => $declaration ) {
-            $marker = 'blocks-engine-direct-navigation-reset-' . $family;
-            if ( str_contains($serializedBlocks, $marker) ) {
-                $rules[] = $host . '.' . $marker . '{' . $declaration . '}';
-            }
-        }
 
         if ( preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s+(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches) ) {
             foreach ( $matches[1] as $json ) {

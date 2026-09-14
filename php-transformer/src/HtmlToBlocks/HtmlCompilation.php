@@ -1380,6 +1380,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'author_layout_topology_findings' => $authorLayoutTopologyFindings,
             'structure_signals' => $this->transformationProvenance()->structureSignals(),
             'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
+            'source_target_projections' => $this->session->sourceTargetProjectionState()->correspondences(),
         );
         $composition = $resultComposer->compose($compositionInput, $blockCompilationOutput);
 
@@ -1999,9 +2000,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
             $afterAuthorCssParts[] = $navigationLinkTextColorRule;
         }
-        foreach ( $this->generatedSupportStyles()->navigationInheritedPresentationRules() as $navigationInheritedRule ) {
-            $afterAuthorCssParts[] = $navigationInheritedRule;
-        }
+        array_push($afterAuthorCssParts, ...$this->session->sourceTargetProjectionState()->rules());
         foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
             $afterAuthorCssParts[] = $navigationLinkIconRule;
         }
@@ -2087,7 +2086,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // is declared important. The <nav> keeps the authored class list and
             // therefore still paints the source box exactly once, whether the
             // source declared it on the menu element or on its list.
-            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container{padding:0!important;margin:0!important;border-width:0!important}';
             $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
@@ -2582,7 +2580,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->recordNavigationContainerPaintReset($sourceElement, $authorClasses);
                 },
                 fn (DOMElement $sourceElement): array => $this->authorSemanticMarkersForElement($sourceElement),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolvedConditionalDisplay($sourceElement)
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolvedConditionalDisplay($sourceElement),
+                function (DOMElement $sourceElement, string $targetSelector, string $declarations): void {
+                    $this->session->sourceTargetProjectionState()->record($this->elementSelector($sourceElement), $targetSelector, $declarations);
+                }
             ),
             new MediaPatternContext(
                 fn (DOMElement $sourceElement): string => $this->styleResolver->mergedPresentationStyle($sourceElement),
@@ -2994,10 +2995,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
-        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
-            $selector,
-            $selector . '{' . implode(';', $declarations) . '}'
-        );
+        $this->session->sourceTargetProjectionState()->record($this->elementSelector($navigation), $selector, implode(';', $declarations));
     }
 
     /**
@@ -3042,10 +3040,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // Descendant, not child: core nests the container inside its responsive
         // wrapper, so a child combinator never reaches it.
         $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
-        $this->generatedSupportStyles()->registerNavigationInheritedPresentation(
-            $selector,
-            $selector . '{background:none!important;border-radius:0!important;box-shadow:none!important}'
-        );
+        $this->session->sourceTargetProjectionState()->record($this->elementSelector($navigation), $selector, 'background:none!important;border-radius:0!important;box-shadow:none!important');
     }
 
     /**

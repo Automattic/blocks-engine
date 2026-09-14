@@ -19,6 +19,7 @@ final class NavigationPatternContext
     private readonly ?Closure $linkIconMarker;
     private readonly ?Closure $inheritedPresentation;
     private readonly ?Closure $labelPresentationMarkers;
+    private readonly ?Closure $sourceTargetProjection;
 
     /**
      * @param callable(DOMElement): bool|null $runtimeDomTarget
@@ -31,6 +32,7 @@ final class NavigationPatternContext
      * @param callable(DOMElement): string|null $linkIconMarker
      * @param callable(DOMElement, array<int, string>): void|null $inheritedPresentation
      * @param callable(DOMElement): list<string>|null $labelPresentationMarkers
+     * @param callable(DOMElement, string, string): void|null $sourceTargetProjection
      */
     public function __construct(
         ?callable $runtimeDomTarget,
@@ -42,7 +44,8 @@ final class NavigationPatternContext
         ?callable $linkIconMarker = null,
         ?callable $inheritedPresentation = null,
         ?callable $labelPresentationMarkers = null,
-        ?callable $resolvedDisplay = null
+        ?callable $resolvedDisplay = null,
+        ?callable $sourceTargetProjection = null
     ) {
         $this->linkIconMarker         = null === $linkIconMarker ? null : Closure::fromCallable($linkIconMarker);
         $this->inheritedPresentation  = null === $inheritedPresentation ? null : Closure::fromCallable($inheritedPresentation);
@@ -54,6 +57,7 @@ final class NavigationPatternContext
         $this->colorInteractionStates = null === $colorInteractionStates ? null : Closure::fromCallable($colorInteractionStates);
         $this->overlayMenu            = null === $overlayMenu ? null : Closure::fromCallable($overlayMenu);
         $this->responsiveToggleMarker = null === $responsiveToggleMarker ? null : Closure::fromCallable($responsiveToggleMarker);
+        $this->sourceTargetProjection = null === $sourceTargetProjection ? null : Closure::fromCallable($sourceTargetProjection);
     }
 
     /**
@@ -129,6 +133,14 @@ final class NavigationPatternContext
     {
         if ( null !== $this->inheritedPresentation ) {
             ($this->inheritedPresentation)($element, $authorClasses);
+        }
+    }
+
+    /** Record unsupported source residue on the native element replacing it. */
+    public function projectSourceToNativeTarget(DOMElement $element, string $targetSelector, string $declarations): void
+    {
+        if ( null !== $this->sourceTargetProjection ) {
+            ($this->sourceTargetProjection)($element, $targetSelector, $declarations);
         }
     }
 }
