@@ -49,6 +49,12 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
+        // A form is a semantic runtime boundary. Convert nested children before
+        // text and layout recognizers can flatten it into static presentation.
+        if ( $this->hasInlineFormWrapper($element) ) {
+            return ConversionOutcome::handled($this->group($element, $this->context->convertChildren($element, $fallbacks)));
+        }
+
         $marquee = $this->context->cssAuthoredMarqueeBlock($element);
         if ( null !== $marquee ) {
             return ConversionOutcome::handled($marquee);
@@ -247,5 +253,18 @@ final class FlowContainerElementConverter implements ElementConverter
     private function group(DOMElement $element, array $children): array
     {
         return $this->context->createBlock('core/group', $this->context->presentationAttributes($element), $children, $element);
+    }
+
+    private function hasInlineFormWrapper(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            for ( $parent = $form->parentNode; $parent instanceof DOMElement && ! $parent->isSameNode($element); $parent = $parent->parentNode ) {
+                if ( 'span' === strtolower($parent->tagName) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
