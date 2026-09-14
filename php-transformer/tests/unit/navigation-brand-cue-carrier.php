@@ -232,6 +232,7 @@ $assert(
         && 1 === count($fixedRailNavigations)
         && ! str_contains((string) ($fixedRailNavigations[0]['attrs']['className'] ?? ''), 'rail')
         && str_contains((string) ($fixedRailNavigations[0]['attrs']['className'] ?? ''), 'menu')
+        && 'vertical' === ($fixedRailNavigations[0]['attrs']['layout']['orientation'] ?? null)
         && str_contains($fixedRailCss, '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container{display:block!important}')
         && ! str_contains($fixedRailCss, 'position:static!important;inset:auto!important;transform:none!important'),
     'a positioned rail stays on its landmark carrier while the native navigation restores the semantic block list stack',

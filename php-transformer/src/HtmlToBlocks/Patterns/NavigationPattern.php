@@ -101,6 +101,11 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $presentationAttributes
             );
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
+        if ( $splitLandmarkOwnership ) {
+            // A semantic source list is a vertical stack. Persist that intent on
+            // core/navigation so responsive artifact assembly cannot discard it.
+            $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
+        }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
