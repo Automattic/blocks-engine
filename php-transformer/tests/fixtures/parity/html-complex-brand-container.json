@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<footer><div class=\"footer-brand\"><a href=\"/\" class=\"site-logo\"><span>Northstar</span><span>Pantry</span></a><p class=\"tagline\">Dinner plans for busy families.</p><form class=\"newsletter-form\" aria-label=\"Newsletter\"><input type=\"email\" placeholder=\"you@example.com\" aria-label=\"Email address\" required><button class=\"btn btn-primary\">Subscribe</button></form><p class=\"success\">You are in.</p></div><div class=\"brand\"><span>Simple</span><span>Mark</span></div></footer>"
+    "content": "<footer><div class=\"footer-brand\"><a href=\"/\" class=\"site-logo\"><span>Northstar</span><span>Pantry</span></a><p class=\"tagline\">Dinner plans for busy families.</p><form action=\"/subscribe\" class=\"newsletter-form\" aria-label=\"Newsletter\"><input type=\"email\" placeholder=\"you@example.com\" aria-label=\"Email address\" required><button class=\"btn btn-primary\">Subscribe</button></form><p class=\"success\">You are in.</p></div><div class=\"brand\"><span>Simple</span><span>Mark</span></div></footer>"
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },

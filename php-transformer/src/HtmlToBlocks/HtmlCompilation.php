@@ -3302,7 +3302,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->formDispatcher->convert($element, $fallbacks);
         }
 
-        if ( 0 === $element->getElementsByTagName('form')->length && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        if ( ! $this->containsCapturedProviderForm($element) && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -3749,6 +3749,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return true;
+    }
+
+    private function containsCapturedProviderForm(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            if ( '' !== trim($this->attr($form, 'data-ux')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isInertLiveRegionScaffolding(DOMElement $element): bool
