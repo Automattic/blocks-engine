@@ -111,8 +111,8 @@ $assert(! str_contains($runtimeButtonMarkup, '<!-- wp:button') && str_contains($
 $assert(1 === count($runtimeButtonFallbacks), '22b: provider runtime buttons report their unported interaction', json_encode($runtimeButton['fallbacks'] ?? array()));
 
 $roleButton = ( new HtmlTransformer() )->transform('<a role="button" aria-label="Open player" href="/player">Play</a>', array())->toArray();
-$roleButtonFallbacks = array_values(array_filter($roleButton['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
-$assert('core/html' === ($roleButton['blocks'][0]['blockName'] ?? '') && str_contains((string) ($roleButton['blocks'][0]['attrs']['content'] ?? ''), 'aria-label="Open player"') && 1 === count($roleButtonFallbacks), '23: role=button with a materially different accessible name remains a diagnostic fallback', json_encode($roleButton['blocks'] ?? array()));
+$roleButtonBlock = $roleButton['blocks'][0] ?? array();
+$assert('custom/accessible-link' === ($roleButtonBlock['blockName'] ?? '') && 'Open player' === ($roleButtonBlock['attrs']['accessibleLabel'] ?? '') && 'Play' === ($roleButtonBlock['attrs']['content'] ?? '') && array() === ($roleButton['fallbacks'] ?? array()), '23: role=button with a materially different accessible name becomes an editable typed link', json_encode($roleButton['blocks'] ?? array()));
 
 $plainLinkResult = ( new HtmlTransformer() )->transform('<a href="/about">About us</a>', array())->toArray();
 $plainLink = $plainLinkResult['blocks'][0] ?? array();

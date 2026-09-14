@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
@@ -2618,10 +2619,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->richTextMaterializer,
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
-                fn (DOMElement $anchor): PatternRecognitionResult => new PatternRecognitionResult(
-                    $this->htmlPreservationBlock($anchor),
-                    array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->transformationProvenance()->fallback()))
-                )
+                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content)
             ),
             new QuotePatternContext(
                 $this->sourceElementClassifier,
@@ -2645,6 +2643,60 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
+    }
+
+    private function accessibleLinkCompanion(DOMElement $anchor, string $content): PatternRecognitionResult
+    {
+        $generator = new AccessibleLinkBlockGenerator();
+        $namespace = $this->generatedBlocks()->namespace();
+        $this->generatedBlocks()->register(AccessibleLinkBlockGenerator::class, $generator->definition($namespace));
+        $parts = $this->accessibleLinkContentParts($content);
+        $attrs = array_filter(array(
+            'href' => $this->attr($anchor, 'href'),
+            'accessibleLabel' => $this->attr($anchor, 'aria-label'),
+            'content' => $parts['content'],
+            'iconContent' => $parts['iconContent'],
+            'className' => $this->attr($anchor, 'class'),
+            'style' => $this->attr($anchor, 'style'),
+            'id' => $this->attr($anchor, 'id'),
+            'linkTarget' => $this->attr($anchor, 'target'),
+            'rel' => $this->attr($anchor, 'rel'),
+        ), static fn (mixed $value): bool => '' !== $value);
+        $markup = $generator->markup($attrs);
+
+        return new PatternRecognitionResult(array(
+            'blockName' => $namespace . '/' . AccessibleLinkBlockGenerator::LOCAL_NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        ));
+    }
+
+    /** @return array{content: string, iconContent: string} */
+    private function accessibleLinkContentParts(string $content): array
+    {
+        $document = new \DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $document->loadHTML('<div id="blocks-engine-accessible-link">' . $content . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $wrapper = $document->getElementById('blocks-engine-accessible-link');
+        if (! $wrapper instanceof DOMElement) {
+            return array( 'content' => $content, 'iconContent' => '' );
+        }
+
+        $visible = '';
+        $icons = '';
+        foreach (iterator_to_array($wrapper->childNodes) as $child) {
+            if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'button', 'img', 'svg' ), true) && '' === trim($child->textContent ?? '')) {
+                $icons .= $document->saveHTML($child);
+            } else {
+                $visible .= $document->saveHTML($child);
+            }
+        }
+
+        return array( 'content' => $visible, 'iconContent' => $icons );
     }
 
     /**

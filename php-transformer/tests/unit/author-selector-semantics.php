@@ -146,9 +146,8 @@ $assert(str_contains($nonTerminalFooterGridCss, ':root .editor-styles-wrapper :w
 
 $attributes = $transform('<style>[data-cta]:focus{color:red}[aria-label]{padding:1rem}[data-kind^="primary"]{margin:1rem}#cta-id.cta{border-width:1px}</style><a id="cta-id" class="cta" data-cta aria-label="Start" data-kind="primary-action" href="/go" style="padding:1px;background:#000">Go</a>');
 $attributeCss = $css($attributes);
-$attributeFallbacks = array_values(array_filter($attributes['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
-$attributeFallback = $attributeFallbacks[0] ?? array();
-$assert(str_contains((string) ($attributes['serialized_blocks'] ?? ''), '<!-- wp:html') && str_contains((string) ($attributeFallback['html'] ?? ''), 'aria-label="Start"'), 'a materially different anchor accessible name remains a diagnostic fallback rather than becoming an invalid native button');
+$attributeBlock = $attributes['blocks'][0] ?? array();
+$assert('custom/accessible-link' === ($attributeBlock['blockName'] ?? '') && 'Start' === ($attributeBlock['attrs']['accessibleLabel'] ?? '') && 'Go' === ($attributeBlock['attrs']['content'] ?? '') && array() === ($attributes['fallbacks'] ?? array()), 'a materially different anchor accessible name becomes a typed editable link rather than an invalid native button or HTML fallback');
 
 $attributeProjection = $transform('<style>.form-shell{display:flex}.form-shell [data-role="label"]{flex-grow:1}.animated:not([data-state="settled"]){animation:fade 1s backwards paused}</style><div class="form-shell"><div data-role="label">Label</div></div><div class="animated" data-state="settled">Visible</div>');
 $attributeProjectionMarkup = (string) ($attributeProjection['serialized_blocks'] ?? '');
