@@ -55,6 +55,15 @@ $assert(1 === ($binding['projected_count'] ?? 0), 'declarative bindings still pr
 $assert(! in_array('captured_dialog_trigger_unmatched', $codes($binding), true), 'declarative bindings do not emit unmatched diagnostics');
 $assert(str_contains((string) $binding['files'][0]['content'], 'data-blocks-engine-captured-dialog="true"'), 'declarative bindings inject a captured dialog');
 
+$runtimeForm = $project($files(array('https://example.test/runtime-form' => '<html><body><header><nav><a href="/">Home</a><a role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a></nav></header></body></html>'), array('https://example.test/runtime-form' => array(array(
+    'status' => 'captured',
+    'trigger' => $bindingTrigger,
+    'dialog' => array('html' => '<div><form action="https://provider.example/forms"><input name="name"><script>window.provider=true</script></form></div>', 'htmlBytes' => strlen('<div><form action="https://provider.example/forms"><input name="name"><script>window.provider=true</script></form></div>'), 'htmlTruncated' => false),
+)))));
+$runtimeFormMarkup = (string) ($runtimeForm['files'][0]['content'] ?? '');
+$assert(str_contains($runtimeFormMarkup, 'data-blocks-engine-runtime-form-owner="captured"'), 'sanitized captured forms retain explicit runtime ownership');
+$assert(! str_contains($runtimeFormMarkup, 'provider.example') && ! str_contains($runtimeFormMarkup, 'window.provider'), 'runtime ownership survives endpoint and script sanitization');
+
 $menuTrigger = array(
     'selector' => 'body > div > div > div:nth-of-type(2) > header > nav > div > button',
     'tag' => 'button',

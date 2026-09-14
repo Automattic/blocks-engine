@@ -182,6 +182,6 @@ foreach (array(
     }
 }
 $formResult = ( new HtmlTransformer() )->transform(str_replace('</section>', '<form action="/contact"><input name="email"></form></section>', $layoutHtml))->toArray();
-$assert(array() !== ($formResult['fallbacks'] ?? array()), 'An unsupported deep form produces an observable conversion finding.');
+$assert(str_contains((string) ($formResult['serialized_blocks'] ?? ''), 'authored-native-form') && array() === ($formResult['fallbacks'] ?? array()), 'A deep static GET form remains an editable native form without a provider fallback.');
 
 fwrite(STDOUT, "Responsive media companion tests passed\n");

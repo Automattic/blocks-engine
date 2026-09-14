@@ -134,7 +134,7 @@ $scanOverflowAnalysis = (new CssRuleAnalyzer())->analyze(
 );
 $assert(true === $scanOverflowAnalysis['truncated'] && array() === $scanOverflowAnalysis['rules'] && in_array('css_selector_scan_limit', $scanOverflowAnalysis['diagnostics'], true), 'scanned selector work fails closed before parsing or filtering beyond its independent budget');
 
-$commentGraph = (new HtmlTransformer())->transform('<form><div class="field"><input name="email"></div><button type="submit">Send</button></form>', array( 'static_css' => '.field/**/input { align-self:flex-start }' ))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
+$commentGraph = (new HtmlTransformer())->transform('<form method="post"><div class="field"><input name="email"></div><button type="submit">Send</button></form>', array( 'static_css' => '.field/**/input { align-self:flex-start }' ))->toArray()['fallbacks'][0]['layout_graph'] ?? array();
 $commentGraphNodes = array_column($commentGraph['nodes'] ?? array(), null, 'id');
 $assert('flex-start' === ($commentGraphNodes['control-0']['layout']['align_self'] ?? null), 'form layout graphs retain CSS comment selector boundaries');
 

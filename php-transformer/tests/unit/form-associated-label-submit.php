@@ -24,17 +24,17 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
-$statusResult = $transformer->transform('<form><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
+$statusResult = $transformer->transform('<form method="post"><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
 $assert(array('role' => 'status', 'id' => 'result', 'margin_top' => '0.5rem') === ($statusResult['fallbacks'][0]['form']['trailing_status'] ?? null), 'empty trailing status preserves identity and authored margin');
 foreach (array('<p role="status">Existing message</p>', '<p role="alert"></p>', '<p role="status" aria-live="assertive"></p>', '<p role="status"><span></span></p>') as $unsupportedStatus) {
-    $statusResult = $transformer->transform('<form><input name="name">' . $unsupportedStatus . '</form>')->toArray();
+    $statusResult = $transformer->transform('<form method="post"><input name="name">' . $unsupportedStatus . '</form>')->toArray();
     $assert(!isset($statusResult['fallbacks'][0]['form']['trailing_status']), 'nonempty or non-polite status is not mapped to an empty output');
 }
 $serialize = static function (string $html, array $options = array()) use ($transformer): string {
     return (string) ( $transformer->transform($html, $options)->toArray()['serialized_blocks'] ?? '' );
 };
 
-$form = '<main><form aria-label="Contact">'
+$form = '<main><form method="post" action="#" aria-label="Contact">'
     . '<label for="first">First name<span aria-hidden="true">*</span></label>'
     . '<input id="first" type="text" aria-label="First name" required style="display:block;width:100%">'
     . '<label for="last">Last name</label>'
@@ -55,7 +55,7 @@ $assert(
     'required marker text and visible-marker absence are captured separately from validation semantics'
 );
 
-$spacedMarker = $transformer->transform('<main><form><label for="details">Details (please include size)' . "\n\n" . '<span aria-hidden="true">*</span></label><textarea id="details" name="details" required></textarea><button type="submit">Send</button></form></main>')->toArray();
+$spacedMarker = $transformer->transform('<main><form method="post" action="#"><label for="details">Details (please include size)' . "\n\n" . '<span aria-hidden="true">*</span></label><textarea id="details" name="details" required></textarea><button type="submit">Send</button></form></main>')->toArray();
 $assert(
     'Details (please include size) ' === ($spacedMarker['fallbacks'][0]['controls'][0]['label'] ?? null)
         && '*' === ($spacedMarker['fallbacks'][0]['controls'][0]['required_text'] ?? null),
@@ -88,7 +88,7 @@ $assert(
     $serialized
 );
 
-$nativeSubmit = $serialize('<main><form><label for="e">Email</label><input id="e" type="email" required><button type="submit">Send</button></form></main>');
+$nativeSubmit = $serialize('<main><form method="post" action="#"><label for="e">Email</label><input id="e" type="email" required><button type="submit">Send</button></form></main>');
 $assert(
     str_contains($nativeSubmit, 'Send') && str_contains($nativeSubmit, '<!-- wp:button'),
     '4: type=submit still becomes a core/button',
@@ -108,14 +108,14 @@ $labelOf = static function (string $html) use ($transformer): string {
     return '';
 };
 
-$spacedMarkerForm = '<main><form aria-label="Quote"><label for="d">Details<span aria-hidden="true">*</span></label><textarea id="d" aria-label="Details " required></textarea><button type="submit">Send</button></form></main>';
+$spacedMarkerForm = '<main><form method="post" action="#" aria-label="Quote"><label for="d">Details<span aria-hidden="true">*</span></label><textarea id="d" aria-label="Details " required></textarea><button type="submit">Send</button></form></main>';
 $assert(
     'Details ' === $labelOf($spacedMarkerForm),
     '5: an accessible name keeps the space that separates it from a decorative required marker',
     json_encode($labelOf($spacedMarkerForm))
 );
 
-$plainMarkerForm = '<main><form aria-label="Quote"><label for="d2">Details<span aria-hidden="true">*</span></label><textarea id="d2" aria-label="Details" required></textarea><button type="submit">Send</button></form></main>';
+$plainMarkerForm = '<main><form method="post" action="#" aria-label="Quote"><label for="d2">Details<span aria-hidden="true">*</span></label><textarea id="d2" aria-label="Details" required></textarea><button type="submit">Send</button></form></main>';
 $assert(
     'Details' === $labelOf($plainMarkerForm),
     '6: an accessible name without that separator is reported unchanged',

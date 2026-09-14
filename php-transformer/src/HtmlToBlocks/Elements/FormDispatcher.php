@@ -24,6 +24,11 @@ final class FormDispatcher
             return $searchBlock;
         }
 
+        $nativeGetForm = $this->context->nativeGetFormBlock($element, $fallbacks);
+        if ( null !== $nativeGetForm ) {
+            return $nativeGetForm;
+        }
+
         if ( FormControlClassifier::hasDataEntryControls($element) ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {

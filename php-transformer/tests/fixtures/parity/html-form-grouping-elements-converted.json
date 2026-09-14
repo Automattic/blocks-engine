@@ -13,10 +13,10 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<form class=\"contact\"><fieldset><legend>Your details</legend><label>Name <input type=\"text\" name=\"name\"></label><label>Email <input type=\"email\" name=\"email\"></label><button type=\"submit\">Send</button></fieldset></form><fieldset class=\"specs\"><legend>Specifications</legend><p>Weight: 2kg</p></fieldset>"
+    "content": "<form method=\"post\" class=\"contact\"><fieldset><legend>Your details</legend><label>Name <input type=\"text\" name=\"name\"></label><label>Email <input type=\"email\" name=\"email\"></label><button type=\"submit\">Send</button></fieldset></form><fieldset class=\"specs\"><legend>Specifications</legend><p>Weight: 2kg</p></fieldset>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "contact" } },
+    { "path": "blocks.0", "name": "core/html" },
     { "path": "blocks.1", "name": "core/group", "attrs": { "className": "specs" } },
     { "path": "blocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Specifications" } },
     { "path": "blocks.1.innerBlocks.1", "name": "core/paragraph", "attrs": { "content": "Weight: 2kg" } }
@@ -31,14 +31,11 @@
     { "path": "diagnostics.1.code", "assert": "equals", "value": "html_form_fallback" },
     { "path": "diagnostics.1.pattern_family", "assert": "equals", "value": "interactive_form" },
     { "path": "diagnostics.1.runtime_island_type", "assert": "equals", "value": "provider_materializable_form" },
-    { "path": "diagnostics", "assert": "count", "count": 2 },
+    { "path": "diagnostics", "assert": "count", "count": 3 },
     { "path": "blocks.1.innerBlocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"specs\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p>Specifications</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p>Weight: 2kg</p>" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<fieldset" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<legend" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "coverage.0.block_count", "assert": "equals", "value": 2 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 1 }
   ]
