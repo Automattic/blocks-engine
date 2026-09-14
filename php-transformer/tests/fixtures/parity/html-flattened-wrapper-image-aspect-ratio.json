@@ -16,7 +16,7 @@
     "content": "<html><head><style>.hero-figure{margin:0}.hero-frame{position:relative;overflow:hidden;background:#101012}.hero-frame img{width:100%;aspect-ratio:4 / 3;object-fit:cover;filter:contrast(1.06)}</style></head><body><figure class=\"hero-figure\"><div class=\"hero-frame\"><img src=\"https://example.com/creative-director.jpg\" alt=\"Creative director portrait\"></div><figcaption>Creative Director</figcaption></figure></body></html>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-figure", "url": "https://example.com/creative-director.jpg", "alt": "Creative director portrait", "aspectRatio": "4/3", "scale": "cover", "caption": "Creative Director" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "hero-figure is-resized", "url": "https://example.com/creative-director.jpg", "alt": "Creative director portrait", "width": "100%", "aspectRatio": "4/3", "scale": "cover", "caption": "Creative Director" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -26,8 +26,8 @@
     { "path": "blocks.0.attrs.scale", "assert": "equals", "value": "cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"aspectRatio\":\"4/3\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"scale\":\"cover\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:4/3;object-fit:cover\"" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image hero-figure" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"aspect-ratio:4/3;object-fit:cover;width:100%\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image is-resized hero-figure" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

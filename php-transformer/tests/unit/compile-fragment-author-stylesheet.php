@@ -85,13 +85,26 @@ $assert(
     'escaped utility selectors promote a CSS-owned crop over the file ratio'
 );
 $assert(
-    ! isset($utilityCropAttrs['width'], $utilityCropAttrs['height']),
-    'intrinsic image dimensions do not override a conflicting CSS-owned crop'
+    '100%' === ($utilityCropAttrs['width'] ?? null) && ! isset($utilityCropAttrs['height']),
+    'stylesheet width survives while intrinsic height does not override a CSS-owned crop'
 );
 $assert(
     str_contains($utilityCrop->serializedBlocks, '"aspectRatio":"4/5"')
-        && ! str_contains($utilityCrop->serializedBlocks, '"width":"1200px"'),
+        && str_contains($utilityCrop->serializedBlocks, '"width":"100%"')
+        && ! str_contains($utilityCrop->serializedBlocks, '"height":"1400px"'),
     'CSS-owned utility crop remains valid native core/image markup without intrinsic dimensions'
+);
+
+$fillImage = $compiler->compileFragment(
+    '<div style="height:400px"><img class="h-full w-full object-cover" src="https://example.com/hero.jpg" width="1920" height="1080" alt="Hero"></div>',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.h-full{height:100%}.w-full{width:100%}.object-cover{object-fit:cover}' )
+);
+$fillImageAttrs = is_array($fillImage->blocks[0]['innerBlocks'][0]['attrs'] ?? null) ? $fillImage->blocks[0]['innerBlocks'][0]['attrs'] : array();
+$assert(
+    '100%' === ($fillImageAttrs['width'] ?? null) && '100%' === ($fillImageAttrs['height'] ?? null),
+    'viewport-invariant stylesheet fill dimensions override intrinsic image dimensions'
 );
 $assert(
     str_contains($with->serializedBlocks, '"aspectRatio":"4/3"')
