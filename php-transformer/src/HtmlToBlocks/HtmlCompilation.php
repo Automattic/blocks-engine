@@ -9752,13 +9752,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // overrides an attribute already resolved above.
         $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
         $attrs += $shape;
-        if (isset($shape['aspectRatio'])
-            && $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, (string) $shape['aspectRatio'])
-            && $this->imageDimensionsAreIntrinsicAttributes($image)
-        ) {
-            // HTML width/height describe the file, not the authored crop. Keeping
-            // them as core/image styles would override the CSS-owned aspect ratio.
-            unset($attrs['width'], $attrs['height']);
+        if (isset($shape['aspectRatio'])) {
+            foreach (array( 'width', 'height' ) as $property) {
+                if ($this->imageDimensionIsIntrinsicAttribute($image, $property)) {
+                    // HTML dimensions describe the file, not a stylesheet-owned
+                    // crop. Keeping either as a core/image style overrides it.
+                    unset($attrs[$property]);
+                }
+            }
         }
 
         if ( $figure instanceof DOMElement ) {
@@ -9787,8 +9788,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline, $linked);
         }
+        $stylesheet = $this->imageStylesheetDimension($image, $property);
+        if ( '' !== $stylesheet ) {
+            return $this->imageDimensionValue($stylesheet, $linked);
+        }
         $attribute = trim($this->attr($image, $property));
         return $this->imageDimensionValue($attribute, $linked);
+    }
+
+    /** A viewport-invariant source dimension that native core/image can carry. */
+    private function imageStylesheetDimension(DOMElement $image, string $property): string
+    {
+        $declaration = $this->styleResolver->imageShapeDeclarations($image)[$property] ?? array();
+        if (!is_array($declaration) || array() !== ($declaration['conditions'] ?? array())) {
+            return '';
+        }
+        $value = trim($this->cssValueWithoutImportant((string) ($declaration['value'] ?? '')));
+        return in_array(strtolower($value), array( '', 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ? '' : $value;
     }
 
     /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */
@@ -12322,6 +12338,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
         return '' !== trim($this->attr($image, 'width')) && '' !== trim($this->attr($image, 'height'));
+    }
+
+    private function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        $inline = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+        return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
+            && '' === $this->imageStylesheetDimension($image, $property)
+            && '' !== trim($this->attr($image, $property));
     }
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool

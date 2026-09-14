@@ -2518,7 +2518,7 @@ final class StyleResolver implements ElementPresentationResolver
             [$property, $value] = array_map('trim', explode(':', $declaration, 2));
             $property = strtolower($property);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if (in_array($property, array('aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
+            if (in_array($property, array('width', 'height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
         }
@@ -2526,7 +2526,7 @@ final class StyleResolver implements ElementPresentationResolver
         return $entries;
     }
 
-    /** Resolve image crop declarations at the desktop reference viewport. */
+    /** Resolve image box and crop declarations at the desktop reference viewport. */
     public function imageShapeDeclarations(DOMElement $element): array
     {
         $facts = array();
@@ -2535,12 +2535,12 @@ final class StyleResolver implements ElementPresentationResolver
             CssCascade::apply($facts, $rule['property'], array(
                 'value' => $rule['value'],
                 'important' => CssValueInspector::isImportant($rule['value']),
-                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null,
+                'specificity' => $this->mediaTextSelectorSpecificity($rule['selector']), 'order' => $rule['order'], 'inline' => false, 'layer' => $rule['layer'] ?? null, 'conditions' => $rule['conditions'],
             ));
         }
         foreach ($this->imageShapeDeclarationEntries(SourceDom::attr($element, 'style')) as $order => $entry) {
             CssCascade::apply($facts, $entry['property'], array(
-                'value' => $entry['value'], 'important' => CssValueInspector::isImportant($entry['value']),
+                'value' => $entry['value'], 'important' => CssValueInspector::isImportant($entry['value']), 'conditions' => array(),
                 'specificity' => array(PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX), 'order' => PHP_INT_MAX - 1000 + $order, 'inline' => true, 'layer' => null,
             ));
         }
