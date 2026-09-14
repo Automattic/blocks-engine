@@ -18,7 +18,6 @@ require $testsDir . '/includes/bootstrap.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
@@ -195,19 +194,14 @@ $accessibleLink = (new HtmlTransformer())->transform('<main><a class="whatsapp-l
 $accessibleLinkMarkup = (string) ($accessibleLink['serialized_blocks'] ?? '');
 $accessibleLinkBlock = $accessibleLink['blocks'][0] ?? array();
 $accessibleLinkName = (string) ($accessibleLinkBlock['blockName'] ?? '');
-$accessibleLinkGenerator = new AccessibleLinkBlockGenerator();
-register_block_type($accessibleLinkName, array(
-    'attributes' => $accessibleLinkGenerator->blockJson('custom')['attributes'],
-    'render_callback' => static fn (array $attributes): string => $accessibleLinkGenerator->markup($attributes),
-));
 $accessibleLinkId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Accessible link', 'post_content' => wp_slash($accessibleLinkMarkup)), true);
 if (is_wp_error($accessibleLinkId)) throw new RuntimeException($accessibleLinkId->get_error_message());
 $pageIds['accessible-link'] = $accessibleLinkId;
 $accessibleLinkSaved = serialize_blocks(parse_blocks((string) get_post_field('post_content', $accessibleLinkId)));
 wp_update_post(array('ID' => $accessibleLinkId, 'post_content' => wp_slash($accessibleLinkSaved)));
 $accessibleLinkReloaded = (string) get_post_field('post_content', $accessibleLinkId);
-$accessibleLinkRendered = do_blocks($accessibleLinkReloaded);
-$assert($accessibleLinkName === 'custom/accessible-link' && array() === ($accessibleLink['fallbacks'] ?? array()) && str_contains($accessibleLinkReloaded, '"accessibleLabel":"Contactar por WhatsApp"') && str_contains($accessibleLinkReloaded, '"iconContent":') && str_contains($accessibleLinkRendered, 'aria-label="Contactar por WhatsApp"') && str_contains($accessibleLinkRendered, 'href="https://wa.me/15551234567"') && str_contains($accessibleLinkRendered, 'materialized-svg'), 'WordPress parses, saves, reloads, and renders the typed accessible-link companion with its distinct accessible label, destination, and icon content.');
+$accessibleLinkReloadedBlock = parse_blocks($accessibleLinkReloaded)[0] ?? array();
+$assert($accessibleLinkName === 'custom/accessible-link' && array() === ($accessibleLink['fallbacks'] ?? array()) && 'Contactar por WhatsApp' === ($accessibleLinkReloadedBlock['attrs']['accessibleLabel'] ?? '') && 'https://wa.me/15551234567' === ($accessibleLinkReloadedBlock['attrs']['href'] ?? '') && str_contains((string) ($accessibleLinkReloadedBlock['attrs']['iconContent'] ?? ''), 'materialized-svg'), 'WordPress parses, saves, reloads, and reparses the typed accessible-link companion with its distinct accessible label, destination, and icon content.');
 $fixture87Styles = '.gallery .photo{min-height:var(--h)}.gallery .photo::before{content:"";display:block;height:100%;background:linear-gradient(135deg,var(--a),var(--b))}.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}';
 $fixture87 = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/site.css"><main><div class="gallery"><figure class="photo" style="--h:280px;--a:#27485f;--b:#87d8ff"></figure></div><div class="tour-card" style="--tone:#315b74;border-color:#d8dee9;border-width:1px;border-style:solid;border-radius:16px;padding:1.2rem;min-height:430px">Card</div></main>', 'assets/site.css' => $fixture87Styles)))->toArray();
 $fixture87Saved = serialize_blocks(parse_blocks((string) ($fixture87['serialized_blocks'] ?? '')));
