@@ -225,16 +225,33 @@ $assert(4096 === $candidateCache->candidateRulesRetained, 'a single oversized ca
 $candidateCache->clear();
 $assert(0 === $candidateCache->candidateRulesRetained, 'clearing the immutable revision cache resets retained candidate accounting');
 
-$pressureCache = new CssSelectorMatchCache();
+// Eviction is bound behaviour, not bound arithmetic, so it is proven at a
+// small capacity rather than by filling the production bound.
+$pressureBound = 8;
+$pressureCache = new CssSelectorMatchCache($pressureBound);
 $hotSelector = '.cache-0';
-for ( $index = 0; $index < CssSelectorMatchCache::MAX_MATCHES; ++$index ) {
+for ( $index = 0; $index < $pressureBound; ++$index ) {
     $selector = '.cache-' . $index;
     $pressureCache->matches($byId('target'), $selector, CssSelectorMatcher::parse($selector));
 }
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
 $pressureCache->matches($byId('target'), '.cache-overflow', CssSelectorMatcher::parse('.cache-overflow'));
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
-$assert(4097 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && CssSelectorMatchCache::MAX_MATCHES === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
+$assert($pressureBound + 1 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && $pressureBound === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
+
+$defaultBoundCache = new CssSelectorMatchCache();
+for ( $index = 0; $index <= $pressureBound; ++$index ) {
+    $selector = '.default-bound-' . $index;
+    $defaultBoundCache->matches($byId('target'), $selector, CssSelectorMatcher::parse($selector));
+}
+$assert(0 === $defaultBoundCache->matchEvictions, 'the production bound retains far more than a small document needs');
+$threw = false;
+try {
+    new CssSelectorMatchCache(0);
+} catch ( InvalidArgumentException $error ) {
+    $threw = true;
+}
+$assert($threw, 'a cache that can retain nothing is refused rather than evicting every result it just computed');
 
 $candidatePressureDom = new DOMDocument();
 $candidatePressureDom->loadHTML('<!doctype html><div id="candidate-pressure"></div>');

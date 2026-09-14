@@ -185,8 +185,12 @@ $hiddenStateFindings = $hiddenStateResult['source_reports']['html']['frozen_hidd
 $assert(array() !== $hiddenStateFindings && in_array('opacity:0', $hiddenStateFindings[0]['declarations'] ?? array(), true), 'Indexed hidden-state collection preserves canonical frozen-state findings.');
 $assert(401 === $hiddenStateCache->sourceStyleCandidateRulesSkipped && 1 === $hiddenStateCache->sourceSelectorMatchExecutions, 'Hidden-state collection skips irrelevant rightmost-selector candidates, and rules whose classes are absent from the source never enter the index.');
 
-// One repeated hot rule across 4,097 elements forces both bounded result caches
-// past capacity while later style-resolution passes refresh the same entries.
+// One repeated hot rule across 4,097 elements exercises repeated style
+// resolution over a document larger than the old 4,096-entry bound. The
+// production bound now retains every result, which is the point: a large source
+// document stops evicting hot selector matches only to recompute them.
+// Eviction behaviour itself is proven at a small bound in the selector matcher
+// unit test, where it costs nothing to reach capacity.
 $pressureElementCount = 4097;
 $pressureHtml = '<main class="pressure">' . str_repeat('<p class="pressure">cache pressure</p>', $pressureElementCount) . '</main>';
 $pressureOptions = array('static_css' => '.pressure{color:#123456}', 'skip_author_stylesheet_materialization' => true);
@@ -207,8 +211,8 @@ $assert(
 $assert(
     4098 === ($pressureMetrics['selector_match_cache_misses'] ?? null)
     && 1 === ($pressureMetrics['selector_match_cache_hits'] ?? null)
-    && 2 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
-    && 4096 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
+    && 0 === ($pressureMetrics['selector_match_cache_evictions'] ?? null)
+    && 4098 === ($pressureMetrics['selector_match_cache_peak_entries'] ?? null)
     && 4099 === $pressureCache->sourceStructuralDeclarationBuilds
     && 8201 === $pressureCache->sourceStructuralDeclarationHits,
     'Read-only conversion retains selector and structural declaration results across repeated passes.'
