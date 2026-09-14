@@ -102,7 +102,10 @@ final class NavigationStyleProjector
             // normal flow, so any reserved height displaces every block after
             // it and moves the composition down the canvas.
             $rules[] = $selector . '{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;overflow:hidden!important}'
-                . $selector . '>*{display:none!important}';
+                . $selector . '>*{display:none!important}'
+                // Core's large empty-group placeholder has a more specific
+                // display declaration than the generic child selector.
+                . $selector . '>.components-placeholder.is-large{display:none!important}';
         }
         if ( preg_match('/\bbody\b[^{}]*\{[^}]*(?:overflow\s*:\s*(?:hidden|clip)|height\s*:\s*100(?:d|s|l)?vh)/is', $this->context->authorStyles()->combinedCss()) ) {
             $rules[] = ':root body{overflow:auto!important;height:auto!important;min-height:100%!important;width:auto!important}';
