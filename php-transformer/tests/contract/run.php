@@ -6102,7 +6102,7 @@ $assert('semantic-description-list' === ($descriptionListArtifact['source_report
 $assert('https://github.com/WordPress/gutenberg/pull/20760' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['references'][1] ?? null), 'gap diagnostic records the stalled Gutenberg implementation context');
 
 $accessibleLink = ( new HtmlTransformer() )->transform(
-    '<main><a class="button whatsapp-link" href="https://wa.me/15551234567" target="_blank" rel="noreferrer" aria-label="Contactar por WhatsApp"><span>WhatsApp</span><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg></a></main>'
+    '<main><a class="button whatsapp-link" href="https://wa.me/15551234567" target="_blank" rel="noreferrer" role="button" data-cta data-kind="primary-action" aria-describedby="contact-help" aria-label="Contactar por WhatsApp"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Crème 東京</span></a></main>'
 )->toArray();
 $accessibleLinkBlock = $accessibleLink['blocks'][0] ?? array();
 $accessibleLinkAttrs = $accessibleLinkBlock['attrs'] ?? array();
@@ -6112,8 +6112,13 @@ $assert(
     'custom/accessible-link' === ($accessibleLinkBlock['blockName'] ?? '')
     && 'https://wa.me/15551234567' === ($accessibleLinkAttrs['href'] ?? '')
     && 'Contactar por WhatsApp' === ($accessibleLinkAttrs['accessibleLabel'] ?? '')
-    && '<span>WhatsApp</span>' === ($accessibleLinkAttrs['content'] ?? '')
-    && str_contains((string) ($accessibleLinkAttrs['iconContent'] ?? ''), 'materialized-svg')
+    && str_starts_with((string) ($accessibleLinkAttrs['content'] ?? ''), '<img')
+    && str_contains((string) ($accessibleLinkAttrs['content'] ?? ''), '<span>Crème 東京</span>')
+    && 'button' === ($accessibleLinkAttrs['sourceAttributes']['role'] ?? '')
+    && '' === ($accessibleLinkAttrs['sourceAttributes']['data-cta'] ?? null)
+    && 'primary-action' === ($accessibleLinkAttrs['sourceAttributes']['data-kind'] ?? '')
+    && 'contact-help' === ($accessibleLinkAttrs['sourceAttributes']['aria-describedby'] ?? '')
+    && str_contains((string) ($accessibleLinkBlock['innerHTML'] ?? ''), 'data-cta=""')
     && 'noreferrer' === ($accessibleLinkAttrs['rel'] ?? '')
     && ! str_contains($accessibleLinkMarkup, '<!-- wp:html')
     && array() === ($accessibleLink['fallbacks'] ?? array())

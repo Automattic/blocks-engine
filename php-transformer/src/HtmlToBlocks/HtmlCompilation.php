@@ -2650,17 +2650,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $generator = new AccessibleLinkBlockGenerator();
         $namespace = $this->generatedBlocks()->namespace();
         $this->generatedBlocks()->register(AccessibleLinkBlockGenerator::class, $generator->definition($namespace));
-        $parts = $this->accessibleLinkContentParts($content);
         $attrs = array_filter(array(
             'href' => $this->attr($anchor, 'href'),
             'accessibleLabel' => $this->attr($anchor, 'aria-label'),
-            'content' => $parts['content'],
-            'iconContent' => $parts['iconContent'],
+            'content' => $content,
+            'contentMode' => 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text',
             'className' => $this->attr($anchor, 'class'),
             'style' => $this->attr($anchor, 'style'),
             'id' => $this->attr($anchor, 'id'),
             'linkTarget' => $this->attr($anchor, 'target'),
             'rel' => $this->attr($anchor, 'rel'),
+            'sourceAttributes' => $this->accessibleLinkSourceAttributes($anchor),
         ), static fn (mixed $value): bool => '' !== $value);
         $markup = $generator->markup($attrs);
 
@@ -2673,30 +2673,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ));
     }
 
-    /** @return array{content: string, iconContent: string} */
-    private function accessibleLinkContentParts(string $content): array
+    /** @return array<string, string> */
+    private function accessibleLinkSourceAttributes(DOMElement $anchor): array
     {
-        $document = new \DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $document->loadHTML('<div id="blocks-engine-accessible-link">' . $content . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $wrapper = $document->getElementById('blocks-engine-accessible-link');
-        if (! $wrapper instanceof DOMElement) {
-            return array( 'content' => $content, 'iconContent' => '' );
-        }
-
-        $visible = '';
-        $icons = '';
-        foreach (iterator_to_array($wrapper->childNodes) as $child) {
-            if ($child instanceof DOMElement && in_array(strtolower($child->tagName), array( 'button', 'img', 'svg' ), true) && '' === trim($child->textContent ?? '')) {
-                $icons .= $document->saveHTML($child);
-            } else {
-                $visible .= $document->saveHTML($child);
+        $attributes = array();
+        foreach ( $anchor->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( 'role' === $name || str_starts_with($name, 'data-') || (str_starts_with($name, 'aria-') && 'aria-label' !== $name) ) {
+                $attributes[$name] = $attribute->value;
             }
         }
-
-        return array( 'content' => $visible, 'iconContent' => $icons );
+        ksort($attributes);
+        return $attributes;
     }
 
     /**
