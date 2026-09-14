@@ -117,6 +117,7 @@ $shape = static function (string $brandClass) use ($transform, $findBlocks, $hea
     return array(
         'navigations' => count($navigations),
         'carriers' => array() === $navigations ? 0 : count($carriers),
+        'carrierClassNames' => array_map(static fn (array $carrier): string => (string) ($carrier['attrs']['className'] ?? ''), $carriers),
         'links' => count($links),
         'linksWithUrl' => count($linksWithUrl),
         'lists' => count($findBlocks($blocks, 'core/list')),
@@ -126,7 +127,7 @@ $shape = static function (string $brandClass) use ($transform, $findBlocks, $hea
         'staticUnderline' => substr_count($markup, '"textDecoration":"underline"'),
         'carrierSizingRule' => (int) str_contains(
             $css,
-            'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content'
+            'nav.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-list-navigation{width:max-content'
         ),
     );
 };
@@ -149,6 +150,11 @@ $assert(
     1 === $cued['navigations'] && 1 === $cued['carriers'],
     'a cued brand beside a list yields one carrier holding one core/navigation',
     json_encode($cued)
+);
+
+$assert(
+    str_contains((string) ($cued['carrierClassNames'][0] ?? ''), 'blocks-engine-brand-navigation-carrier'),
+    'a brand carrier is explicitly marked so its intrinsic navigation sizing cannot affect other nav groups'
 );
 
 $assert(
@@ -192,6 +198,20 @@ $assert(
     1 === $cued['carrierSizingRule'],
     'the carrier emits a rule sizing its navigation block to its content',
     substr((string) json_encode($cued), 0, 220)
+);
+
+$sidebar = $transform(
+    '<style>.rail{width:250px;background:#000}.menu{width:202px}.menu a{display:block;color:#fff}</style>'
+        . '<nav class="rail"><a class="logo"><img src="logo.png" alt="Site home"></a><ul class="menu">'
+        . '<li><a href="/">Home</a></li><li><a href="/work">My Work</a></li><li><a href="/contact">Contact</a></li>'
+        . '</ul></nav>'
+);
+$sidebarCss = implode("\n", array_column($sidebar['assets'] ?? array(), 'content'));
+$assert(
+    str_contains($sidebarCss, '.menu{width:202px}')
+        && ! str_contains($sidebarCss, 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content'),
+    'a non-carrier navigation group keeps its authored full-width vertical menu instead of forced intrinsic sizing',
+    $sidebarCss
 );
 
 // The list remains the layout source even though core/navigation replaces it.

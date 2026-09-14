@@ -542,10 +542,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         // The authored `aria-label` does not come with it: core/group registers no
         // attribute that carries an accessible name, and inventing one would emit
         // exactly the unregistered comment attribute this carrier exists to stop.
-        $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
-        if ( $isDirectDivCascadeCollision ) {
-            $carrierAttrs = $this->withClassName($carrierAttrs, self::DIRECT_NAVIGATION_CARRIER_CLASS);
-        }
+        $carrierAttrs = $this->withClassName(
+            array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+            self::DIRECT_NAVIGATION_CARRIER_CLASS
+        );
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {
