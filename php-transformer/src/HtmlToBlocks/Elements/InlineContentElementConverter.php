@@ -128,6 +128,7 @@ final class InlineContentElementConverter implements ElementConverter
 
         $listItem = $this->context->ancestorElement($element, 'li');
         $sourceElement = $this->context->richTextContentHasStructuralHtml($content)
+            || 0 < $element->getElementsByTagName('svg')->length
             || ($listItem instanceof DOMElement && $this->context->isStructuralListItem($listItem))
             ? $element
             : null;
