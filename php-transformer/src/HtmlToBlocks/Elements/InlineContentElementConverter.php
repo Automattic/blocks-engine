@@ -59,6 +59,15 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::handled($inlineSvgTextGroup);
         }
 
+        if ( 0 < $element->getElementsByTagName('svg')->length && '' !== trim($this->runtime->stripAllTags(SourceDom::outerHtml($element))) ) {
+            $content = $this->context->materializeRichTextSvgImages($element, SourceDom::outerHtml($element));
+            if ( null === $content || $this->context->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
+                return ConversionOutcome::handled($this->context->htmlPreservationBlock($element));
+            }
+
+            return ConversionOutcome::handled($this->context->createBlock('core/paragraph', array( 'content' => $content ), array(), $element));
+        }
+
         if ( $this->context->ownsPositioningGeometry($element) ) {
             $carrier = $this->context->positionedInlineCarrierBlock($element, $fallbacks);
             if ( null !== $carrier ) {
