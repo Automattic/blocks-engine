@@ -69,6 +69,30 @@ $assert(
     'cover' === ($attrs['scale'] ?? null),
     'author CSS promotes scale cover through the fragment path'
 );
+
+// Utility classes commonly give an image a deliberate crop that differs from
+// its file ratio. Intrinsic HTML dimensions must not become native inline
+// dimensions, or they override the promoted crop in core/image.
+$utilityCrop = $compiler->compileFragment(
+    '<img class="aspect-[4/5] w-full object-cover" src="https://example.com/portrait.jpg" width="1200" height="1400" alt="Portrait">',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '.aspect-\\[4\\/5\\]{aspect-ratio:4/5}.w-full{width:100%}.object-cover{object-fit:cover}' )
+);
+$utilityCropAttrs = is_array($utilityCrop->blocks[0]['attrs'] ?? null) ? $utilityCrop->blocks[0]['attrs'] : array();
+$assert(
+    '4/5' === ($utilityCropAttrs['aspectRatio'] ?? null) && 'cover' === ($utilityCropAttrs['scale'] ?? null),
+    'escaped utility selectors promote a CSS-owned crop over the file ratio'
+);
+$assert(
+    ! isset($utilityCropAttrs['width'], $utilityCropAttrs['height']),
+    'intrinsic image dimensions do not override a conflicting CSS-owned crop'
+);
+$assert(
+    str_contains($utilityCrop->serializedBlocks, '"aspectRatio":"4/5"')
+        && ! str_contains($utilityCrop->serializedBlocks, '"width":"1200px"'),
+    'CSS-owned utility crop remains valid native core/image markup without intrinsic dimensions'
+);
 $assert(
     str_contains($with->serializedBlocks, '"aspectRatio":"4/3"')
         && str_contains($with->serializedBlocks, '"scale":"cover"'),
