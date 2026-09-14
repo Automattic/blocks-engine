@@ -40,7 +40,7 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
