@@ -215,6 +215,17 @@ $assert(
     $sidebarCss
 );
 
+$fixedRail = $transform(
+    '<style>.rail{position:fixed;inset:0 auto 0 0;width:250px;transform:translateY(0)}.menu{display:block}</style>'
+        . '<nav class="rail"><ul class="menu"><li><a href="/">Home</a></li></ul></nav>'
+);
+$fixedRailCss = implode("\n", array_column($fixedRail['assets'] ?? array(), 'content'));
+$assert(
+    str_contains($fixedRailCss, '.wp-block-navigation.rail.menu .wp-block-navigation__container{position:static!important;inset:auto!important;transform:none!important;width:auto!important;height:auto!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important}'),
+    'a positioned navigation landmark does not transfer its geometry to Core\'s list replacement',
+    $fixedRailCss
+);
+
 // The list remains the layout source even though core/navigation replaces it.
 // Keep both authored gap axes: collapsing the two-value winner to `0px` removes
 // swift-grove's horizontal menu spacing.
