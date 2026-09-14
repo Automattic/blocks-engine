@@ -65,6 +65,7 @@ final class NativeGetFormBlockBuilder
                 || ! FormControlClassifier::isReadableControl($control)
                 || $control->hasAttribute('formaction')
                 || $control->hasAttribute('formmethod')
+                || ( 'button' === strtolower($control->tagName) && $this->hasAnchorAncestor($control, $form) )
             ) {
                 return false;
             }
@@ -80,5 +81,16 @@ final class NativeGetFormBlockBuilder
             }
         }
         return true;
+    }
+
+    private function hasAnchorAncestor(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $boundary; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
