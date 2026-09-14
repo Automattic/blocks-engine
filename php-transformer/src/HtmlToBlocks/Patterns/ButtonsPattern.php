@@ -480,6 +480,9 @@ final class ButtonsPattern
         }
 
         $surface = $this->buttonSurfaceElement($anchor);
+        if ( null !== $surface && 'button' === strtolower($surface->tagName) && $this->staticAnchorButtonSurface($anchor) === $surface ) {
+            return true;
+        }
         if ( null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $buttons->resolvedStyle($surface)) ) {
             return true;
         }
