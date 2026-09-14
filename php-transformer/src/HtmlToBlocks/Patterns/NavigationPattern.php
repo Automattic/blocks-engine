@@ -124,6 +124,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
                 'padding:0!important;margin:0!important;border-width:0!important'
             );
+            $this->projectBlockListDisplay($listSource, $navigationContext);
         }
         $navigationAttrs = array_replace_recursive(
 			$navigationAttrs,
@@ -488,6 +489,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
                 'padding:0!important;margin:0!important;border-width:0!important'
             );
+            $this->projectBlockListDisplay($listSource, $navigationContext);
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
@@ -1424,6 +1426,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $anchor instanceof DOMElement ) {
                 continue;
             }
+            // A brand/logo anchor is outside the menu-item correspondence. Its
+            // image-only markup has no wrapper classes to intersect with the
+            // list items and would erase their shared presentation identity.
+            if ( '' === trim($anchor->textContent ?? '') ) {
+                continue;
+            }
             $classes = array();
             $node    = $anchor->parentNode;
             $depth   = 0;
@@ -1451,6 +1459,28 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return implode(' ', array_keys($shared));
+    }
+
+    private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext): void
+    {
+        if ( ! $navigationContext instanceof NavigationPatternContext ) {
+            return;
+        }
+
+        $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
+        if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return;
+        }
+
+        // Core starts the generated list as flex. A source list without a
+        // flex/grid declaration is a block stack by HTML semantics, so restore
+        // that layout only on the top-level native list. Nested submenu
+        // containers remain under Core's interaction ownership.
+        $navigationContext->projectSourceToNativeTarget(
+            $listSource,
+            '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container',
+            'display:block!important'
+        );
     }
 
     /**

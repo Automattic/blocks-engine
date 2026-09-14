@@ -209,8 +209,9 @@ $sidebar = $transform(
 $sidebarCss = implode("\n", array_column($sidebar['assets'] ?? array(), 'content'));
 $assert(
     str_contains($sidebarCss, '.menu{width:202px}')
+        && str_contains($sidebarCss, '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container{display:block!important}')
         && ! str_contains($sidebarCss, 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content'),
-    'a non-carrier navigation group keeps its authored full-width vertical menu instead of forced intrinsic sizing',
+    'a non-carrier navigation group keeps its authored full-width vertical menu and block list instead of forced intrinsic sizing',
     $sidebarCss
 );
 
