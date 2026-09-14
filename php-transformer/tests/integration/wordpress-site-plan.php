@@ -18,6 +18,7 @@ require $testsDir . '/includes/bootstrap.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 
@@ -194,6 +195,11 @@ $accessibleLink = (new HtmlTransformer())->transform('<main><a class="whatsapp-l
 $accessibleLinkMarkup = (string) ($accessibleLink['serialized_blocks'] ?? '');
 $accessibleLinkBlock = $accessibleLink['blocks'][0] ?? array();
 $accessibleLinkName = (string) ($accessibleLinkBlock['blockName'] ?? '');
+$accessibleLinkGenerator = new AccessibleLinkBlockGenerator();
+register_block_type($accessibleLinkName, array(
+    'attributes' => $accessibleLinkGenerator->blockJson('custom')['attributes'],
+    'render_callback' => static fn (array $attributes): string => $accessibleLinkGenerator->markup($attributes),
+));
 $accessibleLinkId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Accessible link', 'post_content' => wp_slash($accessibleLinkMarkup)), true);
 if (is_wp_error($accessibleLinkId)) throw new RuntimeException($accessibleLinkId->get_error_message());
 $pageIds['accessible-link'] = $accessibleLinkId;
