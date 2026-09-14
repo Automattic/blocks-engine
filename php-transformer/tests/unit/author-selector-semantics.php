@@ -455,6 +455,16 @@ $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
 $richTextPillCss = $css($richTextPill);
 $assert(str_contains($richTextPillMarkup, '<mark class="pill"') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
 
+$standaloneInlineLeaves = $transform('<strong class="metric-value">+150</strong><span class="metric-label">Properties</span>');
+$standaloneInlineLeavesMarkup = (string) ($standaloneInlineLeaves['serialized_blocks'] ?? '');
+$standaloneInlineLeavesCss = $css($standaloneInlineLeaves);
+$assert(2 === substr_count($standaloneInlineLeavesMarkup, '<p class="blocks-engine-synthetic-paragraph">') && str_contains($standaloneInlineLeavesCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && 'pass' === ($standaloneInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone inline leaves receive margin-neutral native paragraph carriers');
+$authoredParagraph = $transform('<style>p{margin:13px 0 7px}</style><p>Authored copy</p>');
+$authoredParagraphMarkup = (string) ($authoredParagraph['serialized_blocks'] ?? '');
+$authoredParagraphCss = $css($authoredParagraph);
+$assert(! str_contains($authoredParagraphMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($authoredParagraphCss, 'margin:13px 0 7px') && 'pass' === ($authoredParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'authored paragraphs retain their source-owned margins');
+
+
 $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:4rem;color:var(--amber)}</style><p><span class="quote-mark">&quot;</span>Testimonial</p>');
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);

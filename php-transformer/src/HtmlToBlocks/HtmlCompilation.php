@@ -4010,6 +4010,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $preserveInlineLayoutLeaf ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
+        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement && str_contains((string) ($attrs['content'] ?? ''), 'class=') ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+        }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
             $textAlign = strtolower(trim((string) ($this->styleResolver->presentationDeclarations($sourceElement)['text-align'] ?? '')));
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
