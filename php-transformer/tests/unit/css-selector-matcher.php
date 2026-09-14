@@ -234,7 +234,7 @@ for ( $index = 0; $index < CssSelectorMatchCache::MAX_MATCHES; ++$index ) {
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
 $pressureCache->matches($byId('target'), '.cache-overflow', CssSelectorMatcher::parse('.cache-overflow'));
 $pressureCache->matches($byId('target'), $hotSelector, CssSelectorMatcher::parse($hotSelector));
-$assert(4097 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && CssSelectorMatchCache::MAX_MATCHES === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
+$assert(CssSelectorMatchCache::MAX_MATCHES + 1 === $pressureCache->matchExecutions && 2 === $pressureCache->matchHits && 1 === $pressureCache->matchEvictions && CssSelectorMatchCache::MAX_MATCHES === $pressureCache->matchPeakEntries, 'hot selector results survive deterministic capacity pressure while the oldest cold result is evicted');
 
 $candidatePressureDom = new DOMDocument();
 $candidatePressureDom->loadHTML('<!doctype html><div id="candidate-pressure"></div>');

@@ -11,7 +11,7 @@ use WeakMap;
 /** Caches immutable-DOM selector inputs for one author-selector discovery pass. */
 final class CssSelectorMatchCache
 {
-    public const MAX_MATCHES = 4096;
+    public const MAX_MATCHES = 131072;
 
     public const MAX_CANDIDATE_RULES = 4096;
 
