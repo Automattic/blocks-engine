@@ -132,6 +132,22 @@ $linkedPhoto = ( new HtmlTransformer() )->transform('<style>*,*::before,*::after
 $linkedPhotoMarkup = (string) ($linkedPhoto['serialized_blocks'] ?? '');
 $assert(! str_contains($linkedPhotoMarkup, 'wp:button') && str_contains($linkedPhotoMarkup, 'class="photo ') && str_contains($linkedPhotoMarkup, 'href="/work"'), '29: reset-padded linked visual media retains its authored surface and non-button link', $linkedPhotoMarkup);
 
+$wrappedIconButton = ( new HtmlTransformer() )->transform('<style>.whatsapp-surface{display:inline-flex;min-height:44px;padding:0;background:#25d366;color:#fff;border-radius:6px}</style><a href="https://wa.me/123" target="_blank" rel="noreferrer" aria-label="Contactar por WhatsApp"><button class="whatsapp-surface"><svg aria-hidden="true" width="18" height="18"><path d="M0 0h18v18H0z"/></svg></button></a>', array())->toArray();
+$wrappedIcon = $wrappedIconButton['blocks'][0]['innerBlocks'][0] ?? array();
+$wrappedIconMarkup = (string) ($wrappedIconButton['serialized_blocks'] ?? '');
+$assert('core/buttons' === ($wrappedIconButton['blocks'][0]['blockName'] ?? '') && 'core/button' === ($wrappedIcon['blockName'] ?? ''), '30: classless anchor around a static styled icon button promotes to native buttons', json_encode($wrappedIconButton['blocks'] ?? array()));
+$assert('https://wa.me/123' === ($wrappedIcon['attrs']['url'] ?? '') && '_blank' === ($wrappedIcon['attrs']['linkTarget'] ?? '') && 'noreferrer' === ($wrappedIcon['attrs']['rel'] ?? '') && 'Contactar por WhatsApp' === ($wrappedIcon['attrs']['title'] ?? ''), '31: wrapped icon button retains outer navigation and accessible name', json_encode($wrappedIcon['attrs'] ?? array()));
+$assert('#25d366' === ($wrappedIcon['attrs']['style']['color']['background'] ?? '') && array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ) === ($wrappedIcon['attrs']['style']['spacing']['padding'] ?? null) && str_contains($wrappedIconMarkup, 'wp:button') && ! str_contains($wrappedIconMarkup, '<button'), '32: wrapped icon button takes paint from the inner surface without retaining nested button markup', $wrappedIconMarkup);
+$assert('pass' === ($wrappedIconButton['source_reports']['wp_block_validity']['status'] ?? ''), '33: wrapped icon button serialization remains Gutenberg-valid', json_encode($wrappedIconButton['source_reports']['wp_block_validity'] ?? array()));
+
+$wrappedTextButton = ( new HtmlTransformer() )->transform('<style>.cta-surface{display:inline-flex;min-height:36px;padding:0 12px;background:oklch(0.24 0.058 250);color:#fff;border-radius:6px;font-size:14px}</style><a href="/publish"><button class="cta-surface">Publicar mi propiedad</button></a>', array())->toArray();
+$wrappedText = $wrappedTextButton['blocks'][0]['innerBlocks'][0] ?? array();
+$assert('core/button' === ($wrappedText['blockName'] ?? '') && '/publish' === ($wrappedText['attrs']['url'] ?? '') && 'Publicar mi propiedad' === strip_tags((string) ($wrappedText['attrs']['text'] ?? '')), '34: wrapped text CTA retains outer navigation and inner visible label', json_encode($wrappedText));
+$assert('oklch(0.24 0.058 250)' === ($wrappedText['attrs']['style']['color']['background'] ?? '') && array( 'top' => '0', 'right' => '12px', 'bottom' => '0', 'left' => '12px' ) === ($wrappedText['attrs']['style']['spacing']['padding'] ?? null) && '14px' === ($wrappedText['attrs']['style']['typography']['fontSize'] ?? ''), '35: wrapped text CTA takes paint and metrics from inner surface', json_encode($wrappedText['attrs'] ?? array()));
+
+$unsafeWrappedButton = ( new HtmlTransformer() )->transform('<a href="/submit"><button type="submit" style="padding:12px;background:#135e96">Submit</button></a>', array())->toArray();
+$assert('core/html' === ($unsafeWrappedButton['blocks'][0]['blockName'] ?? ''), '36: submit-capable nested button remains in the HTML fallback path', json_encode($unsafeWrappedButton['blocks'] ?? array()));
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

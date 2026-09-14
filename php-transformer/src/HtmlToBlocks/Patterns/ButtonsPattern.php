@@ -180,7 +180,7 @@ final class ButtonsPattern
         $hasPresentationIdentity = $surface instanceof DOMElement
             && ( $surface->hasAttribute('class') || $surface->hasAttribute('id') || $surface->hasAttribute('style') );
 
-        return $hasPresentationIdentity && in_array(strtolower($surface->tagName), array( 'div', 'span' ), true)
+        return $hasPresentationIdentity && in_array(strtolower($surface->tagName), array( 'button', 'div', 'span' ), true)
             ? $surface
             : null;
     }
@@ -590,6 +590,14 @@ final class ButtonsPattern
                 continue;
             }
 
+            if ( 'button' === strtolower($descendant->tagName) ) {
+                if ( $this->staticAnchorButtonSurface($anchor) === $descendant ) {
+                    continue;
+                }
+
+                return true;
+            }
+
             if ( in_array(strtolower($descendant->tagName), array( 'a', 'audio', 'details', 'embed', 'form', 'iframe', 'img', 'input', 'picture', 'select', 'textarea', 'video' ), true)
                 || $this->hasRuntimeBehaviorSignal($descendant) ) {
                 return true;
@@ -597,6 +605,22 @@ final class ButtonsPattern
         }
 
         return false;
+    }
+
+    /**
+     * A captured anchor can own navigation while its sole nested native button
+     * supplies the visual surface. Lower that invalid source topology to one
+     * core/button link only when the nested button is static presentation.
+     */
+    private function staticAnchorButtonSurface(DOMElement $anchor): ?DOMElement
+    {
+        $surface = $this->buttonSurfaceElement($anchor);
+        if ( ! $surface instanceof DOMElement || 'button' !== strtolower($surface->tagName) || $this->hasRuntimeBehaviorSignal($surface) ) {
+            return null;
+        }
+
+        $type = strtolower(trim($surface->getAttribute('type')));
+        return in_array($type, array( '', 'button' ), true) ? $surface : null;
     }
 
     /**
