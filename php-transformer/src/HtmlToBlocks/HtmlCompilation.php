@@ -2072,7 +2072,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 // Core's mobile overlay is active at this breakpoint. The source
                 // rail counterpart is intentionally collapsed there, so release
                 // only the generated carrier and let native navigation own it.
-                $afterAuthorCssParts[] = '@media(max-width:600px){nav.wp-block-group.blocks-engine-sidebar-navigation-carrier{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;z-index:auto!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation{width:100%!important;height:auto!important}}';
+                $afterAuthorCssParts[] = '@media(max-width:600px){nav.wp-block-group.blocks-engine-sidebar-navigation-carrier{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;z-index:auto!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation{width:100%!important;height:auto!important;min-height:48px!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation>.wp-block-navigation__responsive-container-open{display:flex!important;width:48px!important;height:48px!important;padding:12px!important;visibility:visible!important}}';
             }
             if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
                 $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();

@@ -487,13 +487,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         // item for raw markup; keep today's shape rather than lose the block.
         // A phrasing wordmark is created without a source element so the
         // inline-to-paragraph path does not attach the synthetic wrapper class.
-        $brand = null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
+        $brandImage = 'a' === strtolower($anchor->tagName) && 1 === $anchor->getElementsByTagName('img')->length
+            ? $anchor->getElementsByTagName('img')->item(0)
+            : null;
+        $brand = $brandImage instanceof DOMElement
+            ? $converter->element($brandImage, $fallbacks, true)
+            : ( null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
             ? $createBlock(
                 'core/paragraph',
                 array_merge($presentationAttributes($anchor), array( 'content' => $innerHtml($anchor) )),
                 array()
             )
-            : $converter->element($anchor, $fallbacks, true);
+            : $converter->element($anchor, $fallbacks, true) );
         $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
         if ( '' === $brandName || 'core/html' === $brandName ) {
             return null;
