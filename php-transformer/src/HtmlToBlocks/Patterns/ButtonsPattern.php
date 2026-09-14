@@ -653,6 +653,11 @@ final class ButtonsPattern
             && null === $this->staticAnchorButtonSurface($anchor);
     }
 
+    public function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        return $this->wrappedButtonRequiresPreservation($anchor);
+    }
+
     private function hasFormAncestor(DOMElement $element): bool
     {
         for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
