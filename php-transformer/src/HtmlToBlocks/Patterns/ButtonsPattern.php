@@ -202,6 +202,11 @@ final class ButtonsPattern
 
     private function buttonHtml(DOMElement $anchor, ButtonPatternContext $buttons): string
     {
+        $surface = $this->staticAnchorButtonSurface($anchor);
+        if ( $surface instanceof DOMElement ) {
+            return SourceDom::innerHtml($surface);
+        }
+
         $html = SourceDom::innerHtml($anchor);
         return str_contains($html, 'data-blocks-engine-richtext-marker=') && $this->hasStandaloneButtonLabel($anchor)
             ? $buttons->richText($anchor)
