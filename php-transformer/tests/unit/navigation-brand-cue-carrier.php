@@ -215,6 +215,25 @@ $assert(
     $sidebarCss
 );
 
+$imageBrandRail = $transform(
+    '<style>.rail{position:fixed;width:250px}.logo{display:block;height:96px}.menu{display:block}.menu a{display:block;color:#fff}</style>'
+        . '<nav class="rail"><a class="logo" href="/"><img src="logo.png" alt="Site home"></a><ul class="menu">'
+        . '<li><a href="/">Home</a></li><li><a href="/work">Work</a></li></ul></nav>'
+);
+$imageBrandBlocks = is_array($imageBrandRail['blocks'] ?? null) ? $imageBrandRail['blocks'] : array();
+$imageBrandNavigations = $findBlocks($imageBrandBlocks, 'core/navigation');
+$assert(
+    1 === count(array_values(array_filter(
+        $findBlocks($imageBrandBlocks, 'core/group'),
+        static fn (array $block): bool => 'nav' === ($block['attrs']['tagName'] ?? null)
+    )))
+        && 1 === count($imageBrandNavigations)
+        && 'vertical' === ($imageBrandNavigations[0]['attrs']['layout']['orientation'] ?? null)
+        && 1 === count($findBlocks($imageBrandBlocks, 'custom/responsive-media')),
+    'an image-only accessible brand remains beside a fixed rail navigation',
+    json_encode($imageBrandBlocks)
+);
+
 $fixedRail = $transform(
     '<style>.rail{position:fixed;inset:0 auto 0 0;width:250px;transform:translateY(0)}.menu{display:block;width:202px}.menu a{color:#fff}</style>'
         . '<nav class="rail"><ul class="menu"><li><a href="/">Home</a></li></ul></nav>'

@@ -50,10 +50,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( $this->hasNavigationChrome($element) ) {
-            return null;
-        }
-
         // A row of button-styled links (e.g. `<div class="stream-links"><a
         // class="stream-btn">…</a>…</div>`) is a call-to-action button group, not
         // site navigation. It matched here only because a container token like
@@ -79,6 +75,10 @@ final class NavigationPattern implements PatternRecognizerInterface
         $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext);
         if ( null !== $hoisted ) {
             return new PatternRecognitionResult($hoisted, $carrierFallbacks);
+        }
+
+        if ( $this->hasNavigationChrome($element) ) {
+            return null;
         }
 
         if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
@@ -380,7 +380,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return null;
             }
 
-            if ( $this->isNavigationChromeElement($child) ) {
+            if ( $this->isNavigationChromeElement($child)
+                && ! ( 'a' === strtolower($child->tagName) && $this->readsAsBrandAnchor($child) )
+            ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
                 if ( $navigationContext?->isRuntimeDomTarget($child) ) {
@@ -482,6 +484,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             ? array()
             : $this->navigationContainerAttributes($cluster, $presentationAttributes);
         $listSource = $this->navigationListSource($cluster);
+        $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
+        if ( $splitLandmarkOwnership ) {
+            $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
+        }
         if ( null !== $navigationContext && $listSource instanceof DOMElement ) {
             $clusterSpacing = $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($cluster));
             $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
@@ -508,7 +514,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
                 'padding:0!important;margin:0!important;border-width:0!important'
             );
-            $this->projectBlockListDisplay($listSource, $navigationContext);
+            $this->projectBlockListDisplay($listSource, $navigationContext, $splitLandmarkOwnership);
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {

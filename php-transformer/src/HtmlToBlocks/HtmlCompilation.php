@@ -1971,6 +1971,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }
+        if ( str_contains($serializedBlocks, self::EMPTY_VISUAL_GROUP_CLASS) ) {
+            // An empty painted layer has no portable interaction contract. It
+            // must not cover native controls after its source runtime is absent.
+            $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
+        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
