@@ -58,7 +58,11 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
-            if ( ! FormControlClassifier::isReadableControl($control) || $control->hasAttribute('formaction') || $control->hasAttribute('formmethod') ) {
+            if ( ! in_array(strtolower($control->tagName), array( 'input', 'select', 'button' ), true)
+                || ! FormControlClassifier::isReadableControl($control)
+                || $control->hasAttribute('formaction')
+                || $control->hasAttribute('formmethod')
+            ) {
                 return false;
             }
             foreach ($control->attributes as $attribute) {
