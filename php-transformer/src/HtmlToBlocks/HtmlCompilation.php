@@ -3190,6 +3190,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $tagName = strtolower($element->tagName);
 
+        if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
         if ( 0 < $this->nativeGetFormDepth ) {
             if ( 'label' === $tagName && '' !== $this->attr($element, 'for') ) {
                 // The associated typed control renders this external label so it
@@ -3466,6 +3470,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return null;
+    }
+
+    private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        $button = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || $button instanceof DOMElement ) {
+                return false;
+            }
+            $button = $child;
+        }
+        if ( ! $button instanceof DOMElement || ! ($button->hasAttribute('class') || $button->hasAttribute('id') || $button->hasAttribute('style')) ) {
+            return false;
+        }
+
+        $type = strtolower(trim($button->getAttribute('type')));
+        if ( ! in_array($type, array( '', 'button' ), true) ) {
+            return true;
+        }
+        if ( '' === $type && $this->hasAncestorTag($button, array( 'form' )) ) {
+            return true;
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $button->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed>|null */
@@ -3999,12 +4036,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
+            $sourceControlPath = $sourceElement->getNodePath() ?? '';
             $hasAuthorControlProjection = in_array($name, array( 'core/button', 'core/buttons' ), true)
                 && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true)
                 && ($this->authorSelectorProjections()->isControlPath($logicalControlPath)
+                    || $this->authorSelectorProjections()->isControlPath($sourceControlPath)
                     || ('' !== $this->authorStyles()->combinedCss()
-                        && 'a' === strtolower($logicalControl->tagName)
-                        && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
+                        && (( 'a' === strtolower($logicalControl->tagName)
+                                && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id'))))
+                            || ( 'button' === $sourceTagName
+                                && ('' !== trim($this->attr($sourceElement, 'class')) || '' !== trim($this->attr($sourceElement, 'id')))))));
             $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(

@@ -28,6 +28,10 @@ final class ButtonsPattern
 
         // A native button cannot faithfully retain nested controls or runtime
         // handlers. Let the normal fallback path retain those diagnostics.
+        if ( $this->wrappedButtonRequiresPreservation($anchor) ) {
+            return new PatternRecognitionResult($context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($anchor) ), array(), $anchor));
+        }
+
         if ( $this->hasUnsafeButtonContent($anchor) || $this->hasRuntimeBehaviorSignal($anchor) ) {
             return null;
         }
@@ -40,7 +44,7 @@ final class ButtonsPattern
             return null;
         }
 
-        $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
+        $text = $this->buttonText($anchor, SourceDom::innerHtml($anchor), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
@@ -52,6 +56,21 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
+        $preservedAnchor = $this->guardedWrappedButtonAnchor($button);
+        if ( $preservedAnchor instanceof DOMElement ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+        }
+
+        if ( 'a' === strtolower($button->tagName) && $this->wrappedButtonRequiresPreservation($button) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
+        }
+
+        if ( $button->parentNode instanceof DOMElement
+            && 'a' === strtolower($button->parentNode->tagName)
+            && $this->wrappedButtonRequiresPreservation($button->parentNode) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button->parentNode) ), array(), $button->parentNode);
+        }
+
         // Core/button cannot carry provider event handlers. Preserve the source
         // control for the fallback/behavior-loss path instead of emitting a dead button.
         if ( $this->hasUnportedRuntimeHandler($button) ) {
@@ -85,7 +104,28 @@ final class ButtonsPattern
     /** @return array<string, mixed>|null */
     public function matchContainer(DOMElement $element, PatternContext $context, ButtonPatternContext $buttons): ?array
     {
+        $preservedAnchor = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || 'a' !== strtolower($child->tagName)
+                || null !== $preservedAnchor
+                || ! $this->wrappedButtonRequiresPreservation($child) ) {
+                $preservedAnchor = null;
+                break;
+            }
+            $preservedAnchor = $child;
+        }
+        if ( $preservedAnchor instanceof DOMElement ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+        }
+
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
+        if ( $wrappedAnchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($wrappedAnchor) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($wrappedAnchor) ), array(), $wrappedAnchor);
+        }
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
         }
@@ -180,7 +220,7 @@ final class ButtonsPattern
         $hasPresentationIdentity = $surface instanceof DOMElement
             && ( $surface->hasAttribute('class') || $surface->hasAttribute('id') || $surface->hasAttribute('style') );
 
-        return $hasPresentationIdentity && in_array(strtolower($surface->tagName), array( 'div', 'span' ), true)
+        return $hasPresentationIdentity && in_array(strtolower($surface->tagName), array( 'button', 'div', 'span' ), true)
             ? $surface
             : null;
     }
@@ -202,6 +242,11 @@ final class ButtonsPattern
 
     private function buttonHtml(DOMElement $anchor, ButtonPatternContext $buttons): string
     {
+        $surface = $this->staticAnchorButtonSurface($anchor);
+        if ( $surface instanceof DOMElement ) {
+            return SourceDom::innerHtml($surface);
+        }
+
         $html = SourceDom::innerHtml($anchor);
         return str_contains($html, 'data-blocks-engine-richtext-marker=') && $this->hasStandaloneButtonLabel($anchor)
             ? $buttons->richText($anchor)
@@ -480,6 +525,9 @@ final class ButtonsPattern
         }
 
         $surface = $this->buttonSurfaceElement($anchor);
+        if ( null !== $surface && 'button' === strtolower($surface->tagName) && $this->staticAnchorButtonSurface($anchor) === $surface ) {
+            return true;
+        }
         if ( null !== $surface && $this->signalClassifier->hasStyleSignal($surface, $buttons->resolvedStyle($surface)) ) {
             return true;
         }
@@ -590,8 +638,81 @@ final class ButtonsPattern
                 continue;
             }
 
+            if ( 'button' === strtolower($descendant->tagName) ) {
+                if ( $this->staticAnchorButtonSurface($anchor) === $descendant ) {
+                    continue;
+                }
+
+                return true;
+            }
+
             if ( in_array(strtolower($descendant->tagName), array( 'a', 'audio', 'details', 'embed', 'form', 'iframe', 'img', 'input', 'picture', 'select', 'textarea', 'video' ), true)
                 || $this->hasRuntimeBehaviorSignal($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A captured anchor can own navigation while its sole nested native button
+     * supplies the visual surface. Lower that invalid source topology to one
+     * core/button link only when the nested button is static presentation.
+     */
+    private function staticAnchorButtonSurface(DOMElement $anchor): ?DOMElement
+    {
+        $surface = $this->buttonSurfaceElement($anchor);
+        if ( ! $surface instanceof DOMElement || 'button' !== strtolower($surface->tagName) || $this->hasRuntimeBehaviorSignal($surface) ) {
+            return null;
+        }
+
+        $type = strtolower(trim($surface->getAttribute('type')));
+        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && $this->hasFormAncestor($surface) ) ) {
+            return null;
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor' ) as $attribute ) {
+            if ( $surface->hasAttribute($attribute) ) {
+                return null;
+            }
+        }
+
+        return $surface;
+    }
+
+    private function guardedWrappedButtonAnchor(DOMElement $element): ?DOMElement
+    {
+        if ( 'a' === strtolower($element->tagName) && $this->wrappedButtonRequiresPreservation($element) ) {
+            return $element;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($anchor) ) {
+                return $anchor;
+            }
+        }
+
+        return null;
+    }
+
+    private function wrappedButtonRequiresPreservation(DOMElement $anchor): bool
+    {
+        $surface = $this->buttonSurfaceElement($anchor);
+        return $surface instanceof DOMElement
+            && 'button' === strtolower($surface->tagName)
+            && null === $this->staticAnchorButtonSurface($anchor);
+    }
+
+    public function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        return $this->wrappedButtonRequiresPreservation($anchor);
+    }
+
+    private function hasFormAncestor(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'form' === strtolower($ancestor->tagName) ) {
                 return true;
             }
         }
