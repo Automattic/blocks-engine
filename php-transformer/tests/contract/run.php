@@ -6102,6 +6102,31 @@ $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element'
 $assert('semantic-description-list' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'multi-page artifacts aggregate the Gutenberg gap once');
 $assert('https://github.com/WordPress/gutenberg/pull/20760' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['references'][1] ?? null), 'gap diagnostic records the stalled Gutenberg implementation context');
 
+$accessibleLink = ( new HtmlTransformer() )->transform(
+    '<main><a class="button whatsapp-link" href="https://wa.me/15551234567" target="_blank" rel="noreferrer" role="button" data-cta data-kind="primary-action" aria-describedby="contact-help" aria-label="Contactar por WhatsApp"><svg aria-hidden="true"><path d="M0 0h1v1z"></path></svg><span>Crème 東京</span></a></main>'
+)->toArray();
+$accessibleLinkBlock = $accessibleLink['blocks'][0] ?? array();
+$accessibleLinkAttrs = $accessibleLinkBlock['attrs'] ?? array();
+$accessibleLinkDefinition = $accessibleLink['source_reports']['generated_blocks'][0] ?? array();
+$accessibleLinkMarkup = (string) ($accessibleLink['serialized_blocks'] ?? '');
+$assert(
+    'custom/accessible-link' === ($accessibleLinkBlock['blockName'] ?? '')
+    && 'https://wa.me/15551234567' === ($accessibleLinkAttrs['href'] ?? '')
+    && 'Contactar por WhatsApp' === ($accessibleLinkAttrs['accessibleLabel'] ?? '')
+    && str_starts_with((string) ($accessibleLinkAttrs['content'] ?? ''), '<img')
+    && str_contains((string) ($accessibleLinkAttrs['content'] ?? ''), '<span>Crème 東京</span>')
+    && 'button' === ($accessibleLinkAttrs['sourceAttributes']['role'] ?? '')
+    && '' === ($accessibleLinkAttrs['sourceAttributes']['data-cta'] ?? null)
+    && 'primary-action' === ($accessibleLinkAttrs['sourceAttributes']['data-kind'] ?? '')
+    && 'contact-help' === ($accessibleLinkAttrs['sourceAttributes']['aria-describedby'] ?? '')
+    && str_contains((string) ($accessibleLinkBlock['innerHTML'] ?? ''), 'data-cta=""')
+    && 'noreferrer' === ($accessibleLinkAttrs['rel'] ?? '')
+    && ! str_contains($accessibleLinkMarkup, '<!-- wp:html')
+    && array() === ($accessibleLink['fallbacks'] ?? array())
+    && 'custom/accessible-link' === ($accessibleLinkDefinition['block_json']['name'] ?? ''),
+    'A stylable link with a distinct accessible name becomes an editable typed companion with separate URL, accessible label, visible content, and materialized icon content instead of an HTML fallback.'
+);
+
 fwrite(STDOUT, "Format bridge scaffold passed.\n");
 
 function assertSame(mixed $expected, mixed $actual, string $message): void

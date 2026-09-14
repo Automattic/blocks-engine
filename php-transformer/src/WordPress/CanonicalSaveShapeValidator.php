@@ -325,7 +325,9 @@ final class CanonicalSaveShapeValidator
     private function attributeValue(string $openingTag, string $attribute): ?string
     {
         if ( preg_match('/\s' . preg_quote($attribute, '/') . '="([^"]*)"/i', $openingTag, $match) ) {
-            return $match[1];
+            // Gutenberg parses saved block markup as HTML before comparing it
+            // with attributes, so compare the same decoded attribute value.
+            return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
         }
 
         return null;

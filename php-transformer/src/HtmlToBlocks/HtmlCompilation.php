@@ -26,6 +26,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CapturedDialogBlockGenerator;
@@ -2639,10 +2640,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->richTextMaterializer,
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
-                fn (DOMElement $anchor): PatternRecognitionResult => new PatternRecognitionResult(
-                    $this->htmlPreservationBlock($anchor),
-                    array(FallbackDiagnostic::build(array('type' => 'html', 'reason' => 'stylable_button_accessible_name_requires_typed_companion', 'diagnostic_code' => 'html_stylable_button_accessible_name_fallback', 'source_format' => 'html', 'tag' => 'a', 'html' => $this->safeFallbackHtml($anchor)), $this->transformationProvenance()->fallback()))
-                )
+                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content)
             ),
             new QuotePatternContext(
                 $this->sourceElementClassifier,
@@ -2666,6 +2664,48 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
+    }
+
+    private function accessibleLinkCompanion(DOMElement $anchor, string $content): PatternRecognitionResult
+    {
+        $generator = new AccessibleLinkBlockGenerator();
+        $namespace = $this->generatedBlocks()->namespace();
+        $this->generatedBlocks()->register(AccessibleLinkBlockGenerator::class, $generator->definition($namespace));
+        $attrs = array_filter(array(
+            'href' => $this->attr($anchor, 'href'),
+            'accessibleLabel' => $this->attr($anchor, 'aria-label'),
+            'content' => $content,
+            'contentMode' => 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text',
+            'className' => $this->attr($anchor, 'class'),
+            'style' => $this->attr($anchor, 'style'),
+            'id' => $this->attr($anchor, 'id'),
+            'linkTarget' => $this->attr($anchor, 'target'),
+            'rel' => $this->attr($anchor, 'rel'),
+            'sourceAttributes' => $this->accessibleLinkSourceAttributes($anchor),
+        ), static fn (mixed $value): bool => '' !== $value);
+        $markup = $generator->markup($attrs);
+
+        return new PatternRecognitionResult(array(
+            'blockName' => $namespace . '/' . AccessibleLinkBlockGenerator::LOCAL_NAME,
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        ));
+    }
+
+    /** @return array<string, string> */
+    private function accessibleLinkSourceAttributes(DOMElement $anchor): array
+    {
+        $attributes = array();
+        foreach ( $anchor->attributes ?? array() as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( 'role' === $name || str_starts_with($name, 'data-') || (str_starts_with($name, 'aria-') && 'aria-label' !== $name) ) {
+                $attributes[$name] = $attribute->value;
+            }
+        }
+        ksort($attributes);
+        return $attributes;
     }
 
     /**
@@ -9819,7 +9859,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // the carrier element is gone. Promote it to native aspectRatio/scale
         // attributes so WordPress reproduces the authored crop. `+` never
         // overrides an attribute already resolved above.
-        $attrs += $this->imageShapeConstraintAttributes($image, $width, $height);
+        $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
+        $attrs += $shape;
+        if (isset($shape['aspectRatio'])) {
+            foreach (array( 'width', 'height' ) as $property) {
+                if ($this->imageDimensionIsIntrinsicAttribute($image, $property)) {
+                    // HTML dimensions describe the file, not a stylesheet-owned
+                    // crop. Keeping either as a core/image style overrides it.
+                    unset($attrs[$property]);
+                }
+            }
+        }
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -9847,8 +9897,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
             return $this->imageDimensionValue($inline, $linked);
         }
+        $stylesheet = $this->imageStylesheetDimension($image, $property);
+        if ( '' !== $stylesheet ) {
+            return $this->imageDimensionValue($stylesheet, $linked);
+        }
         $attribute = trim($this->attr($image, $property));
         return $this->imageDimensionValue($attribute, $linked);
+    }
+
+    /** A viewport-invariant source dimension that native core/image can carry. */
+    private function imageStylesheetDimension(DOMElement $image, string $property): string
+    {
+        $declaration = $this->styleResolver->imageShapeDeclarations($image)[$property] ?? array();
+        if (!is_array($declaration) || array() !== ($declaration['conditions'] ?? array())) {
+            return '';
+        }
+        $value = trim($this->cssValueWithoutImportant((string) ($declaration['value'] ?? '')));
+        return in_array(strtolower($value), array( '', 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ? '' : $value;
     }
 
     /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */
@@ -12300,7 +12365,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array();
         }
 
-        if ( '' === $aspectRatio || $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio) ) {
+        if ( '' === $aspectRatio
+            || ($this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio)
+                && (($declarations['aspect-ratio']['inline'] ?? false) === true
+                    || ! $this->imageDimensionsAreIntrinsicAttributes($image)))
+        ) {
             return (($declarations['object-fit']['inline'] ?? false) === true) ? array( 'scale' => $scale ) : array();
         }
 
@@ -12365,6 +12434,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
         return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
+    }
+
+    /** Whether the emitted dimensions came only from the image file metadata. */
+    private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        foreach (array( 'width', 'height' ) as $property) {
+            $value = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+            if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+                return false;
+            }
+        }
+        return '' !== trim($this->attr($image, 'width')) && '' !== trim($this->attr($image, 'height'));
+    }
+
+    private function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        $inline = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+        return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
+            && '' === $this->imageStylesheetDimension($image, $property)
+            && '' !== trim($this->attr($image, $property));
     }
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool

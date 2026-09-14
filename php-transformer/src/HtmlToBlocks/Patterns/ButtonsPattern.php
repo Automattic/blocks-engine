@@ -42,7 +42,7 @@ final class ButtonsPattern
 
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
-            return $buttons->accessibleNameFallback($anchor);
+            return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
         $block = $context->createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
@@ -260,7 +260,7 @@ final class ButtonsPattern
     {
         $ariaLabel = $this->normalizedAccessibleText($anchor->getAttribute('aria-label'));
         $visibleLabel = $this->normalizedAccessibleText($this->plainText($text));
-        return '' !== $ariaLabel && '' !== $visibleLabel && $ariaLabel !== $visibleLabel;
+        return '' !== $ariaLabel && $ariaLabel !== $visibleLabel;
     }
 
     private function normalizedAccessibleText(string $text): string
@@ -590,7 +590,7 @@ final class ButtonsPattern
                 continue;
             }
 
-            if ( in_array(strtolower($descendant->tagName), array( 'a', 'audio', 'button', 'details', 'embed', 'form', 'iframe', 'img', 'input', 'picture', 'select', 'textarea', 'video' ), true)
+            if ( in_array(strtolower($descendant->tagName), array( 'a', 'audio', 'details', 'embed', 'form', 'iframe', 'img', 'input', 'picture', 'select', 'textarea', 'video' ), true)
                 || $this->hasRuntimeBehaviorSignal($descendant) ) {
                 return true;
             }

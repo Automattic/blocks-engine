@@ -47,8 +47,8 @@ $assert(str_contains((string) ($overlappingDetails['blocks'][0]['attrs']['summar
 $assert(true === ($overlappingDetails['blocks'][0]['attrs']['showContent'] ?? null), 'Native details keeps its open-state attribute rather than taking the ARIA disclosure branch.');
 
 $button = (new HtmlTransformer())->transform('<a href="/go" aria-label="Open" style="display:inline-block;background:#000;color:#fff;padding:1rem">Go</a>')->toArray();
-$assert('core/html' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its accessible-name fallback wins.');
-$assert('html_stylable_button_accessible_name_fallback' === ($button['fallbacks'][0]['diagnostic_code'] ?? null), 'Button fallback is committed by the staged registry dispatcher.');
+$assert('custom/accessible-link' === ($button['blocks'][0]['blockName'] ?? null), 'Button recognition remains ahead of generic anchor lowering when its typed accessible-link companion wins.');
+$assert('Open' === ($button['blocks'][0]['attrs']['accessibleLabel'] ?? null) && array() === ($button['fallbacks'] ?? array()), 'The staged registry dispatcher preserves the distinct accessible name without a fallback.');
 
 $buttonContainer = (new HtmlTransformer())->transform('<div><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/one">One</a><a class="button" style="display:inline-block;background:#000;color:#fff;padding:1rem" href="/two">Two</a></div>')->toArray();
 $assert('core/buttons' === ($buttonContainer['blocks'][0]['blockName'] ?? null), 'A multi-button container wins before generic inline-wrapper lowering.');
