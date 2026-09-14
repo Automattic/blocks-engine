@@ -61,6 +61,12 @@
       "expected_codes": []
     },
     {
+      "name": "valid-button-entity-encoded-classname-on-wrapper",
+      "input": "<!-- wp:button {\"className\":\"[&_svg]:shrink-0\",\"text\":\"Go\",\"url\":\"/x\"} --><div class=\"wp-block-button [&amp;_svg]:shrink-0\"><a class=\"wp-block-button__link wp-element-button\" href=\"/x\">Go</a></div><!-- /wp:button -->",
+      "expected_status": "pass",
+      "expected_codes": []
+    },
+    {
       "name": "valid-heading-canonical-save-shape",
       "input": "<!-- wp:heading {\"level\":2} --><h2 class=\"wp-block-heading\">Section</h2><!-- /wp:heading -->",
       "expected_status": "pass",
