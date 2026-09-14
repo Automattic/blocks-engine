@@ -62,6 +62,24 @@ final class FormPresentationGraphBuilder
     {
     }
 
+    /** Source form box presentation is distinct from its control layout graph. */
+    public function buildContainer(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
+    {
+        $this->truncated = false;
+        $analysis = (new CssRuleAnalyzer())->analyze($stylesheets, $inlineCss, self::PROPERTIES, CssAnalysisLimits::MAX_STYLESHEET_BYTES, self::MAX_RULES, self::MAX_SELECTORS, self::MAX_CONDITION_DEPTH);
+        if ($analysis['truncated']) return array();
+        $matched = $this->matched($form, $analysis['rules']);
+        $styles = $this->styles($matched['base'], $form, null, array());
+        $variants = array();
+        foreach ($this->effectiveConditional($matched['conditional'], $matched['base']) as $encoded => $facts) {
+            if (count($variants) >= self::MAX_RULES_PER_ROLE) return array();
+            $condition = json_decode($encoded, true);
+            $patch = $this->styles($facts, $form, $condition, array());
+            if ($patch) $variants[] = array('condition' => $condition, 'styles' => $patch, 'provenance' => $this->provenance($facts, $condition));
+        }
+        return $this->truncated || (!$styles && !$variants) ? array() : array('schema' => 'generic/form-container-presentation/v1', 'styles' => $styles, 'provenance' => $this->provenance($matched['base'], null), 'variants' => $variants);
+    }
+
     /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
     public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
     {

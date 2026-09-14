@@ -24,6 +24,9 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
+$boxResult = $transformer->transform('<form method="post"><input name="name"><button type="submit">Send</button></form>', array('static_css' => 'form{max-width:500px;margin:0 auto;text-align:left}@media (max-width:600px){form{max-width:100%}}'))->toArray();
+$box = $boxResult['fallbacks'][0]['form']['container_presentation'] ?? array();
+$assert('500px' === ($box['styles']['max_width'] ?? null) && '0 auto' === ($box['styles']['margin'] ?? null) && 'left' === ($box['styles']['text_align'] ?? null) && '100%' === ($box['variants'][0]['styles']['max_width'] ?? null), 'form container owns base and responsive presentation independently of controls');
 $statusResult = $transformer->transform('<form method="post"><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
 $assert(array('role' => 'status', 'id' => 'result', 'margin_top' => '0.5rem') === ($statusResult['fallbacks'][0]['form']['trailing_status'] ?? null), 'empty trailing status preserves identity and authored margin');
 foreach (array('<p role="status">Existing message</p>', '<p role="alert"></p>', '<p role="status" aria-live="assertive"></p>', '<p role="status"><span></span></p>') as $unsupportedStatus) {
