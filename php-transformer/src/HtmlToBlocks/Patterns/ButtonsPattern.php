@@ -56,6 +56,12 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
+        if ( $button->parentNode instanceof DOMElement
+            && 'a' === strtolower($button->parentNode->tagName)
+            && $this->wrappedButtonRequiresPreservation($button->parentNode) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button->parentNode) ), array(), $button->parentNode);
+        }
+
         // Core/button cannot carry provider event handlers. Preserve the source
         // control for the fallback/behavior-loss path instead of emitting a dead button.
         if ( $this->hasUnportedRuntimeHandler($button) ) {
