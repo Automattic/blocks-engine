@@ -57,6 +57,11 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         $action = trim(SourceDom::attr($form, 'action'));
+        // An omitted endpoint and method do not establish a GET workflow in a
+        // captured artifact. Preserve the provider path for unspecified forms.
+        if ( '' === $method && '' === $action ) {
+            return false;
+        }
         if ( 1 === preg_match('/^\s*(?:javascript|data):/i', $action) ) {
             return false;
         }
