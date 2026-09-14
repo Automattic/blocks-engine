@@ -24,10 +24,10 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 };
 
 $transformer = new HtmlTransformer();
-$statusResult = $transformer->transform('<form><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
+$statusResult = $transformer->transform('<form method="post"><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
 $assert(array('role' => 'status', 'id' => 'result', 'margin_top' => '0.5rem') === ($statusResult['fallbacks'][0]['form']['trailing_status'] ?? null), 'empty trailing status preserves identity and authored margin');
 foreach (array('<p role="status">Existing message</p>', '<p role="alert"></p>', '<p role="status" aria-live="assertive"></p>', '<p role="status"><span></span></p>') as $unsupportedStatus) {
-    $statusResult = $transformer->transform('<form><input name="name">' . $unsupportedStatus . '</form>')->toArray();
+    $statusResult = $transformer->transform('<form method="post"><input name="name">' . $unsupportedStatus . '</form>')->toArray();
     $assert(!isset($statusResult['fallbacks'][0]['form']['trailing_status']), 'nonempty or non-polite status is not mapped to an empty output');
 }
 $serialize = static function (string $html, array $options = array()) use ($transformer): string {
