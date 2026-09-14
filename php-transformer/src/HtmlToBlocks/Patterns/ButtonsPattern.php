@@ -41,10 +41,7 @@ final class ButtonsPattern
         }
 
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
-        // The outer label names an icon-only inner button surface. core/button's
-        // supported title retains that name while allowing the surface CSS to
-        // project onto its saved link instead of preserving invalid nested markup.
-        if ( null === $this->staticAnchorButtonSurface($anchor) && $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
+        if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
             return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
