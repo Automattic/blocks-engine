@@ -56,6 +56,10 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
+        if ( 'a' === strtolower($button->tagName) && $this->wrappedButtonRequiresPreservation($button) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
+        }
+
         if ( $button->parentNode instanceof DOMElement
             && 'a' === strtolower($button->parentNode->tagName)
             && $this->wrappedButtonRequiresPreservation($button->parentNode) ) {
