@@ -105,8 +105,8 @@ $largeOptions = '';
 $largeOptionValue = str_repeat('choice-', 16);
 for ($index = 0; $index < 6400; ++$index) $largeOptions .= '<option value="' . $largeOptionValue . '">' . $largeOptionValue . '</option>';
 $largeFormsArtifact = array('entrypoint' => 'index.html', 'compiler_limits' => array('max_total_bytes' => 10485760), 'files' => array(
-    'a.html' => '<main><form id="first"><select name="first">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
-    'index.html' => '<main><form id="second"><select name="second">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+    'a.html' => '<main><form method="post" id="first"><select name="first">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
+    'index.html' => '<main><form method="post" id="second"><select name="second">' . $largeOptions . '</select><button type="submit">Submit</button></form></main>',
 ));
 $largeFormsWhole = $compiler->compile($largeFormsArtifact)->toArray();
 $largeFormsShared = json_decode(json_encode($compiler->prepareShared($largeFormsArtifact), JSON_THROW_ON_ERROR), true, 512, JSON_THROW_ON_ERROR);

@@ -5319,7 +5319,7 @@ $capturedDialog = $compiler->compile(array(
     'site' => array('name' => 'Captured Dialog Site', 'slug' => 'captured-dialog-site'),
     'entrypoint' => 'website/index.html',
     'files' => array(
-        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header>'),
+        array('path' => 'website/index.html', 'content' => '<header class="data-liberation-semantic-header"><nav aria-label="Primary"><a class="brand" href="/">Home</a><a class="contact" role="button" aria-haspopup="dialog" data-popupid="contact">Contact</a><a class="about" href="/about/">About</a></nav></header><main><form action="/directory"><label>Location<input name="location"></label><button type="submit">Filter</button></form></main>'),
         array('path' => 'capture-receipt.json', 'content' => json_encode(array(
             'schema' => 'data-liberation/capture-receipt/v1',
             'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
@@ -5346,6 +5346,7 @@ $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
 $assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-native-form') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'action="/directory"'), 'ordinary static GET siblings retain the native form owner');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
 $assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');

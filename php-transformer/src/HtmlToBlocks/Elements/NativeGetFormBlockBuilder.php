@@ -49,6 +49,9 @@ final class NativeGetFormBlockBuilder
 
     private function isSafeNativeGetForm(DOMElement $form): bool
     {
+        if ('' !== trim(SourceDom::attr($form, 'data-blocks-engine-runtime-form-owner'))) {
+            return false;
+        }
         $method = strtolower(trim(SourceDom::attr($form, 'method')));
         if ( '' !== $method && 'get' !== $method || 0 < $form->getElementsByTagName('script')->length ) {
             return false;

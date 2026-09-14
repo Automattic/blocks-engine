@@ -486,6 +486,14 @@ final class CapturedDialogProjector
             if ($node instanceof DOMElement) { $sourceRoot = $node; break; }
         }
         $container = $sourceRoot instanceof DOMElement ? $sourceRoot : $wrapper;
+        // Captured interaction markup is runtime evidence. Keep that ownership
+        // fact after removing executable and endpoint-bearing source details.
+        if ('form' === strtolower($container->tagName)) {
+            $container->setAttribute('data-blocks-engine-runtime-form-owner', 'captured');
+        }
+        foreach ($container->getElementsByTagName('form') as $form) {
+            $form->setAttribute('data-blocks-engine-runtime-form-owner', 'captured');
+        }
         $hasCloseControl = false;
         foreach ($container->getElementsByTagName('button') as $button) {
             $label = strtolower(trim($button->getAttribute('aria-label')));
