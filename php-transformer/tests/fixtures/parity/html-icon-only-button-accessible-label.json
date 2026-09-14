@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-icon-only-button-accessible-label",
-  "description": "Maps an icon-only control label to a core-valid title after stripping decorative SVG markup.",
+  "description": "Preserves an icon-only control as a typed link when its accessible label cannot be represented by its visible content.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-icon-only-button-accessible-label.json",
@@ -16,13 +16,12 @@
     "content": "<a class=\"icon-button\" href=\"mailto:hello@example.com\" role=\"button\" aria-label=\"Email us\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M2 4h20v16H2z\"></path></svg></a>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "title": "Email us", "url": "mailto:hello@example.com" } }
+    { "path": "blocks.0", "name": "custom/accessible-link", "attrs": { "accessibleLabel": "Email us", "href": "mailto:hello@example.com" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "title=\"Email us\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "aria-label=\"Email us\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": ">Email us</a>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<svg" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
