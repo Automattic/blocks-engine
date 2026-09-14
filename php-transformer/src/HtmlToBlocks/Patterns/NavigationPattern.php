@@ -129,7 +129,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                     'padding:0!important;margin:0!important;border-width:0!important'
                 );
             }
-            $this->projectBlockListDisplay($listSource, $navigationContext);
+            $this->projectBlockListDisplay($listSource, $navigationContext, $splitLandmarkOwnership);
         }
         $navigationAttrs = array_replace_recursive(
 			$navigationAttrs,
@@ -1496,14 +1496,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         return implode(' ', array_keys($shared));
     }
 
-    private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext): void
+    private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
     {
         if ( ! $navigationContext instanceof NavigationPatternContext ) {
             return;
         }
 
         $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
-        if ( in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+        if ( ! $preserveSemanticBlockStack && in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
             return;
         }
 
