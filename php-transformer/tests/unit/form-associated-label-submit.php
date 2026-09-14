@@ -44,8 +44,9 @@ $runtimeSubmit = $formResult['fallbacks'][0]['controls'][3] ?? array();
 $assert(
     '*' === ($formResult['fallbacks'][0]['controls'][0]['required_text'] ?? null)
         && 'First name' === ($formResult['fallbacks'][0]['controls'][0]['label'] ?? null)
-        && ! isset($formResult['fallbacks'][0]['controls'][1]['required_text']),
-    'required marker text is captured separately from the accessible label only when present'
+        && ! isset($formResult['fallbacks'][0]['controls'][1]['required_text'])
+        && false === ($formResult['fallbacks'][0]['controls'][1]['required_indicator'] ?? null),
+    'required marker text and visible-marker absence are captured separately from validation semantics'
 );
 
 $spacedMarker = $transformer->transform('<main><form><label for="details">Details (please include size)' . "\n\n" . '<span aria-hidden="true">*</span></label><textarea id="details" name="details" required></textarea><button type="submit">Send</button></form></main>')->toArray();
