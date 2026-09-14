@@ -9750,7 +9750,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // the carrier element is gone. Promote it to native aspectRatio/scale
         // attributes so WordPress reproduces the authored crop. `+` never
         // overrides an attribute already resolved above.
-        $attrs += $this->imageShapeConstraintAttributes($image, $width, $height);
+        $shape = $this->imageShapeConstraintAttributes($image, $width, $height);
+        $attrs += $shape;
+        if (isset($shape['aspectRatio'])
+            && $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, (string) $shape['aspectRatio'])
+            && $this->imageDimensionsAreIntrinsicAttributes($image)
+        ) {
+            // HTML width/height describe the file, not the authored crop. Keeping
+            // them as core/image styles would override the CSS-owned aspect ratio.
+            unset($attrs['width'], $attrs['height']);
+        }
 
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
@@ -12231,7 +12240,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return array();
         }
 
-        if ( '' === $aspectRatio || $this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio) ) {
+        if ( '' === $aspectRatio
+            || ($this->imageDimensionsDetermineDifferentAspectRatio($width, $height, $aspectRatio)
+                && (($declarations['aspect-ratio']['inline'] ?? false) === true
+                    || ! $this->imageDimensionsAreIntrinsicAttributes($image)))
+        ) {
             return (($declarations['object-fit']['inline'] ?? false) === true) ? array( 'scale' => $scale ) : array();
         }
 
@@ -12296,6 +12309,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $ratio = (float) $ratioMatch[1] / (float) ($ratioMatch[2] ?? '1');
         return abs(((float) $widthMatch[1] / (float) $heightMatch[1]) - $ratio) > 0.000001;
+    }
+
+    /** Whether the emitted dimensions came only from the image file metadata. */
+    private function imageDimensionsAreIntrinsicAttributes(DOMElement $image): bool
+    {
+        $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
+        foreach (array( 'width', 'height' ) as $property) {
+            $value = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+            if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
+                return false;
+            }
+        }
+        return '' !== trim($this->attr($image, 'width')) && '' !== trim($this->attr($image, 'height'));
     }
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
