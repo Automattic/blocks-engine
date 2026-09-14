@@ -35,7 +35,7 @@ final class AuthoredFormControlBlockConverter
     }
 
     /** @return array<string, mixed>|null */
-    public function select(DOMElement $select): ?array
+    public function select(DOMElement $select, bool $forceNative = false, ?DOMElement $labelElement = null): ?array
     {
         $label = $this->metadataBuilder->readableLabel($select);
         ($this->registerEcho)($label);
@@ -46,7 +46,7 @@ final class AuthoredFormControlBlockConverter
 
         // Class/id presence alone does not justify a generated native block;
         // require authored presentation proven by the resolved cascade.
-        if ( array() === ($this->structuralPresentationDeclarations)($select) ) {
+        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($select) ) {
             $optionBlocks = array();
             foreach ( $options as $option ) {
                 $optionLabel = trim((string) ($option['label'] ?? ''));
@@ -77,6 +77,11 @@ final class AuthoredFormControlBlockConverter
             'style' => SourceDom::attr($select, 'style'),
             'options' => $options,
             'selectedSummary' => $this->selectedOptionSummary($options),
+            'label' => $labelElement instanceof DOMElement ? $this->metadataBuilder->labelText($labelElement) : '',
+            'labelClassName' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'class') : '',
+            'labelStyle' => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'style') : '',
+            'required' => $select->hasAttribute('required'),
+            'disabled' => $select->hasAttribute('disabled'),
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
         $controlBlock = array(
@@ -101,9 +106,9 @@ final class AuthoredFormControlBlockConverter
      *
      * @return array<string, mixed>|null
      */
-    public function input(DOMElement $input, ?DOMElement $label = null, bool $preserveDataAttributes = false): ?array
+    public function input(DOMElement $input, ?DOMElement $label = null, bool $preserveDataAttributes = false, bool $forceNative = false): ?array
     {
-        if ( array() === ($this->structuralPresentationDeclarations)($input) ) {
+        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($input) ) {
             return null;
         }
 

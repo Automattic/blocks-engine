@@ -72,6 +72,7 @@ const context = {
     window: { wp: {
         blocks: { registerBlockType: ( name ) => registered.push( name ) },
         blockEditor: {},
+        components: {},
         element: {}
     } }
 };
@@ -86,7 +87,10 @@ foreach ( $companionGenerators as $companionGenerator ) {
     $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array( $companionDefinition ));
 
     $assert('file:./index.js' === ($companionDefinition['block_json']['editorScript'] ?? null), $expectedBlockName . ' editorScript is a single WordPress file reference');
-    $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
+    $expectedDependencies = in_array($expectedBlockName, array( 'blocks-engine/authored-input', 'blocks-engine/authored-select' ), true)
+        ? array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) )
+        : array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) );
+    $assert($expectedDependencies === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
     $assert(array_reduce(array_keys($companionAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $companionAssets[$path]), true), $expectedBlockName . ' emits only static companion assets');
     $assert(array( $expectedBlockName ) === json_decode((string) $registered, true), $expectedBlockName . ' editor script registers after WordPress dependencies are loaded');
     $assert($companionDefinition['script_dependencies'] === ($payload['blocks'][0]['script_dependencies'] ?? null), $expectedBlockName . ' dependency metadata survives companion payload normalization');

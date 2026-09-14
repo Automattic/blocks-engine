@@ -63,7 +63,7 @@ final class WordPressSitePlan
     {
         $data = $result instanceof TransformerResult ? $result->toArray() : $result;
         TransformerResult::assertCanonicalEnvelope($data);
-        return $this->fromCompilerResultData($data, $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array());
+        return $this->fromCompilerInput($data, WordPressSitePlanInput::fromCompilerResult($data, $data['source_reports']['conversion_report']['core_html_fallback_evidence'] ?? array()));
     }
 
     /**
@@ -75,22 +75,25 @@ final class WordPressSitePlan
      */
     public function fromCompilerResult(array $data): array
     {
-        return $this->fromCompilerResultData($data, $data['source_reports']['core_html_fallback_evidence'] ?? array());
+        return $this->fromCompilerInput($data, WordPressSitePlanInput::fromCompilerResult($data, $data['source_reports']['core_html_fallback_evidence'] ?? array()));
     }
 
-    /** @param array<string,mixed> $data @param array<string,mixed> $coreHtmlFallbackEvidence @return array<string,mixed> */
-    private function fromCompilerResultData(array $data, array $coreHtmlFallbackEvidence): array
+    /**
+     * @internal ArtifactCompiler owns this explicit compiler-to-plan boundary.
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
         $this->sourceOrigin = $this->urlOrigin($this->sourceUrlFromProvenance($data['provenance'] ?? array()));
-        $editabilityPolicy = $data['source_reports']['editability_policy'] ?? null;
+        $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
         }
-        $compiled = $data['source_reports']['compiled_site'] ?? null;
-        if ( ! is_array($compiled) ) {
+        $compiled = $input->compiledSite;
+        if ( array() === $compiled ) {
             throw new InvalidArgumentException('WordPress site plan requires a compiled-site report.');
         }
-        $input = WordPressSitePlanInput::fromCompiledSite($compiled);
         $identityFailures = self::compiledSiteIdentityFailures($compiled);
         if ( array() !== $identityFailures ) {
             throw new DocumentIdentityException($identityFailures);
@@ -99,7 +102,7 @@ final class WordPressSitePlan
         $runtimeDeclarations = $compiled['runtime_declarations'] ?? array();
         $runtimeRecords = RuntimeDeclarations::normalizeRecords($compiled['runtime_records'] ?? array());
         $runtimeDeclarations = RuntimeDeclarations::materialize($runtimeDeclarations, $runtimeRecords);
-        $runtimeScriptOwnership = $this->runtimeScriptOwnership($data['source_reports'], $runtimeDeclarations);
+        $runtimeScriptOwnership = $this->runtimeScriptOwnership($input->runtimeIslandPackage, $compiled['pages'] ?? array(), $runtimeDeclarations);
         $documents = $this->withoutOwnedRuntimeScripts($this->decideDocuments($compiled['pages'] ?? null), $runtimeScriptOwnership['documents']);
         $documentScriptAssets = $this->documentScriptAssets($documents);
         $assets = array_values(array_filter(
@@ -188,8 +191,8 @@ final class WordPressSitePlan
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
             'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
-            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy ?? array()),
-            'reporting' => $this->reporting($pages, $data, $coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
+            'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
+            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
         );
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -1379,8 +1382,8 @@ final class WordPressSitePlan
         return $operations;
     }
 
-    /** @param array<string,mixed> $sourceReports @param array<int,array<string,mixed>> $runtimeDeclarations @return array{documents:array<string,bool>,assets:array<string,bool>} */
-    private function runtimeScriptOwnership(array $sourceReports, array $runtimeDeclarations): array
+    /** @param array<string,mixed> $runtimeIslandPackage @param array<int,array<string,mixed>> $compiledPages @param array<int,array<string,mixed>> $runtimeDeclarations @return array{documents:array<string,bool>,assets:array<string,bool>} */
+    private function runtimeScriptOwnership(array $runtimeIslandPackage, array $compiledPages, array $runtimeDeclarations): array
     {
         $documents = array();
         $assets = array();
@@ -1388,8 +1391,8 @@ final class WordPressSitePlan
         foreach ( $runtimeDeclarations as $declaration ) foreach ( $declaration['payload']['entities'] ?? array() as $entity ) foreach ( $entity['superseded_scripts'] ?? array() as $script ) {
             if ( is_array($script) && is_string($script['source_path'] ?? null) && is_string($script['selector'] ?? null) ) $superseded[$script['source_path'] . "\n" . $script['selector']] = true;
         }
-        $package = is_array($sourceReports['runtime_island_package'] ?? null) ? $sourceReports['runtime_island_package'] : array();
-        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($package, $sourceReports['compiled_site']['pages'] ?? array());
+        $package = $runtimeIslandPackage;
+        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($package, $compiledPages);
         foreach ( $package['islands'] ?? array() as $island ) {
             if ( !is_array($island) ) continue;
             $sourcePath = is_string($island['source_path'] ?? null) ? $island['source_path'] : '';
@@ -1605,8 +1608,9 @@ final class WordPressSitePlan
             $lines[] = "};";
             $lines[] = "add_action( 'enqueue_block_assets', static function () use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): void {";
             $lines[] = "    \$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null; \$site_editor = \$screen instanceof WP_Screen && 'site-editor' === \$screen->base; if ( ! \$site_editor && ( ! \$screen instanceof WP_Screen || ! in_array( \$screen->base, array( 'post', 'post-new' ), true ) ) ) return; \$post = \$GLOBALS['post'] ?? null;";
-            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( empty( \$style['author_css'] ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
+            $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ( empty( \$style['author_css'] ) || ! empty( \$style['editor_only'] ) ) && \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) wp_enqueue_style( 'blocks-engine-editor-' . substr( hash( 'sha256', \$style['target_path'] ), 0, 12 ), get_theme_file_uri( \$style['target_path'] ), array(), \$style['content_hash'], \$style['media'] ?? 'all' );";
             $lines[] = "} );";
+            $lines[] = "add_action( 'after_setup_theme', static function () use ( \$blocks_engine_presentation_styles ): void { foreach ( \$blocks_engine_presentation_styles as \$style ) if ( ! empty( \$style['editor_only'] ) ) add_editor_style( \$style['target_path'] ); }, 20 );";
             $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings, WP_Block_Editor_Context \$context ) use ( \$blocks_engine_presentation_styles, \$blocks_engine_presentation_matches ): array {";
             $lines[] = "    \$post = \$context->post ?? null; \$site_editor = 'core/edit-site' === ( \$context->name ?? '' );";
             $lines[] = "    foreach ( \$blocks_engine_presentation_styles as \$style ) { if ( empty( \$style['author_css'] ) || ! \$blocks_engine_presentation_matches( \$style, \$post instanceof WP_Post ? \$post : null, \$site_editor ) ) continue; \$path = get_theme_file_path( \$style['target_path'] ); if ( ! is_file( \$path ) || false === ( \$css = file_get_contents( \$path ) ) ) continue; if ( '' !== trim( (string) ( \$style['media'] ?? '' ) ) ) \$css = '@media ' . \$style['media'] . '{' . \$css . '}'; \$settings['styles'][] = array( 'css' => \$css, 'baseURL' => get_theme_file_uri( \$style['target_path'] ), '__unstableType' => 'theme', 'isGlobalStyles' => false ); }";

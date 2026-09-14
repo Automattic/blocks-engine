@@ -22,12 +22,13 @@ final class AccessibleLinkBlockGenerator
                 'href' => array( 'type' => 'string', 'default' => '' ),
                 'accessibleLabel' => array( 'type' => 'string', 'default' => '' ),
                 'content' => array( 'type' => 'string', 'default' => '' ),
-                'iconContent' => array( 'type' => 'string', 'default' => '' ),
+                'contentMode' => array( 'type' => 'string', 'default' => 'rich-text' ),
                 'className' => array( 'type' => 'string', 'default' => '' ),
                 'style' => array( 'type' => 'string', 'default' => '' ),
                 'id' => array( 'type' => 'string', 'default' => '' ),
                 'linkTarget' => array( 'type' => 'string', 'default' => '' ),
                 'rel' => array( 'type' => 'string', 'default' => '' ),
+                'sourceAttributes' => array( 'type' => 'object', 'default' => array() ),
             ),
             'supports' => array( 'html' => false ),
         );
@@ -40,13 +41,18 @@ final class AccessibleLinkBlockGenerator
 ( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
     var RichText = blockEditor.RichText;
+    var InspectorControls = blockEditor.InspectorControls;
+    var useBlockProps = blockEditor.useBlockProps;
     var TextControl = components.TextControl;
-    var TextareaControl = components.TextareaControl;
+    var PanelBody = components.PanelBody;
+    var RawHTML = element.RawHTML;
     var attributes = __BLOCK_ATTRIBUTES__;
     function escapeAttribute( value ) { return String( value || '' ).replace( /&/g, '&amp;' ).replace( /"/g, '&quot;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ); }
-    function markup( attrs ) { var output = '<a href="' + escapeAttribute( attrs.href ) + '"'; [ [ 'accessibleLabel', 'aria-label' ], [ 'className', 'class' ], [ 'style', 'style' ], [ 'id', 'id' ], [ 'linkTarget', 'target' ], [ 'rel', 'rel' ] ].forEach( function( item ) { if ( attrs[ item[ 0 ] ] ) output += ' ' + item[ 1 ] + '="' + escapeAttribute( attrs[ item[ 0 ] ] ) + '"'; } ); return output + '>' + ( attrs.content || '' ) + ( attrs.iconContent || '' ) + '</a>'; }
-    function edit( props ) { var attrs = props.attributes; return createElement( 'div', blockEditor.useBlockProps(), createElement( TextControl, { label: 'URL', value: attrs.href || '', onChange: function( value ) { props.setAttributes( { href: value } ); } } ), createElement( TextControl, { label: 'Accessible label', value: attrs.accessibleLabel || '', onChange: function( value ) { props.setAttributes( { accessibleLabel: value } ); } } ), createElement( RichText, { tagName: 'div', value: attrs.content || '', onChange: function( value ) { props.setAttributes( { content: value } ); }, placeholder: 'Link text' } ), createElement( TextareaControl, { label: 'Icon content', value: attrs.iconContent || '', onChange: function( value ) { props.setAttributes( { iconContent: value } ); } } ) ); }
-    function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
+    function linkProps( attrs ) { return Object.assign( {}, attrs.sourceAttributes || {}, { href: attrs.href || undefined, 'aria-label': attrs.accessibleLabel || undefined, className: attrs.className || undefined, style: attrs.style || undefined, id: attrs.id || undefined, target: attrs.linkTarget || undefined, rel: attrs.rel || undefined } ); }
+    function markup( attrs ) { var output = '<a'; Object.keys( attrs.sourceAttributes || {} ).sort().forEach( function( name ) { output += ' ' + name + '="' + escapeAttribute( attrs.sourceAttributes[ name ] ) + '"'; } ); [ [ 'href', 'href' ], [ 'accessibleLabel', 'aria-label' ], [ 'className', 'class' ], [ 'style', 'style' ], [ 'id', 'id' ], [ 'linkTarget', 'target' ], [ 'rel', 'rel' ] ].forEach( function( item ) { if ( attrs[ item[ 0 ] ] ) output += ' ' + item[ 1 ] + '="' + escapeAttribute( attrs[ item[ 0 ] ] ) + '"'; } ); return output + '>' + ( 'raw-source' === attrs.contentMode ? ( attrs.content || '' ) : '<span>' + ( attrs.content || '' ) + '</span>' ) + '</a>'; }
+    function settings( props ) { var attrs = props.attributes; return createElement( InspectorControls, {}, createElement( PanelBody, { title: 'Link settings' }, createElement( TextControl, { label: 'URL', value: attrs.href || '', onChange: function( value ) { props.setAttributes( { href: value } ); } } ), createElement( TextControl, { label: 'Accessible label', value: attrs.accessibleLabel || '', onChange: function( value ) { props.setAttributes( { accessibleLabel: value } ); } } ) ) ); }
+    function edit( props ) { var content = 'raw-source' === props.attributes.contentMode ? createElement( RawHTML, null, props.attributes.content || '' ) : createElement( RichText, { tagName: 'span', value: props.attributes.content || '', onChange: function( value ) { props.setAttributes( { content: value } ); } } ); return createElement( 'a', useBlockProps( linkProps( props.attributes ) ), settings( props ), content ); }
+    function save( props ) { if ( 'raw-source' === props.attributes.contentMode ) return createElement( RawHTML, null, markup( props.attributes ) ); return createElement( 'a', linkProps( props.attributes ), createElement( RichText.Content, { tagName: 'span', value: props.attributes.content || '' } ) ); }
     blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
@@ -59,13 +65,18 @@ JS;
     {
         $escape = static fn (mixed $value): string => htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $markup = '<a href="' . $escape($attrs['href'] ?? '') . '"';
+        $sourceAttributes = is_array($attrs['sourceAttributes'] ?? null) ? $attrs['sourceAttributes'] : array();
+        ksort($sourceAttributes);
+        foreach ( $sourceAttributes as $name => $value ) {
+            $markup .= ' ' . $name . '="' . $escape($value) . '"';
+        }
         foreach ( array( 'accessibleLabel' => 'aria-label', 'className' => 'class', 'style' => 'style', 'id' => 'id', 'linkTarget' => 'target', 'rel' => 'rel' ) as $key => $name ) {
             if ( '' !== (string) ($attrs[$key] ?? '') ) {
                 $markup .= ' ' . $name . '="' . $escape($attrs[$key]) . '"';
             }
         }
 
-        return $markup . '>' . (string) ($attrs['content'] ?? '') . (string) ($attrs['iconContent'] ?? '') . '</a>';
+        return $markup . '>' . ('raw-source' === ($attrs['contentMode'] ?? '') ? (string) ($attrs['content'] ?? '') : '<span>' . (string) ($attrs['content'] ?? '') . '</span>') . '</a>';
     }
 
     /** @return array<string, mixed> */

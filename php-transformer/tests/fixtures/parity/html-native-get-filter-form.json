@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-native-get-filter-form",
+  "description": "A static multi-field GET filter remains an editable native form rather than a provider-backed mail form or raw HTML fallback.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-native-get-filter-form.json",
+    "notes": "Synthetic coverage for the native browser GET contract."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<form class=\"filter\" action=\"/inventory\"><div class=\"fields\"><label>Location <input name=\"location\" value=\"north\" placeholder=\"Choose location\" required></label><label>Type <select name=\"type\"><option value=\"\">All types</option><option value=\"house\" selected>House</option></select></label></div><button type=\"button\">Map</button><button type=\"submit\">Apply</button></form>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "blocks-engine/authored-native-form", "attrs": { "action": "/inventory", "method": "get", "methodDeclared": false } }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<form action=\"/inventory\" class=\"filter\">" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "name=\"location\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "name=\"type\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "type=\"button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "type=\"submit\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" }
+  ]
+}

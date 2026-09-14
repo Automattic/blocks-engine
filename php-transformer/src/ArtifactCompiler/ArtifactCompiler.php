@@ -702,8 +702,9 @@ final class ArtifactCompiler
         if ( '' === $serializedBlocks && ! empty($documents['documents'][0]['block_markup']) ) {
             $serializedBlocks = (string) $documents['documents'][0]['block_markup'];
         }
+        $fallbackEvidence = CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence);
         $sourceReports = array(
-            'core_html_fallback_evidence' => CoreHtmlFallbackEvidence::merge($coreHtmlFallbackEvidence),
+            'core_html_fallback_evidence' => $fallbackEvidence,
             'reusable_components' => $this->reusableComponentEvidence($entryPath, $entryBlocks['reusable_components'], $compiledHtmlDocuments, $generatedAssets),
             'layout_geometry_proof' => array_merge($entryBlocks['layout_geometry_proof'] ?? array(), ...array_values(array_map(static fn(array $document): array => $document['layout_geometry_proof'] ?? array(), $compiledHtmlDocuments))),
             'artifact' => array(
@@ -743,9 +744,10 @@ final class ArtifactCompiler
                 'projected_dialog_count' => $capturedDialogs['projected_count'],
             );
         }
-        $sourceReports['compiled_site'] = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
-        $sourceReports['compiled_site']['runtime_entity_records'] = $runtimeEntityRecords;
-        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($sourceReports['compiled_site']);
+        $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
+        $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;
+        $sourceReports['compiled_site'] = $compiledSite;
+        $identityFailures = WordPressSitePlan::compiledSiteIdentityFailures($compiledSite);
         foreach ( WordPressSitePlan::documentIdentityDiagnostics($identityFailures) as $identityDiagnostic ) {
             $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
         }
@@ -765,9 +767,11 @@ final class ArtifactCompiler
                 'provenance' => $sourceFile['provenance'] ?? null,
             );
         }
-        $sourceReports['editability_report'] = (new EditabilityReport())->fromDocuments($editabilityDocuments);
-        $sourceReports['editability_policy'] = (new EditabilityPolicy())->evaluate($sourceReports['editability_report']);
-        foreach ($sourceReports['editability_policy']['failures'] as $failure) {
+        $editabilityReport = (new EditabilityReport())->fromDocuments($editabilityDocuments);
+        $editabilityPolicy = (new EditabilityPolicy())->evaluate($editabilityReport);
+        $sourceReports['editability_report'] = $editabilityReport;
+        $sourceReports['editability_policy'] = $editabilityPolicy;
+        foreach ($editabilityPolicy['failures'] as $failure) {
             $diagnostics[] = $this->diagnostic('editability_policy_failed', 'error', (string) $failure['message'], array(
                 'policy_schema' => EditabilityPolicy::SCHEMA,
                 'metric' => $failure['metric'],
@@ -808,7 +812,7 @@ final class ArtifactCompiler
                 'dependencies' => $editorModule['script_dependencies'],
             );
         }
-        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $sourceReports['compiled_site']['pages'] ?? array());
+        $themeOwnedRequiredScripts = RuntimeIslandPackageBuilder::themeOwnedRequiredScriptOccurrences($runtimeIslandPackage, $compiledSite['pages'] ?? array());
         $companionPluginPayload = $companionPluginPayloadBuilder->fromBlockTypes($blockTypes, $normalized['files'], $artifact, $allGeneratedBlocks, $runtimeIslandPackage, $editorScripts, $themeOwnedRequiredScripts);
         if ( array() !== $companionPluginPayload ) {
             $sourceReports['companion_plugin_payload'] = $companionPluginPayload;
@@ -858,14 +862,14 @@ final class ArtifactCompiler
         $wordpressSitePlan = null;
         // Editability failures retain a failed-quality plan as review evidence;
         // all other failures have no materializable source identity or site plan.
-        if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($sourceReports['editability_policy']['status'] ?? null) ) ) {
+        if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($editabilityPolicy['status'] ?? null) ) ) {
             try {
-                $wordpressSitePlan = ( new WordPressSitePlan() )->fromCompilerResult(array(
+                $wordpressSitePlanInput = WordPressSitePlanInput::fromCompiledSite($compiledSite, $editabilityPolicy, $runtimeIslandPackage, $fallbackEvidence);
+                $wordpressSitePlan = ( new WordPressSitePlan() )->fromCompilerInput(array(
                     'schema' => TransformerResult::SCHEMA,
                     'status' => $this->statusFromDiagnostics($diagnostics),
                     'components' => $components,
                     'block_types' => $blockTypes,
-                    'source_reports' => $sourceReports,
                     'blocks' => $entryBlocks['blocks'],
                     'serialized_blocks' => $serializedBlocks,
                     'documents' => $documents['documents'],
@@ -876,8 +880,9 @@ final class ArtifactCompiler
                     'coverage' => array(),
                     'context' => array(),
                     'metrics' => $metrics,
-                ));
-                $sourceReports['editability_report'] = (new EditabilityReport())->withTemplateSurfaceSelection($sourceReports['editability_report'], $wordpressSitePlan['templates']);
+                ), $wordpressSitePlanInput);
+                $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
+                $sourceReports['editability_report'] = $editabilityReport;
             } catch (DocumentIdentityException $exception) {
                 foreach ( $exception->diagnostics() as $identityDiagnostic ) {
                     $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
@@ -896,7 +901,7 @@ final class ArtifactCompiler
         } else {
             // Failed results have no canonical plan to project, but retain the
             // established report-only diagnostic handoff.
-            $fontMaterialization = WordPressSitePlanInput::fromCompiledSite($sourceReports['compiled_site'])->fontMaterialization;
+            $fontMaterialization = WordPressSitePlanInput::fromCompiledSite($compiledSite, $editabilityPolicy, $runtimeIslandPackage, $fallbackEvidence)->fontMaterialization;
             if (array() !== $fontMaterialization) $sourceReports['font_materialization'] = $fontMaterialization;
         }
 

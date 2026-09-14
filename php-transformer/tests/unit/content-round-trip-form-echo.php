@@ -67,10 +67,8 @@ $result = $roundTrip($html);
 $assert('pass' === $result['status'], '2: synthesized select option echoes are not flagged', implode(' | ', $result['texts']));
 
 // ---------------------------------------------------------------------------
-// 3. Static data-entry forms become readable editable blocks, so placeholder
-//    values can appear as synthesized prose in the block output. The transformer
-//    must pass those generated labels/details through the echo ignore set while
-//    still emitting the readable approximation.
+// 3. Static endpoint-free forms now retain native controls instead of readable
+//    prose. Their control attributes still must not produce round-trip findings.
 // ---------------------------------------------------------------------------
 $html = '<form><label for="e2">Email</label><input id="e2" placeholder="you@example.com" required></form>';
 $arr = $transformer->transform($html, array())->toArray();
@@ -78,7 +76,7 @@ $serialized = (string) ($arr['serialized_blocks'] ?? '');
 
 $result = $roundTrip($html);
 $assert('pass' === $result['status'], '3: placeholder echo suppressed in the wired transform', implode(' | ', $result['texts']));
-$assert(str_contains($serialized, 'Email: you@example.com (required)'), '3b: static form placeholder value is synthesized as readable prose', $serialized);
+$assert(str_contains($serialized, '<input type="text" id="e2" placeholder="you@example.com" required>'), '3b: static form placeholder stays on its native editable control', $serialized);
 $assert(! str_contains($serialized, '<!-- wp:html'), '3c: static form is editable blocks rather than preserved HTML', $serialized);
 
 // ---------------------------------------------------------------------------
