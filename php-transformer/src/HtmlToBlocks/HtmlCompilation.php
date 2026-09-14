@@ -9917,11 +9917,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function imageStylesheetDimension(DOMElement $image, string $property): string
     {
         $declaration = $this->styleResolver->imageShapeDeclarations($image)[$property] ?? array();
-        if (!is_array($declaration) || array() !== ($declaration['conditions'] ?? array())) {
+        if (!is_array($declaration) || ! $this->imageStylesheetDimensionIsViewportInvariant($declaration['conditions'] ?? array())) {
             return '';
         }
         $value = trim($this->cssValueWithoutImportant((string) ($declaration['value'] ?? '')));
         return in_array(strtolower($value), array( '', 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ? '' : $value;
+    }
+
+    /** @param mixed $conditions */
+    private function imageStylesheetDimensionIsViewportInvariant(mixed $conditions): bool
+    {
+        if (!is_array($conditions)) {
+            return false;
+        }
+        foreach ($conditions as $condition) {
+            if (!is_string($condition) || !preg_match('/^@layer\b/i', trim($condition))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */
