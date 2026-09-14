@@ -104,6 +104,12 @@ $assert('core/buttons' === ($buttonResult['blocks'][0]['blockName'] ?? ''), '20:
 $assert('core/button' === ($nativeButton['blockName'] ?? ''), '21: native button inner block is core/button', json_encode($nativeButton));
 $assert('button' === ($nativeButton['attrs']['tagName'] ?? ''), '22: native button keeps button tagName', json_encode($nativeButton['attrs'] ?? array()));
 
+$runtimeButton = ( new HtmlTransformer() )->transform('<button jsaction="click:providerToggle">Search</button>', array())->toArray();
+$runtimeButtonMarkup = (string) ($runtimeButton['serialized_blocks'] ?? '');
+$runtimeButtonFallbacks = array_values(array_filter($runtimeButton['fallbacks'] ?? array(), static fn (array $fallback): bool => 'interactive_control_behavior_lost' === ($fallback['diagnostic_code'] ?? null)));
+$assert(! str_contains($runtimeButtonMarkup, '<!-- wp:button') && str_contains($runtimeButtonMarkup, 'jsaction="click:providerToggle"'), '22a: provider runtime buttons retain source markup instead of becoming dead core/button controls', $runtimeButtonMarkup);
+$assert(1 === count($runtimeButtonFallbacks), '22b: provider runtime buttons report their unported interaction', json_encode($runtimeButton['fallbacks'] ?? array()));
+
 $roleButton = ( new HtmlTransformer() )->transform('<a role="button" aria-label="Open player" href="/player">Play</a>', array())->toArray();
 $roleButtonFallbacks = array_values(array_filter($roleButton['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_stylable_button_accessible_name_fallback' === ($fallback['diagnostic_code'] ?? null)));
 $assert('core/html' === ($roleButton['blocks'][0]['blockName'] ?? '') && str_contains((string) ($roleButton['blocks'][0]['attrs']['content'] ?? ''), 'aria-label="Open player"') && 1 === count($roleButtonFallbacks), '23: role=button with a materially different accessible name remains a diagnostic fallback', json_encode($roleButton['blocks'] ?? array()));
