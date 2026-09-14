@@ -3371,6 +3371,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $mediaDispatch->block;
         }
 
+        if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
             $text = $this->innerHtml($element);
             if ('' !== trim($this->runtime->stripAllTags($text))) {
@@ -3466,6 +3470,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return null;
+    }
+
+    private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        $button = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || $button instanceof DOMElement ) {
+                return false;
+            }
+            $button = $child;
+        }
+        if ( ! $button instanceof DOMElement || ! ($button->hasAttribute('class') || $button->hasAttribute('id') || $button->hasAttribute('style')) ) {
+            return false;
+        }
+
+        $type = strtolower(trim($button->getAttribute('type')));
+        if ( ! in_array($type, array( '', 'button' ), true) ) {
+            return true;
+        }
+        if ( '' === $type && $this->hasAncestorTag($button, array( 'form' )) ) {
+            return true;
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $button->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed>|null */
