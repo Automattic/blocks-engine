@@ -113,8 +113,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         // container and enqueues the `navigation/view` Interactivity module so the
         // hamburger menu functions on the rendered site (#native-interactivity).
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
-        if ( $this->isListNavigationSource($element) ) {
+        $listSource = $this->navigationListSource($element);
+        if ( $listSource instanceof DOMElement ) {
             unset($commonTextAttrs['style']['typography']);
+            // Core repeats navigation classes on its generated list container.
+            // Reset that one replacement box, never individual items: per-item
+            // compensation would shift each following label again.
+            $navigationContext?->projectSourceToNativeTarget(
+                $listSource,
+                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
+                'padding:0!important;margin:0!important;border-width:0!important'
+            );
         }
         $navigationAttrs = array_replace_recursive(
 			$navigationAttrs,
@@ -451,7 +460,8 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $cluster->isSameNode($element)
             ? array()
             : $this->navigationContainerAttributes($cluster, $presentationAttributes);
-        if ( null !== $navigationContext && $this->isListNavigationSource($cluster) ) {
+        $listSource = $this->navigationListSource($cluster);
+        if ( null !== $navigationContext && $listSource instanceof DOMElement ) {
             $clusterSpacing = $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($cluster));
             $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
             if ( '' !== $blockGap ) {
@@ -470,6 +480,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $navigationAttrs['style']['spacing']['padding'] = $padding;
                 }
             }
+            // Core repeats navigation classes on its generated list container.
+            // Reset that one replacement box, never individual items: per-item
+            // compensation would shift each following label again.
+            $navigationContext->projectSourceToNativeTarget(
+                $listSource,
+                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
+                'padding:0!important;margin:0!important;border-width:0!important'
+            );
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
@@ -492,7 +510,13 @@ final class NavigationPattern implements PatternRecognizerInterface
                     && $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($element), $family)
                     && ! $this->resolvedStyleDeclaresFamily($navigationContext->resolvedStyle($cluster), $family)
                 ) {
-                    $navigationAttrs = $this->withClassName($navigationAttrs, self::DIRECT_NAVIGATION_CLASS . '-reset-' . $family);
+                    $marker = self::DIRECT_NAVIGATION_CLASS . '-reset-' . $family;
+                    $navigationAttrs = $this->withClassName($navigationAttrs, $marker);
+                    $navigationContext->projectSourceToNativeTarget(
+                        $element,
+                        '.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-direct-navigation.' . $marker,
+                        'max-width' === $family ? 'max-width:none' : $family . ':0'
+                    );
                 }
             }
         }

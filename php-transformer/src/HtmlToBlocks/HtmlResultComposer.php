@@ -82,6 +82,7 @@ final class HtmlResultComposer
                 'script_metadata' => $input['script_metadata'],
                 'runtime_islands' => $blockCompilationOutput->runtimeIslands,
                 'layout_geometry_proof' => $blockCompilationOutput->layoutGeometryProof,
+                'source_target_projections' => $input['source_target_projections'],
             ),
         );
         if (array() !== $blockCompilationOutput->authorStylesheetProjections) {
