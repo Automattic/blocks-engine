@@ -67,10 +67,11 @@ $result = $roundTrip($html);
 $assert('pass' === $result['status'], '2: synthesized select option echoes are not flagged', implode(' | ', $result['texts']));
 
 // ---------------------------------------------------------------------------
-// 3. Static endpoint-free forms now retain native controls instead of readable
-//    prose. Their control attributes still must not produce round-trip findings.
+// 3. Static GET forms with an authored endpoint retain native controls instead
+//    of readable prose. Their control attributes still must not produce
+//    round-trip findings.
 // ---------------------------------------------------------------------------
-$html = '<form><label for="e2">Email</label><input id="e2" placeholder="you@example.com" required></form>';
+$html = '<form action="/subscribe"><label for="e2">Email</label><input id="e2" placeholder="you@example.com" required></form>';
 $arr = $transformer->transform($html, array())->toArray();
 $serialized = (string) ($arr['serialized_blocks'] ?? '');
 
