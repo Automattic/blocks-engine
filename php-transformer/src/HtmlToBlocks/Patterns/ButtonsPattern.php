@@ -42,7 +42,7 @@ final class ButtonsPattern
 
         $text = $this->buttonText($anchor, $this->buttonHtml($anchor, $buttons), $buttons);
         if ( $this->hasMateriallyDifferentAccessibleLabel($anchor, $text) ) {
-            return $buttons->accessibleNameFallback($anchor);
+            return $buttons->accessibleNameCompanion($anchor, $text);
         }
 
         $block = $context->createBlock('core/buttons', $this->buttonWrapperAttributes($anchor, $context, $buttons), array( $this->buttonBlockFromAnchor($anchor, $context, $buttons) ), $anchor);
