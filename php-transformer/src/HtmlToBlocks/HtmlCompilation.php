@@ -3282,6 +3282,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        $standaloneSearchTrigger = $this->searchBlockConverter->searchBlockFromStandaloneTrigger($element);
+        if ( null !== $standaloneSearchTrigger ) {
+            return $standaloneSearchTrigger;
+        }
+
         $mathBlock = $this->recognizePatterns($element, $fallbacks, array(MathPattern::class));
         if ( null !== $mathBlock ) {
             return $mathBlock;

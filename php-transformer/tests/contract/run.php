@@ -2213,6 +2213,19 @@ $runtimeSearchWithInteractiveSibling = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(! str_contains((string) ($runtimeSearchWithInteractiveSibling['serialized_blocks'] ?? ''), '<!-- wp:search'), 'standalone search preserves clusters with an additional interactive control');
 
+$standaloneSearchTrigger = ( new HtmlTransformer() )->transform(
+    '<header><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></div></header><div class="search-panel"><div class="search-input"><input type="search" aria-label="Search this site"><div aria-hidden="true">Search this site</div></div></div>'
+)->toArray();
+$standaloneSearchTriggerSerialized = (string) ($standaloneSearchTrigger['serialized_blocks'] ?? '');
+$assert(1 === substr_count($standaloneSearchTriggerSerialized, '<!-- wp:search'), 'a separate standalone trigger and input cluster emits one native search block');
+$assert(str_contains($standaloneSearchTriggerSerialized, '"className":"open-search blocks-engine-source-search-icon-') && str_contains($standaloneSearchTriggerSerialized, '"buttonPosition":"button-only"') && str_contains($standaloneSearchTriggerSerialized, '"buttonUseIcon":true'), 'standalone search is anchored at its visible icon trigger with native expansion behavior');
+$assert(! str_contains($standaloneSearchTriggerSerialized, 'jsaction='), 'standalone search trigger replaces source-only behavior bindings');
+
+$multipleStandaloneSearchInputs = ( new HtmlTransformer() )->transform(
+    '<div role="button" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div><input type="search" aria-label="Search one"><input type="search" aria-label="Search two">'
+)->toArray();
+$assert(! str_contains((string) ($multipleStandaloneSearchInputs['serialized_blocks'] ?? ''), '<!-- wp:search'), 'ambiguous standalone search triggers remain unconverted');
+
 $runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
     array('runtime_dom_selectors' => array('.js-search'))

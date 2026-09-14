@@ -210,6 +210,39 @@ final class SearchBlockConverter
         return $this->searchBlockFromForm($form);
     }
 
+    /** @return array<string, mixed>|null */
+    public function searchBlockFromStandaloneTrigger(DOMElement $trigger): ?array
+    {
+        if ( ! $this->isStandaloneSearchTrigger($trigger) ) {
+            return null;
+        }
+
+        $inputs = $this->standaloneSearchInputs($trigger);
+        if ( 1 !== count($inputs) ) {
+            return null;
+        }
+
+        $input = $inputs[0];
+        $label = trim(SourceDom::attr($input, 'aria-label'));
+        if ( '' === $label ) {
+            $label = trim(SourceDom::attr($input, 'placeholder'));
+        }
+        $triggerAttrs = $this->context->presentationAttributes($trigger);
+        $attrs = array_merge($triggerAttrs, array(
+            'label'          => '' !== $label ? $label : 'Search',
+            'showLabel'      => false,
+            'placeholder'    => SourceDom::attr($input, 'placeholder'),
+            'buttonPosition' => 'button-only',
+            'buttonUseIcon'  => true,
+        ));
+        $attrs['className'] = trim(implode(' ', array_filter(array(
+            (string) ($triggerAttrs['className'] ?? ''),
+            $this->registerNativeSearchTriggerCss($trigger),
+        ))));
+
+        return $this->context->createBlock('core/search', $attrs, array(), $trigger);
+    }
+
     public function isReplacedSearchClusterControl(DOMElement $control): bool
     {
         if ( $this->isAdjacentSearchTriggerControl($control) ) {
@@ -367,6 +400,10 @@ final class SearchBlockConverter
             return null;
         }
 
+        if ( 1 === count($this->standaloneSearchInputs($searchInput)) && $this->hasStandaloneSearchTrigger($searchInput) ) {
+            return null;
+        }
+
         $label = $this->formControlMetadataBuilder->label($searchInput);
         if ( '' === $label ) {
             $label = SourceDom::attr($searchInput, 'aria-label');
@@ -396,6 +433,49 @@ final class SearchBlockConverter
         }
 
         return $this->context->createBlock('core/search', $attrs, array(), $element);
+    }
+
+    private function hasStandaloneSearchTrigger(DOMElement $element): bool
+    {
+        foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->isStandaloneSearchTrigger($candidate) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function standaloneSearchInputs(DOMElement $element): array
+    {
+        $inputs = array();
+        foreach ( $element->ownerDocument?->getElementsByTagName('input') ?? array() as $input ) {
+            if ( ! $input instanceof DOMElement
+                || 'search' !== FormControlClassifier::controlType($input)
+                || FormControlClassifier::hasFormAncestor($input)
+                || '' !== SourceDom::attr($input, 'id')
+                || '' !== SourceDom::attr($input, 'name')
+                || ! $this->pseudoFormAnalyzer->hasStandaloneSearchSignal($input->parentNode instanceof DOMElement ? $input->parentNode : $input, $input) ) {
+                continue;
+            }
+            $inputs[] = $input;
+        }
+
+        return $inputs;
+    }
+
+    private function isStandaloneSearchTrigger(DOMElement $element): bool
+    {
+        if ( 'button' !== strtolower($element->tagName) && 'button' !== strtolower(SourceDom::attr($element, 'role')) ) {
+            return false;
+        }
+        if ( ! $this->isIconOnlySearchControl($element) ) {
+            return false;
+        }
+
+        $label = strtolower(trim(SourceDom::attr($element, 'aria-label') . ' ' . SourceDom::attr($element, 'title')));
+        return 1 === preg_match('/^(?:open|expand|toggle)\s+(?:the\s+)?search(?:\s+(?:bar|field))?$/', $label);
     }
 
     private function hasOnlyDecorativeSearchSiblings(DOMElement $element, DOMElement $searchInput): bool
