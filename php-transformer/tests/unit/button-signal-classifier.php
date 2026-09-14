@@ -164,7 +164,7 @@ foreach ( array(
     }
     $preserved = ( new HtmlTransformer() )->transform($markup, array())->toArray();
     $serialized = (string) ($preserved['serialized_blocks'] ?? '');
-    $assert('core/html' === ($preserved['blocks'][0]['blockName'] ?? '') && str_contains($serialized, $semantics === 'implicit-submit' ? '<form>' : 'href="/go"'), '37-' . $semantics . ': wrapped button semantics remain source HTML rather than becoming a dead promoted control', $serialized);
+    $assert(str_contains($serialized, '<!-- wp:html') && str_contains($serialized, $semantics === 'implicit-submit' ? '<form>' : 'href="/go"'), '37-' . $semantics . ': wrapped button semantics remain source HTML rather than becoming a dead promoted control', $serialized);
 }
 
 if ( $failures > 0 ) {

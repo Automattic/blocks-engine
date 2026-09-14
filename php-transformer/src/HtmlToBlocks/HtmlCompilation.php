@@ -3190,6 +3190,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $tagName = strtolower($element->tagName);
 
+        if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
         if ( 0 < $this->nativeGetFormDepth ) {
             if ( 'label' === $tagName && '' !== $this->attr($element, 'for') ) {
                 // The associated typed control renders this external label so it
@@ -3369,10 +3373,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $mediaDispatch = $this->mediaDispatchConverter->convert($element, $tagName, $fallbacks);
         if ( $mediaDispatch->handled ) {
             return $mediaDispatch->block;
-        }
-
-        if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
-            return $this->htmlPreservationBlock($element);
         }
 
         if ($this->session->usesFallbackReductionMode() && ( 'button' === $tagName || ( 'a' === $tagName && '' === trim($this->attr($element, 'aria-label')) ) )) {
