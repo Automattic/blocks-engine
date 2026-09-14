@@ -61,6 +61,10 @@ $heroPlan = $heroResult['source_reports']['wordpress_site_plan'];
 $heroPage = $pages($heroPlan)['index.html'] ?? array();
 $assert(!array_filter($heroPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)) && str_contains($heroPage['canonical_block_markup'] ?? '', 'Editable hero') && str_contains($heroPage['canonical_block_markup'] ?? '', '"tagName":"header"'), 'A top-level header carrying the document heading is page-owned hero content rather than a template part.');
 
+$siteTitleResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header><h1>Site title</h1><nav><a href="/">Home</a></nav></header><main>Home</main>', 'about.html' => '<header><h1>Site title</h1><nav><a href="/">Home</a></nav></header><main>About</main>')))->toArray();
+$siteTitlePlan = $siteTitleResult['source_reports']['wordpress_site_plan'];
+$assert(1 === count(array_filter($siteTitlePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && !str_contains(($pages($siteTitlePlan)['index.html']['canonical_block_markup'] ?? ''), 'Site title'), 'A repeated header with both a site title and navigation remains eligible shared chrome.');
+
 $incomplete = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>Shared</header><main>Home</main><footer>Shared footer</footer>', 'about.html' => '<header>Shared</header><main>About</main><footer>Shared footer</footer>', 'contact.html' => '<main>Contact</main><footer>Shared footer</footer>', 'services.html' => '<header>Services</header><main>Services</main><footer>Shared footer</footer>')))->toArray()['source_reports']['wordpress_site_plan'];
 $multiple = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<header>One</header><header>Two</header><main>Home</main>', 'about.html' => '<header>One</header><header>Two</header><main>About</main>')))->toArray()['source_reports']['wordpress_site_plan'];
 $incompletePages = $pages($incomplete); $incompleteWrites = $writes($incomplete);

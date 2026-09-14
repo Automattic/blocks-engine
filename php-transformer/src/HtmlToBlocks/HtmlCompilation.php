@@ -1523,7 +1523,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             // A document heading makes this a page introduction, not reusable chrome.
             // It remains editable with the page even when authored in a header landmark.
-            if ( 'header' === $area && 0 < $child->getElementsByTagName('h1')->length ) {
+            if ( 'header' === $area && 0 < $child->getElementsByTagName('h1')->length && 0 === $child->getElementsByTagName('nav')->length ) {
                 continue;
             }
 
