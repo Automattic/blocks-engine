@@ -194,7 +194,6 @@ $accessibleLink = (new HtmlTransformer())->transform('<main><a class="whatsapp-l
 $accessibleLinkMarkup = (string) ($accessibleLink['serialized_blocks'] ?? '');
 $accessibleLinkBlock = $accessibleLink['blocks'][0] ?? array();
 $accessibleLinkName = (string) ($accessibleLinkBlock['blockName'] ?? '');
-register_block_type($accessibleLinkName, array());
 $accessibleLinkId = wp_insert_post(array('post_type' => 'page', 'post_status' => 'draft', 'post_title' => 'Accessible link', 'post_content' => wp_slash($accessibleLinkMarkup)), true);
 if (is_wp_error($accessibleLinkId)) throw new RuntimeException($accessibleLinkId->get_error_message());
 $pageIds['accessible-link'] = $accessibleLinkId;
