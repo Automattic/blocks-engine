@@ -1355,8 +1355,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
-        $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
-        $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
         $generatedCarrierCss = $this->engineSupportCss();
         $resultComposer = new HtmlResultComposer();
         $diagnostics = $resultComposer->diagnostics(array(
@@ -1371,7 +1370,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
-            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
+            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
             responsiveCounterpartContracts: $responsiveCounterpartContracts,
             layoutGeometryProof: $this->layoutGeometry()->proofProvenance(),
             reusableComponents: $reusableComponentRecognition,
