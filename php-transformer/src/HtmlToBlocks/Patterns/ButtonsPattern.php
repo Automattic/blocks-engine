@@ -99,6 +99,24 @@ final class ButtonsPattern
     /** @return array<string, mixed>|null */
     public function matchContainer(DOMElement $element, PatternContext $context, ButtonPatternContext $buttons): ?array
     {
+        $preservedAnchor = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || 'a' !== strtolower($child->tagName)
+                || null !== $preservedAnchor
+                || ! $this->wrappedButtonRequiresPreservation($child) ) {
+                $preservedAnchor = null;
+                break;
+            }
+            $preservedAnchor = $child;
+        }
+        if ( $preservedAnchor instanceof DOMElement ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+        }
+
         $wrappedAnchor = $this->singleSimpleAnchorChild($element);
         if ( null !== $wrappedAnchor && $this->hasWrapperButtonSignal($element, $buttons->resolvedStyle($element)) ) {
             return $context->createBlock('core/buttons', $this->buttonWrapperAttributes($element, $context, $buttons), array( $this->buttonBlockFromAnchor($wrappedAnchor, $context, $buttons, $element) ), $element);
