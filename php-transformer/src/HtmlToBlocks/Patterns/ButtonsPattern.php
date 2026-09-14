@@ -52,6 +52,12 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
+        // Core/button cannot carry provider event handlers. Preserve the source
+        // control for the fallback/behavior-loss path instead of emitting a dead button.
+        if ( $this->hasUnportedRuntimeHandler($button) ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
+        }
+
         $createBlock = $context->createBlock(...);
         $resolvedButtonStyle = trim($buttons->resolvedStyle($button));
         $attrs = $this->buttonPresentationAttributes($button, $context, $buttons);
@@ -405,7 +411,18 @@ final class ButtonsPattern
 
     private function hasRuntimeBehaviorSignal(DOMElement $element): bool
     {
-        foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+        foreach ( array( 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $element->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function hasUnportedRuntimeHandler(DOMElement $element): bool
+    {
+        foreach ( array( 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
             if ( $element->hasAttribute($attribute) ) {
                 return true;
             }

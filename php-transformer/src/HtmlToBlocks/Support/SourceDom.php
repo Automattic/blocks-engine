@@ -541,7 +541,7 @@ final class SourceDom
                     'attribute' => strtolower($name),
                 );
             }
-            if ( preg_match('/^data-(?:action|on|event)$/i', $name) && '' !== trim($value) ) {
+            if ( preg_match('/^(?:data-(?:action|on|event)|jsaction)$/i', $name) && '' !== trim($value) ) {
                 $events[] = array(
                     'type'      => 'declared',
                     'attribute' => $name,
