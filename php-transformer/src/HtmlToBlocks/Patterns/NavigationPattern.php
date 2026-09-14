@@ -29,6 +29,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const INLINE_NAVIGATION_CLASS = 'blocks-engine-inline-navigation';
 
+    private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
@@ -179,7 +181,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return new PatternRecognitionResult(
                     $createBlock(
                         'core/group',
-                        array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+                        $this->withClassName(
+                            array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+                            'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ? self::SIDEBAR_NAVIGATION_CARRIER_CLASS : ''
+                        ),
                         array( $navigation ),
                         $element
                     )
@@ -573,6 +578,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
             self::DIRECT_NAVIGATION_CARRIER_CLASS
         );
+        if ( $splitLandmarkOwnership && 'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ) {
+            $carrierAttrs = $this->withClassName($carrierAttrs, self::SIDEBAR_NAVIGATION_CARRIER_CLASS);
+        }
 
         $extraBlocks = array();
         foreach ( $extras as $extra ) {

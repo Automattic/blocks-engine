@@ -2068,6 +2068,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
+            if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
+                // Core's mobile overlay is active at this breakpoint. The source
+                // rail counterpart is intentionally collapsed there, so release
+                // only the generated carrier and let native navigation own it.
+                $afterAuthorCssParts[] = '@media(max-width:600px){nav.wp-block-group.blocks-engine-sidebar-navigation-carrier{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;z-index:auto!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation{width:100%!important;height:auto!important}}';
+            }
             if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
                 $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
                 $fallbackTextColor = '';
