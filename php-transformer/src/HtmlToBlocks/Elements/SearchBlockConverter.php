@@ -354,7 +354,7 @@ final class SearchBlockConverter
                 $inputs[] = $input;
             }
         }
-        if ( 1 !== count($inputs) || array() !== SourceDom::eventMetadata($inputs[0]) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
+        if ( 1 !== count($inputs) || $this->context->isRuntimeDomTarget($inputs[0]) ) {
             return null;
         }
         $controls = FormControlClassifier::controlElements($element);
@@ -375,19 +375,42 @@ final class SearchBlockConverter
             $label = SourceDom::attr($searchInput, 'placeholder');
         }
 
-        if ( '' !== SourceDom::attr($searchInput, 'id') || 's' !== SourceDom::attr($searchInput, 'name') ) {
-            return $this->context->htmlPreservationBlock($element);
-        }
-        if ( 1 !== SourceDom::childElementCount($element) ) {
+        if ( ! $this->hasOnlyDecorativeSearchSiblings($element, $searchInput) ) {
             return null;
         }
 
         $placeholder = SourceDom::attr($searchInput, 'placeholder');
-        return $this->context->createBlock('core/search', array_merge($this->context->presentationAttributes($element), array(
+        $attrs = array_merge($this->context->presentationAttributes($element), array(
             'label'          => '' !== $label ? $label : 'Search',
             'showLabel'      => false,
             'placeholder'    => $placeholder,
             'buttonPosition' => 'no-button',
-        )), array(), $element);
+        ));
+        if ( array() !== SourceDom::eventMetadata($searchInput) ) {
+            // A runtime-owned search input needs a replacement activation control.
+            $attrs['buttonPosition'] = 'button-inside';
+            $attrs['buttonUseIcon'] = true;
+        }
+
+        return $this->context->createBlock('core/search', $attrs, array(), $element);
+    }
+
+    private function hasOnlyDecorativeSearchSiblings(DOMElement $element, DOMElement $searchInput): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child === $searchInput || XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement
+                || 'true' !== strtolower(SourceDom::attr($child, 'aria-hidden'))
+                || FormControlClassifier::isControlElement($child)
+                || '' !== SourceDom::attr($child, 'role')
+                || '' !== SourceDom::attr($child, 'tabindex')
+                || array() !== SourceDom::eventMetadata($child) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

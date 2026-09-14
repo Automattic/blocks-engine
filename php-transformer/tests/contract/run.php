@@ -2200,6 +2200,19 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeSearchInput = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><div aria-hidden="true">Search this site</div></div>'
+)->toArray();
+$runtimeSearchInputBlock = $runtimeSearchInput['blocks'][0] ?? array();
+$assert('core/search' === ($runtimeSearchInputBlock['blockName'] ?? ''), 'bounded runtime search input converts to core/search');
+$assert('Search this site' === ($runtimeSearchInputBlock['attrs']['label'] ?? '') && 'button-inside' === ($runtimeSearchInputBlock['attrs']['buttonPosition'] ?? '') && true === ($runtimeSearchInputBlock['attrs']['buttonUseIcon'] ?? null), 'native runtime search keeps an accessible label and native icon submission control');
+$assert(! str_contains((string) ($runtimeSearchInput['serialized_blocks'] ?? ''), 'jsaction='), 'native runtime search removes source-only input event bindings');
+
+$runtimeSearchWithInteractiveSibling = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><button aria-label="Clear search">Clear</button></div>'
+)->toArray();
+$assert(! str_contains((string) ($runtimeSearchWithInteractiveSibling['serialized_blocks'] ?? ''), '<!-- wp:search'), 'standalone search preserves clusters with an additional interactive control');
+
 $runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
     array('runtime_dom_selectors' => array('.js-search'))
@@ -5863,7 +5876,7 @@ $emptyFeatureShellResult = (new HtmlTransformer())->transform(
 $emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
 $assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
 $assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
-$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label="Search"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '<!-- wp:search') && str_contains($emptyFeatureShellSerialized, '"className":"real-search-shell"') && str_contains($emptyFeatureShellSerialized, '"label":"Search"'), 'a bounded real search control converts to native search semantics');
 $assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
 $assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
 

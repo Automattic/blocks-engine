@@ -189,6 +189,10 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
+        $block = $this->context->standaloneSearchBlock($element);
+        if ( null !== $block ) {
+            return ConversionOutcome::handled($block);
+        }
         $block = $this->context->visualTextWrapperBlock($element);
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
@@ -197,11 +201,6 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
         }
-        $block = $this->context->standaloneSearchBlock($element);
-        if ( null !== $block ) {
-            return ConversionOutcome::handled($block);
-        }
-
         $block = $this->context->recognizePatterns($element, $fallbacks, array( ButtonsContainerPattern::class ));
         if ( null !== $block ) {
             return ConversionOutcome::handled($block);
