@@ -1907,6 +1907,7 @@ final class StyleResolver implements ElementPresentationResolver
             if (
                 ! in_array((string) ($rule['state'] ?? ''), array('focus', 'focus-visible', 'focus-within'), true)
                 || ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->matchesCssSelector($element, (string) ($rule['state_subject_selector'] ?? ''))
             ) {
                 continue;
             }
@@ -2519,7 +2520,7 @@ final class StyleResolver implements ElementPresentationResolver
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
                             $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
-                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'declarations' => $rawDeclarations);
+                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
                         }
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {

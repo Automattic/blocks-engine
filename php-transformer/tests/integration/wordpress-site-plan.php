@@ -306,7 +306,8 @@ foreach (array('Query Loop First', 'Query Loop Second') as $title) {
     $pageIds['query-loop-' . $queryPostId] = $queryPostId;
 }
 $indexBlocks = parse_blocks($indexTemplate);
-$indexQuery = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
+$indexMain = array_values(array_filter($indexBlocks, static fn(array $block): bool => 'core/group' === ($block['blockName'] ?? null) && 'main' === ($block['attrs']['tagName'] ?? null)))[0] ?? array();
+$indexQuery = array_values(array_filter($indexMain['innerBlocks'] ?? array(), static fn(array $block): bool => 'core/query' === ($block['blockName'] ?? null)))[0] ?? array();
 $indexPostTemplate = $indexQuery['innerBlocks'][0] ?? array();
 $previousQuery = $wp_query;
 $wp_query = new WP_Query(array('post_type' => 'post', 'post__in' => $queryPostIds, 'orderby' => 'post__in', 'posts_per_page' => 10));
