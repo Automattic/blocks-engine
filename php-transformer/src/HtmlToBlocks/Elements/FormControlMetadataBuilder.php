@@ -55,6 +55,24 @@ final class FormControlMetadataBuilder
             $metadata['novalidate'] = true;
         }
 
+        // Empty status output still owns a layout slot after the controls.
+        $status = $form->lastElementChild;
+        if ( $status instanceof DOMElement && 'status' === $status->getAttribute('role')
+            && in_array(strtolower($status->tagName), array('p', 'div', 'output'), true)
+            && 0 === $status->childElementCount && '' === trim($status->textContent)
+            && in_array($status->getAttribute('aria-live'), array('', 'polite'), true) ) {
+            $output = array('role' => 'status');
+            if ( preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,79}$/D', $status->getAttribute('id')) ) {
+                $output['id'] = $status->getAttribute('id');
+            }
+            foreach ( array('top', 'bottom') as $side ) {
+                if ( preg_match('/(?:^|;)\s*margin-' . $side . '\s*:\s*(-?[0-9]+(?:\.[0-9]+)?(?:px|em|rem|vh|vw|%)|0)\s*(?:;|$)/i', $status->getAttribute('style'), $match) ) {
+                    $output['margin_' . $side] = $match[1];
+                }
+            }
+            $metadata['trailing_status'] = $output;
+        }
+
         return $metadata;
     }
 
