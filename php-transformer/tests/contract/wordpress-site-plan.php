@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\RuntimeDeclarations;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
+use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanResolver;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
@@ -42,7 +43,16 @@ $preReportResult = $first;
 unset($preReportResult['source_reports']['conversion_report'], $preReportResult['source_reports']['wordpress_site_plan']);
 unset($preReportResult['metrics']['html_document_transform_count'], $preReportResult['metrics']['normalization_count'], $preReportResult['metrics']['analysis_count'], $preReportResult['metrics']['terminal_reduction_count']);
 $assert($plan === (new WordPressSitePlan())->fromCompilerResult($preReportResult), 'The compiler pre-report projection retains the final canonical site plan.');
+$explicitInput = WordPressSitePlanInput::fromCompilerResult($preReportResult, $preReportResult['source_reports']['core_html_fallback_evidence']);
+$explicitInputResult = $preReportResult;
+unset($explicitInputResult['source_reports']);
+$assert($plan === (new WordPressSitePlan())->fromCompilerInput($explicitInputResult, $explicitInput), 'The compiler plan input carries every plan-required fact without source reports.');
 $throws(static fn() => (new WordPressSitePlan())->fromResult($preReportResult), 'Public site-plan projection retains strict canonical conversion-report validation.');
+$conflictingFallbackEvidence = $first;
+$conflictingFallbackEvidence['source_reports']['core_html_fallback_evidence'] = array('boundary' => 'compiler');
+$conflictingFallbackEvidence['source_reports']['conversion_report']['core_html_fallback_evidence'] = array('boundary' => 'public');
+$assert(array('boundary' => 'compiler') === ((new WordPressSitePlan())->fromCompilerResult($conflictingFallbackEvidence)['quality']['core_html_fallback_evidence'] ?? null), 'The compiler-result adapter retains direct fallback evidence when public and compiler report fields differ.');
+$assert(array('boundary' => 'public') === ((new WordPressSitePlan())->fromResult($conflictingFallbackEvidence)['quality']['core_html_fallback_evidence'] ?? null), 'The public-result adapter retains conversion-report fallback evidence when public and compiler report fields differ.');
 $writes = $writeMap($plan['writes']);
 
 $assert(WordPressSitePlan::SCHEMA === ($plan['schema'] ?? null), 'Compiler projects the v2 canonical WordPress site plan.');
@@ -718,6 +728,8 @@ foreach ($emptyIdentityPaths as $emptyPath) {
 }
 $emptyPartDiagnostic = $emptyIdentityByPath['parts/sidebar.html'] ?? array();
 $assert('empty_block_markup' === ($emptyPartDiagnostic['reason'] ?? null) && 'template_part' === ($emptyPartDiagnostic['document_kind'] ?? null) && str_contains((string) ($emptyPartDiagnostic['message'] ?? ''), 'parts/sidebar.html'), 'Empty template parts are named with the markup condition and document kind.');
+$emptyIdentityWithFont = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<link rel="stylesheet" href="assets/fonts.css">', 'assets/fonts.css' => '@font-face{font-family:Test;src:url("font.woff2")}', 'assets/font.woff2' => 'font-data')))->toArray();
+$assert('failed' === ($emptyIdentityWithFont['status'] ?? null) && !isset($emptyIdentityWithFont['source_reports']['wordpress_site_plan']) && array() !== ($emptyIdentityWithFont['source_reports']['font_materialization'] ?? array()) && 'blocks-engine/php-transformer/font-materialization-plan/v1' === ($emptyIdentityWithFont['source_reports']['font_materialization']['schema'] ?? null), 'Identity-failure results retain established report-only font materialization evidence.');
 $mixedIdentity = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main>Home</main>', 'about.html' => '', 'contact.html' => '')))->toArray();
 $mixedIdentityDiagnostics = array_values(array_filter($mixedIdentity['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_not_self_contained' === ($diagnostic['code'] ?? null)));
 $assert(array('about.html', 'contact.html') === array_column($mixedIdentityDiagnostics, 'source_path') && array('empty_block_markup', 'empty_block_markup') === array_column($mixedIdentityDiagnostics, 'reason') && 2 === ($mixedIdentityDiagnostics[0]['document_count'] ?? null), 'Identity diagnostics name every empty document and omit pages that compiled to block markup.');
