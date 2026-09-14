@@ -37,6 +37,14 @@ final class InlineContentElementConverter implements ElementConverter
             return ConversionOutcome::unhandled();
         }
 
+        // Captured markup can place flow content inside an inline wrapper. Keep
+        // that wrapper as a group so descendant forms reach their provider-aware
+        // conversion path instead of becoming paragraph rich text.
+        if ( 0 < $element->getElementsByTagName('form')->length ) {
+            $children = $this->context->convertChildren($element, $fallbacks);
+            return ConversionOutcome::handled($this->group($element, $children));
+        }
+
         $socialLinks = $this->context->recognizePatterns($element, $fallbacks, array( SocialLinksPattern::class ));
         if ( null !== $socialLinks ) {
             return ConversionOutcome::handled($socialLinks);

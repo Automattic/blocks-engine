@@ -1242,6 +1242,13 @@ $assert('form' === ($formFallback['source_reports']['conversion_report']['intera
 $assert('/contact' === ($formFallback['source_reports']['interaction_candidates'][0]['target'] ?? ''), 'form interaction candidate exposes action target');
 $formRuntimeIslands = array_values(array_filter($formFallback['source_reports']['runtime_islands'] ?? array(), static fn (array $island): bool => 'form' === ($island['kind'] ?? '')));
 $assert(1 === count($formRuntimeIslands), 'data-entry form preservation reports a form runtime island');
+
+$documentFormFallback = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head><style>.contact-form { display: block; }</style></head><body><main><span><div><form data-ux="Form" class="contact-form"><input name="name"><textarea name="message"></textarea><button type="submit">Send</button></form></div></span></main></body></html>'
+)->toArray();
+$documentFormDiagnostic = current(array_filter($documentFormFallback['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? '')));
+$assert('html_form_fallback' === ($documentFormDiagnostic['diagnostic_code'] ?? ''), 'full HTML documents dispatch semantic forms before generic content conversion');
+$assert(3 === ($documentFormDiagnostic['control_count'] ?? null), 'full HTML document form fallback retains every source control');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
 $nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
 $nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
