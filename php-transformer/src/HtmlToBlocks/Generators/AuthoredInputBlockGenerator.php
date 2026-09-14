@@ -49,18 +49,23 @@ final class AuthoredInputBlockGenerator
     public function assets(): array
     {
         $script = <<<'JS'
-( function( blocks, element ) {
+( function( blocks, blockEditor, components, element ) {
     var createElement = element.createElement;
+    var InspectorControls = blockEditor.InspectorControls;
+    var PanelBody = components.PanelBody;
+    var TextControl = components.TextControl;
+    var SelectControl = components.SelectControl;
+    var ToggleControl = components.ToggleControl;
     var attributes = __BLOCK_ATTRIBUTES__;
     function escapeAttribute( value ) { return String( value || '' ).replace( /&/g, '&amp;' ).replace( /"/g, '&quot;' ).replace( /</g, '&lt;' ).replace( />/g, '&gt;' ); }
     function styleObject( value ) { if ( ! value ) return undefined; return String( value ).split( ';' ).reduce( function( output, declaration ) { var separator = declaration.indexOf( ':' ); if ( separator < 1 ) return output; var name = declaration.slice( 0, separator ).trim(); var property = name.indexOf( '--' ) === 0 ? name : name.replace( /-([a-z])/g, function( _, letter ) { return letter.toUpperCase(); } ); output[ property ] = declaration.slice( separator + 1 ).trim(); return output; }, {} ); }
     function dataAttributes( attrs ) { return Object.keys( attrs.dataAttributes || {} ).reduce( function( output, name ) { if ( /^data-(?!wp-)[a-z0-9_.:-]+$/.test( name ) ) output[ name ] = attrs.dataAttributes[ name ]; return output; }, {} ); }
     function inputProps( attrs ) { return Object.assign( { type: attrs.type || 'text', id: attrs.id || undefined, name: attrs.name || undefined, value: attrs.value || undefined, placeholder: attrs.placeholder || undefined, 'aria-label': attrs.ariaLabel || undefined, className: attrs.className || undefined, style: styleObject( attrs.style ), min: attrs.min || undefined, max: attrs.max || undefined, step: attrs.step || undefined, required: attrs.required, disabled: attrs.disabled, readOnly: attrs.readOnly, checked: attrs.checked }, dataAttributes( attrs ) ); }
     function markup( attrs ) { var output = '<input'; [ 'type', 'id', 'name', 'value', 'placeholder', 'ariaLabel', 'className', 'style', 'min', 'max', 'step' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'className' === key ? 'class' : ( 'ariaLabel' === key ? 'aria-label' : key ) ) + '="' + escapeAttribute( attrs[ key ] ) + '"'; } ); Object.keys( dataAttributes( attrs ) ).sort().forEach( function( name ) { output += ' ' + name + '="' + escapeAttribute( attrs.dataAttributes[ name ] ) + '"'; } ); [ 'required', 'disabled', 'readOnly', 'checked' ].forEach( function( key ) { if ( attrs[ key ] ) output += ' ' + ( 'readOnly' === key ? 'readonly' : key ); } ); output += '>'; if ( attrs.label ) output = '<label' + ( attrs.labelClassName ? ' class="' + escapeAttribute( attrs.labelClassName ) + '"' : '' ) + ( attrs.labelStyle ? ' style="' + escapeAttribute( attrs.labelStyle ) + '"' : '' ) + '>' + escapeAttribute( attrs.label ) + output + '</label>'; return output; }
-    function edit( props ) { var attrs = props.attributes; var input = createElement( 'input', Object.assign( inputProps( attrs ), { onChange: function( event ) { var next = { value: event.target.value }; if ( 'checkbox' === attrs.type || 'radio' === attrs.type ) next.checked = event.target.checked; props.setAttributes( next ); } } ) ); return attrs.label ? createElement( 'label', { className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, attrs.label, input ) : input; }
+    function edit( props ) { var attrs = props.attributes; var input = createElement( 'input', Object.assign( inputProps( attrs ), { onChange: function( event ) { var next = { value: event.target.value }; if ( 'checkbox' === attrs.type || 'radio' === attrs.type ) next.checked = event.target.checked; props.setAttributes( next ); } } ) ); var field = attrs.label ? createElement( 'label', { className: attrs.labelClassName || undefined, style: styleObject( attrs.labelStyle ) }, attrs.label, input ) : input; return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Field settings' }, createElement( TextControl, { label: 'Label', value: attrs.label || '', onChange: function( label ) { props.setAttributes( { label: label } ); } } ), createElement( TextControl, { label: 'Field name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( TextControl, { label: 'Placeholder', value: attrs.placeholder || '', onChange: function( placeholder ) { props.setAttributes( { placeholder: placeholder } ); } } ), createElement( SelectControl, { label: 'Type', value: attrs.type || 'text', options: [ 'text', 'email', 'tel', 'number', 'search', 'checkbox', 'radio', 'hidden' ].map( function( type ) { return { label: type, value: type }; } ), onChange: function( type ) { props.setAttributes( { type: type } ); } } ), createElement( ToggleControl, { label: 'Required', checked: !!attrs.required, onChange: function( required ) { props.setAttributes( { required: required } ); } } ), createElement( ToggleControl, { label: 'Disabled', checked: !!attrs.disabled, onChange: function( disabled ) { props.setAttributes( { disabled: disabled } ); } } ) ) ), field ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
     blocks.registerBlockType( 'blocks-engine/authored-input', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
-} )( window.wp.blocks, window.wp.element );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
         return array(
@@ -111,6 +116,6 @@ JS;
     /** @return array<string, mixed> */
     public function definition(): array
     {
-        return array( 'name' => 'authored-input', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ), 'assets' => $this->assets() );
+        return array( 'name' => 'authored-input', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ), 'assets' => $this->assets() );
     }
 }

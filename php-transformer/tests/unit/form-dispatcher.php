@@ -34,6 +34,13 @@ $context = new FormDispatchContext(
         return 'search' === $mode ? array( 'blockName' => 'core/search' ) : null;
     },
     static function (DOMElement $element, array &$fallbacks) use (&$mode, &$calls): ?array {
+        if ( 'native-get' !== $mode ) {
+            return null;
+        }
+        $calls[] = 'native-get';
+        return array( 'blockName' => 'blocks-engine/authored-native-form' );
+    },
+    static function (DOMElement $element, array &$fallbacks) use (&$mode, &$calls): ?array {
         $calls[] = 'compose';
         if ( 'composition' !== $mode ) {
             return null;
@@ -82,6 +89,14 @@ $result = $dispatcher->convert($dataForm, $fallbacks);
 $assert('core/search' === ($result['blockName'] ?? ''), 'search-form-short-circuits');
 $assert(array( 'search' ) === $calls, 'search-form-skips-other-strategies');
 $assert(array() === $fallbacks, 'search-form-has-no-form-fallback');
+
+$calls = array();
+$fallbacks = array();
+$mode = 'native-get';
+$result = $dispatcher->convert($dataForm, $fallbacks);
+$assert('blocks-engine/authored-native-form' === ($result['blockName'] ?? ''), 'native-get-form-is-returned');
+$assert(array( 'search', 'native-get' ) === $calls, 'native-get-form-skips-provider-and-fallback-strategies');
+$assert(array() === $fallbacks, 'native-get-form-has-no-fallback');
 
 $calls = array();
 $fallbacks = array();

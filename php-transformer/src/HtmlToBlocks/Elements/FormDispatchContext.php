@@ -11,6 +11,7 @@ final class FormDispatchContext
 {
     /**
      * @param Closure(DOMElement): ?array<string, mixed> $searchBlockFromForm
+     * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array<string, mixed> $nativeGetFormBlock
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): ?array{block: array<string, mixed>, slot: array<string, mixed>} $compose
      * @param Closure(DOMElement, ?array<string, mixed>, ?array<string, mixed>): array<string, mixed> $buildFallbackFinding
      * @param Closure(DOMElement, ?array<string, mixed>): void $recordForm
@@ -21,6 +22,7 @@ final class FormDispatchContext
      */
     public function __construct(
         private readonly Closure $searchBlockFromForm,
+        private readonly Closure $nativeGetFormBlock,
         private readonly Closure $compose,
         private readonly Closure $buildFallbackFinding,
         private readonly Closure $recordForm,
@@ -35,6 +37,12 @@ final class FormDispatchContext
     public function searchBlockFromForm(DOMElement $element): ?array
     {
         return ($this->searchBlockFromForm)($element);
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
+    public function nativeGetFormBlock(DOMElement $element, array &$fallbacks): ?array
+    {
+        return ($this->nativeGetFormBlock)($element, $fallbacks);
     }
 
     /**

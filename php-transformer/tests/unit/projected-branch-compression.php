@@ -81,8 +81,8 @@ $assert(!in_array('editability_policy_failed', $shallowCodes, true) && 'failed' 
 $assert(1 === substr_count($shallowBlocks, '<!-- wp:custom/layout-shell'), 'A shallow two-wrapper branch uses the same layout-shell representation.');
 $assert(!str_contains($shallowBlocks, '<!-- wp:group') && str_contains($shallowBlocks, 'id="dp-outer-1"') && str_contains($shallowBlocks, 'id="dp-branch-1"'), 'The shallow shell preserves both source wrappers.');
 
-// Responsive copies of a provider form may each be absorbed into a projected
-// shell. Their source identities must rebase onto the final emitted shells.
+// Endpoint-free responsive copies retain the browser's default GET contract
+// rather than being inferred as provider forms.
 $responsiveForm = static fn(string $viewport): string => '<div id="' . $viewport . '-shell" class="blocks-engine-source-div-' . $viewport . '-shell-1">'
     . '<form id="' . $viewport . '-claim" class="blocks-engine-source-form-' . $viewport . '-claim-1">'
     . str_repeat('<div>', 9) . '<input name="email" type="email">' . str_repeat('</div>', 9)
@@ -98,18 +98,9 @@ $formResult = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 $formPlan = $formResult['source_reports']['wordpress_site_plan'] ?? array();
 $formMarkup = (string) ($formPlan['pages'][0]['canonical_block_markup'] ?? '');
-$formDeclaration = current(array_filter($formPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
-$formBindings = array_map(static fn(array $entity): array => $entity['bindings'][0] ?? array(), $formDeclaration['payload']['entities'] ?? array());
-$formTopologies = array_column($formDeclaration['payload']['entities'] ?? array(), 'control_topology');
-$formIdentities = array_column($formDeclaration['payload']['entities'] ?? array(), 'fallback_identity');
-
-$assert(2 === substr_count($formMarkup, '<!-- wp:custom/layout-shell'), 'Both responsive form copies compress into projected layout shells.');
-$assert(2 === count($formBindings), 'Both projected form copies remain provider-materializable entities.');
-$assert(array_reduce($formTopologies, static fn(bool $valid, array $topology): bool => $valid && 16 === ($topology['max_depth'] ?? null) && false === ($topology['truncated'] ?? null), true), 'Deep but bounded responsive form topology remains complete for provider materialization.');
-$assert(array_reduce($formBindings, static fn(bool $valid, array $binding): bool => $valid
-    && str_starts_with((string) ($binding['search_block_markup'] ?? ''), '<!-- wp:custom/layout-shell')
-    && ($binding['search_block_markup'] ?? '') === substr($formMarkup, (int) ($binding['position']['offset'] ?? -1), (int) ($binding['position']['length'] ?? 0)), true), 'Projected form bindings rebase onto their exact final layout-shell ranges.');
-$assert(2 === count(array_unique($formIdentities)) && array_reduce($formDeclaration['payload']['entities'] ?? array(), static fn(bool $valid, array $entity): bool => $valid && ($entity['fallback_identity'] ?? null) === ($entity['reconciliation_identity'] ?? null) && preg_match('/^[a-f0-9]{64}$/', $entity['fallback_identity'] ?? '') === 1, true), 'Responsive duplicate provider forms retain distinct stable source fallback identities.');
+$assert(2 === substr_count($formMarkup, '<!-- wp:blocks-engine/authored-native-form'), 'Both endpoint-free responsive form copies retain typed native form owners.');
+$assert(! str_contains($formMarkup, '<!-- wp:html'), 'Endpoint-free responsive forms do not become raw HTML.');
+$assert(array() === ($formResult['fallbacks'] ?? array()), 'Endpoint-free responsive forms do not produce provider fallbacks.');
 
 // Variant composition adds ordinary source wrappers rather than source-projection
 // markers. They must still compress when their safe, exact chain would otherwise

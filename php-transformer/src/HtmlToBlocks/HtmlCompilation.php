@@ -74,6 +74,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentEl
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeRequirementAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormSuccessPanelMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlockBuilder;
@@ -316,6 +317,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly FormFallbackFindingBuilder $formFallbackFindingBuilder;
 
     private readonly FormDispatcher $formDispatcher;
+
+    private readonly NativeGetFormBlockBuilder $nativeGetFormBlockBuilder;
+
+    private int $nativeGetFormDepth = 0;
 
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
@@ -595,6 +600,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this
         );
+        $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
+            function (DOMElement $element, array &$fallbacks): array {
+                ++$this->nativeGetFormDepth;
+                try {
+                    return $this->convertChildren($element, $fallbacks, true);
+                } finally {
+                    --$this->nativeGetFormDepth;
+                }
+            },
+            fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
+            $this,
+            function (string $identity, array $definition): void {
+                $this->generatedBlocks()->register($identity, $definition);
+            }
+        );
         $this->formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -631,6 +651,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->searchBlockConverter = new SearchBlockConverter($this->createSearchBlockConversionContext(), $this->formControlMetadataBuilder, $this->pseudoFormAnalyzer);
         $this->formDispatcher = new FormDispatcher(new FormDispatchContext(
             fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromForm($element),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->nativeGetFormBlockBuilder->build($element, $fallbacks),
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->formCompositionPlanner->compose($element, $fallbacks);
             },
@@ -3129,6 +3150,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $tagName = strtolower($element->tagName);
 
+        if ( 0 < $this->nativeGetFormDepth ) {
+            if ( 'label' === $tagName && '' !== $this->attr($element, 'for') ) {
+                // The associated typed control renders this external label so it
+                // stays editable without leaving an empty source placeholder.
+                return null;
+            }
+            $nativeControl = $this->nativeGetFormControlBlock($element, $tagName);
+            if ( null !== $nativeControl ) {
+                return $nativeControl;
+            }
+        }
+
         // Capturers sometimes append hidden, sourceless frames as internal
         // scaffolding. They cannot render or load anything, so omit them before
         // media dispatch can turn them into fallback/runtime-island evidence.
@@ -3392,6 +3425,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->unsupportedRecorder->record($element, $tagName, $fallbacks);
         }
 
+        return null;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function nativeGetFormControlBlock(DOMElement $element, string $tagName): ?array
+    {
+        if ( 'label' === $tagName ) {
+            $controls = FormControlClassifier::controlElements($element);
+            if ( 1 === count($controls) ) {
+                $control = $controls[0];
+                if ( 'input' === strtolower($control->tagName) ) {
+                    return $this->authoredFormControlBlockConverter->input($control, $element, false, true);
+                }
+                if ( 'select' === strtolower($control->tagName) ) {
+                    return $this->authoredFormControlBlockConverter->select($control, true, $element);
+                }
+            }
+            return null;
+        }
+        if ( 'input' === $tagName ) {
+            return $this->authoredFormControlBlockConverter->input($element, $this->formControlMetadataBuilder->associatedLabel($element), false, true);
+        }
+        if ( 'select' === $tagName ) {
+            return $this->authoredFormControlBlockConverter->select($element, true, $this->formControlMetadataBuilder->associatedLabel($element));
+        }
+        if ( 'button' === $tagName ) {
+            $type = strtolower(trim($this->attr($element, 'type')));
+            if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+                $type = 'submit';
+            }
+            return $this->createBlock('core/button', array_merge($this->styleResolver->presentationAttributes($element), array(
+                'tagName' => 'button',
+                'type' => $type,
+                'text' => $this->innerHtml($element),
+            )), array(), $element);
+        }
         return null;
     }
 
