@@ -9,6 +9,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonSignalClassifier;
 
 $failures = 0;
@@ -40,6 +41,7 @@ $element = static function (string $html): DOMElement {
 };
 
 $classifier = new ButtonSignalClassifier();
+$wrappedButtons = new ButtonsPattern();
 
 $assert($classifier->hasClassSignal($element('<a class="hero-btn" href="#">Learn more</a>')), '1: class signal detects btn substring');
 $assert($classifier->hasClassSignal($element('<a id="actionButton" href="#">Learn more</a>')), '2: id signal detects button substring');
@@ -157,6 +159,9 @@ foreach ( array(
     'form-action' => '<a href="/go"><button class="cta" type="button" formaction="/submit" formmethod="post" style="padding:8px;background:#135e96">Go</button></a>',
     'popover' => '<a href="/go"><button class="cta" type="button" popovertarget="menu" style="padding:8px;background:#135e96">Go</button></a>',
 ) as $semantics => $markup ) {
+    if ( 'implicit-submit' !== $semantics ) {
+        $assert($wrappedButtons->requiresWrappedButtonPreservation($element($markup)), '37-' . $semantics . 'a: semantic guard identifies the non-static wrapped button before conversion');
+    }
     $preserved = ( new HtmlTransformer() )->transform($markup, array())->toArray();
     $serialized = (string) ($preserved['serialized_blocks'] ?? '');
     $assert('core/html' === ($preserved['blocks'][0]['blockName'] ?? '') && str_contains($serialized, $semantics === 'implicit-submit' ? '<form>' : 'href="/go"'), '37-' . $semantics . ': wrapped button semantics remain source HTML rather than becoming a dead promoted control', $serialized);
