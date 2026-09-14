@@ -296,6 +296,7 @@ $pageTemplate = file_get_contents($themeDir . '/templates/page.html'); if (false
 $post = $about; $setRequest($post, false); $nestedRendered = do_blocks($pageTemplate); wp_reset_postdata();
 $assert(1 === substr_count($nestedRendered, '<header') && 1 === substr_count($nestedRendered, '<footer') && str_contains($nestedRendered, 'About') && str_contains($nestedRendered, 'href="#content"') && str_contains($nestedRendered, '<main id="content"'), 'WordPress renders nested pages through declared shared parts without duplicate chrome.');
 $indexTemplate = file_get_contents($themeDir . '/templates/index.html'); if (false === $indexTemplate) throw new RuntimeException('Could not read index template.');
+$searchTemplate = file_get_contents($themeDir . '/templates/search.html'); if (false === $searchTemplate) throw new RuntimeException('Could not read search template.');
 $singleTemplate = file_get_contents($themeDir . '/templates/single.html'); if (false === $singleTemplate) throw new RuntimeException('Could not read single template.');
 $queryPostIds = array();
 foreach (array('Query Loop First', 'Query Loop Second') as $title) {
@@ -313,6 +314,7 @@ $indexRendered = do_blocks($indexTemplate);
 wp_reset_postdata();
 $wp_query = $previousQuery;
 $assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQuery['attrs']['query']['perPage'] ?? null) && true === ($indexQuery['attrs']['query']['inherit'] ?? null) && 'core/post-template' === ($indexPostTemplate['blockName'] ?? null) && $indexTemplate === serialize_blocks($indexBlocks) && str_contains($indexRendered, 'Query Loop First') && str_contains($indexRendered, 'Query Loop Second') && 2 === substr_count($indexRendered, 'wp-block-post ') && !str_contains($indexRendered, 'No posts found.'), 'WordPress parses, serializes, and renders the generated index Query Loop once per inherited post without its no-results fallback.');
+$assert(str_contains($searchTemplate, '"tagName":"main"') && str_contains($searchTemplate, 'wp:query-title') && str_contains($searchTemplate, 'wp:query-no-results'), 'generated search template owns a main landmark, native query title, and explicit empty-results state.');
 $post = $essay; $setRequest($post, false); $singleRendered = do_blocks($singleTemplate); wp_reset_postdata();
 $assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($singleRendered, 'Essay'), 'WordPress renders each imported post through a standard singular template with its post content.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
