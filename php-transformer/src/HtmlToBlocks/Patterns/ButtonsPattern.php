@@ -56,6 +56,11 @@ final class ButtonsPattern
     /** @return array<string, mixed> */
     public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
     {
+        $preservedAnchor = $this->guardedWrappedButtonAnchor($button);
+        if ( $preservedAnchor instanceof DOMElement ) {
+            return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
+        }
+
         if ( 'a' === strtolower($button->tagName) && $this->wrappedButtonRequiresPreservation($button) ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($button) ), array(), $button);
         }
@@ -674,6 +679,21 @@ final class ButtonsPattern
         }
 
         return $surface;
+    }
+
+    private function guardedWrappedButtonAnchor(DOMElement $element): ?DOMElement
+    {
+        if ( 'a' === strtolower($element->tagName) && $this->wrappedButtonRequiresPreservation($element) ) {
+            return $element;
+        }
+
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( $anchor instanceof DOMElement && $this->wrappedButtonRequiresPreservation($anchor) ) {
+                return $anchor;
+            }
+        }
+
+        return null;
     }
 
     private function wrappedButtonRequiresPreservation(DOMElement $anchor): bool
