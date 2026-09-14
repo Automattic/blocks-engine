@@ -217,12 +217,11 @@ final class SearchBlockConverter
             return null;
         }
 
-        $inputs = $this->standaloneSearchInputs($trigger);
-        if ( 1 !== count($inputs) ) {
+        $input = $this->standaloneInputForTrigger($trigger);
+        if ( ! $input instanceof DOMElement ) {
             return null;
         }
 
-        $input = $inputs[0];
         $label = trim(SourceDom::attr($input, 'aria-label'));
         if ( '' === $label ) {
             $label = trim(SourceDom::attr($input, 'placeholder'));
@@ -400,7 +399,7 @@ final class SearchBlockConverter
             return null;
         }
 
-        if ( 1 === count($this->standaloneSearchInputs($searchInput)) && $this->hasStandaloneSearchTrigger($searchInput) ) {
+        if ( $this->hasStandaloneSearchTrigger($searchInput) ) {
             return null;
         }
 
@@ -437,13 +436,21 @@ final class SearchBlockConverter
 
     private function hasStandaloneSearchTrigger(DOMElement $element): bool
     {
-        foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate ) {
-            if ( $candidate instanceof DOMElement && $this->isStandaloneSearchTrigger($candidate) ) {
-                return true;
-            }
+        $inputs = $this->standaloneSearchInputs($element);
+        $triggers = $this->standaloneSearchTriggers($element);
+        return count($inputs) === count($triggers) && 0 < count($inputs) && in_array($element, $inputs, true);
+    }
+
+    private function standaloneInputForTrigger(DOMElement $trigger): ?DOMElement
+    {
+        $inputs = $this->standaloneSearchInputs($trigger);
+        $triggers = $this->standaloneSearchTriggers($trigger);
+        if ( count($inputs) !== count($triggers) || 0 === count($inputs) ) {
+            return null;
         }
 
-        return false;
+        $index = array_search($trigger, $triggers, true);
+        return false === $index ? null : $inputs[$index];
     }
 
     /** @return array<int, DOMElement> */
@@ -463,6 +470,19 @@ final class SearchBlockConverter
         }
 
         return $inputs;
+    }
+
+    /** @return array<int, DOMElement> */
+    private function standaloneSearchTriggers(DOMElement $element): array
+    {
+        $triggers = array();
+        foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->isStandaloneSearchTrigger($candidate) ) {
+                $triggers[] = $candidate;
+            }
+        }
+
+        return $triggers;
     }
 
     private function isStandaloneSearchTrigger(DOMElement $element): bool

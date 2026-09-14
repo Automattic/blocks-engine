@@ -2226,6 +2226,12 @@ $multipleStandaloneSearchInputs = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(! str_contains((string) ($multipleStandaloneSearchInputs['serialized_blocks'] ?? ''), '<!-- wp:search'), 'ambiguous standalone search triggers remain unconverted');
 
+$responsiveStandaloneSearchTriggers = ( new HtmlTransformer() )->transform(
+    '<div class="desktop"><input type="search" aria-label="Search desktop"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div><div class="mobile"><input type="search" aria-label="Search mobile"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div>'
+)->toArray();
+$responsiveStandaloneSearchSerialized = (string) ($responsiveStandaloneSearchTriggers['serialized_blocks'] ?? '');
+$assert(2 === substr_count($responsiveStandaloneSearchSerialized, '<!-- wp:search') && 2 === substr_count($responsiveStandaloneSearchSerialized, '"buttonPosition":"button-only"'), 'matching responsive standalone search copies each anchor a native search at their trigger');
+
 $runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
     array('runtime_dom_selectors' => array('.js-search'))
