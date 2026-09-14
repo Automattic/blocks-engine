@@ -3999,12 +3999,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
+            $sourceControlPath = $sourceElement->getNodePath() ?? '';
             $hasAuthorControlProjection = in_array($name, array( 'core/button', 'core/buttons' ), true)
                 && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true)
                 && ($this->authorSelectorProjections()->isControlPath($logicalControlPath)
+                    || $this->authorSelectorProjections()->isControlPath($sourceControlPath)
                     || ('' !== $this->authorStyles()->combinedCss()
-                        && 'a' === strtolower($logicalControl->tagName)
-                        && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
+                        && (( 'a' === strtolower($logicalControl->tagName)
+                                && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id'))))
+                            || ( 'button' === $sourceTagName
+                                && ('' !== trim($this->attr($sourceElement, 'class')) || '' !== trim($this->attr($sourceElement, 'id')))))));
             $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(
