@@ -292,6 +292,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private readonly OrderedElementConverterRegistry $specializedElementConverters;
 
+    /** Existing post-structural delegates in their conversion precedence order. */
+    private readonly OrderedElementConverterRegistry $postStructuralElementConverters;
+
     private readonly NavigationToggleSuppressor $navigationToggleSuppressor;
 
     private readonly RuntimeIslandAnalyzer $runtimeIslands;
@@ -677,6 +680,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->tableConverters = new OrderedElementConverterRegistry(array(
             $tableConverter,
             $parameterTableConverter,
+        ));
+        $this->postStructuralElementConverters = new OrderedElementConverterRegistry(array(
+            $this->textLeafConverter,
+            $this->tableConverters,
+            $this->specializedElementConverters,
+            $this->runtimeResourceConverter,
         ));
         $figureConverter = new FigureElementConverter(new FigureElementContext(
             function (DOMElement $element, array &$fallbacks): ?array {
@@ -3312,39 +3321,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $structuralContentDispatch->block;
         }
 
-        if ( 'noscript' === $tagName ) {
-            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        if ( 'marquee' === $tagName || 'blink' === $tagName ) {
-            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
         if ( 'label' === $tagName ) {
             return $this->readableFormControlBlockConverter->convert($element);
         }
 
-        if ( 'pre' === $tagName || 'plaintext' === $tagName ) {
-            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        $tableDispatch = $this->tableConverters->convert($element, $tagName, $fallbacks);
-        if ( $tableDispatch->handled ) {
-            return $tableDispatch->block;
-        }
-
-        if ( 'hr' === $tagName || 'br' === $tagName ) {
-            return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
-        }
-
-        $specializedDispatch = $this->specializedElementConverters->convert($element, $tagName, $fallbacks);
-        if ( $specializedDispatch->handled ) {
-            return $specializedDispatch->block;
-        }
-
-        $runtimeResourceDispatch = $this->runtimeResourceConverter->convert($element, $tagName, $fallbacks);
-        if ( $runtimeResourceDispatch->handled ) {
-            return $runtimeResourceDispatch->block;
+        // These delegates own disjoint tags; their declaration order is the
+        // pre-existing precedence before form, navigation, and flow dispatch.
+        $postStructuralDispatch = $this->postStructuralElementConverters->convert($element, $tagName, $fallbacks);
+        if ( $postStructuralDispatch->handled ) {
+            return $postStructuralDispatch->block;
         }
 
         if ( 'form' === $tagName ) {
