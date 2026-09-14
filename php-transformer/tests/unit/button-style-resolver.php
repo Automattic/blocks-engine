@@ -178,7 +178,7 @@ $assert(! str_contains($generatedSurfaceCss, '.surface::after') && ! str_contain
 $differentAccessibleName = ( new HtmlTransformer() )->transform('<a class="wix-button" href="/contact" aria-label="Open contact form"><span class="wix-label">Contact us</span><svg aria-hidden="true"><path d="M0 0h1v1z"/></svg></a>')->toArray();
 $differentMarkup = (string) ($differentAccessibleName['serialized_blocks'] ?? '');
 $differentBlock = $differentAccessibleName['blocks'][0] ?? array();
-$assert('custom/accessible-link' === ($differentBlock['blockName'] ?? '') && 'Open contact form' === ($differentBlock['attrs']['accessibleLabel'] ?? '') && str_contains((string) ($differentBlock['attrs']['iconContent'] ?? ''), 'materialized-svg') && ! str_contains($differentMarkup, '<!-- wp:html') && array() === ($differentAccessibleName['fallbacks'] ?? array()), 'materially different accessible names use a typed companion with a separate editable icon field', json_encode($differentAccessibleName));
+$assert('custom/accessible-link' === ($differentBlock['blockName'] ?? '') && 'Open contact form' === ($differentBlock['attrs']['accessibleLabel'] ?? '') && str_contains((string) ($differentBlock['attrs']['content'] ?? ''), 'materialized-svg') && ! str_contains($differentMarkup, '<!-- wp:html') && array() === ($differentAccessibleName['fallbacks'] ?? array()), 'materially different accessible names use a typed companion whose source-ordered RichText content retains the materialized icon', json_encode($differentAccessibleName));
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
