@@ -6302,7 +6302,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function inlineSvgTextGroupBlockFromElement(DOMElement $element): ?array
     {
-        if ( 'span' !== strtolower($element->tagName) || '' === trim($this->attr($element, 'class')) || 0 === $element->getElementsByTagName('svg')->length ) {
+        $tagName = strtolower($element->tagName);
+        if ( ! in_array($tagName, array( 'b', 'span', 'strong' ), true) || ( 'span' === $tagName && '' === trim($this->attr($element, 'class')) ) || 0 === $element->getElementsByTagName('svg')->length ) {
             return null;
         }
 
@@ -6364,6 +6365,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $content = trim($textRun);
+        if ( in_array($tagName, array( 'b', 'strong' ), true) ) {
+            $content = '<' . $tagName . '>' . $content . '</' . $tagName . '>';
+        }
         if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             $this->materializedAssets()->restore($generatedAssets);
             return null;
