@@ -122,6 +122,9 @@ final class FormControlMetadataBuilder
             $metadata['required'] = true;
             if ( ($marker = $this->requiredMarker($control)) instanceof DOMElement ) {
                 $metadata['required_text'] = trim($marker->textContent ?? '');
+            } else {
+                // Required validation and a visible required marker are separate source facts.
+                $metadata['required_indicator'] = false;
             }
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
