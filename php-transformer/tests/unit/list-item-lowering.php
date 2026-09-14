@@ -73,4 +73,8 @@ $structuralCardFragment = (new HtmlTransformer())->transform('<ul class="cards">
 $structuralCardMarkup = (string) ($structuralCardFragment['serialized_blocks'] ?? '');
 if (0 !== ($structuralCardFragment['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'] ?? -1) || !str_contains($structuralCardMarkup, '<a class="title" href="/story">Story title</a>') || !str_contains($structuralCardMarkup, '<div class="wp-block-group meta"><!-- wp:paragraph --><p>Blog</p>') || str_contains($structuralCardMarkup, '<!-- wp:html') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($structuralCardFragment['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('Structured-card candidates with block descendants use native structural list lowering without losing links or storing structural RichText.');
 
+$layoutSvg = (new HtmlTransformer())->transform('<style>.assistant{display:grid}</style><div class="assistant"><b><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0 0h10v10z"></path></svg> Assistant</b></div>')->toArray();
+$layoutSvgMarkup = (string) ($layoutSvg['serialized_blocks'] ?? '');
+if (0 !== ($layoutSvg['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'] ?? -1) || str_contains($layoutSvgMarkup, '<svg') || !str_contains($layoutSvgMarkup, 'materialized-svg') || !str_contains($layoutSvgMarkup, 'Assistant') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($layoutSvg['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('Author-owned layout text leaves materialize nested SVG as native RichText image objects instead of storing structural SVG in editable content.');
+
 fwrite(STDOUT, "list item lowering contract passed\n");

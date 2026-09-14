@@ -4365,10 +4365,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        // Native RichText image objects keep their existing inline paragraph
-        // carrier so their media save shape remains editor-valid.
+        // Native image objects keep their existing inline paragraph carrier.
+        // SVG is materialized by the standalone leaf path below before it reaches
+        // RichText, so its source markup never becomes a structural attribute.
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
+            if ( $descendant instanceof DOMElement && 'img' === strtolower($descendant->tagName) ) {
                 return false;
             }
         }
@@ -4390,6 +4391,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( ! $this->isDirectChildOfStructuralLayout($element) ) {
             return false;
+        }
+
+        if ( 0 < $element->getElementsByTagName('svg')->length ) {
+            return true;
         }
 
         $typographyProperties = array( 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration', 'text-indent', 'text-shadow', 'text-transform', 'word-spacing' );
@@ -4482,7 +4487,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function inlineLayoutCarrierBlock(DOMElement $element): ?array
     {
         $content = $this->outerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
+        if ( null !== $inlineSvgContent ) {
+            $content = $inlineSvgContent;
+        }
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             return null;
         }
 
