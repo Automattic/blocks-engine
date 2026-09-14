@@ -375,6 +375,9 @@ final class SearchBlockConverter
             $label = SourceDom::attr($searchInput, 'placeholder');
         }
 
+        if ( '' !== SourceDom::attr($searchInput, 'id') || ! in_array(SourceDom::attr($searchInput, 'name'), array( '', 's' ), true) ) {
+            return $this->context->htmlPreservationBlock($element);
+        }
         if ( ! $this->hasOnlyDecorativeSearchSiblings($element, $searchInput) ) {
             return null;
         }
