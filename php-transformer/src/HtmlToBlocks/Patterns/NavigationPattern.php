@@ -52,6 +52,23 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
+        if ( $this->hasNavigationChrome($element) ) {
+            $hasImageBrand = false;
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement
+                    && 'a' === strtolower($child->tagName)
+                    && $this->readsAsBrandAnchor($child)
+                    && 0 < $child->getElementsByTagName('img')->length
+                ) {
+                    $hasImageBrand = true;
+                    break;
+                }
+            }
+            if ( ! $hasImageBrand ) {
+                return null;
+            }
+        }
+
         // A row of button-styled links (e.g. `<div class="stream-links"><a
         // class="stream-btn">…</a>…</div>`) is a call-to-action button group, not
         // site navigation. It matched here only because a container token like
