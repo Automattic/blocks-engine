@@ -1522,6 +1522,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! in_array($area, array( 'header', 'footer' ), true) ) {
                 continue;
             }
+            // A document heading makes this a page introduction, not reusable chrome.
+            // It remains editable with the page even when authored in a header landmark.
+            if ( 'header' === $area && 0 < $child->getElementsByTagName('h1')->length && 0 === $child->getElementsByTagName('nav')->length ) {
+                continue;
+            }
 
             $shellFallbacks = array();
             $blocks = $this->navigationBlockNormalizer->normalize($this->convertChildren($child, $shellFallbacks, true), $this->transformationProvenance()->sources(), $this->transformationProvenance()->sourceBaseHiddenStates());

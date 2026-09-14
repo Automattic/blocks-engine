@@ -53,6 +53,44 @@ final class FormControlTopologyBuilder
     }
 
     /**
+     * Preserve only directly adjacent label/control pairs. A provider that wraps
+     * controls can then transpose its parent's proven source gap inside the field.
+     *
+     * @return array<string, mixed>
+     */
+    public function directLabelControlPairs(DOMElement $form): array
+    {
+        $indexes = array();
+        foreach ( $this->controls($form) as $index => $control ) {
+            $indexes[$control->getNodePath()] = $index;
+        }
+        $pairs = array();
+        $truncated = false;
+        $previousWasLabel = false;
+        foreach ( $form->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $path = $child->getNodePath();
+            if ( $previousWasLabel && isset($indexes[$path]) ) {
+                if ( count($pairs) >= self::MAX_NODES ) {
+                    $truncated = true;
+                } else {
+                    $pairs[] = array( 'control' => $indexes[$path] );
+                }
+            }
+            $previousWasLabel = 'label' === strtolower($child->tagName);
+        }
+
+        return array(
+            'schema'    => 'generic/form-sibling-relations/v1',
+            'max_pairs' => self::MAX_NODES,
+            'truncated' => $truncated,
+            'pairs'     => $pairs,
+        );
+    }
+
+    /**
      * Return each control's nearest-to-farthest wrapper ancestors that contain no
      * other form controls. Labels and other non-controls intentionally do not
      * make a wrapper shared.

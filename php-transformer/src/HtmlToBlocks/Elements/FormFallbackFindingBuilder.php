@@ -61,6 +61,7 @@ final class FormFallbackFindingBuilder
             'binding'          => null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array(),
             'controls'         => $controls,
             'control_topology' => $controlTopology,
+            'sibling_relations' => (new FormControlTopologyBuilder())->directLabelControlPairs($element),
             'layout_graph'     => $layoutGraph,
             'presentation_graph' => $presentationGraph,
             'control_count'    => count($controls),
