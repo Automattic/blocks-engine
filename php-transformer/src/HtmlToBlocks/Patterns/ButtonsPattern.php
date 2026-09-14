@@ -28,6 +28,10 @@ final class ButtonsPattern
 
         // A native button cannot faithfully retain nested controls or runtime
         // handlers. Let the normal fallback path retain those diagnostics.
+        if ( $this->wrappedButtonRequiresPreservation($anchor) ) {
+            return new PatternRecognitionResult($context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($anchor) ), array(), $anchor));
+        }
+
         if ( $this->hasUnsafeButtonContent($anchor) || $this->hasRuntimeBehaviorSignal($anchor) ) {
             return null;
         }
@@ -628,7 +632,36 @@ final class ButtonsPattern
         }
 
         $type = strtolower(trim($surface->getAttribute('type')));
-        return in_array($type, array( '', 'button' ), true) ? $surface : null;
+        if ( ! in_array($type, array( '', 'button' ), true) || ( '' === $type && $this->hasFormAncestor($surface) ) ) {
+            return null;
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor' ) as $attribute ) {
+            if ( $surface->hasAttribute($attribute) ) {
+                return null;
+            }
+        }
+
+        return $surface;
+    }
+
+    private function wrappedButtonRequiresPreservation(DOMElement $anchor): bool
+    {
+        $surface = $this->buttonSurfaceElement($anchor);
+        return $surface instanceof DOMElement
+            && 'button' === strtolower($surface->tagName)
+            && null === $this->staticAnchorButtonSurface($anchor);
+    }
+
+    private function hasFormAncestor(DOMElement $element): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( 'form' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

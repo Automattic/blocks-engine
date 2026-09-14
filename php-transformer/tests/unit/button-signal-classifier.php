@@ -147,6 +147,21 @@ $wrappedTextCss = implode("\n", array_map(static fn (array $asset): string => (s
 $assert('core/button' === ($wrappedText['blockName'] ?? '') && '/publish' === ($wrappedText['attrs']['url'] ?? '') && 'Publicar mi propiedad' === strip_tags((string) ($wrappedText['attrs']['text'] ?? '')), '34: wrapped text CTA retains outer navigation and inner visible label', json_encode($wrappedText));
 $assert(str_contains($wrappedTextCss, '> :where(.wp-block-button__link)') && str_contains($wrappedTextCss, 'background:oklch(0.24 0.058 250)') && str_contains($wrappedTextCss, 'padding:0 12px') && str_contains($wrappedTextCss, 'font-size:14px'), '35: wrapped text CTA projects inner-surface paint and metrics onto the native link', $wrappedTextCss);
 
+$wrappedDifferentName = ( new HtmlTransformer() )->transform('<a href="/go" aria-label="Open account"><button class="cta" style="padding:8px;background:#135e96">Go</button></a>', array())->toArray();
+$differentName = $wrappedDifferentName['blocks'][0] ?? array();
+$assert('custom/accessible-link' === ($differentName['blockName'] ?? '') && 'Open account' === ($differentName['attrs']['accessibleLabel'] ?? '') && str_contains((string) ($differentName['attrs']['content'] ?? ''), '>Go<'), '36: wrapped text CTA with a distinct source name retains that name through the accessible-link companion', json_encode($differentName));
+
+foreach ( array(
+    'disabled' => '<a href="/go"><button class="cta" disabled style="padding:8px;background:#135e96">Go</button></a>',
+    'implicit-submit' => '<form><a href="/go"><button class="cta" style="padding:8px;background:#135e96">Go</button></a></form>',
+    'form-action' => '<a href="/go"><button class="cta" type="button" formaction="/submit" formmethod="post" style="padding:8px;background:#135e96">Go</button></a>',
+    'popover' => '<a href="/go"><button class="cta" type="button" popovertarget="menu" style="padding:8px;background:#135e96">Go</button></a>',
+) as $semantics => $markup ) {
+    $preserved = ( new HtmlTransformer() )->transform($markup, array())->toArray();
+    $serialized = (string) ($preserved['serialized_blocks'] ?? '');
+    $assert('core/html' === ($preserved['blocks'][0]['blockName'] ?? '') && str_contains($serialized, $semantics === 'implicit-submit' ? '<form>' : 'href="/go"'), '37-' . $semantics . ': wrapped button semantics remain source HTML rather than becoming a dead promoted control', $serialized);
+}
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
