@@ -12,6 +12,9 @@ final class LayoutGeometryState
     /** @var array<string, string> */
     private array $rules = array();
 
+    /** @var array<string, string> */
+    private array $carrierSignatures = array();
+
     private readonly GeometryCarrierClassAllocator $carrierClassAllocator;
 
     /** @param array<int, array<string, mixed>> $proofReductions */
@@ -45,7 +48,9 @@ final class LayoutGeometryState
 
     public function allocateCarrier(string $signature): string
     {
-        return $this->carrierClassAllocator->allocate($signature);
+        $className = $this->carrierClassAllocator->allocate($signature);
+        $this->carrierSignatures[$className] = $signature;
+        return $className;
     }
 
     public function registerRule(string $className, string $rule): void
@@ -59,6 +64,27 @@ final class LayoutGeometryState
             $this->rules[$className] ?? '',
             $rule,
         )));
+    }
+
+    public function removeFixedHeightRulesForStructuralPath(string $path): void
+    {
+        foreach ($this->carrierSignatures as $className => $signature) {
+            if (str_starts_with($signature, $path . "\n")) {
+                $this->removeFixedHeightRule($className);
+            }
+        }
+    }
+
+    private function removeFixedHeightRule(string $className): void
+    {
+        if (! isset($this->rules[$className])) {
+            return;
+        }
+        $this->rules[$className] = preg_replace(
+            '/([;{])\s*height\s*:\s*[1-9][0-9]*(?:\.\d+)?px\s*!important\s*;?/',
+            '$1',
+            $this->rules[$className]
+        ) ?? $this->rules[$className];
     }
 
     public function cssForSerializedBlocks(string $serializedBlocks): string
