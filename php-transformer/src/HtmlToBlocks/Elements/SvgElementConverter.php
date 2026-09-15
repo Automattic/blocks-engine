@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use DOMElement;
 
 /** Routes standalone SVGs to materialized, preserved, decorative, or fallback representations. */
@@ -107,7 +108,10 @@ final class SvgElementConverter implements ElementConverter
         if ( $this->materializer->svgNeedsPhrasingHost($element) ) {
             $imageMarkup = $this->materializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
-                return $this->context->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                return $this->context->createBlock('core/paragraph', array(
+                    'content' => $imageMarkup,
+                    'className' => SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+                ), array(), $element);
             }
         }
 

@@ -107,6 +107,7 @@ $assert(str_contains((string) ($runtime['attrs']['content'] ?? ''), 'viewBox') &
 $state->mode = 'drawable-phrasing';
 $phrasing = $converter->convert($svg, 'svg', $fallbacks)->block;
 $assert('core/paragraph' === ($phrasing['blockName'] ?? '') && '<img src="svg">' === ($phrasing['attrs']['content'] ?? ''), 'decorative-drawable-phrasing-host');
+$assert('blocks-engine-synthetic-svg-paragraph' === ($phrasing['attrs']['className'] ?? ''), 'decorative-drawable-phrasing-removes-line-box');
 
 $state->mode = 'drawable-block';
 $drawable = $converter->convert($svg, 'svg', $fallbacks)->block;
