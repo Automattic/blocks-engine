@@ -4058,6 +4058,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $preserveInlineLayoutLeaf = ! empty($attrs['preserveInlineLayoutLeaf']);
         unset($attrs['preserveInlineLayoutLeaf']);
+        // Set by cssOwnedGroupAttributes() when the container is a CSS-owned
+        // layout element whose direct-child topology changed during
+        // conversion. applyIntrinsicVisualMediaHeight() below synthesizes its
+        // own, independent fixed-height carrier for every core/group; without
+        // this flag it does not know about — and silently re-pins — the exact
+        // unsafe constraint cssOwnedGroupAttributes() already excluded.
+        $unsafeFixedHeightTopologyChange = ! empty($attrs['unsafeFixedHeightTopologyChange']);
+        unset($attrs['unsafeFixedHeightTopologyChange']);
         if ( ! $preserveInlineLayoutLeaf ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
@@ -4086,7 +4094,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( $sourceElement instanceof DOMElement ) {
             $sourceTagName = strtolower($sourceElement->tagName);
             if ( in_array($name, array( 'core/group', 'core/column', 'core/columns' ), true) ) {
-                $attrs = $this->applyIntrinsicVisualMediaHeight($sourceElement, $attrs);
+                $attrs = $this->applyIntrinsicVisualMediaHeight($sourceElement, $attrs, $unsafeFixedHeightTopologyChange);
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
@@ -4729,11 +4737,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $attrs['style'] = $style;
             }
 
-            return $attrs;
+            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
         }
 
         if ( $this->isCssOwnedGridElement($element) ) {
-            return $this->cssOwnedGridAttributes($element, $excludedGeometryProperties);
+            return $this->markUnsafeFixedHeightTopologyChange(
+                $this->cssOwnedGridAttributes($element, $excludedGeometryProperties),
+                $topologyChanged
+            );
         }
 
         if ( $this->isCssOwnedFlexElement($element) ) {
@@ -4746,7 +4757,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             self::CSS_OWNED_LAYOUT_CLASS
         );
         if ( ! $this->authorOwnsChildFlowSpacing($element) ) {
-            return $attrs;
+            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
         }
         $attrs['className'] = $this->mergeClassNames(
             (string) $attrs['className'],
@@ -4756,6 +4767,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             is_array($attrs['style'] ?? null) ? $attrs['style'] : array(),
             array( 'spacing' => array( 'blockGap' => '0' ) )
         );
+
+        return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+    }
+
+    /**
+     * Flag a CSS-owned group's attrs as riding an unsafe fixed-height
+     * exclusion so createBlock() can pass that fact to
+     * applyIntrinsicVisualMediaHeight(), which independently synthesizes its
+     * own fixed-height carrier and must honor the same exclusion. The flag
+     * itself never reaches serialized block markup — createBlock() consumes
+     * and strips it before attrs are used to build the block.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function markUnsafeFixedHeightTopologyChange(array $attrs, bool $topologyChanged): array
+    {
+        if ( $topologyChanged ) {
+            $attrs['unsafeFixedHeightTopologyChange'] = true;
+        }
 
         return $attrs;
     }
@@ -10116,13 +10147,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $image->setAttribute('style', implode(';', $style));
     }
 
-    /** @return array<string, mixed> */
-    private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs): array
+    /**
+     * @param bool $unsafeFixedHeightTopologyChange Set by cssOwnedGroupAttributes()
+     *     via createBlock() when $element is a CSS-owned layout container whose
+     *     direct-child topology changed during conversion. A fixed `height`
+     *     synthesized here is exactly as unsafe as the one that call already
+     *     excludes, for the same reason: the source author sized the box for
+     *     its own children, and converted children can need different room.
+     * @return array<string, mixed>
+     */
+    private function applyIntrinsicVisualMediaHeight(DOMElement $element, array $attrs, bool $unsafeFixedHeightTopologyChange = false): array
     {
         $geometry = array();
         $presentation = $this->styleResolver->presentationDeclarations($element);
         $inline = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         foreach ( array( 'height', 'min-height' ) as $property ) {
+            if ( 'height' === $property && $unsafeFixedHeightTopologyChange ) {
+                continue;
+            }
             $family = $this->styleResolver->responsivePropertyFamily($property);
             if ( array() !== $this->sourceStyles()->conditionalRules()
                 && $this->styleResolver->hasConditionalStyleFamily($element, $family)
