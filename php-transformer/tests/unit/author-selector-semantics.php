@@ -574,6 +574,19 @@ $semanticInline = $transform('<style>*{margin:0;padding:0}em,i{font-style:italic
 $semanticInlineMarkup = (string) ($semanticInline['serialized_blocks'] ?? '');
 $assert(str_contains($semanticInlineMarkup, '<em>this</em>') && ! str_contains($semanticInlineMarkup, '<mark') && str_contains($css($semanticInline), 'em,i{font-style:italic;font-weight:inherit}') && 'pass' === ($semanticInline['source_reports']['wp_block_validity']['status'] ?? ''), 'attribute-free semantic RichText keeps its native tag and author selector without a redundant mark wrapper');
 
+$layeredUniversalReset = $transform('<style>@layer base{@media (min-width:1px){*,:after,:before,::backdrop{margin:0;padding:0}}}</style><h1>Reset heading</h1>');
+$layeredUniversalResetCss = $css($layeredUniversalReset);
+$assert(
+    str_contains($layeredUniversalResetCss, '@layer base{@media (min-width:1px){')
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):after/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):before/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\)::backdrop/', $layeredUniversalResetCss)
+        && str_contains($layeredUniversalResetCss, '{margin:0}')
+        && ! str_contains($layeredUniversalResetCss, ':after:not(.blocks-engine-specificity-')
+        && ! str_contains($layeredUniversalResetCss, ':before:not(.blocks-engine-specificity-'),
+    'layered conditional universal margin resets retain valid legacy and double-colon pseudo-element selectors'
+);
+
 $structural = $transform('<style>.product-layout{display:grid;grid-template-columns:1fr 20rem;gap:3rem}.product-layout > .detail-pane{min-width:0}</style><div class="product-layout"><div>Primary</div><aside class="detail-pane">Secondary</aside></div>');
 $structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
 $assert(str_contains($structuralMarkup, 'product-layout') && str_contains($structuralMarkup, 'detail-pane') && str_contains($css($structural), '.product-layout > .detail-pane') && 'pass' === ($structural['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-significant structural group and child classes survive native grid materialization');

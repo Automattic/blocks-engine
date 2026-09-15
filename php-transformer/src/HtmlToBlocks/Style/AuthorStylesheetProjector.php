@@ -112,10 +112,12 @@ final class AuthorStylesheetProjector
         $shim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
         return implode(',', array_map(static function (string $selector) use ($shim): string {
             $selector = trim($selector);
-            if ( 1 !== preg_match('/::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?$/', $selector) ) {
+            // Legacy single-colon pseudo-elements must remain last. Appending the
+            // shim after :before/:after invalidates their entire selector list.
+            if ( 1 !== preg_match('/(?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?$/', $selector) ) {
                 return $selector . $shim;
             }
-            return preg_replace('/(::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
+            return preg_replace('/((?:::[A-Za-z_-][A-Za-z0-9_-]*|:(?:before|after|first-letter|first-line))(?:\([^)]*\))?)$/', $shim . '$1', $selector, 1) ?? $selector;
         }, $selectors));
     }
 
