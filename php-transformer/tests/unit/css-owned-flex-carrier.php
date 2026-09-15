@@ -40,6 +40,7 @@ $cssFor = static function (array $result, string $source): string {
 };
 
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
+$transformWithCss = static fn (string $html, string $css): array => ( new HtmlTransformer() )->transform($html, array('static_css' => $css))->toArray();
 
 /** Rule body for the geometry carrier class present in the markup. */
 $carrierRule = static function (string $markup, string $css): string {
@@ -137,6 +138,72 @@ $assert(
     str_contains($topologyChangedCss, 'display:flex'),
     'topology-changing flex: the required author-owned flex layout remains carried',
     $topologyChangedCss
+);
+
+// Regression: `unsafe_layout_constraint` (blocks-engine#unsafe-layout-constraint-repair).
+// The fixed height above rides an INLINE style. A stylesheet-owned fixed
+// height — e.g. an ID selector, as commonly authored — reaches the geometry
+// carrier through a second, independent mechanism: createBlock()'s
+// applyIntrinsicVisualMediaHeight(), which re-derives height from merged
+// presentation declarations for every core/group regardless of CSS
+// ownership. Before this fix it did not know about the topology-changed
+// exclusion cssOwnedGroupAttributes() applies, so it silently re-pinned the
+// exact fixed height that call had just excluded, via a NEW carrier of its
+// own. The importer detects the pinned carrier and raises `error`-severity
+// `unsafe_layout_constraint`, refusing to ship a possibly clipped layout.
+$stylesheetOwnedCss = '#pin{display:flex;height:24px}';
+$stylesheetOwnedTopologyChanged = $transformWithCss(
+    '<aside id="pin"><a href="/">One</a><a href="/two">Two</a></aside>',
+    $stylesheetOwnedCss
+);
+$stylesheetOwnedMarkup = (string) ($stylesheetOwnedTopologyChanged['serialized_blocks'] ?? '');
+$stylesheetOwnedEngineCss = $cssFor($stylesheetOwnedTopologyChanged, 'engine-support');
+$stylesheetOwnedAuthorCss = $cssFor($stylesheetOwnedTopologyChanged, 'author-css');
+$stylesheetOwnedTopologyDiagnostics = array_values(array_filter(
+    is_array($stylesheetOwnedTopologyChanged['diagnostics'] ?? null) ? $stylesheetOwnedTopologyChanged['diagnostics'] : array(),
+    static fn (array $diagnostic): bool => 'author_layout_topology_changed' === ($diagnostic['code'] ?? '')
+));
+
+$assert(
+    1 !== preg_match('/\bbe-inline-geometry-[a-f0-9-]+\b/', $stylesheetOwnedMarkup),
+    'stylesheet-owned topology change: no geometry carrier class is invented for the fixed height at all',
+    $stylesheetOwnedMarkup
+);
+$assert(
+    ! str_contains($stylesheetOwnedEngineCss, 'height:24px'),
+    'stylesheet-owned topology change: the engine does not synthesize a fixed-height pin',
+    $stylesheetOwnedEngineCss
+);
+$assert(
+    str_contains($stylesheetOwnedAuthorCss, '#pin{display:flex;height:24px}'),
+    'stylesheet-owned topology change: the source layout survives verbatim in the materialized author stylesheet',
+    $stylesheetOwnedAuthorCss
+);
+$assert(
+    1 === count($stylesheetOwnedTopologyDiagnostics),
+    'stylesheet-owned topology change: the topology-changed detector still fires — it is not suppressed',
+    json_encode($stylesheetOwnedTopologyDiagnostics)
+);
+
+// Control: the SAME stylesheet-owned fixed height, with topology UNCHANGED
+// (both children stay paragraphs), still receives the intrinsic-height
+// carrier — proving the topology-changed exclusion above did not regress the
+// legitimate case applyIntrinsicVisualMediaHeight() exists to serve.
+$stylesheetOwnedStable = $transformWithCss(
+    '<aside id="pin"><p>One</p><p>Two</p></aside>',
+    $stylesheetOwnedCss
+);
+$stylesheetOwnedStableMarkup = (string) ($stylesheetOwnedStable['serialized_blocks'] ?? '');
+$stylesheetOwnedStableEngineCss = $cssFor($stylesheetOwnedStable, 'engine-support');
+$assert(
+    1 === preg_match('/\bbe-inline-geometry-[a-f0-9-]+\b/', $stylesheetOwnedStableMarkup),
+    'stylesheet-owned topology control: an unchanged-topology container still receives its intrinsic-height carrier',
+    $stylesheetOwnedStableMarkup
+);
+$assert(
+    str_contains($stylesheetOwnedStableEngineCss, 'height:24px'),
+    'stylesheet-owned topology control: the intrinsic fixed height is still carried when topology is unchanged',
+    $stylesheetOwnedStableEngineCss
 );
 
 // -- Control: no authored display gains no carrier and no flex declaration.
