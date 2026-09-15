@@ -177,6 +177,94 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * The declarations that place a box out of, or beside, normal flow.
+     *
+     * Carried as one group because they only mean anything together. A source
+     * that reserves space with one declaration and fills it with another —
+     * a percentage-padding aspect-ratio box holding an absolutely positioned
+     * child, or a float row whose cells are sized in percent — is not partially
+     * representable. Keeping the reserving half while dropping the placing half
+     * paints the reserved space as an empty gap and returns the child to flow
+     * below it, which is worse than carrying neither.
+     *
+     * @return list<string>
+     */
+    private function inlinePositioningCarrierProperties(): array
+    {
+        return array(
+            'float',
+            'clear',
+            'position',
+            'top',
+            'right',
+            'bottom',
+            'left',
+            'inset',
+            'overflow',
+            'overflow-x',
+            'overflow-y',
+            'z-index',
+        );
+    }
+
+    /**
+     * Whether the element's own inline style takes it out of, or beside, normal
+     * flow. Positioning is never synthesized for an element the source left in
+     * flow; it is only preserved where the source already declared it.
+     *
+     * `fixed` is deliberately absent. It resolves against the viewport rather
+     * than any ancestor, so in a block canvas it pins to the editor viewport and
+     * floats over the editing surface instead of the page. Unlike the relative/
+     * absolute pairing this method exists to keep intact, a dropped `fixed`
+     * decorative layer degrades to an inert empty box rather than to a gap with
+     * displaced content, so it is left to its existing handling.
+     *
+     * `absolute` additionally requires a containing block that is itself carried
+     * inline. Absolute positioning is only meaningful against the box it
+     * resolves to, and conversion restructures ancestry; carrying the offsets
+     * without a provable containing block can hand a decorative layer to the
+     * document instead of its section, which moves it further from the source
+     * than leaving it in flow does.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function inlineDeclaresPositioning(DOMElement $element, array $declarations): bool
+    {
+        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
+        if ( '' !== $float && 'none' !== $float ) {
+            return true;
+        }
+
+        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        if ( in_array($position, array( 'relative', 'sticky' ), true) ) {
+            return true;
+        }
+
+        return 'absolute' === $position && $this->hasInlinePositionedAncestor($element);
+    }
+
+    /**
+     * Whether an ancestor's own inline style establishes a containing block that
+     * survives conversion alongside the positioned descendant.
+     */
+    private function hasInlinePositionedAncestor(DOMElement $element): bool
+    {
+        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( in_array(strtolower($parent->tagName), array( 'body', 'html' ), true) ) {
+                return false;
+            }
+            $position = CssValueInspector::comparable(
+                (string) ($this->cssDeclarations(SourceDom::attr($parent, 'style'))['position'] ?? '')
+            );
+            if ( in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Positioning that makes an empty named anchor a scroll target rather than
      * a zero-size in-flow box.
      *
@@ -566,6 +654,9 @@ final class StyleResolver implements ElementPresentationResolver
         $properties = $this->inlineGeometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {
             $properties = array_merge($properties, $this->namedFragmentTargetProperties());
+        }
+        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
+            $properties = array_merge($properties, $this->inlinePositioningCarrierProperties());
         }
         if ( $this->inlineDisplayOverridesAuthorLayout($element, $declarations) ) {
             $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
@@ -1356,6 +1447,9 @@ final class StyleResolver implements ElementPresentationResolver
         $properties = $this->inlineGeometryProperties();
         if ( $this->isNamedFragmentTarget($element) ) {
             $properties = array_merge($properties, $this->namedFragmentTargetProperties());
+        }
+        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
+            $properties = array_merge($properties, $this->inlinePositioningCarrierProperties());
         }
         foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
