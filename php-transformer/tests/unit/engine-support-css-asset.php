@@ -172,7 +172,7 @@ $assert(str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? '')
 $assert(! str_contains((string) ($syntheticImageFigure['serialized_blocks'] ?? ''), 'authored-figure blocks-engine-synthetic-image-figure'), 'authored source figures retain their own spacing contract');
 $afterFamilies = array(
     'logos-only social sprite neutralize' => '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}',
-    'responsive-navigation host' => '.wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}',
+    'responsive-navigation host' => '@layer utilities{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}',
     'list-navigation mobile overlay' => '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:rgba(0,0,0,.9)!important}',
     'nativeButtonStyleRules' => 'background-color:#fff!important;color:#000!important',
     'intrinsic native button width' => '.wp-block-buttons{width:max-content;max-width:100%}',

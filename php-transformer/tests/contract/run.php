@@ -4062,7 +4062,7 @@ $artifactToggleNavigation = $compiler->compile(
 $artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialized_blocks'] ?? '');
 $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
-$assert(str_contains($artifactToggleNavigationCss, '.wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}'), 'only authored responsive navigation receives the after-author visible-host bridge');
+$assert(str_contains($artifactToggleNavigationCss, '@layer utilities{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}'), 'only authored responsive navigation receives the after-author visible-host bridge');
 
 $artifactSummaryToggleNavigation = $compiler->compile(
     array(
