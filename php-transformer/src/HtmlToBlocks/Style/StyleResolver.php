@@ -2816,6 +2816,11 @@ final class StyleResolver implements ElementPresentationResolver
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
             $allowsImageUrl = in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
+                // Importance precedes source order even within one declaration
+                // list. Reducing to a property map must retain that winner.
+                if (isset($declarations[$name]) && CssValueInspector::isImportant($declarations[$name]) && ! CssValueInspector::isImportant($value)) {
+                    continue;
+                }
                 // Keep the surviving declaration at its final authored position.
                 // Border shorthands and longhands reset one another in source
                 // order, so overwriting a prior key in place is not sufficient.

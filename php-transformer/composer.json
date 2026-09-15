@@ -111,6 +111,7 @@
       "php tests/unit/css-rule-analyzer.php",
       "php tests/unit/css-selector-matcher.php",
       "php tests/unit/static-css-cascade.php",
+      "php tests/unit/inline-declaration-priority.php",
       "php tests/unit/author-selector-semantics.php",
       "php tests/unit/engine-support-css-asset.php",
       "php tests/unit/engine-support-css-specificity.php",
