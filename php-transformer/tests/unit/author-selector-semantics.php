@@ -193,6 +193,15 @@ $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
 
+$heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
+$heroLayersCss = $css($heroLayers);
+$assert(
+    str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}')
+        && ! str_contains($heroLayersCss, 'block-editor-block-list__block:has(> .hero-image)')
+        && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
+    'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
+);
+
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
 $wrapperCss = $css($wrapper);
 $wrapperButton = $wrapper['blocks'][0]['innerBlocks'][0] ?? array();

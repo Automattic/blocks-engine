@@ -91,7 +91,10 @@ final class AuthorStylesheetProjector
                 }
                 return array() === $editorSelectors
                     ? ''
-                    : implode(',', $editorSelectors) . '{position:' . $position . '}';
+                    // Core adds `position:relative` to the actual editor block
+                    // root. Preserve source visual layers without changing
+                    // ordinary relative or sticky editing surfaces.
+                    : implode(',', $editorSelectors) . '{position:' . $position . ( in_array(strtolower($position), array('absolute', 'fixed'), true) ? '!important' : '' ) . '}';
             }
         );
     }
