@@ -2186,6 +2186,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // cannot suppress the native control.
             $afterAuthorCssParts[] = '@layer utilities{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}';
         }
+        if ( str_contains($serializedBlocks, 'blocks-engine-responsive-navigation-has-mobile-cta') ) {
+            $afterAuthorCssParts[] = '@media(min-width:600px){.wp-block-navigation.blocks-engine-responsive-navigation-has-mobile-cta .wp-block-navigation-item.blocks-engine-responsive-navigation-mobile-cta{display:none!important}}';
+        }
         // A captured reveal whose driver did not survive import must still
         // settle at the appearance it was travelling towards, not at the hidden
         // keyframe it starts from (#239). Read the projected author CSS the

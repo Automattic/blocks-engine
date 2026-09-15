@@ -127,6 +127,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
+            $responsiveCta = $this->responsiveNavigationCta($element, $navigationContext);
+            if ( $responsiveCta instanceof DOMElement ) {
+                $ctaLink = $this->navigationLinkBlock($responsiveCta, $presentationAttributes, $innerHtml, $createBlock, $responsiveCta, $navigationContext);
+                $ctaLink['attrs'] = $this->withClassName($ctaLink['attrs'], 'blocks-engine-responsive-navigation-mobile-cta');
+                $links[] = $ctaLink;
+                $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-responsive-navigation-has-mobile-cta');
+            }
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
             $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($element) ?? '');
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
@@ -685,6 +692,34 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /** Find one unambiguous internal button action immediately following navigation. */
+    private function responsiveNavigationCta(DOMElement $navigation, ?NavigationPatternContext $navigationContext): ?DOMElement
+    {
+        $candidates = array();
+        $steps = 0;
+        for ( $sibling = $navigation->nextSibling; null !== $sibling && $steps < 3; $sibling = $sibling->nextSibling ) {
+            if ( ! $sibling instanceof DOMElement ) {
+                continue;
+            }
+            ++$steps;
+            foreach ( $sibling->getElementsByTagName('a') as $anchor ) {
+                $url = SourceDom::safeNavigationUrl($anchor->getAttribute('href'));
+                if ( '' === $url || ( ! str_starts_with($url, '#') && ! str_starts_with($url, '/') ) ) {
+                    continue;
+                }
+                $button = $anchor->getElementsByTagName('button')->item(0);
+                if ( $button instanceof DOMElement && ( new ButtonSignalClassifier() )->hasTransformSignal($button, $navigationContext?->resolvedStyle($button) ?? '') ) {
+                    $candidates[] = $anchor;
+                }
+            }
+            if ( 1 < count($candidates) ) {
+                return null;
+            }
+        }
+
+        return 1 === count($candidates) ? $candidates[0] : null;
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
