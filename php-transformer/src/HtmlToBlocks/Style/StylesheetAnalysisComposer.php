@@ -93,10 +93,10 @@ final class StylesheetAnalysisComposer
         return array(array('content' => $content, 'source_path' => 'inline-style', 'source_hash' => hash('sha256', $content)));
     }
 
-    /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
+    /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array, layer_names: list<string>} */
     public function composedStyleAnalysis(array $payloads): array
     {
-        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
+        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()), 'layer_names' => array());
         $layers = array();
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload);
@@ -137,6 +137,7 @@ final class StylesheetAnalysisComposer
         $composed['custom_properties'] = array() !== $composed['custom_properties']['root']
             ? $composed['custom_properties']['root']
             : $composed['custom_properties']['fallback'];
+        $composed['layer_names'] = array_keys($layers);
 
         return $composed;
     }

@@ -2179,15 +2179,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
         array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
-            // Core repeats the block class list on its generated menu container.
-            // A source mobile-hide rule can therefore hide both the responsive host
-            // and its open control. Keep this in the source utility layer and emit
-            // it after residual utility rules, where important layer precedence
-            // cannot suppress the native control.
-            $afterAuthorCssParts[] = '@layer utilities{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}';
-        }
-        if ( str_contains($serializedBlocks, 'blocks-engine-responsive-navigation-has-mobile-cta') ) {
-            $afterAuthorCssParts[] = '@media(min-width:600px){.wp-block-navigation.blocks-engine-responsive-navigation-has-mobile-cta .wp-block-navigation-item.blocks-engine-responsive-navigation-mobile-cta{display:none!important}}';
+            // Important declarations reverse cascade-layer order. Reserve this
+            // support layer before arbitrary authored layers, then emit the repair
+            // into it after author CSS so it wins without naming a source framework
+            // layer or changing the source layer order.
+            $authorPayloads = '' !== trim($authorCss)
+                ? array($authorCss)
+                : array_column($authorStylesheetProjections, 'content');
+            $hasAuthorLayers = array() !== ($this->stylesheetAnalysisComposer->composedStyleAnalysis($authorPayloads)['layer_names'] ?? array());
+            $responsiveHostRule = ':root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
+            if ( $hasAuthorLayers ) {
+                $beforeAuthorCssParts[] = '@layer blocks-engine-native-navigation-support;';
+                $afterAuthorCssParts[] = '@layer blocks-engine-native-navigation-support{' . $responsiveHostRule . '}';
+            } else {
+                $afterAuthorCssParts[] = $responsiveHostRule;
+            }
         }
         // A captured reveal whose driver did not survive import must still
         // settle at the appearance it was travelling towards, not at the hidden

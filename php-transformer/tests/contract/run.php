@@ -4062,7 +4062,19 @@ $artifactToggleNavigation = $compiler->compile(
 $artifactToggleNavigationMarkup = (string) ($artifactToggleNavigation['serialized_blocks'] ?? '');
 $artifactToggleNavigationCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactToggleNavigation['assets'] ?? array()));
 $assert(str_contains($artifactToggleNavigationMarkup, '"overlayMenu":"mobile"') && str_contains($artifactToggleNavigationMarkup, 'blocks-engine-native-responsive-navigation'), 'an authored hamburger control promotes its associated menu to native responsive navigation');
-$assert(str_contains($artifactToggleNavigationCss, '@layer utilities{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}'), 'only authored responsive navigation receives the after-author visible-host bridge');
+$assert(str_contains($artifactToggleNavigationCss, ':root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}') && ! str_contains($artifactToggleNavigationCss, '@layer utilities{'), 'only authored responsive navigation receives a framework-independent after-author visible-host bridge');
+
+$artifactLayeredToggleNavigation = $compiler->compile(
+    array(
+        'entry' => 'index.html',
+        'files' => array(
+            'index.html' => '<!doctype html><html><head><link rel="stylesheet" href="styles.css"></head><body><header><button aria-controls="menu" aria-expanded="false"><span></span><span></span></button><nav id="menu" class="hidden"><ul><li><a href="/">Home</a></li></ul></nav></header></body></html>',
+            'styles.css' => '@layer arbitrary-reset, arbitrary-components;@layer arbitrary-components{.hidden{display:none!important}}',
+        ),
+    )
+)->toArray();
+$artifactLayeredToggleCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $artifactLayeredToggleNavigation['assets'] ?? array()));
+$assert(str_contains($artifactLayeredToggleCss, '@layer blocks-engine-native-navigation-support;') && str_contains($artifactLayeredToggleCss, '@layer blocks-engine-native-navigation-support{:root .wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}}') && ! str_contains($artifactLayeredToggleCss, '@layer utilities{'), 'layered source CSS reserves an earlier generated support layer without assuming a framework layer name');
 
 $artifactSummaryToggleNavigation = $compiler->compile(
     array(
