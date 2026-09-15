@@ -1497,9 +1497,9 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', $classes);
     }
 
-    public function generatedGeometryCss(string $serializedBlocks): string
+    public function generatedGeometryCss(string $serializedBlocks, bool $hasTopologyChanges = false): string
     {
-        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
+        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks, $hasTopologyChanges);
     }
 
     /**
