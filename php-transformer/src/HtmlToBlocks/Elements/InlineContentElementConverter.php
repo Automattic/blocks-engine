@@ -45,7 +45,7 @@ final class InlineContentElementConverter implements ElementConverter
         // Captured markup can place flow content inside an inline wrapper. A
         // native group retains that wrapper's presentation while its children
         // follow their own semantic conversion paths.
-        if ( $this->context->hasBlockContentChildren($element) ) {
+        if ( $this->context->hasFlowContentChildren($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks);
             return ConversionOutcome::handled($this->group($element, $children));
         }
