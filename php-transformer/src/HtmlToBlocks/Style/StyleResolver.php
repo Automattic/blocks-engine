@@ -501,8 +501,21 @@ final class StyleResolver implements ElementPresentationResolver
     public function responsivePropertyFamily(string $property): string
     {
         $property = strtolower(trim($property));
+        // `gap`/`row-gap`/`column-gap` are a genuine shorthand/longhand family
+        // (setting one can affect the others) but they do not cascade-interact
+        // with `display`, `justify-content`, `align-*`, or `flex-*`/`grid-*`:
+        // a responsive breakpoint that only toggles `display` cannot conflict
+        // with an unconditional `gap` value baked in from the base state.
+        // Folding gap into the broader `layout` family below caused an
+        // unrelated conditional `display` rule (e.g. `.md\:flex{display:flex}`)
+        // to also strip an unconditional `gap` declaration (e.g.
+        // `.gap-8{gap:...}`), silently dropping the authored gap for any
+        // responsive-hidden flex/grid container.
+        if (in_array($property, array('gap', 'row-gap', 'column-gap'), true)) {
+            return 'gap';
+        }
         if (
-            in_array($property, array('display', 'gap', 'row-gap', 'column-gap', 'justify-content', 'align-content', 'align-items', 'align-self'), true)
+            in_array($property, array('display', 'justify-content', 'align-content', 'align-items', 'align-self'), true)
             || str_starts_with($property, 'flex-')
             || str_starts_with($property, 'grid-')
         ) {
