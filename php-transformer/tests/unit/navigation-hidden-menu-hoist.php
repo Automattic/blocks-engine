@@ -51,6 +51,11 @@ $ambiguous = ( new HtmlTransformer() )->transform(
 )->toArray();
 $ambiguousMarkup = (string) ($ambiguous['serialized_blocks'] ?? '');
 
+$iconNamed = ( new HtmlTransformer() )->transform(
+    '<header><a href="#inicio">Brand</a><nav aria-label="Navegación principal"><a href="#inicio">Inicio</a><a href="#propiedades">Propiedades</a></nav><button aria-label="Abrir menú"><svg aria-hidden="true"><path d="M0 0h1"></path></svg></button></header>'
+)->toArray();
+$iconNamedMarkup = (string) ($iconNamed['serialized_blocks'] ?? '');
+
 $assertions = array(
     array(1 === $countBlocks($projected['blocks'] ?? array(), 'core/navigation'), 'a unique hidden navigation is emitted once at its visible menu control'),
     array(str_contains($projectedMarkup, '"overlayMenu":"mobile"'), 'a projected hidden navigation uses Core responsive overlay behavior'),
@@ -63,6 +68,8 @@ $assertions = array(
     array(str_contains($projectedMarkup, 'Northwind') && str_contains($projectedMarkup, '"label":"Home"') && str_contains($projectedMarkup, '"label":"Work"'), 'projection preserves surrounding shell content and editable navigation destinations'),
     array(2 === $countBlocks($ambiguous['blocks'] ?? array(), 'core/navigation'), 'ambiguous hidden navigation candidates remain unprojected'),
     array(! str_contains($ambiguousMarkup, '"overlayMenu":"mobile"'), 'ambiguous candidates do not fabricate a responsive menu association'),
+    array(1 === $countBlocks($iconNamed['blocks'] ?? array(), 'core/navigation') && str_contains($iconNamedMarkup, '"overlayMenu":"mobile"'), 'an icon-only control with an explicit menu name projects the unique sibling navigation to Core responsive behavior'),
+    array(! str_contains($iconNamedMarkup, 'Abrir menú'), 'the superseded icon-only menu control is not emitted as a dead button'),
 );
 
 $failures = array_map(

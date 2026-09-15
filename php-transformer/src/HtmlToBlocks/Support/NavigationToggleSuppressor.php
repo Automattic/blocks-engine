@@ -419,6 +419,14 @@ final class NavigationToggleSuppressor
             return true;
         }
 
+        // An icon-only control with an explicit menu name is another portable
+        // hamburger shape. Framework SVG icons do not expose the CSS bar stack,
+        // but the accessible name and the sole decorative icon avoid treating an
+        // ordinary labeled icon button as navigation chrome.
+        if ( $this->isIconOnlyNamedMenuControl($element) ) {
+            return true;
+        }
+
         // Icon-bars shape: a labelless control whose only content is the stacked
         // empty <span> bars that draw a hamburger glyph, with no ARIA toggle
         // wiring. Many themes draw the bars with CSS on empty spans and bind the
@@ -427,6 +435,26 @@ final class NavigationToggleSuppressor
         // it. Recognizing that shape (never a class string) lets these toggles be
         // dropped too, instead of surfacing as an empty, always-visible button.
         return $this->isHamburgerBarStackControl($element);
+    }
+
+    private function isIconOnlyNamedMenuControl(DOMElement $element): bool
+    {
+        $name = strtolower(trim(SourceDom::attr($element, 'aria-label') . ' ' . SourceDom::attr($element, 'title')));
+        if ( 1 !== preg_match('/(?:^|[^a-z])(?:navigation|nav|menu|menú|hamburger)(?:[^a-z]|$)/u', $name)
+            || 1 !== $element->getElementsByTagName('svg')->length ) {
+            return false;
+        }
+
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_COMMENT_NODE === $child->nodeType || ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'svg' !== strtolower($child->tagName) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
