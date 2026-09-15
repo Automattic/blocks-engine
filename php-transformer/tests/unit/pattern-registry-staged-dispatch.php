@@ -103,6 +103,24 @@ $assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? null), 'Ac
 $assert('html_unsupported_element' === ($accordion['fallbacks'][0]['diagnostic_code'] ?? null), 'Accordion commits recursive panel diagnostics through its winning result.');
 $assert(2 === count($accordion['fallbacks'] ?? array()), 'A winning accordion commits every recursive panel fallback.');
 $assert(str_contains((string) ($accordion['fallbacks'][0]['html'] ?? ''), '/first.pdf') && str_contains((string) ($accordion['fallbacks'][1]['html'] ?? ''), '/second.pdf'), 'A winning recognizer commits recursive fallbacks in source order.');
+// The accordion above keeps its toggle unwrapped (button carries aria-controls directly);
+// this proves that baseline shape still recognizes after the heading-wrapped fix below.
+
+// WAI-ARIA APG canonical accordion markup: <h3><button aria-expanded aria-controls>...</button></h3>.
+// Radix UI, shadcn/ui, Headless UI and Bootstrap 5 all emit this exact shape. The ARIA state
+// lives on the inner <button>, not on the heading wrapping it.
+$headingWrappedAccordion = (new HtmlTransformer())->transform(
+    '<div class="faq">'
+    . '<div class="border-b"><h2><button aria-expanded="true" aria-controls="p1">First question <svg aria-hidden="true"><path d="M1 1"/></svg></button></h2><div id="p1" role="region"><p>First answer.</p></div></div>'
+    . '<div class="border-b"><h2><button aria-expanded="false" aria-controls="p2">Second question <svg aria-hidden="true"><path d="M1 1"/></svg></button></h2><div id="p2" role="region"><p>Second answer.</p></div></div>'
+    . '</div>'
+)->toArray();
+$assert('core/accordion' === ($headingWrappedAccordion['blocks'][0]['blockName'] ?? null), 'A disclosure toggle wrapped in a heading (the WAI-ARIA APG canonical accordion shape) is recognized as core/accordion.');
+$assert(2 === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['level'] ?? null), 'Heading level is read from the wrapping <h2>, not hardcoded, when the toggle is inside a heading.');
+$assert('First question' === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['title'] ?? null), 'The accordion-heading title is the control\'s clean text, with decorative icon markup stripped, not the raw heading innerHTML.');
+$assert(true === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['attrs']['openByDefault'] ?? null), 'aria-expanded="true" on the inner control (not the heading) still marks the item open by default.');
+$assert('' === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][1]['attrs']['openByDefault'] ?? ''), 'aria-expanded="false" on the inner control keeps the item closed by default.');
+$assert(str_contains((string) ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][1]['attrs']['anchor'] ?? ''), 'p1'), 'The panel is resolved via the inner control\'s aria-controls, not the heading wrapper.');
 
 $disclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p><object data="/answer.pdf"></object></div></div>')->toArray();
 $assert('core/details' === ($disclosure['blocks'][0]['blockName'] ?? null), 'Disclosure recognition survives an unsupported panel child.');
