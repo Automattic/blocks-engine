@@ -3624,8 +3624,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * Custom elements are presentation-only only when their host exposes no
-     * component API and every child can stand on its own as a native block.
+     * Custom elements and static legacy content containers are presentation-only
+     * only when their host exposes no component API and every child can stand on
+     * its own as a native block.
      * Explicit ARIA list topology is retained with semantic Group wrappers.
      *
      * @param array<int, array<string, mixed>> $fallbacks
@@ -3634,7 +3635,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function transparentCustomElementBlock(DOMElement $element, array &$fallbacks): ?array
     {
         $tagName = strtolower($element->tagName);
-        if ( ! str_contains($tagName, '-') || ! $this->isSafeTransparentCustomElement($element) ) {
+        // A legacy content element can also wrap an ordinary static subtree.
+        // Its select attribute denotes Shadow DOM distribution, which must not
+        // be reinterpreted as a presentation-only container.
+        $isStaticContentContainer = 'content' === $tagName && ! $element->hasAttribute('select');
+        if ( (! str_contains($tagName, '-') && ! $isStaticContentContainer) || ! $this->isSafeTransparentCustomElement($element) ) {
             return null;
         }
 
