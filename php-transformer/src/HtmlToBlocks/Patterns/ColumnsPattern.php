@@ -157,6 +157,12 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return false;
         }
 
+        // Semantic sidebar/content names can suggest a split layout only when
+        // author CSS does not explicitly retain normal document flow.
+        if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:block|inline|flow-root|contents)\b/', $style) ) {
+            return false;
+        }
+
         // core/columns is a flex layout. Preserve resolved grid containers as
         // groups so their source classes continue to control track geometry.
         if ( preg_match('/(?:^|;)\s*display\s*:\s*(?:inline-)?grid\b/', $style) ) {
