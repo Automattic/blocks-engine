@@ -363,6 +363,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private HtmlTransformerSession $session;
 
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
+    private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
     private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
 
@@ -1942,6 +1943,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
         }
+        if ( str_contains($serializedBlocks, self::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
+            // A standalone SVG becomes valid RichText image markup inside a
+            // paragraph. Its source was a block box, so remove the paragraph's
+            // otherwise-added line box without affecting inline SVG text.
+            $beforeAuthorCssParts[] = ':root p.' . self::SYNTHETIC_SVG_PARAGRAPH_CLASS . '{line-height:0!important}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
         }
@@ -3279,7 +3286,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( 'svg' === $tagName && $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
             $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
-                return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                return $this->createBlock('core/paragraph', array(
+                    'content' => $imageMarkup,
+                    'className' => self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+                ), array(), $element);
             }
         }
 
