@@ -3237,6 +3237,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
+        // Captured pages can retain invalid inline form hosts. Lower the host
+        // before inline conversion so its native form reaches FormDispatcher.
+        if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
+            $children = $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            return array() === $children ? null : $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
+        }
+
         // A direct phrasing child participates in its parent's flex or grid
         // layout. Preserve that source element as the editable leaf rather
         // than introducing a paragraph wrapper with core paragraph margins.
@@ -3314,7 +3321,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        if ( $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        // FormDispatcher preserves generic capture metadata while producing the
+        // provider-materializable fallback declaration for native forms.
+        if ( 'form' === $tagName ) {
+            return $this->formDispatcher->convert($element, $fallbacks);
+        }
+
+        if ( ! $this->containsCapturedProviderForm($element) && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -3433,10 +3446,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $postStructuralDispatch = $this->postStructuralElementConverters->convert($element, $tagName, $fallbacks);
         if ( $postStructuralDispatch->handled ) {
             return $postStructuralDispatch->block;
-        }
-
-        if ( 'form' === $tagName ) {
-            return $this->formDispatcher->convert($element, $fallbacks);
         }
 
         if ( 'nav' === $tagName ) {
@@ -3803,6 +3812,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return true;
+    }
+
+    private function containsCapturedProviderForm(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            if ( '' !== trim($this->attr($form, 'data-ux')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isInertLiveRegionScaffolding(DOMElement $element): bool

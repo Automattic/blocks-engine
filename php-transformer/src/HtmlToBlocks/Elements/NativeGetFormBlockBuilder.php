@@ -57,6 +57,12 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         $action = trim(SourceDom::attr($form, 'action'));
+        // The browser's default GET is not enough evidence that a captured
+        // form is a search/filter workflow. Keep unspecified forms available
+        // for provider materialization, where their submission handler lives.
+        if ( '' === $method && '' === $action ) {
+            return false;
+        }
         if ( 1 === preg_match('/^\s*(?:javascript|data):/i', $action) ) {
             return false;
         }
