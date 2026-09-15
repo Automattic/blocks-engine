@@ -58,6 +58,14 @@ $navigationShellClass = (string) ($navigationShellBlock['attrs']['className'] ??
 preg_match('/blocks-engine-source-nav-[^\s]+/', $navigationShellClass, $navigationShellMarker);
 $assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellMarker[0] . '):not(blocks-engine-specificity-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
 
+$responsiveDirectNavigation = $transform('<style>@layer utilities{.hidden{display:none}@media (min-width:1024px){.lg\\:flex{display:flex}}}</style><nav class="hidden lg:flex"><a href="#one">One</a></nav>');
+$responsiveDirectNavigationCss = $css($responsiveDirectNavigation);
+$assert(
+    str_contains($responsiveDirectNavigationCss, ':root .wp-block-navigation.hidden{display:none!important}')
+        && str_contains($responsiveDirectNavigationCss, '@media (min-width:1024px){:root .wp-block-navigation.lg\\:flex{display:flex!important}}'),
+    'direct navigation retains source-owned hidden and responsive display states against core navigation layout CSS'
+);
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
 $assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
