@@ -65,6 +65,11 @@ $wpTheme = wp_get_theme($theme);
 $assert($wpTheme->exists(), 'WordPress recognizes the materialized block theme.');
 switch_theme($theme);
 require $themeDir . '/functions.php';
+// Captured text reaches the browser through a dynamic block that decodes its own
+// entities, so the proof is that WordPress leaves the characters alone.
+$sourceSentence = 'What is your favorite RC track you\'ve been to? "Any" -- even the 1960s ones...';
+$assert($sourceSentence === wptexturize($sourceSentence, true), 'A generated theme renders captured punctuation exactly as the source wrote it.');
+$assert(str_contains(apply_filters('the_content', '<p>' . $sourceSentence . '</p>'), $sourceSentence), 'The content pipeline delivers decoded source punctuation unchanged.');
 $editorUserId = wp_insert_user(array('user_login' => 'blocks-engine-editor-' . wp_generate_password(8, false), 'user_pass' => wp_generate_password(24), 'role' => 'administrator'));
 if (is_wp_error($editorUserId)) throw new RuntimeException($editorUserId->get_error_message());
 wp_set_current_user($editorUserId);
