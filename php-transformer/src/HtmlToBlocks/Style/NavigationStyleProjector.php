@@ -64,6 +64,83 @@ final class NavigationStyleProjector
         return implode("\n", array_values($rules));
     }
 
+    /**
+     * Core adds an unlayered flex display to every navigation block. Retain an
+     * authored class-only display state on the same host, including its media
+     * or layer conditions, so a desktop navigation can remain hidden while its
+     * separate mobile trigger is visible.
+     */
+    public function directNavigationDisplayRules(string $serializedBlocks): array
+    {
+        $classes = $this->directNavigationHostClasses($serializedBlocks);
+        if ( array() === $classes ) {
+            return array();
+        }
+
+        $sourceRules = array_merge($this->context->sourceStyles()->staticRules(), $this->context->sourceStyles()->conditionalRules());
+        $requiresBridge = false;
+        foreach ( $sourceRules as $rule ) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if ( 1 !== preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', $selector, $match) ) {
+                continue;
+            }
+            $class = preg_replace('/\\\\(.)/', '$1', $match[1]) ?? $match[1];
+            $display = preg_replace('/\s*!important\s*$/i', '', trim((string) ($rule['declarations']['display'] ?? ''))) ?? '';
+            if ( isset($classes[$class]) && 'none' === strtolower($display) ) {
+                $requiresBridge = true;
+                break;
+            }
+        }
+        if ( ! $requiresBridge ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $sourceRules as $rule ) {
+            $selector = trim((string) ($rule['selector'] ?? ''));
+            if ( 1 !== preg_match('/^\.((?:\\\\.|[A-Za-z0-9_-])+)$/', $selector, $match) ) {
+                continue;
+            }
+            $class = preg_replace('/\\\\(.)/', '$1', $match[1]) ?? $match[1];
+            $display = trim((string) ($rule['declarations']['display'] ?? ''));
+            if ( '' === $display || ! isset($classes[$class]) ) {
+                continue;
+            }
+
+            $target = ':root .wp-block-navigation.' . $match[1];
+            $css = $target . '{display:' . preg_replace('/\s*!important\s*$/i', '', $display) . '!important}';
+            foreach ( array_reverse(is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array()) as $condition ) {
+                $css = trim((string) $condition) . '{' . $css . '}';
+            }
+            $rules[] = $css;
+        }
+
+        return array_values(array_unique($rules));
+    }
+
+    /** @return array<string, true> */
+    private function directNavigationHostClasses(string $serializedBlocks): array
+    {
+        if ( ! preg_match_all('/<!--\s*wp:navigation\s+(\{.*?\})\s*-->/s', $serializedBlocks, $matches) ) {
+            return array();
+        }
+
+        $classes = array();
+        foreach ( $matches[1] as $json ) {
+            $attrs = json_decode($json, true);
+            if ( ! is_array($attrs) || str_contains((string) ($attrs['className'] ?? ''), 'blocks-engine-list-navigation') ) {
+                continue;
+            }
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( '' !== $class ) {
+                    $classes[$class] = true;
+                }
+            }
+        }
+
+        return $classes;
+    }
+
 
     public function materializeEditorStaticStateStylesheet(): void
     {

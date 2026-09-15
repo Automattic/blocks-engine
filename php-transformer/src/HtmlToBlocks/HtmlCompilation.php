@@ -2172,6 +2172,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $directNavigationCss ) {
             $afterAuthorCssParts[] = $directNavigationCss;
         }
+        array_push($afterAuthorCssParts, ...$this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
         array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still
