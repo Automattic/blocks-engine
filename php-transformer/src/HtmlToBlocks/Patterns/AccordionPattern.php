@@ -58,12 +58,14 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $panel = $this->panelElement($item, $title);
+        $control = $this->disclosureControlElement($title);
+
+        $panel = $this->panelElement($item, $control);
         if ( null !== $panel && $panel->isSameNode($title) ) {
             return null;
         }
 
-        $titleHtml = $this->disclosureLabelHtml($title, $innerHtml);
+        $titleHtml = $this->disclosureLabelHtml($control, $innerHtml);
         if ( '' === trim(strip_tags($titleHtml)) ) {
             return null;
         }
@@ -81,7 +83,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         );
 
         return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
-            'openByDefault' => $this->isOpen($item, $title, $panel) ? true : '',
+            'openByDefault' => $this->isOpen($item, $control, $panel) ? true : '',
         )), static fn ($value): bool => '' !== $value), array(
             $createBlock('core/accordion-heading', $headingAttrs, array(), $title),
             $createBlock('core/accordion-panel', $panel instanceof DOMElement ? $presentationAttributes($panel) : array(), $panelBlocks, $panel),
@@ -195,9 +197,54 @@ final class AccordionPattern implements PatternRecognizerInterface
     {
         $tagName = strtolower($title->tagName);
 
-        return 'summary' === $tagName
-            || $title->hasAttribute('aria-expanded')
-            || $title->hasAttribute('aria-controls');
+        if ( 'summary' === $tagName || $title->hasAttribute('aria-expanded') || $title->hasAttribute('aria-controls') ) {
+            return true;
+        }
+
+        // WAI-ARIA APG canonical accordion markup puts the toggle's ARIA
+        // state on an interior control (typically <button>), not on the
+        // heading itself: <h3><button aria-expanded aria-controls>...</button></h3>.
+        // A heading that wraps such a control is still a disclosure title.
+        return preg_match('/^h[1-6]$/', $tagName) === 1
+            && $this->headingDisclosureControlElement($title) instanceof DOMElement;
+    }
+
+    /**
+     * Whether a descendant of a heading is the disclosure control it wraps:
+     * a <button>, or any element carrying aria-expanded/aria-controls.
+     */
+    private function isHeadingDisclosureControlCandidate(DOMElement $element): bool
+    {
+        return 'button' === strtolower($element->tagName)
+            || $element->hasAttribute('aria-expanded')
+            || $element->hasAttribute('aria-controls');
+    }
+
+    /**
+     * The actual toggle control for a title element: itself, if it already
+     * carries the disclosure semantics, otherwise the descendant control a
+     * heading wraps (e.g. the <button> inside an <h3>). ARIA state, the
+     * controlled panel id, and the visible label all belong to this
+     * element, not the heading wrapper.
+     */
+    private function disclosureControlElement(DOMElement $title): DOMElement
+    {
+        if ( preg_match('/^h[1-6]$/', strtolower($title->tagName)) !== 1 ) {
+            return $title;
+        }
+
+        return $this->headingDisclosureControlElement($title) ?? $title;
+    }
+
+    private function headingDisclosureControlElement(DOMElement $heading): ?DOMElement
+    {
+        foreach ( $heading->getElementsByTagName('*') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->isHeadingDisclosureControlCandidate($candidate) ) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function titleElement(DOMElement $item): ?DOMElement
