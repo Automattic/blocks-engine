@@ -69,6 +69,8 @@ final class InlineContentElementContext
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array { return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement); }
     public function richTextMarker(DOMElement $element): string { return ($this->richTextMarker)($element); }
     public function hasBlockContentChildren(DOMElement $element): bool { return $this->sourceElementClassifier->hasBlockContentChildren($element); }
+
+    public function hasFlowContentChildren(DOMElement $element): bool { return $this->sourceElementClassifier->hasFlowContentChildren($element); }
     /** @return array<string, string> */
     public function richTextInlineVisualDeclarations(DOMElement $element): array { return $this->richTextMaterializer->inlineVisualDeclarations($element); }
     public function dynamicTextContent(DOMElement $element): ?string { return ($this->dynamicTextContent)($element); }
