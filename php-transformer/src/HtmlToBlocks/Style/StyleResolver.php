@@ -801,7 +801,7 @@ final class StyleResolver implements ElementPresentationResolver
             return '';
         }
 
-        $rule = 'min-height:100vh!important';
+        $rule = 'height:100vh!important';
         $className = $this->context->layoutGeometry()->allocateCarrier(
             'viewport-root-height' . "\n" . $this->geometryStructuralPath($element) . "\n" . $rule
         );

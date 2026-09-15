@@ -78,16 +78,16 @@ $viewportRootMarkup = (string) ($viewportRoot['serialized_blocks'] ?? '');
 $viewportRootCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $viewportRoot['assets'] ?? array()));
 $assert(
     1 === preg_match('/id="root" class="wp-block-group blocks-engine-editor-anchor-root (be-inline-geometry-[a-f0-9-]+)"/', $viewportRootMarkup, $viewportRootCarrier)
-    && str_contains($viewportRootCss, '.' . ($viewportRootCarrier[1] ?? '') . '{min-height:100vh!important}'),
-    'a document-root percentage height gains a viewport minimum so absolutely layered pages retain a visible canvas after WordPress inserts content wrappers'
+    && str_contains($viewportRootCss, '.' . ($viewportRootCarrier[1] ?? '') . '{height:100vh!important}'),
+    'a document-root percentage height gains a definite viewport canvas so absolutely layered pages retain a visible canvas after WordPress inserts content wrappers'
 );
 
 $ordinaryAnchor = (new HtmlTransformer())->transform(
     '<style>#panel{height:100%}</style><section><div id="panel"><p>Content</p></div></section>'
 )->toArray();
 $assert(
-    ! str_contains(implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $ordinaryAnchor['assets'] ?? array())), 'min-height:100vh!important'),
-    'nested percentage-height anchors retain their authored containing-block semantics without a viewport minimum'
+    ! str_contains(implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $ordinaryAnchor['assets'] ?? array())), 'height:100vh!important'),
+    'nested percentage-height anchors retain their authored containing-block semantics without viewport geometry'
 );
 
 $functionalResponsiveMargin = (new HtmlTransformer())->transform(
