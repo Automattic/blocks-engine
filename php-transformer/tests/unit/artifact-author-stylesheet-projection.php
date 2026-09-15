@@ -379,7 +379,26 @@ $scopedResponsive = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $scopedResponsiveCss = implode("\n", array_column($scopedResponsive['assets'] ?? array(), 'content'));
-$assert(str_contains($scopedResponsiveCss, ':where(.mobile-document) :where(#copy)') && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry projection through canonical block markup');
+$assert(preg_match('/:where\(\.mobile-document\)\s+:where\(\.blocks-engine-attribute-[a-f0-9-]+\)>:where\(#copy\)/', $scopedResponsiveCss) && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry combinators through canonical block markup');
+
+$dataMeshGrid = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="assets/services.css"><main><div data-mesh-id="services-gridContainer"><div id="service-one">One</div><div id="service-two">Two</div><div id="service-three">Three</div><div id="service-four">Four</div><div id="service-five">Five</div><div id="service-six">Six</div></div></main>' ),
+        array( 'path' => 'website/assets/services.css', 'kind' => 'css', 'content' => '[data-mesh-id="services-gridContainer"]{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}[data-mesh-id="services-gridContainer"]>[id]{grid-column:span 1}@media(max-width:600px){[data-mesh-id="services-gridContainer"]{grid-template-columns:1fr}}' ),
+    ),
+) )->toArray();
+$dataMeshGridMarkup = (string) ($dataMeshGrid['serialized_blocks'] ?? '');
+$dataMeshGridCss = implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content'));
+preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshGridMarkup, $dataMeshGridMarker);
+$dataMeshGridMarker = $dataMeshGridMarker[1] ?? '';
+$assert(
+    '' !== $dataMeshGridMarker
+        && str_contains($dataMeshGridCss, ':where(.' . $dataMeshGridMarker . ')>:where(#service-one)')
+        && str_contains($dataMeshGridCss, '@media(max-width:600px){:where(.' . $dataMeshGridMarker . ')')
+        && ! str_contains($dataMeshGridCss, '[data-mesh-id="services-gridContainer"]'),
+    'artifact stylesheet projection retains a data-addressed grid root and its direct-child combinator through the responsive cascade'
+);
 
 $externalLayouts = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
