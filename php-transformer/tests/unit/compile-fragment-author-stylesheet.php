@@ -94,6 +94,10 @@ $assert(
         && ! str_contains($utilityCrop->serializedBlocks, '"height":"1400px"'),
     'CSS-owned utility crop remains valid native core/image markup without intrinsic dimensions'
 );
+$assert(
+    str_contains($utilityCrop->serializedBlocks, 'style="aspect-ratio:4/5;object-fit:cover;width:100%;height:auto"'),
+    'CSS-owned percentage crop uses the WordPress 7.1 core/image save shape'
+);
 
 $fillImage = $compiler->compileFragment(
     '<div style="height:400px"><img class="h-full w-full object-cover" src="https://example.com/hero.jpg" width="1920" height="1080" alt="Hero"></div>',
