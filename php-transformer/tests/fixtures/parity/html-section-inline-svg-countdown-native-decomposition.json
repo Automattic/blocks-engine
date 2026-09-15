@@ -28,14 +28,14 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "hero", "tagName": "section" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/columns", "attrs": { "className": "container hero-inner" } }
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/column", "attrs": { "className": "hero-copy" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero\",\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/layout-shell" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"hero-mark\"} -->" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html {\"content\":\"<section class=\\\"hero\\\"" },
     { "path": "source_reports.runtime_islands.0.kind", "assert": "equals", "value": "script" },

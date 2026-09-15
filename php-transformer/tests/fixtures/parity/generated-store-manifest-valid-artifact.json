@@ -28,7 +28,8 @@
     { "path": "components.0.occurrences", "assert": "equals", "value": 2 },
     { "path": "source_reports.artifact.files_by_kind.html", "assert": "equals", "value": 1 },
     { "path": "source_reports.artifact.files_by_kind.json", "assert": "equals", "value": 1 },
-    { "path": "assets.0.role", "assert": "equals", "value": "data" },
+    { "path": "assets.0.source", "assert": "equals", "value": "engine-support" },
+    { "path": "assets.1.role", "assert": "equals", "value": "data" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Signal Hoodie" }
   ]
 }
