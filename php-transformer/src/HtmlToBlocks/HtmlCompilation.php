@@ -2092,9 +2092,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // Keep only source-responsive navigation hosts visible. Ordinary
             // link rows retain authored mobile display rules without core's
             // overlay control replacing them.
-            if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
-                $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
-            }
             if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
                 // Core's mobile overlay is active at this breakpoint. The source
                 // rail counterpart is intentionally collapsed there, so release
@@ -2164,6 +2161,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
             $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-inline-navigation{display:inline-flex!important}';
+        }
+        if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
+            // Core repeats the block class list on its generated menu container.
+            // A source mobile-hide rule can therefore hide both the responsive host
+            // and its open control. Only menus explicitly promoted to Core's native
+            // responsive behavior receive this post-author visibility bridge.
+            $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
         }
         if ( str_contains($serializedBlocks, 'wp:social-links') ) {
             $afterAuthorCssParts[] = '.wp-block-social-links.is-style-logos-only .wp-social-link{background-image:none;background-color:transparent}';
