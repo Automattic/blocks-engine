@@ -1652,6 +1652,15 @@ $cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string =
 $assert(str_contains($cssOwnedSvgFillCss, '.grid-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.flex-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
 $assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
 
+$viewportBoundSvg = ( new HtmlTransformer() )->transform(
+    '<style>.desktop-target-2{position:absolute;width:30px;height:35px}.desktop-target-2 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style><main><div class="desktop-target-2"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200" role="presentation"><path d="M30 20h140v160z"/></svg></div></main>'
+)->toArray();
+$viewportBoundSvgMarkup = (string) ($viewportBoundSvg['serialized_blocks'] ?? '');
+$viewportBoundSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $viewportBoundSvg['assets'] ?? array()));
+$assert(! str_contains($viewportBoundSvgMarkup, 'style="width:200px;height:200px"') && ! str_contains($viewportBoundSvgMarkup, '"width":"200px"'), 'CSS-owned viewport-bound SVGs do not serialize their intrinsic canvas dimensions over authored layout');
+$assert(str_contains($viewportBoundSvgCss, '>img{display:inline;vertical-align:baseline;width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%)}'), 'CSS-owned viewport-bound SVGs retain their responsive media-box rule on the native image');
+$assert(str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'preserveAspectRatio="none"') && str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'viewBox="29.524 20 140.952 159.999"'), 'viewport-bound SVG assets retain their source viewport behavior and viewBox');
+
 $intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
 )->toArray();
