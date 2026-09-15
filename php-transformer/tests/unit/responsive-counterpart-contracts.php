@@ -203,7 +203,13 @@ $shellSignals = array_values(array_filter(
     ($result['source_reports']['editability_report']['documents'][0]['signals'] ?? array()),
     static fn(array $signal): bool => 'layout_shell' === ($signal['kind'] ?? '')
 ));
-$assert(array() === $shellSignals, '6: responsive correspondence metadata does not override independently owned wrapper structure');
+$assert(
+    3 === count($shellSignals)
+        && array() === array_filter($shellSignals, static fn(array $signal): bool => !empty($signal['runtime_owned']) || !empty($signal['visual_owned']))
+        && 2 === ($shellSignals[2]['wrapper_count'] ?? null),
+    '6: responsive counterpart metadata survives neutral semantic wrapper folding without absorbing owned structure',
+    json_encode($shellSignals)
+);
 
 // ---------------------------------------------------------------------------
 // 7. Standalone transformer: only composed documents carry pairings.
