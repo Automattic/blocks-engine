@@ -1923,10 +1923,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $authorCssParts[] = $split['stylesheet'];
             }
         }
-        $geometryCss = $this->styleResolver->generatedGeometryCss(
-            $serializedBlocks,
-            array() !== $this->transformationEvidence()->authorLayoutTopologyFindings()
-        );
+        $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -4662,7 +4659,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $blockTags
             );
         }
-        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element, false, $topologyChanged), $children, $element);
+        $attrs = $this->cssOwnedGroupAttributes($element, false, $topologyChanged);
+        $block = $this->createBlock('core/group', $attrs, $children, $element);
+        if ($topologyChanged && $this->styleResolver->hasTopologyUnsafeFixedHeight($element)) {
+            $this->layoutGeometry()->removeTopologyUnsafeFixedHeightRules(
+                $this->styleResolver->geometryStructuralPath($element)
+            );
+        }
+        return $block;
     }
 
     /** @return array<string, mixed> */

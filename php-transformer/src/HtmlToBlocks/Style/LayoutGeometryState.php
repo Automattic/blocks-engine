@@ -12,6 +12,9 @@ final class LayoutGeometryState
     /** @var array<string, string> */
     private array $rules = array();
 
+    /** @var array<string, string> */
+    private array $carrierSignatures = array();
+
     private readonly GeometryCarrierClassAllocator $carrierClassAllocator;
 
     /** @param array<int, array<string, mixed>> $proofReductions */
@@ -45,7 +48,9 @@ final class LayoutGeometryState
 
     public function allocateCarrier(string $signature): string
     {
-        return $this->carrierClassAllocator->allocate($signature);
+        $className = $this->carrierClassAllocator->allocate($signature);
+        $this->carrierSignatures[$className] = $signature;
+        return $className;
     }
 
     public function registerRule(string $className, string $rule): void
@@ -61,22 +66,38 @@ final class LayoutGeometryState
         )));
     }
 
-    public function cssForSerializedBlocks(string $serializedBlocks, bool $hasTopologyChanges = false): string
+    /**
+     * Remove fixed-height declarations only from the inline geometry carrier
+     * emitted from the source element whose child topology changed. Geometry
+     * signatures begin with that source path, unlike viewport and SVG carriers.
+     */
+    public function removeTopologyUnsafeFixedHeightRules(string $sourcePath): void
     {
-        $topologyChangedClasses = array();
-        if ( $hasTopologyChanges && preg_match_all('/class="([^"]*\bblocks-engine-css-owned-layout\b[^"]*)"/', $serializedBlocks, $matches) ) {
-            foreach ($matches[1] as $classNames) {
-                foreach (preg_split('/\s+/', $classNames) ?: array() as $className) {
-                    $topologyChangedClasses[$className] = true;
-                }
+        foreach ($this->carrierSignatures as $className => $signature) {
+            if (! str_starts_with($signature, $sourcePath . "\n")) {
+                continue;
             }
+            $this->removeFixedHeightRule($className);
         }
+    }
+
+    private function removeFixedHeightRule(string $className): void
+    {
+        if (! isset($this->rules[$className])) {
+            return;
+        }
+        $this->rules[$className] = preg_replace(
+            '/([;{])\s*height\s*:\s*[1-9][0-9]*(?:\.\d+)?px\s*!important\s*;?/',
+            '$1',
+            $this->rules[$className]
+        ) ?? $this->rules[$className];
+    }
+
+    public function cssForSerializedBlocks(string $serializedBlocks): string
+    {
         $usedRules = array();
         foreach ($this->rules as $className => $rule) {
             if (preg_match('/(?:^|[^a-zA-Z0-9_-])' . preg_quote($className, '/') . '(?:$|[^a-zA-Z0-9_-])/', $serializedBlocks)) {
-                if (isset($topologyChangedClasses[$className])) {
-                    $rule = preg_replace('/([;{])\s*height\s*:\s*[1-9][0-9]*(?:\.\d+)?px\s*!important\s*;?/', '$1', $rule) ?? $rule;
-                }
                 $usedRules[] = $rule;
             }
         }

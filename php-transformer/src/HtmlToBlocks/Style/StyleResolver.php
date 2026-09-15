@@ -1497,9 +1497,19 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', $classes);
     }
 
-    public function generatedGeometryCss(string $serializedBlocks, bool $hasTopologyChanges = false): string
+    public function generatedGeometryCss(string $serializedBlocks): string
     {
-        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks, $hasTopologyChanges);
+        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
+    }
+
+    /** A fixed inline height only clips converted descendants when overflow clips. */
+    public function hasTopologyUnsafeFixedHeight(DOMElement $element): bool
+    {
+        $height = CssValueInspector::comparable((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['height'] ?? ''));
+        $overflow = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($element)['overflow'] ?? ''));
+
+        return 1 === preg_match('/^[1-9][0-9]*(?:\.\d+)?px$/', $height)
+            && in_array($overflow, array('hidden', 'clip'), true);
     }
 
     /**

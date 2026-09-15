@@ -107,16 +107,31 @@ $assert(
     '' !== $columnRule ? $columnRule : $cssFor($column, 'engine-support')
 );
 
-// A fixed inline height is unsafe once the converted direct children no longer
-// have the source tags. Retaining it can clip the block wrappers at that height.
+// A clipping fixed inline height is unsafe once the converted direct children
+// no longer have the source tags. The emitted carrier, rather than every
+// CSS-owned group in the document, is the repair target.
 $topologyChanged = $transform(
-    '<div style="display:flex;height:50px"><a href="/">One</a><a href="/two">Two</a></div>'
+    '<div style="display:flex;height:50px;overflow:hidden"><a href="/">One</a><a href="/two">Two</a></div>'
 );
 $topologyChangedCss = $cssFor($topologyChanged, 'engine-support');
 $assert(
     ! str_contains($topologyChangedCss, 'height:50px'),
     'topology-changing flex: fixed inline height is not carried onto the CSS-owned group',
     $topologyChangedCss
+);
+
+// A topology finding elsewhere must not remove a fixed height that still has
+// the source child structure, nor an absolute page-layer's fixed geometry.
+$retainedHeights = $transform(
+    '<div style="display:flex;height:50px;overflow:hidden"><a href="/">One</a><a href="/two">Two</a></div>'
+    . '<div style="display:flex;height:75px;overflow:hidden"><div>One</div><div>Two</div></div>'
+    . '<div style="position:absolute;height:120px;overflow:hidden">Page layer</div>'
+);
+$retainedHeightsCss = $cssFor($retainedHeights, 'engine-support');
+$assert(
+    ! str_contains($retainedHeightsCss, 'height:50px') && str_contains($retainedHeightsCss, 'height:75px') && str_contains($retainedHeightsCss, 'height:120px'),
+    'topology repair: removes only the clipping carrier whose source child topology changed',
+    $retainedHeightsCss
 );
 $assert(
     str_contains($topologyChangedCss, 'display:flex'),
