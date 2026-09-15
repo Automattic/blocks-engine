@@ -50,15 +50,28 @@ final class BlockCompilationOutput
         public readonly array $coreHtmlFallbackEvidence = array(),
         public readonly HtmlValidationOutcome $validationOutcome = new HtmlValidationOutcome()
     ) {
-        $runtimePaths = array();
-        $visualPaths = array();
+        $ownershipPaths = self::editabilityOwnershipPaths($sourceProvenance);
+        $this->runtimeBlockPaths = $ownershipPaths['runtime'];
+        $this->visualBlockPaths = $ownershipPaths['visual'];
+    }
+
+    /**
+     * The compiler and artifact handoff must classify the same provenance rows.
+     *
+     * @internal
+     * @param array<int,array<string,mixed>> $sourceProvenance
+     * @return array{runtime:array<int,string>,visual:array<int,string>}
+     */
+    public static function editabilityOwnershipPaths(array $sourceProvenance): array
+    {
+        $runtime = array();
+        $visual = array();
         foreach ($sourceProvenance as $entry) {
             if (!is_array($entry) || !is_string($entry['block_path'] ?? null)) continue;
-            if (!empty($entry['editability_runtime_owned'])) $runtimePaths[] = $entry['block_path'];
-            if (!empty($entry['editability_visual_owned'])) $visualPaths[] = $entry['block_path'];
+            if (!empty($entry['editability_runtime_owned'])) $runtime[] = $entry['block_path'];
+            if (!empty($entry['editability_visual_owned'])) $visual[] = $entry['block_path'];
         }
-        $this->runtimeBlockPaths = $runtimePaths;
-        $this->visualBlockPaths = $visualPaths;
+        return array('runtime' => $runtime, 'visual' => $visual);
     }
 
     public static function empty(): self

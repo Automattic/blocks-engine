@@ -254,16 +254,23 @@ foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) 
     }
     $assert($invalidValidationEvidenceRejected, 'null and non-string validation evidence details are rejected explicitly');
 }
-$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
+$ownershipProvenance = array(
     array('block_path' => '0', 'editability_runtime_owned' => true),
     array('block_path' => '', 'editability_visual_owned' => true),
     array('block_path' => 1, 'editability_runtime_owned' => true),
     array('block_path' => '0.1', 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
-));
+    array('block_path' => null, 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
+    array('block_path' => 'ignored', 'editability_runtime_owned' => false, 'editability_visual_owned' => false),
+    'malformed',
+);
+$ownershipPaths = \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput::editabilityOwnershipPaths($ownershipProvenance);
+$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: $ownershipProvenance);
 $assert(
-    array('0', '0.1') === $ownershipOutput->runtimeBlockPaths
-        && array('', '0.1') === $ownershipOutput->visualBlockPaths,
-    'compiler ownership paths retain the original string-only mapping including root and empty paths'
+    array('0', '0.1') === $ownershipPaths['runtime']
+        && array('', '0.1') === $ownershipPaths['visual']
+        && $ownershipPaths['runtime'] === $ownershipOutput->runtimeBlockPaths
+        && $ownershipPaths['visual'] === $ownershipOutput->visualBlockPaths,
+    'compiler ownership paths retain root and empty strings, reject malformed paths, and drive artifact handoff identically'
 );
 
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
