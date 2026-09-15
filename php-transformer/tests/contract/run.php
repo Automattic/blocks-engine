@@ -1661,6 +1661,14 @@ $assert(! str_contains($viewportBoundSvgMarkup, 'style="width:200px;height:200px
 $assert(str_contains($viewportBoundSvgCss, '>img{display:inline;vertical-align:baseline;width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%)}'), 'CSS-owned viewport-bound SVGs retain their responsive media-box rule on the native image');
 $assert(str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'preserveAspectRatio="none"') && str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'viewBox="29.524 20 140.952 159.999"'), 'viewport-bound SVG assets retain their source viewport behavior and viewBox');
 
+$positionedViewportBoundSvg = ( new HtmlTransformer() )->transform(
+    '<style>.svg-host{position:relative;width:30px;height:35px}.svg-viewport{position:absolute;inset:0}.svg-viewport svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);position:absolute;inset:0}</style><main><div class="svg-host"><div class="svg-viewport"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200" role="presentation"><path d="M30 20h140v160z"/></svg></div></div></main>'
+)->toArray();
+$positionedViewportBoundSvgMarkup = (string) ($positionedViewportBoundSvg['serialized_blocks'] ?? '');
+$positionedViewportBoundSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $positionedViewportBoundSvg['assets'] ?? array()));
+$assert(! str_contains($positionedViewportBoundSvgMarkup, 'style="width:200px;height:200px"') && ! str_contains($positionedViewportBoundSvgMarkup, '"width":"200px"'), 'positioned viewport SVGs do not serialize canvas dimensions that override their CSS viewport');
+$assert(str_contains($positionedViewportBoundSvgCss, '.svg-viewport :where(figure)') && str_contains($positionedViewportBoundSvgCss, 'width:100%;height:100%;max-width:100%'), 'positioned viewport SVGs project resolved CSS-variable fill dimensions onto the materialized image');
+
 $intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
 )->toArray();

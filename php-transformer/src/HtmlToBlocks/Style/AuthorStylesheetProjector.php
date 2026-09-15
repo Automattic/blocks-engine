@@ -1022,9 +1022,19 @@ final class AuthorStylesheetProjector
         if ( $this->isExplicitParentFillSvg($element, $declarations) ) {
             return true;
         }
-        return '100%' === trim((string) ($declarations['width'] ?? ''))
-            && '100%' === trim((string) ($declarations['height'] ?? ''))
-            && (bool) preg_match('/(?:^|\s)(?:defer\s+)?x(?:min|mid|max)y(?:min|mid|max)\s+slice(?:\s|$)/i', trim($element->getAttribute('preserveaspectratio')));
+        if ( ! $this->svgFillDimension($element, $declarations, 'width') || ! $this->svgFillDimension($element, $declarations, 'height') ) {
+            return false;
+        }
+
+        $preserveAspectRatio = trim($element->getAttribute('preserveaspectratio'));
+        return 'none' === strtolower($preserveAspectRatio)
+            || (bool) preg_match('/(?:^|\s)(?:defer\s+)?x(?:min|mid|max)y(?:min|mid|max)\s+slice(?:\s|$)/i', $preserveAspectRatio);
+    }
+
+    /** @param array<string, string> $declarations */
+    private function svgFillDimension(DOMElement $element, array $declarations, string $dimension): bool
+    {
+        return '100%' === trim($this->styleResolver->resolveCssVariablesInValue((string) ($declarations[$dimension] ?? ''), $element));
     }
 
     /** @param array<string, string> $declarations */
