@@ -137,9 +137,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if (array() !== $occurrence) $asset['component_occurrences'] = array($occurrence);
         $this->context->materializedAssets()->registerInlineSvg($path, $asset, $occurrence, $visualPayload);
 
-        $dimensions = $this->cssOwnsMediaBox($element) || $this->fillsPositionedAncestorViewport($element)
-            ? array()
-            : $this->svgImageDimensions($element, $html);
+        $dimensions = $this->cssOwnsMediaBox($element) ? array() : $this->svgImageDimensions($element, $html);
         $presentation = $this->styleResolver->presentationDeclarations($element);
         $sourceDisplay = strtolower(trim((string) ($presentation['display'] ?? '')));
         $parent = $element->parentNode;
@@ -412,27 +410,14 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function cssOwnsMediaBox(DOMElement $element): bool
     {
-        return $this->declarationsOwnMediaBox($this->styleResolver->presentationDeclarations($element));
-    }
-
-    private function fillsPositionedAncestorViewport(DOMElement $element): bool
-    {
-        if ( 'none' !== strtolower(trim(SourceDom::attr($element, 'preserveaspectratio'))) ) {
-            return false;
-        }
-
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            $declarations = $this->styleResolver->structuralPresentationDeclarations($parent);
-            if ( ! in_array(strtolower(trim((string) ($declarations['position'] ?? ''))), array( 'absolute', 'fixed' ), true) || '' === trim((string) ($declarations['inset'] ?? '')) ) {
-                continue;
-            }
-
-            // A positioned inset wrapper defines the SVG's viewport. Its width
-            // and height must stay in CSS rather than becoming image attributes.
+        if ( $this->declarationsOwnMediaBox($this->styleResolver->structuralPresentationDeclarations($element)) ) {
             return true;
         }
 
-        return false;
+        // Responsive document variants retain author selectors that are scoped
+        // to their composed document root. Those SVG leaves sit below the native
+        // presentation boundary, but their author CSS still owns the viewport.
+        return $this->declarationsOwnMediaBox($this->styleResolver->authorStructuralDeclarations($element));
     }
 
     /**

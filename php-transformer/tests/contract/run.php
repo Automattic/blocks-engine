@@ -1661,13 +1661,20 @@ $assert(! str_contains($viewportBoundSvgMarkup, 'style="width:200px;height:200px
 $assert(str_contains($viewportBoundSvgCss, '>img{display:inline;vertical-align:baseline;width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%)}'), 'CSS-owned viewport-bound SVGs retain their responsive media-box rule on the native image');
 $assert(str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'preserveAspectRatio="none"') && str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'viewBox="29.524 20 140.952 159.999"'), 'viewport-bound SVG assets retain their source viewport behavior and viewBox');
 
-$positionedViewportBoundSvg = ( new HtmlTransformer() )->transform(
-    '<style>.svg-host{position:relative;width:30px;height:35px}.svg-viewport{position:absolute;inset:0}.svg-viewport svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);position:absolute;inset:0}</style><main><div class="svg-host"><div class="svg-viewport"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200" role="presentation"><path d="M30 20h140v160z"/></svg></div></div></main>'
-)->toArray();
-$positionedViewportBoundSvgMarkup = (string) ($positionedViewportBoundSvg['serialized_blocks'] ?? '');
-$positionedViewportBoundSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $positionedViewportBoundSvg['assets'] ?? array()));
-$assert(! str_contains($positionedViewportBoundSvgMarkup, 'style="width:200px;height:200px"') && ! str_contains($positionedViewportBoundSvgMarkup, '"width":"200px"'), 'positioned viewport SVGs do not serialize canvas dimensions that override their CSS viewport');
-$assert(str_contains($positionedViewportBoundSvgCss, '.svg-viewport :where(figure)') && str_contains($positionedViewportBoundSvgCss, 'width:100%;height:100%;max-width:100%'), 'positioned viewport SVGs project resolved CSS-variable fill dimensions onto the materialized image');
+$retainedViewportArtifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        'website/index.html' => '<html><body><main>Desktop</main></body></html>',
+        'website/mobile.html' => '<html><head><style>.iL7Pq5 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style></head><body class="data-liberation-mobile-document"><main><div id="comp-m1yrz8m1"><div class="iL7Pq5 gx51wo"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200"><path/></svg></div></div></main></body></html>',
+    ),
+    'document_variants' => array(array(
+        'source_path' => 'website/index.html',
+        'variants' => array(array('id' => 'mobile', 'source_path' => 'website/mobile.html', 'media' => '(max-width:980px)')),
+    )),
+))->toArray();
+$retainedViewportMarkup = (string) ($retainedViewportArtifact['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '');
+preg_match('~id="comp-m1yrz8m1".*?<img\b[^>]*~s', $retainedViewportMarkup, $retainedViewportImage);
+$assert(isset($retainedViewportImage[0]) && ! str_contains($retainedViewportImage[0], 'width:200px') && ! str_contains($retainedViewportImage[0], '"width":"200px"'), 'retained responsive artifact SVGs preserve the CSS-owned viewport instead of serializing their 200px source canvas');
 
 $intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
