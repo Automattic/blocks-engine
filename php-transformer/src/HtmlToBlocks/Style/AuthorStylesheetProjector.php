@@ -353,7 +353,7 @@ final class AuthorStylesheetProjector
                 if ( 'button' !== strtolower($element->tagName) || '' === $marker || $this->isSpecializedNativeButton($element, $body) ) {
                     continue;
                 }
-                $projected[] = $this->projectControlSelector($selector, $parsed, $marker, $context);
+                $projected[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
             }
         }
         if ( array() === $projected ) {
@@ -379,9 +379,19 @@ final class AuthorStylesheetProjector
         }
         $rules = array();
         foreach ( $declarations as $exclusion => $properties ) {
-            $rules[] = implode(',', array_values(array_unique($projected))) . $exclusion . '{' . implode(';', $properties) . '}';
+            foreach ( array_values(array_unique($projected)) as $selector ) {
+                $rules[] = $selector . $exclusion . '{' . implode(';', $properties) . '}';
+            }
         }
         return implode('', $rules);
+    }
+
+    private function nativeButtonControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
+    {
+        $projected = $this->projectControlSelector($selector, $parsed, $marker, $context);
+        // Generated button style variations can carry later important declarations.
+        // Keep the source-owned control selector specific to its exact target.
+        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
     }
 
     private function nativeButtonEditedPropertyExclusion(string $property): string
@@ -406,9 +416,7 @@ final class AuthorStylesheetProjector
 
     private function isSpecializedNativeButton(DOMElement $element, string $body): bool
     {
-        return $this->hasNativeButtonGeometryDeclaration($body)
-            || 0 < $element->getElementsByTagName('svg')->length
-            || 0 < $element->getElementsByTagName('img')->length;
+        return $this->hasNativeButtonGeometryDeclaration($body);
     }
 
     private function hasNativeButtonGeometryDeclaration(string $body): bool

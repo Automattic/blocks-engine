@@ -67,6 +67,7 @@ $layeredNativeButtonCss = $css($layeredNativeButton);
 $assert(
     str_contains($layeredNativeButtonCss, '@layer utilities{@media (max-width:600px){')
         && str_contains($layeredNativeButtonCss, ':not([style*="background"]){background:#135e96!important')
+        && preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+/', $layeredNativeButtonCss)
         && str_contains($layeredNativeButtonCss, 'background:#135e96!important')
         && str_contains($layeredNativeButtonCss, 'padding:8px 16px!important')
         && str_contains($layeredNativeButtonCss, 'font-size:12px!important')
@@ -74,12 +75,21 @@ $assert(
     'layered native button presentation projects onto the core button link with source ownership priority'
 );
 
+$nestedNativeCta = $transform('<style>@layer utilities{.bg-primary{background-color:var(--primary);color:var(--primary-foreground);padding:0 12px;font-size:14px;font-weight:600}}</style><a href="#valuation"><button class="bg-primary">Publicar mi propiedad</button></a>');
+$nestedNativeCtaCss = $css($nestedNativeCta);
+$assert(
+    preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+.*background-color:var\(--primary\)!important/', $nestedNativeCtaCss)
+        && str_contains($nestedNativeCtaCss, 'padding:0 12px!important')
+        && str_contains($nestedNativeCtaCss, 'font-weight:600!important'),
+    'nested anchor native CTA retains layered paint through its exact lowered button target'
+);
+
 $mixedNativeButtonTargets = $transform('<style>button.cta,button.icon{background:#135e96;padding:8px 16px;font-size:12px}</style><button class="cta">Buy</button><button class="icon"><svg><path d="M0 0h1v1z"/></svg></button>');
 $mixedNativeButtonTargetsCss = $css($mixedNativeButtonTargets);
 preg_match('/(?:^|})([^{}]+)\{background:#135e96!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
 $assert(
-    1 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
-        && 1 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
+    2 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
+        && 2 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
         && isset($mixedNativeButtonPriorityRule[1])
         && ! str_contains($mixedNativeButtonPriorityRule[1], ','),
     'mixed ordinary and icon native button matches scope source ownership to the ordinary control'
