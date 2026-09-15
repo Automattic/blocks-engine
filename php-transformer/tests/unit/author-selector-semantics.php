@@ -196,10 +196,10 @@ $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:a
 $heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
 $heroLayersCss = $css($heroLayers);
 $assert(
-    2 === substr_count($heroLayersCss, '.block-editor-block-list__block:has(>')
-        && str_contains($heroLayersCss, '.block-editor-block-list__block:has(> .hero-image),:root .editor-styles-wrapper .block-editor-block-list__block:has(> .hero-overlay){display:contents}')
-        && ! str_contains($heroLayersCss, 'hero-copy){display:contents}'),
-    'editor canvas removes only direct Gutenberg flow wrappers for authored absolute visual layers, preserving overlay copy and valid native blocks'
+    str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}')
+        && ! str_contains($heroLayersCss, 'block-editor-block-list__block:has(> .hero-image)')
+        && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
+    'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
 );
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
