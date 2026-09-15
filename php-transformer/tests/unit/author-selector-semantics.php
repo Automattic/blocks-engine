@@ -855,6 +855,16 @@ $assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''),
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers retain their direct CSS-owned child topology');
 
+$boxedTextWrapper = $transform('<style>.footer-note{margin-top:48px;padding-top:24px;border-top:1px solid #ddd}</style><footer><div class="footer-note">Footer text</div></footer>');
+$boxedTextWrapperMarkup = (string) ($boxedTextWrapper['serialized_blocks'] ?? '');
+$assert(
+    str_contains($boxedTextWrapperMarkup, '<div class="wp-block-group footer-note">')
+        && str_contains($boxedTextWrapperMarkup, '<p>Footer text</p>')
+        && ! str_contains($boxedTextWrapperMarkup, '<p class="footer-note"'),
+    'box-styled div text wrappers retain a native group so source spacing and border utilities do not lose to synthetic paragraph resets',
+    $boxedTextWrapperMarkup
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
