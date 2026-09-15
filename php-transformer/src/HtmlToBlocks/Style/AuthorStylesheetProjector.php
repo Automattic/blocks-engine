@@ -133,6 +133,7 @@ final class AuthorStylesheetProjector
         $projectedPrelude = $this->rewriteSelectorPrelude($prelude, $context);
         $authoredBody = $body;
         $body = $this->buttonLinkCompatDeclarations($prelude, $projectedPrelude, $body, $context);
+        $nativeButtonCompatRule = $this->nativeButtonLinkCompatRule($prelude, $authoredBody, $context);
         $nonButtonLinkRule = '';
         if ( $body !== $authoredBody ) {
             $partition = $this->partitionProjectedButtonLinkSelectors($projectedPrelude);
@@ -146,7 +147,7 @@ final class AuthorStylesheetProjector
             $directWrapperPrelude = $this->directButtonGeometryWrapperPrelude($prelude, $context);
             if ( '' === $directWrapperPrelude ) {
                 $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
-                return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' );
+                return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' ) . $nativeButtonCompatRule;
             }
             [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
             $nonButtonGeometryPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $directWrapperPrelude);
@@ -155,21 +156,21 @@ final class AuthorStylesheetProjector
                 ? ''
                 : $nonButtonGeometryPrelude . '{' . implode(';', $nonButtonGeometryDeclarations) . '}';
             if ( '' === $geometry ) {
-                return $nonButtonLinkRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry;
+                return $nonButtonLinkRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry . $nativeButtonCompatRule;
             }
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry);
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry) . $nativeButtonCompatRule;
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
         $nonButtonLayoutPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $wrapperPrelude);
         $nonButtonLayout = '' === $nonButtonLayoutPrelude ? '' : $nonButtonLayoutPrelude . '{' . $layout . '}';
         if ( '' === $layout ) {
-            return $nonButtonLinkRule . ( '' === $control ? '' : $projectedPrelude . '{' . $control . '}' );
+            return $nonButtonLinkRule . ( '' === $control ? '' : $projectedPrelude . '{' . $control . '}' ) . $nativeButtonCompatRule;
         }
         if ( '' === $control ) {
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout);
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout) . $nativeButtonCompatRule;
         }
-        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout);
+        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout) . $nativeButtonCompatRule;
     }
 
     /**
@@ -299,13 +300,18 @@ final class AuthorStylesheetProjector
 
     private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool
     {
+        return $this->projectsControlTag($prelude, $context, 'a');
+    }
+
+    private function projectsControlTag(string $prelude, AuthorStylesheetProjectionContext $context, string $tagName): bool
+    {
         foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
             $parsed = $context->sourceStyles->parsedSelector($selector);
             if ( ! $parsed['supported'] ) {
                 continue;
             }
             foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
-                if ( 'a' === strtolower($element->tagName)
+                if ( $tagName === strtolower($element->tagName)
                     && '' !== $context->selectorProjections->controlMarker($element->getNodePath() ?? '') ) {
                     return true;
                 }
@@ -327,6 +333,120 @@ final class AuthorStylesheetProjector
             || str_starts_with($property, 'max-')
             || 'padding' === $property
             || str_starts_with($property, 'padding-');
+    }
+
+    private function nativeButtonLinkCompatRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors ) {
+            return '';
+        }
+        $projected = array();
+        foreach ( $selectors as $selector ) {
+            $parsed = $context->sourceStyles->parsedSelector($selector);
+            if ( ! $parsed['supported'] ) {
+                continue;
+            }
+            foreach ( $this->matchingSourceElements($selector, $parsed, $context) as $element ) {
+                $path = $element->getNodePath() ?? '';
+                $marker = $context->selectorProjections->controlMarker($path);
+                if ( 'button' !== strtolower($element->tagName) || '' === $marker || $this->isSpecializedNativeButton($element, $body) ) {
+                    continue;
+                }
+                $projected[] = $this->nativeButtonControlSelector($selector, $parsed, $marker, $context);
+            }
+        }
+        if ( array() === $projected ) {
+            return '';
+        }
+
+        $declarations = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = trim(substr($declaration, 0, $colon));
+            $value = trim(substr($declaration, $colon + 1));
+            if ( '' === $name || '' === $value || ( ! $this->isButtonLinkLayoutProperty($name) && ! $this->isButtonLinkPresentationProperty($name) ) ) {
+                continue;
+            }
+            $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
+            $declarations[$exclusion][] = preg_match('/\s*!important\s*$/i', $value) ? $name . ':' . $value : $name . ':' . $value . '!important';
+        }
+        if ( array() === $declarations ) {
+            return '';
+        }
+        $rules = array();
+        foreach ( $declarations as $exclusion => $properties ) {
+            foreach ( array_values(array_unique($projected)) as $selector ) {
+                $rules[] = $selector . $exclusion . '{' . implode(';', $properties) . '}';
+            }
+        }
+        return implode('', $rules);
+    }
+
+    private function nativeButtonControlSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
+    {
+        $projected = $this->projectControlSelector($selector, $parsed, $marker, $context);
+        // Generated button style variations can carry later important declarations.
+        // Keep the source-owned control selector specific to its exact target.
+        return str_replace(':where(.' . $marker . ')', ':where(.' . $marker . ').' . $marker . '.' . $marker, $projected);
+    }
+
+    private function nativeButtonEditedPropertyExclusion(string $property): string
+    {
+        if ( str_starts_with($property, 'background') ) {
+            return ':not([style*="background"])';
+        }
+        if ( str_starts_with($property, 'padding') ) {
+            return ':not([style*="padding"])';
+        }
+        if ( str_starts_with($property, 'border') ) {
+            return ':not([style*="border"])';
+        }
+        if ( str_starts_with($property, 'font') || 'line-height' === $property || 'letter-spacing' === $property || 'text-transform' === $property ) {
+            return ':not([style*="font"]):not([style*="line-height"]):not([style*="letter-spacing"]):not([style*="text-transform"])';
+        }
+        if ( 'color' === $property ) {
+            return ':not([style*="color:"])';
+        }
+        return ':not([style*="text-decoration"])';
+    }
+
+    private function isSpecializedNativeButton(DOMElement $element, string $body): bool
+    {
+        return $this->hasNativeButtonGeometryDeclaration($body);
+    }
+
+    private function hasNativeButtonGeometryDeclaration(string $body): bool
+    {
+        if ( preg_match('/(?:^|;)\s*position\s*:\s*(?:absolute|fixed)/i', $body) && preg_match('/(?:^|;)\s*(?:width|height)\s*:\s*0(?:[;\s]|$)/i', $body) ) {
+            return true;
+        }
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false !== $colon && $this->isButtonControlBoxSize(trim(substr($declaration, 0, $colon)), trim(substr($declaration, $colon + 1))) ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function isButtonLinkPresentationProperty(string $property): bool
+    {
+        return 'background' === $property
+            || str_starts_with($property, 'background-')
+            || 'color' === $property
+            || 'font' === $property
+            || str_starts_with($property, 'font-')
+            || 'line-height' === $property
+            || 'letter-spacing' === $property
+            || 'text-transform' === $property
+            || 'border' === $property
+            || str_starts_with($property, 'border-')
+            || 'box-shadow' === $property
+            || 'text-decoration' === $property;
     }
 
     private function withoutCollapsedButtonProjectedWidths(string $prelude, string $body): ?string
