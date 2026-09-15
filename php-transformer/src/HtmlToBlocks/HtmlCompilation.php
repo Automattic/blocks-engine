@@ -1923,7 +1923,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $authorCssParts[] = $split['stylesheet'];
             }
         }
-        $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
+        $geometryCss = $this->styleResolver->generatedGeometryCss(
+            $serializedBlocks,
+            array() !== $this->transformationEvidence()->authorLayoutTopologyFindings()
+        );
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -4657,30 +4660,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
-        if ( 1 === count($children) ) {
+        $isAuthorOwnedLayout = $this->isAuthorOwnedLayout($element);
+        $sourceChildCount = $isAuthorOwnedLayout ? $this->childElementCount($element) : 0;
+        $sourceTags = $isAuthorOwnedLayout ? $this->directChildTags($element) : array();
+        $blockTags = $isAuthorOwnedLayout ? $this->directBlockTags($children) : array();
+        $topologyChanged = $isAuthorOwnedLayout
+            && 0 < $sourceChildCount
+            && ( $sourceChildCount !== count($children) || $sourceTags !== $blockTags );
+        if ( 1 === count($children) && ! $topologyChanged ) {
             $coalesced = $this->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $coalesced ) {
                 return $coalesced;
             }
         }
-        if ( $this->isAuthorOwnedLayout($element) ) {
+        if ( $isAuthorOwnedLayout ) {
             $this->transformationEvidence()->recordAuthorLayoutTopology(
                 $this->elementSelector($element),
-                $this->childElementCount($element),
+                $sourceChildCount,
                 count($children),
-                $this->directChildTags($element),
-                $this->directBlockTags($children)
+                $sourceTags,
+                $blockTags
             );
         }
-        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element), $children, $element);
+        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element, false, $topologyChanged), $children, $element);
     }
 
     /** @return array<string, mixed> */
-    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false): array
+    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false, bool $topologyChanged = false): array
     {
+        // A fixed inline height can become a clipping constraint when conversion
+        // replaces a CSS-owned container's direct children with block wrappers.
+        $excludedGeometryProperties = $topologyChanged ? array( 'height' ) : array();
         $attrs = $this->styleResolver->presentationAttributes(
             $element,
-            array(),
+            $excludedGeometryProperties,
             $carryOwnTextAlignment ? array( 'text-align' ) : array()
         );
         $layout = $attrs['layout'] ?? null;
@@ -4711,11 +4724,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isCssOwnedGridElement($element) ) {
-            return $this->cssOwnedGridAttributes($element);
+            return $this->cssOwnedGridAttributes($element, $excludedGeometryProperties);
         }
 
         if ( $this->isCssOwnedFlexElement($element) ) {
-            $attrs = $this->cssOwnedFlexAttributes($element);
+            $attrs = $this->cssOwnedFlexAttributes($element, $excludedGeometryProperties);
         }
 
         unset($attrs['layout']);
@@ -4766,7 +4779,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>
      */
-    private function cssOwnedFlexAttributes(DOMElement $element): array
+    private function cssOwnedFlexAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         // Deliberately the CONFLICT-only predicate, not the wider carrier one.
@@ -4776,7 +4789,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // differs from the tag default has no such guarantee, and demoting it
         // lets any author selector above (0,2,0) win.
         if ( $this->styleResolver->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
-            return $this->styleResolver->presentationAttributes($element);
+            return $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties);
         }
 
         // Carry only the inline-present properties so the fallback to
@@ -4784,7 +4797,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // overrides explicit row-gap/column-gap values.
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_FLEX_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
 
-        return $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
+        return $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
     }
 
     private function isCssOwnedGridElement(DOMElement $element): bool
@@ -4809,14 +4822,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>
      */
-    private function cssOwnedGridAttributes(DOMElement $element): array
+    private function cssOwnedGridAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         // Carry only the inline-present properties so the fallback to
         // mapper-synthesized declarations cannot invent a `gap` that
         // overrides explicit row-gap/column-gap values.
         $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
-        $attrs = $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
+        $attrs = $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),

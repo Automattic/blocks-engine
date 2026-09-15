@@ -307,6 +307,7 @@ final class StyleResolver implements ElementPresentationResolver
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
+                $this->viewportRootHeightClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -778,6 +779,46 @@ final class StyleResolver implements ElementPresentationResolver
         )));
 
         return '' === $position || 'static' === $position;
+    }
+
+    /**
+     * A source document root commonly inherits `height:100%` through html and
+     * body. Block content gains WordPress-owned ancestors, which makes that
+     * percentage indefinite and can collapse absolute page layers to a header.
+     */
+    private function viewportRootHeightClassName(DOMElement $element): string
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || ( 'body' !== strtolower($parent->tagName) && ! $this->isDocumentVariantRoot($parent) )
+            || '' === SourceDom::safeAnchor(SourceDom::attr($element, 'id'))
+        ) {
+            return '';
+        }
+
+        $height = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($element)['height'] ?? ''));
+        if ( '100%' !== $height ) {
+            return '';
+        }
+
+        $rule = 'height:100vh!important';
+        $className = $this->context->layoutGeometry()->allocateCarrier(
+            'viewport-root-height' . "\n" . $this->geometryStructuralPath($element) . "\n" . $rule
+        );
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
+        return $className;
+    }
+
+    private function isDocumentVariantRoot(DOMElement $element): bool
+    {
+        foreach (preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className) {
+            if (str_starts_with($className, 'site-document-variant-')
+                || in_array($className, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1456,9 +1497,9 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', $classes);
     }
 
-    public function generatedGeometryCss(string $serializedBlocks): string
+    public function generatedGeometryCss(string $serializedBlocks, bool $hasTopologyChanges = false): string
     {
-        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
+        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks, $hasTopologyChanges);
     }
 
     /**

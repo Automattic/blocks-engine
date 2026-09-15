@@ -70,6 +70,26 @@ $assert(str_contains($percentageHeightCss, '.background-grid{position:absolute;i
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
 $assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
 
+$viewportRoot = (new HtmlTransformer())->transform(
+    '<style>html,body,#root{height:100%}.canvas{height:100%;overflow:hidden}.page{position:absolute;inset:0}</style>'
+    . '<div class="data-liberation-desktop-document"><div id="root"><main class="canvas"><div class="page"><p>Hero</p></div></main></div></div>'
+)->toArray();
+$viewportRootMarkup = (string) ($viewportRoot['serialized_blocks'] ?? '');
+$viewportRootCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $viewportRoot['assets'] ?? array()));
+$assert(
+    1 === preg_match('/id="root" class="wp-block-group blocks-engine-editor-anchor-root (be-inline-geometry-[a-f0-9-]+)"/', $viewportRootMarkup, $viewportRootCarrier)
+    && str_contains($viewportRootCss, '.' . ($viewportRootCarrier[1] ?? '') . '{height:100vh!important}'),
+    'a document-root percentage height gains a definite viewport canvas so absolutely layered pages retain a visible canvas after WordPress inserts content wrappers'
+);
+
+$ordinaryAnchor = (new HtmlTransformer())->transform(
+    '<style>#panel{height:100%}</style><section><div id="panel"><p>Content</p></div></section>'
+)->toArray();
+$assert(
+    ! str_contains(implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $ordinaryAnchor['assets'] ?? array())), 'height:100vh!important'),
+    'nested percentage-height anchors retain their authored containing-block semantics without viewport geometry'
+);
+
 $functionalResponsiveMargin = (new HtmlTransformer())->transform(
     '<style>*{margin:0}:is(#main :where(.card),[id^="card__"]){margin-bottom:20px}@media(max-width:600px){:is(#main :where(.card),[id^="card__"]){margin-bottom:90px}}</style>'
     . '<main id="main"><div id="card" class="card">Card</div></main>'

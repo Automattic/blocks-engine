@@ -61,11 +61,22 @@ final class LayoutGeometryState
         )));
     }
 
-    public function cssForSerializedBlocks(string $serializedBlocks): string
+    public function cssForSerializedBlocks(string $serializedBlocks, bool $hasTopologyChanges = false): string
     {
+        $topologyChangedClasses = array();
+        if ( $hasTopologyChanges && preg_match_all('/class="([^"]*\bblocks-engine-css-owned-layout\b[^"]*)"/', $serializedBlocks, $matches) ) {
+            foreach ($matches[1] as $classNames) {
+                foreach (preg_split('/\s+/', $classNames) ?: array() as $className) {
+                    $topologyChangedClasses[$className] = true;
+                }
+            }
+        }
         $usedRules = array();
         foreach ($this->rules as $className => $rule) {
             if (preg_match('/(?:^|[^a-zA-Z0-9_-])' . preg_quote($className, '/') . '(?:$|[^a-zA-Z0-9_-])/', $serializedBlocks)) {
+                if (isset($topologyChangedClasses[$className])) {
+                    $rule = preg_replace('/([;{])\s*height\s*:\s*[1-9][0-9]*(?:\.\d+)?px\s*!important\s*;?/', '$1', $rule) ?? $rule;
+                }
                 $usedRules[] = $rule;
             }
         }
