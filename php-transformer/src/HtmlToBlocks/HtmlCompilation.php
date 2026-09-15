@@ -11195,6 +11195,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
             return null;
         }
+        $capturedSlideshow = strtolower(trim($this->attr($element, 'data-dla-captured-slideshow')));
+        if ( '' !== $capturedSlideshow && 'true' !== $capturedSlideshow ) {
+            return null;
+        }
 
         $hasPrevious = false;
         $hasNext = false;
@@ -11239,6 +11243,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
             return null;
         }
+        if ( 'true' === $capturedSlideshow && ! $this->hasCompleteCapturedSlideshowItems($items) ) {
+            return null;
+        }
 
         $slides = array();
         foreach ( $items as $sourceItem ) {
@@ -11277,7 +11284,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, $this->attr($element, 'id'), $this->attr($element, 'class'), $this->attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        $presentation = 'true' === $capturedSlideshow || 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
         $initialSlide = 0;
         foreach ( $items as $index => $item ) {
             if ( '' !== $this->attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== $this->attr($item, 'aria-hidden')) ) {
@@ -11389,12 +11396,24 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function carouselItemsHaveContent(array $items): bool
     {
         foreach ( $items as $item ) {
-            if ( 0 === $item->getElementsByTagName('img')->length
+            if ( ! $this->sourceElementClassifier->hasCapturedMediaContent($item)
                 && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
             ) {
                 return false;
             }
         }
+        return true;
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function hasCompleteCapturedSlideshowItems(array $items): bool
+    {
+        foreach ( $items as $index => $item ) {
+            if ( (string) $index !== trim($this->attr($item, 'data-dla-captured-slide')) ) {
+                return false;
+            }
+        }
+
         return true;
     }
 

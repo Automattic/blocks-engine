@@ -73,6 +73,29 @@ $assert(
     'captured slideshow states with test-id controls become an editable authored carousel without losing slide copy'
 );
 
+$capturedTextAndSvg = (new HtmlTransformer())->transform('<section data-dla-captured-slideshow="true" aria-label="Customer stories" style="height:320px"><button data-testid="prevButton" aria-label="Previous slide"></button><div data-testid="slidesWrapper" role="list"><article data-dla-captured-slide="0" role="listitem"><h2>Reliable support</h2><p>Every answer starts with the complete customer story.</p><svg viewBox="0 0 20 20" role="img" aria-label="Five stars"><path d="M0 0h20v20H0z"></path></svg></article><article data-dla-captured-slide="1" role="listitem"><h2>Thoughtful delivery</h2><blockquote><p>The team made the work easier to understand.</p></blockquote><svg viewBox="0 0 20 20" role="img" aria-label="Five stars"><path d="M0 0h20v20H0z"></path></svg></article><article data-dla-captured-slide="2" role="listitem"><h2>Lasting results</h2><p>Useful content remains editable after import.</p><svg viewBox="0 0 20 20" role="img" aria-label="Five stars"><path d="M0 0h20v20H0z"></path></svg></article></div><button data-testid="nextButton" aria-label="Next slide"></button><nav><button data-slide="0"></button><button data-slide="1"></button><button data-slide="2"></button></nav></section>')->toArray();
+$capturedTextAndSvgBlock = $capturedTextAndSvg['blocks'][0] ?? array();
+$capturedTextAndSvgMarkup = (string) ($capturedTextAndSvg['serialized_blocks'] ?? '');
+$capturedRoundTrip = (new Runtime())->parseBlocks((new Runtime())->serializeBlocks(array($capturedTextAndSvgBlock)));
+$capturedTextAndSvgValid =
+    'custom/authored-carousel' === ($capturedTextAndSvgBlock['blockName'] ?? null)
+        && 'slideshow' === ($capturedTextAndSvgBlock['attrs']['presentation'] ?? null)
+        && 3 === count($capturedTextAndSvgBlock['innerBlocks'] ?? array())
+        && 320 === ($capturedTextAndSvgBlock['attrs']['viewportHeight'] ?? null)
+        && str_contains($capturedTextAndSvgMarkup, 'Every answer starts with the complete customer story.')
+        && 3 === substr_count($capturedTextAndSvgMarkup, 'assets/materialized-svg/')
+        && 3 === substr_count($capturedTextAndSvgMarkup, 'data-carousel-index=')
+        && 'pass' === ($capturedTextAndSvg['source_reports']['wp_block_validity']['status'] ?? null)
+        && array() === ($capturedTextAndSvg['source_reports']['wp_block_validity']['findings'] ?? array())
+        && 'custom/authored-carousel' === ($capturedRoundTrip[0]['blockName'] ?? null);
+$assert($capturedTextAndSvgValid, 'complete captured text and SVG slides retain editable content, slideshow geometry, controls, and a zero-invalid-block editor round trip');
+
+$incompleteCapturedSlideshow = (new HtmlTransformer())->transform('<section class="slideshow" data-dla-captured-slideshow="false"><button data-testid="prevButton"></button><div data-testid="slidesWrapper" role="list"><article data-dla-captured-slide="0" role="listitem"><p>Settled first slide.</p></article><article data-dla-captured-slide="1" role="listitem"><p>Settled second slide.</p></article></div><button data-testid="nextButton"></button></section>')->toArray();
+$assert(
+    ! str_contains((string) ($incompleteCapturedSlideshow['serialized_blocks'] ?? ''), 'wp:custom/authored-carousel'),
+    'an explicitly incomplete captured slideshow remains outside carousel acceptance'
+);
+
 $boundaryItems = '';
 for ( $index = 1; $index <= 6; $index++ ) {
     $boundaryItems .= '<div data-hook="group-view" aria-hidden="false"><div data-idx="' . ($index - 1) . '" data-hook="item-container"><img src="award-' . $index . '.jpg" alt="Award ' . $index . '"></div></div>';
