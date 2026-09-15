@@ -32,6 +32,8 @@ $assert(array() === ($result['fallbacks'] ?? array()), 'native GET form has no p
 $assert(3 === count($generated), 'form and reusable input/select companions are packaged');
 
 parse_str(http_build_query(array( 'location' => 'north', 'type' => 'house' )), $query);
+$unspecified = (new HtmlTransformer())->transform('<form><label for="email">Email</label><input id="email" name="email"><button>Send</button></form>')->toArray();
+$assert(!str_contains($unspecified['serialized_blocks'] ?? '', 'wp:blocks-engine/authored-native-form') && !empty($unspecified['fallbacks']), 'unspecified submission remains provider-materializable instead of inventing a GET workflow');
 $assert(array( 'location' => 'north', 'type' => 'house' ) === $query, 'named successful controls produce the GET query parameters');
 
 if ( array() !== $failures ) {

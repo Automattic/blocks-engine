@@ -30,11 +30,15 @@ final class FormFallbackFindingBuilder
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
         $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
-        $presentationGraph = (new FormPresentationGraphBuilder(
+        $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),
             fn (DOMElement $control): ?DOMElement => $this->metadataBuilder->requiredMarker($control)
-        ))->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        );
+        $presentationGraph = $presentationBuilder->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $formMetadata = $this->metadataBuilder->form($element);
+        $containerPresentation = $presentationBuilder->buildContainer($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        if ($containerPresentation) $formMetadata['container_presentation'] = $containerPresentation;
         $boundedHtml = $this->context->boundedFallbackHtml($element);
         $replacesRuntimeIsland = null !== $bindingBlock;
         $bindingBlock ??= $readableFormBlock;
@@ -52,7 +56,7 @@ final class FormFallbackFindingBuilder
             'tag'              => strtolower($element->tagName),
             'selector'         => SourceDom::elementSelector($element),
             'attributes'       => SourceDom::htmlAttributes($element),
-            'form'             => $this->metadataBuilder->form($element),
+            'form'             => $formMetadata,
             'success_panel'    => $this->successPanelMetadataBuilder->build($element),
             'context'          => $this->context->sourceContext($element),
             'classification'   => $this->context->classifyFallbackSubtree($element),
