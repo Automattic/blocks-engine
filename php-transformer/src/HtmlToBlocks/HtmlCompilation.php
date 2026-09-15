@@ -5321,14 +5321,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (isset($block['_binding_token'])) return 'binding_boundary';
         if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
         if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
-        if ('div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return 'semantic_boundary';
         return 'serialization_unsafe';
     }
 
     /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     private function foldableWrapperDescriptor(array $block): ?array
     {
-        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || 'div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 

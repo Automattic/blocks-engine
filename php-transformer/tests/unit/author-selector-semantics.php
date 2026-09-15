@@ -845,6 +845,19 @@ $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') &
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $assert(1 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($sameSourceGroupChainSelectorEdge['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains retain the selected outer boundary inside their layout shell');
 
+$semanticWrapperChain = $transform('<section class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2></div></div></section>');
+$semanticWrapperBlock = $semanticWrapperChain['blocks'][0] ?? array();
+$assert(
+    str_ends_with((string) ($semanticWrapperBlock['blockName'] ?? ''), '/layout-shell')
+    && array('section', 'div') === array_column($semanticWrapperBlock['attrs']['wrappers'] ?? array(), 'tagName')
+    && str_contains((string) ($semanticWrapperBlock['attrs']['wrappers'][1]['attributes']['class'] ?? ''), 'copy rich')
+    && array('core/heading') === array_column($semanticWrapperBlock['innerBlocks'] ?? array(), 'blockName'),
+    'a unary semantic wrapper chain becomes one labeled layout shell while retaining native editable text leaves'
+);
+
+$siblingSemanticSections = $transform('<main><section><h2>First</h2></section><section><h2>Second</h2></section></main>');
+$assert(2 === count($siblingSemanticSections['blocks'][0]['innerBlocks'] ?? array()), 'sibling semantic sections remain separately selectable editor areas');
+
 $nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
 $assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');

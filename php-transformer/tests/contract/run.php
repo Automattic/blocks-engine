@@ -98,6 +98,27 @@ $assert(
         && isset($boundaryArtifact['source_reports']['wordpress_site_plan']),
     'artifact compilation consumes the producer output to retain generated companions and a canonical block site plan'
 );
+$semanticShellArtifact = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<!doctype html><html><body><main><section id="feature" class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2><img src="hero.jpg" alt="Hero"><nav><a href="/">Home</a></nav><form method="get" action="/"><label>Search <input type="search" name="s"></label><button type="submit">Send</button></form></div></div></section></main></body></html>',
+        'hero.jpg' => 'image',
+    ),
+))->toArray();
+$semanticShellPageMarkup = (string) ($semanticShellArtifact['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
+$assert(
+    'success' === ($semanticShellArtifact['status'] ?? '')
+        && 2 === substr_count($semanticShellPageMarkup, 'wp:custom/layout-shell')
+        && 0 === substr_count($semanticShellPageMarkup, 'wp:group')
+        && str_contains($semanticShellPageMarkup, '"tagName":"section"')
+        && str_contains($semanticShellPageMarkup, '"tagName":"div"')
+        && str_contains($semanticShellPageMarkup, 'Editable heading')
+        && str_contains($semanticShellPageMarkup, 'alt="Hero"')
+        && str_contains($semanticShellPageMarkup, '"label":"Home"')
+        && str_contains($semanticShellPageMarkup, '"label":"Search"')
+        && str_contains($semanticShellPageMarkup, '"buttonText":"Send"'),
+    'artifact page serialization folds unary semantic wrappers into one layout shell while retaining native heading, image, navigation, and form blocks'
+);
 $assert(
     array(
         'schema',
@@ -2862,8 +2883,8 @@ $safeInlineSvg = ( new HtmlTransformer() )->transform(
 $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
-$assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
-$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
+$assert(str_ends_with((string) ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), '/layout-shell') && array('section', 'div') === array_column($safeInlineSvg['blocks'][0]['attrs']['wrappers'] ?? array(), 'tagName'), 'decorative inline SVG preserves its CSS-addressable semantic wrapper chain in one editor shell');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
 $assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
 $assert(str_contains($safeInlineSvgSerialized, 'assets/materialized-svg/'), 'decorative inline SVG uses a materialized SVG asset source');
 $assert(str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'decorative icon SVG keeps intrinsic viewBox dimensions through core/image save styles');
