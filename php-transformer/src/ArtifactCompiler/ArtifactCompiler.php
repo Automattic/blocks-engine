@@ -586,13 +586,17 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
-        $normalized['files'] = $capturedDialogs['files'];
+        $scrollStates = (new ScrollStateProjector())->project($capturedDialogs['files']);
+        $normalized['files'] = $scrollStates['files'];
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
+            // Both capture-time projectors run against the same source
+            // documents before block conversion, so their diagnostics and
+            // projection counts share one reporting bucket.
             'captured_dialogs' => array(
-                'diagnostics' => $capturedDialogs['diagnostics'],
-                'projected_count' => $capturedDialogs['projected_count'],
+                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $scrollStates['diagnostics']),
+                'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
             ),
         ));
     }
@@ -1138,8 +1142,13 @@ final class ArtifactCompiler
         // roles, rejection diagnostics, and source order have exactly the same
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
-        $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
-        $rawFiles = $capturedDialogs['files'];
+        $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
+        $scrollStatesProjection = (new ScrollStateProjector())->project($capturedDialogsProjection['files']);
+        $capturedDialogs = array(
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
+        );
+        $rawFiles = $scrollStatesProjection['files'];
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.
         foreach ($rawFiles as &$file) {
