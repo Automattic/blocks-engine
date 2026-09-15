@@ -74,7 +74,6 @@ final class AuthorStylesheetProjector
                     return '';
                 }
                 $editorSelectors = array();
-                $editorWrapperSelectors = array();
                 foreach ( $selectors as $selector ) {
                     $selector = trim($selector);
                     if ( '' === $selector || str_starts_with($selector, ':host') || str_contains($selector, '.editor-styles-wrapper') ) {
@@ -89,18 +88,13 @@ final class AuthorStylesheetProjector
                         continue;
                     }
                     $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
-                    if ( in_array(strtolower($position), array('absolute', 'fixed'), true) ) {
-                        // Gutenberg gives each direct block a flow wrapper. An
-                        // authored visual layer must not let that wrapper reserve
-                        // the replaced element's intrinsic height in the canvas.
-                        $editorWrapperSelectors[] = ':root .editor-styles-wrapper .block-editor-block-list__block:has(> ' . $selector . ')';
-                    }
                 }
-                $positionRule = array() === $editorSelectors
+                return array() === $editorSelectors
                     ? ''
-                    : implode(',', $editorSelectors) . '{position:' . $position . '}';
-                return $positionRule
-                    . ( array() === $editorWrapperSelectors ? '' : implode(',', array_unique($editorWrapperSelectors)) . '{display:contents}' );
+                    // Core adds `position:relative` to the actual editor block
+                    // root. Preserve source visual layers without changing
+                    // ordinary relative or sticky editing surfaces.
+                    : implode(',', $editorSelectors) . '{position:' . $position . ( in_array(strtolower($position), array('absolute', 'fixed'), true) ? '!important' : '' ) . '}';
             }
         );
     }
