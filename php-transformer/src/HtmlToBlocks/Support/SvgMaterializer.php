@@ -410,7 +410,14 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function cssOwnsMediaBox(DOMElement $element): bool
     {
-        return $this->declarationsOwnMediaBox($this->styleResolver->presentationDeclarations($element));
+        if ( $this->declarationsOwnMediaBox($this->styleResolver->structuralPresentationDeclarations($element)) ) {
+            return true;
+        }
+
+        // Responsive document variants retain author selectors that are scoped
+        // to their composed document root. Those SVG leaves sit below the native
+        // presentation boundary, but their author CSS still owns the viewport.
+        return $this->declarationsOwnMediaBox($this->styleResolver->authorStructuralDeclarations($element));
     }
 
     /**

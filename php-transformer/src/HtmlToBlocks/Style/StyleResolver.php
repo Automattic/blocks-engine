@@ -1512,6 +1512,28 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Resolves matching author rules even when the element is below the native
+     * presentation boundary. Media materializers use this only to decide whether
+     * source CSS, rather than an intrinsic asset attribute, owns its media box.
+     *
+     * @return array<string, string>
+     */
+    public function authorStructuralDeclarations(DOMElement $element): array
+    {
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $declarations = array();
+        foreach ( $selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule ) {
+            if ( ! $selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array(), true)['matches'] ) {
+                continue;
+            }
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations'] ?? array());
+        }
+
+        return $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+    }
+
+    /**
      * Resolve media-text gate declarations without flattening CSS importance or
      * shorthand/longhand order. Inline declarations outrank matched stylesheet
      * declarations at equal importance.
