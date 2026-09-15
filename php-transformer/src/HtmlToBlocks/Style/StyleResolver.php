@@ -2495,6 +2495,8 @@ final class StyleResolver implements ElementPresentationResolver
                     $layers[$name] ??= count($layers);
                     $layer = $name;
                 }
+                $isStaticLayerRule = array() !== $conditions
+                    && array_reduce($conditions, static fn (bool $static, string $condition): bool => $static && 1 === preg_match('/^@layer\b/i', trim($condition)), true);
 
                 foreach (explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
@@ -2502,7 +2504,7 @@ final class StyleResolver implements ElementPresentationResolver
                         continue;
                     }
                     $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && array() === $conditions && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
+                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
                         $analysis['static'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
@@ -2510,7 +2512,7 @@ final class StyleResolver implements ElementPresentationResolver
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                         );
                     }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && ! $isStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
                         $analysis['conditional'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
@@ -2530,7 +2532,7 @@ final class StyleResolver implements ElementPresentationResolver
                             );
                         }
                     }
-                    if ($supportedRestingSelector && array() === $conditions && array() !== $cascadedValueDeclarations) {
+                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && array() !== $cascadedValueDeclarations) {
                         $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
                     if (array() === $declarations) {

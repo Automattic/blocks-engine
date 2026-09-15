@@ -6620,7 +6620,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // authored as `<div class="label">` avoided it) do not capture the collapsed
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
-        if ( 0 === $this->childElementCount($element) ) {
+        if ( 0 === $this->childElementCount($element) && ! ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) ) {
             return $this->createBlock(
                 'core/paragraph',
                 array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
@@ -6654,6 +6654,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private const BOX_CHROME_WRAPPER_PROPERTIES = array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
 
+    /** @var array<int, string> */
+    private const MARGIN_WRAPPER_PROPERTIES = array( 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' );
+
     private function hasVisualTextWrapperSignal(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
@@ -6676,6 +6679,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasBoxChromeWrapperStyling(DOMElement $element): bool
     {
         return $this->wrapperStylingMatches($element, self::BOX_CHROME_WRAPPER_PROPERTIES);
+    }
+
+    private function hasMarginWrapperStyling(DOMElement $element): bool
+    {
+        return $this->wrapperStylingMatches($element, self::MARGIN_WRAPPER_PROPERTIES);
     }
 
     /**
@@ -6749,6 +6757,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $content = $this->richTextMaterializer->content($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
+        }
+
+        // A non-paragraph wrapper that owns spacing must retain a native
+        // container: resetting a synthetic paragraph can override layered
+        // author margin utilities.
+        if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+            return $this->createBlock(
+                'core/group',
+                $this->styleResolver->presentationAttributes($element),
+                array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+                $element
+            );
         }
 
         $attrs = $this->styleResolver->presentationAttributes($element);
