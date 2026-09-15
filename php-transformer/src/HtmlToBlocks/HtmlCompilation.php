@@ -1992,6 +1992,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }
+        if ( str_contains($serializedBlocks, self::EMPTY_VISUAL_GROUP_CLASS) ) {
+            // An empty painted layer has no portable interaction contract. It
+            // must not cover native controls after its source runtime is absent.
+            $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
+        }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
             // This precedes author CSS so source child margins remain authoritative.
@@ -2084,6 +2089,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
+            if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
+                // Core's mobile overlay is active at this breakpoint. The source
+                // rail counterpart is intentionally collapsed there, so release
+                // only the generated carrier and let native navigation own it.
+                $afterAuthorCssParts[] = '@media(max-width:600px){nav.wp-block-group.blocks-engine-sidebar-navigation-carrier{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;z-index:auto!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation{width:100%!important;height:auto!important;min-height:48px!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation>.wp-block-navigation__responsive-container-open{display:flex!important;width:48px!important;height:48px!important;padding:12px!important;visibility:visible!important}}';
+            }
             if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
                 $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
                 $fallbackTextColor = '';
@@ -2122,7 +2133,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // is declared important. The <nav> keeps the authored class list and
             // therefore still paints the source box exactly once, whether the
             // source declared it on the menu element or on its list.
-            $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
+            $afterAuthorCssParts[] = 'nav.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
             }
@@ -3317,6 +3328,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // unsupported content element.
         if ( 'style' === $tagName && StyleTagScanner::isCssType($this->attr($element, 'type')) ) {
             return null;
+        }
+
+        $standaloneSearchTrigger = $this->searchBlockConverter->searchBlockFromStandaloneTrigger($element);
+        if ( null !== $standaloneSearchTrigger ) {
+            return $standaloneSearchTrigger;
         }
 
         $mathBlock = $this->recognizePatterns($element, $fallbacks, array(MathPattern::class));

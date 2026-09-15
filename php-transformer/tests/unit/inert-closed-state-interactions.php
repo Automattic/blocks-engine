@@ -424,6 +424,27 @@ $assert(
     $hiddenNavigationSupportMarkup . "\n" . $hiddenNavigationSupportBeforeAuthor . "\n" . $hiddenNavigationSupportAfterAuthor
 );
 
+$focusRevealedSkip = <<<'HTML'
+<style>
+.skip-links { opacity: 0; }
+.skip-links:focus-within { opacity: 1; pointer-events: auto; }
+</style>
+<div class="skip-links"><a href="#main">Skip to main content</a><a href="#navigation">Skip to navigation</a></div>
+<main id="main">Main content</main>
+<nav id="navigation">Navigation</nav>
+HTML;
+
+$focusRevealedSkipResult = ( new HtmlTransformer() )->transform($focusRevealedSkip)->toArray();
+$focusRevealedSkipMarkup = (string) ($focusRevealedSkipResult['serialized_blocks'] ?? '');
+$focusRevealedSkipAfterAuthor = $cssContent($focusRevealedSkipResult, 'after-author', 'both');
+$assert(
+    str_contains($focusRevealedSkipMarkup, '"url":"#main"')
+        && str_contains($focusRevealedSkipMarkup, '"url":"#navigation"')
+        && ! str_contains($focusRevealedSkipAfterAuthor, '.skip-links{opacity:1!important}'),
+    'focus-revealed skip controls retain their authored hidden rest state and keyboard destinations',
+    $focusRevealedSkipMarkup . "\n" . $focusRevealedSkipAfterAuthor
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "inert closed-state interactions: {$failures} failed, {$passes} passed\n");
     exit(1);

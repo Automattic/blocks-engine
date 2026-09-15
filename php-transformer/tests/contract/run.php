@@ -2201,6 +2201,38 @@ $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
 
+$runtimeSearchInput = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><div aria-hidden="true">Search this site</div></div>'
+)->toArray();
+$runtimeSearchInputBlock = $runtimeSearchInput['blocks'][0] ?? array();
+$assert('core/search' === ($runtimeSearchInputBlock['blockName'] ?? ''), 'bounded runtime search input converts to core/search');
+$assert('Search this site' === ($runtimeSearchInputBlock['attrs']['label'] ?? '') && 'button-inside' === ($runtimeSearchInputBlock['attrs']['buttonPosition'] ?? '') && true === ($runtimeSearchInputBlock['attrs']['buttonUseIcon'] ?? null), 'native runtime search keeps an accessible label and native icon submission control');
+$assert(! str_contains((string) ($runtimeSearchInput['serialized_blocks'] ?? ''), 'jsaction='), 'native runtime search removes source-only input event bindings');
+
+$runtimeSearchWithInteractiveSibling = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><button aria-label="Clear search">Clear</button></div>'
+)->toArray();
+$assert(! str_contains((string) ($runtimeSearchWithInteractiveSibling['serialized_blocks'] ?? ''), '<!-- wp:search'), 'standalone search preserves clusters with an additional interactive control');
+
+$standaloneSearchTrigger = ( new HtmlTransformer() )->transform(
+    '<header><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></div></header><div class="search-panel"><div class="search-input"><input type="search" aria-label="Search this site"><div aria-hidden="true">Search this site</div></div></div>'
+)->toArray();
+$standaloneSearchTriggerSerialized = (string) ($standaloneSearchTrigger['serialized_blocks'] ?? '');
+$assert(1 === substr_count($standaloneSearchTriggerSerialized, '<!-- wp:search'), 'a separate standalone trigger and input cluster emits one native search block');
+$assert(str_contains($standaloneSearchTriggerSerialized, '"className":"open-search blocks-engine-source-search-icon-') && str_contains($standaloneSearchTriggerSerialized, '"buttonPosition":"button-only"') && str_contains($standaloneSearchTriggerSerialized, '"buttonUseIcon":true'), 'standalone search is anchored at its visible icon trigger with native expansion behavior');
+$assert(! str_contains($standaloneSearchTriggerSerialized, 'jsaction='), 'standalone search trigger replaces source-only behavior bindings');
+
+$multipleStandaloneSearchInputs = ( new HtmlTransformer() )->transform(
+    '<div role="button" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div><input type="search" aria-label="Search one"><input type="search" aria-label="Search two">'
+)->toArray();
+$assert(! str_contains((string) ($multipleStandaloneSearchInputs['serialized_blocks'] ?? ''), '<!-- wp:search'), 'ambiguous standalone search triggers remain unconverted');
+
+$responsiveStandaloneSearchTriggers = ( new HtmlTransformer() )->transform(
+    '<div class="desktop"><input type="search" aria-label="Search desktop"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div><div class="mobile"><input type="search" aria-label="Search mobile"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div>'
+)->toArray();
+$responsiveStandaloneSearchSerialized = (string) ($responsiveStandaloneSearchTriggers['serialized_blocks'] ?? '');
+$assert(2 === substr_count($responsiveStandaloneSearchSerialized, '<!-- wp:search') && 2 === substr_count($responsiveStandaloneSearchSerialized, '"buttonPosition":"button-only"'), 'matching responsive standalone search copies each anchor a native search at their trigger');
+
 $runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
     array('runtime_dom_selectors' => array('.js-search'))
@@ -5865,7 +5897,7 @@ $emptyFeatureShellResult = (new HtmlTransformer())->transform(
 $emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
 $assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
 $assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
-$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label="Search"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '<!-- wp:search') && str_contains($emptyFeatureShellSerialized, '"className":"real-search-shell"') && str_contains($emptyFeatureShellSerialized, '"label":"Search"'), 'a bounded real search control converts to native search semantics');
 $assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
 $assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
 

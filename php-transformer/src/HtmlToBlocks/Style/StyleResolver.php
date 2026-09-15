@@ -1869,6 +1869,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isDecorativeHiddenElement($element)
             || $this->isExplicitlyInactiveState($element)
             || $this->isHiddenPositionedLayer($element, $declarations)
+            || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
         ) {
             return $declarations;
@@ -1897,6 +1898,35 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasKeyboardFocusReveal(DOMElement $element, array $declarations): bool
+    {
+        foreach ($this->context->sourceStyles()->revealStateRules() as $rule) {
+            if (
+                ! in_array((string) ($rule['state'] ?? ''), array('focus', 'focus-visible', 'focus-within'), true)
+                || ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->matchesCssSelector($element, (string) ($rule['state_subject_selector'] ?? ''))
+            ) {
+                continue;
+            }
+
+            $revealed = (array) ($rule['declarations'] ?? array());
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $revealedOpacity = CssValueInspector::comparable((string) ($revealed['opacity'] ?? ''));
+            if (is_numeric($opacity) && 0.0 === (float) $opacity && is_numeric($revealedOpacity) && 0.0 < (float) $revealedOpacity) {
+                return true;
+            }
+            if ('none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) && $this->isVisibleDisplay((string) ($revealed['display'] ?? ''))) {
+                return true;
+            }
+            if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')) && 'visible' === CssValueInspector::comparable((string) ($revealed['visibility'] ?? ''))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasConditionalVisibleDisplay(DOMElement $element): bool
@@ -2484,13 +2514,13 @@ final class StyleResolver implements ElementPresentationResolver
                     if (array() === $declarations) {
                         continue;
                     }
-                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                         $state = strtolower((string) $stateMatches[1][0][0]);
                         $offset = (int) $stateMatches[0][0][1];
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
                             $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
-                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'declarations' => $rawDeclarations);
+                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
                         }
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {

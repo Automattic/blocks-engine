@@ -29,6 +29,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const INLINE_NAVIGATION_CLASS = 'blocks-engine-inline-navigation';
 
+    private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
@@ -51,7 +53,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         if ( $this->hasNavigationChrome($element) ) {
-            return null;
+            $hasImageBrand = false;
+            foreach ( $element->childNodes as $child ) {
+                if ( $child instanceof DOMElement
+                    && 'a' === strtolower($child->tagName)
+                    && $this->readsAsBrandAnchor($child)
+                    && 0 < $child->getElementsByTagName('img')->length
+                ) {
+                    $hasImageBrand = true;
+                    break;
+                }
+            }
+            if ( ! $hasImageBrand ) {
+                return null;
+            }
         }
 
         // A row of button-styled links (e.g. `<div class="stream-links"><a
@@ -76,9 +91,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         // a navigation-link `url`. The guard still catches every container the
         // carrier declines, so nothing it protected loses that protection.
         $carrierFallbacks = array();
-        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext);
+        $hoisted = $this->brandAnchorCarrier($element, $carrierFallbacks, $presentationAttributes, $innerHtml, $createBlock, $context->recursiveConverter(), $navigationContext, $context->galleryContext());
         if ( null !== $hoisted ) {
             return new PatternRecognitionResult($hoisted, $carrierFallbacks);
+        }
+
+        if ( $this->hasNavigationChrome($element) ) {
+            return null;
         }
 
         if ( $this->hasDirectBrandingAnchorBesideListNavigation($element, $innerHtml) ) {
@@ -92,10 +111,20 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $label = $this->directSectionLabel($element);
+        $listSource = $this->navigationListSource($element);
+        $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
         $navigationAttrs = $label instanceof DOMElement
             ? $this->nestedLabeledNavigationAttributes($element, $presentationAttributes)
-            : $this->navigationContainerAttributes($element, $presentationAttributes);
+            : $this->navigationContainerAttributes(
+                $splitLandmarkOwnership && $listSource instanceof DOMElement ? $listSource : $element,
+                $presentationAttributes
+            );
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
+        if ( $splitLandmarkOwnership ) {
+            // A semantic source list is a vertical stack. Persist that intent on
+            // core/navigation so responsive artifact assembly cannot discard it.
+            $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
+        }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
@@ -113,17 +142,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         // container and enqueues the `navigation/view` Interactivity module so the
         // hamburger menu functions on the rendered site (#native-interactivity).
         $commonTextAttrs = $this->commonNavigationLinkTextAttributes($links);
-        $listSource = $this->navigationListSource($element);
         if ( $listSource instanceof DOMElement ) {
             unset($commonTextAttrs['style']['typography']);
-            // Core repeats navigation classes on its generated list container.
-            // Reset that one replacement box, never individual items: per-item
-            // compensation would shift each following label again.
-            $navigationContext?->projectSourceToNativeTarget(
-                $listSource,
-                '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
-                'padding:0!important;margin:0!important;border-width:0!important'
-            );
+            if ( ! $splitLandmarkOwnership ) {
+                // In-flow core/navigation still owns the source list directly.
+                // Its generated list needs the existing single-box reset.
+                $navigationContext?->projectSourceToNativeTarget(
+                    $listSource,
+                    '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
+                    'padding:0!important;margin:0!important;border-width:0!important'
+                );
+            }
+            $this->projectBlockListDisplay($listSource, $navigationContext, $splitLandmarkOwnership);
         }
         $navigationAttrs = array_replace_recursive(
 			$navigationAttrs,
@@ -164,6 +194,19 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigation = $createBlock('core/navigation', $navigationAttrs, $links, $element);
 
         if ( ! $label instanceof DOMElement ) {
+            if ( $splitLandmarkOwnership ) {
+                return new PatternRecognitionResult(
+                    $createBlock(
+                        'core/group',
+                        $this->withClassName(
+                            array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+                            'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ? self::SIDEBAR_NAVIGATION_CARRIER_CLASS : ''
+                        ),
+                        array( $navigation ),
+                        $element
+                    )
+                );
+            }
             return new PatternRecognitionResult($navigation);
         }
 
@@ -320,7 +363,7 @@ final class NavigationPattern implements PatternRecognizerInterface
      * @param list<array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext): ?array
+    private function brandAnchorCarrier(DOMElement $element, array &$fallbacks, callable $presentationAttributes, callable $innerHtml, callable $createBlock, ?PatternTreeConverter $converter, ?NavigationPatternContext $navigationContext, ?GalleryPatternContext $galleryContext): ?array
     {
         if ( null === $converter ) {
             return null;
@@ -359,7 +402,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 return null;
             }
 
-            if ( $this->isNavigationChromeElement($child) ) {
+            if ( $this->isNavigationChromeElement($child)
+                && ! ( 'a' === strtolower($child->tagName) && $this->readsAsBrandAnchor($child) )
+            ) {
                 // Chrome that scripts drive at runtime is not decoration: a
                 // carrier group would drop it, so keep the source shape.
                 if ( $navigationContext?->isRuntimeDomTarget($child) ) {
@@ -442,13 +487,18 @@ final class NavigationPattern implements PatternRecognizerInterface
         // item for raw markup; keep today's shape rather than lose the block.
         // A phrasing wordmark is created without a source element so the
         // inline-to-paragraph path does not attach the synthetic wrapper class.
-        $brand = null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
+        $brandImage = 'a' === strtolower($anchor->tagName) && 1 === $anchor->getElementsByTagName('img')->length
+            ? $anchor->getElementsByTagName('img')->item(0)
+            : null;
+        $brand = $brandImage instanceof DOMElement && null !== $galleryContext
+            ? $galleryContext->convertImage($brandImage, null, null, $anchor)
+            : ( null !== $nonAnchorShape && in_array(strtolower($anchor->tagName), array( 'span', 'strong', 'em', 'b', 'i', 'small' ), true)
             ? $createBlock(
                 'core/paragraph',
                 array_merge($presentationAttributes($anchor), array( 'content' => $innerHtml($anchor) )),
                 array()
             )
-            : $converter->element($anchor, $fallbacks, true);
+            : $converter->element($anchor, $fallbacks, true) );
         $brandName = is_array($brand) ? (string) ($brand['blockName'] ?? '') : '';
         if ( '' === $brandName || 'core/html' === $brandName ) {
             return null;
@@ -461,6 +511,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             ? array()
             : $this->navigationContainerAttributes($cluster, $presentationAttributes);
         $listSource = $this->navigationListSource($cluster);
+        $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
+        if ( $splitLandmarkOwnership ) {
+            $navigationAttrs['layout'] = array( 'type' => 'flex', 'orientation' => 'vertical' );
+        }
         if ( null !== $navigationContext && $listSource instanceof DOMElement ) {
             $clusterSpacing = $this->resolvedNavigationSpacing($navigationContext->resolvedStyle($cluster));
             $blockGap = trim((string) ($clusterSpacing['blockGap'] ?? ''));
@@ -480,14 +534,14 @@ final class NavigationPattern implements PatternRecognizerInterface
                     $navigationAttrs['style']['spacing']['padding'] = $padding;
                 }
             }
-            // Core repeats navigation classes on its generated list container.
-            // Reset that one replacement box, never individual items: per-item
-            // compensation would shift each following label again.
+            // The brand carrier retains the existing in-flow list replacement
+            // shape, so its generated list still needs one neutralized box.
             $navigationContext->projectSourceToNativeTarget(
                 $listSource,
                 '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__container',
                 'padding:0!important;margin:0!important;border-width:0!important'
             );
+            $this->projectBlockListDisplay($listSource, $navigationContext, $splitLandmarkOwnership);
         }
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
@@ -542,9 +596,12 @@ final class NavigationPattern implements PatternRecognizerInterface
         // The authored `aria-label` does not come with it: core/group registers no
         // attribute that carries an accessible name, and inventing one would emit
         // exactly the unregistered comment attribute this carrier exists to stop.
-        $carrierAttrs = array_merge($presentationAttributes($element), array( 'tagName' => 'nav' ));
-        if ( $isDirectDivCascadeCollision ) {
-            $carrierAttrs = $this->withClassName($carrierAttrs, self::DIRECT_NAVIGATION_CARRIER_CLASS);
+        $carrierAttrs = $this->withClassName(
+            array_merge($presentationAttributes($element), array( 'tagName' => 'nav' )),
+            self::DIRECT_NAVIGATION_CARRIER_CLASS
+        );
+        if ( $splitLandmarkOwnership && 'mobile' === ($navigationAttrs['overlayMenu'] ?? '') ) {
+            $carrierAttrs = $this->withClassName($carrierAttrs, self::SIDEBAR_NAVIGATION_CARRIER_CLASS);
         }
 
         $extraBlocks = array();
@@ -697,6 +754,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return true;
+    }
+
+    /**
+     * Core repeats a navigation block's class list on generated descendants. An
+     * out-of-flow landmark therefore needs its own host; otherwise fixed rail
+     * geometry is applied to both the rail and the replacement list.
+     */
+    private function shouldSplitLandmarkOwnership(DOMElement $element, ?DOMElement $listSource, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( ! $listSource instanceof DOMElement
+            || $listSource->isSameNode($element)
+            || 'nav' !== strtolower($element->tagName)
+            || ! $navigationContext instanceof NavigationPatternContext
+        ) {
+            return false;
+        }
+
+        return 1 === preg_match(
+            '/(?:^|;)\s*position\s*:\s*(?:fixed|absolute|sticky)\b/i',
+            $navigationContext->resolvedStyle($element)
+        );
     }
 
     /**
@@ -1424,6 +1502,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( ! $anchor instanceof DOMElement ) {
                 continue;
             }
+            // A brand/logo anchor is outside the menu-item correspondence. Its
+            // image-only markup has no wrapper classes to intersect with the
+            // list items and would erase their shared presentation identity.
+            if ( '' === trim($anchor->textContent ?? '') ) {
+                continue;
+            }
             $classes = array();
             $node    = $anchor->parentNode;
             $depth   = 0;
@@ -1451,6 +1535,28 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return implode(' ', array_keys($shared));
+    }
+
+    private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
+    {
+        if ( ! $navigationContext instanceof NavigationPatternContext ) {
+            return;
+        }
+
+        $display = strtolower(trim($navigationContext->resolvedDisplay($listSource)));
+        if ( ! $preserveSemanticBlockStack && in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
+            return;
+        }
+
+        // Core starts the generated list as flex. A source list without a
+        // flex/grid declaration is a block stack by HTML semantics, so restore
+        // that layout only on the top-level native list. Nested submenu
+        // containers remain under Core's interaction ownership.
+        $navigationContext->projectSourceToNativeTarget(
+            $listSource,
+            '.wp-block-navigation.blocks-engine-list-navigation>.wp-block-navigation__responsive-container>.wp-block-navigation__responsive-container-content>.wp-block-navigation__container',
+            'display:block!important'
+        );
     }
 
     /**

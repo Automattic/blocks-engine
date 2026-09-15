@@ -1,9 +1,10 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__, 2) . '/src/HtmlToBlocks/NavigationBlockNormalizer.php';
+require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\NavigationBlockNormalizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 
 $failures = 0;
 $passes = 0;
@@ -74,6 +75,46 @@ $group = array(
 );
 $normalized = $normalizer->normalize(array($group), array(), array());
 $assert(array('<div>', null, null, '</div>') === $normalized[0]['innerContent'], 'repairs serialized child placeholders after recursive normalization');
+
+// Independently displayed document variants each need a complete menu. They
+// are not alternate controls for a single navigation rendered outside them.
+foreach ( array(
+    array('data-liberation-desktop-document', 'data-liberation-mobile-document'),
+    array('site-document-variant-default', 'site-document-variant-mobile'),
+) as $variantClasses ) {
+    $variants = array();
+    foreach ( $variantClasses as $index => $className ) {
+        $variants[] = array(
+            'blockName' => 'core/group',
+            'attrs' => array('className' => $className),
+            'innerBlocks' => array($navigation($index + 1)),
+            'innerContent' => array('<div>', null, '</div>'),
+            'innerHTML' => '<div></div>',
+        );
+    }
+    foreach ( array($variants, array_reverse($variants)) as $orderedVariants ) {
+        $normalized = $normalizer->normalize($orderedVariants, $sourceProvenance, array());
+        foreach ( $normalized as $variant ) {
+            $assert(1 === count($variant['innerBlocks']), 'retains navigation in independent document ' . $variant['attrs']['className']);
+        }
+    }
+    $variants[1]['innerBlocks'] = array($navigation(1), $navigation(2));
+    $normalized = $normalizer->normalize($variants, $sourceProvenance, array());
+    $assert(1 === count($normalized[1]['innerBlocks']), 'still reconciles duplicate controls within one document variant');
+}
+
+$menu = '<header><nav class="rail" id="site-menu"><ul class="menu">'
+    . '<li><a href="/">Home</a></li><li><a href="/contact">Contact</a></li></ul></nav></header>';
+$converted = (new HtmlTransformer())->transform(
+    '<style>.rail{position:fixed;width:250px}.menu{display:block}'
+    . '.data-liberation-mobile-document{display:none}'
+    . '@media(max-width:768px){.data-liberation-desktop-document{display:none}.data-liberation-mobile-document{display:block}}</style>'
+    . '<div class="data-liberation-desktop-document">' . $menu . '</div>'
+    . '<div class="data-liberation-mobile-document">' . $menu . '</div>'
+)->toArray();
+$markup = (string) ($converted['serialized_blocks'] ?? '');
+$assert(2 === substr_count($markup, '<!-- wp:navigation '), 'full conversion serializes an editable navigation for each responsive document');
+$assert(2 === substr_count($markup, '"url":"/contact"'), 'both document menus retain the Contact destination through serialization');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation block normalizer contract: {$failures} failed, {$passes} passed\n");
