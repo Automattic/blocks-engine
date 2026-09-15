@@ -307,6 +307,7 @@ final class StyleResolver implements ElementPresentationResolver
             'className' => $this->mergePresentationClassNames(
                 $this->inlineStyleDeclaresAllReset($element) ? '' : $this->context->promotedClassName(SourceDom::attr($element, 'class')),
                 $this->editorAnchorClassName($element),
+                $this->viewportRootHeightClassName($element),
                 $this->inlineGeometryClassName(
                     $element,
                     $excludedGeometryProperties,
@@ -778,6 +779,46 @@ final class StyleResolver implements ElementPresentationResolver
         )));
 
         return '' === $position || 'static' === $position;
+    }
+
+    /**
+     * A source document root commonly inherits `height:100%` through html and
+     * body. Block content gains WordPress-owned ancestors, which makes that
+     * percentage indefinite and can collapse absolute page layers to a header.
+     */
+    private function viewportRootHeightClassName(DOMElement $element): string
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || ( 'body' !== strtolower($parent->tagName) && ! $this->isDocumentVariantRoot($parent) )
+            || '' === SourceDom::safeAnchor(SourceDom::attr($element, 'id'))
+        ) {
+            return '';
+        }
+
+        $height = CssValueInspector::comparable((string) ($this->structuralPresentationDeclarations($element)['height'] ?? ''));
+        if ( '100%' !== $height ) {
+            return '';
+        }
+
+        $rule = 'height:100vh!important';
+        $className = $this->context->layoutGeometry()->allocateCarrier(
+            'viewport-root-height' . "\n" . $this->geometryStructuralPath($element) . "\n" . $rule
+        );
+        $this->context->layoutGeometry()->registerRule($className, '.' . $className . '{' . $rule . '}');
+        return $className;
+    }
+
+    private function isDocumentVariantRoot(DOMElement $element): bool
+    {
+        foreach (preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className) {
+            if (str_starts_with($className, 'site-document-variant-')
+                || in_array($className, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)
+            ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -1456,9 +1497,9 @@ final class StyleResolver implements ElementPresentationResolver
         return implode(' ', $classes);
     }
 
-    public function generatedGeometryCss(string $serializedBlocks): string
+    public function generatedGeometryCss(string $serializedBlocks, bool $hasTopologyChanges = false): string
     {
-        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks);
+        return $this->context->layoutGeometry()->cssForSerializedBlocks($serializedBlocks, $hasTopologyChanges);
     }
 
     /**
@@ -1509,6 +1550,28 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
+    }
+
+    /**
+     * Resolves matching author rules even when the element is below the native
+     * presentation boundary. Media materializers use this only to decide whether
+     * source CSS, rather than an intrinsic asset attribute, owns its media box.
+     *
+     * @return array<string, string>
+     */
+    public function authorStructuralDeclarations(DOMElement $element): array
+    {
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $declarations = array();
+        foreach ( $selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex()) as $rule ) {
+            if ( ! $selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array(), true)['matches'] ) {
+                continue;
+            }
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations'] ?? array());
+        }
+
+        return $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
     }
 
     /**
@@ -1869,6 +1932,7 @@ final class StyleResolver implements ElementPresentationResolver
             || $this->isDecorativeHiddenElement($element)
             || $this->isExplicitlyInactiveState($element)
             || $this->isHiddenPositionedLayer($element, $declarations)
+            || $this->hasKeyboardFocusReveal($element, $declarations)
             || $this->context->hasRetainedPresentationRuntime($element)
         ) {
             return $declarations;
@@ -1897,6 +1961,35 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $normalized['declarations'];
+    }
+
+    /** @param array<string, string> $declarations */
+    private function hasKeyboardFocusReveal(DOMElement $element, array $declarations): bool
+    {
+        foreach ($this->context->sourceStyles()->revealStateRules() as $rule) {
+            if (
+                ! in_array((string) ($rule['state'] ?? ''), array('focus', 'focus-visible', 'focus-within'), true)
+                || ! $this->matchesCssSelector($element, (string) ($rule['base_selector'] ?? ''))
+                || ! $this->matchesCssSelector($element, (string) ($rule['state_subject_selector'] ?? ''))
+            ) {
+                continue;
+            }
+
+            $revealed = (array) ($rule['declarations'] ?? array());
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+            $revealedOpacity = CssValueInspector::comparable((string) ($revealed['opacity'] ?? ''));
+            if (is_numeric($opacity) && 0.0 === (float) $opacity && is_numeric($revealedOpacity) && 0.0 < (float) $revealedOpacity) {
+                return true;
+            }
+            if ('none' === CssValueInspector::comparable((string) ($declarations['display'] ?? '')) && $this->isVisibleDisplay((string) ($revealed['display'] ?? ''))) {
+                return true;
+            }
+            if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? '')) && 'visible' === CssValueInspector::comparable((string) ($revealed['visibility'] ?? ''))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasConditionalVisibleDisplay(DOMElement $element): bool
@@ -2443,6 +2536,8 @@ final class StyleResolver implements ElementPresentationResolver
                     $layers[$name] ??= count($layers);
                     $layer = $name;
                 }
+                $isStaticLayerRule = array() !== $conditions
+                    && array_reduce($conditions, static fn (bool $static, string $condition): bool => $static && 1 === preg_match('/^@layer\b/i', trim($condition)), true);
 
                 foreach (explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
@@ -2450,7 +2545,7 @@ final class StyleResolver implements ElementPresentationResolver
                         continue;
                     }
                     $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && array() === $conditions && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
+                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
                         $analysis['static'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
@@ -2458,7 +2553,7 @@ final class StyleResolver implements ElementPresentationResolver
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
                         );
                     }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && ! $isStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
                         $analysis['conditional'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
@@ -2478,19 +2573,19 @@ final class StyleResolver implements ElementPresentationResolver
                             );
                         }
                     }
-                    if ($supportedRestingSelector && array() === $conditions && array() !== $cascadedValueDeclarations) {
+                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && array() !== $cascadedValueDeclarations) {
                         $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
                     if (array() === $declarations) {
                         continue;
                     }
-                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                         $state = strtolower((string) $stateMatches[1][0][0]);
                         $offset = (int) $stateMatches[0][0][1];
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
                         if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
                             $analysis['navigation_state'][] = array('selector' => $selector, 'base_selector' => $baseSelector, 'state' => $state, 'declarations' => $declarations);
-                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'declarations' => $rawDeclarations);
+                            $analysis['reveal_state'][] = array('base_selector' => $baseSelector, 'state' => $state, 'state_subject_selector' => trim(substr($selector, 0, $offset)), 'declarations' => $rawDeclarations);
                         }
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {

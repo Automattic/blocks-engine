@@ -301,7 +301,7 @@ final class SourceElementClassifier
     public function isInlineSourceElement(string $tagName): bool
     {
         return $this->isInlineContentElement($tagName)
-            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
+            || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'input', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
     }
 
     public function hasBlockContentChildren(DOMElement $element): bool
@@ -309,6 +309,22 @@ final class SourceElementClassifier
         foreach ( $element->childNodes as $child ) {
             $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
             if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function hasFlowContentChildren(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( ! in_array($tagName, array( 'script', 'style', 'template' ), true) && ! $this->isInlineSourceElement($tagName) ) {
                 return true;
             }
         }

@@ -107,6 +107,23 @@ $assert(
     '' !== $columnRule ? $columnRule : $cssFor($column, 'engine-support')
 );
 
+// A fixed inline height is unsafe once the converted direct children no longer
+// have the source tags. Retaining it can clip the block wrappers at that height.
+$topologyChanged = $transform(
+    '<div style="display:flex;height:50px"><a href="/">One</a><a href="/two">Two</a></div>'
+);
+$topologyChangedCss = $cssFor($topologyChanged, 'engine-support');
+$assert(
+    ! str_contains($topologyChangedCss, 'height:50px'),
+    'topology-changing flex: fixed inline height is not carried onto the CSS-owned group',
+    $topologyChangedCss
+);
+$assert(
+    str_contains($topologyChangedCss, 'display:flex'),
+    'topology-changing flex: the required author-owned flex layout remains carried',
+    $topologyChangedCss
+);
+
 // -- Control: no authored display gains no carrier and no flex declaration.
 $plain = $transform('<footer class="plain">' . $columns . '</footer>');
 $plainMarkup = (string) ($plain['serialized_blocks'] ?? '');

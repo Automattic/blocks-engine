@@ -257,7 +257,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            if ( 'core/group' === ($block['blockName'] ?? '') && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? '')) ) {
+            if ( $this->isNativeNavigationCarrier($block) ) {
                 ++$counts['nav'];
                 continue;
             }
@@ -609,8 +609,7 @@ final class SemanticParityReporter
 
             $blockPath = $path . '.' . $index;
             $innerBlocks = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
-            if ( 'core/group' === ($block['blockName'] ?? '')
-                && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+            if ( $this->isNativeNavigationCarrier($block)
                 && $this->containsBlockName($innerBlocks, 'core/list')
                 && ! $this->containsBlockName($innerBlocks, 'core/navigation')
             ) {
@@ -626,8 +625,7 @@ final class SemanticParityReporter
                 continue;
             }
 
-            if ( 'core/group' === ($block['blockName'] ?? '')
-                && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+            if ( $this->isNativeNavigationCarrier($block)
                 && ! $this->containsBlockName($innerBlocks, 'core/navigation')
             ) {
                 $items = array();
@@ -657,7 +655,7 @@ final class SemanticParityReporter
             }
 
             if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $childSiblings = 'core/group' === ($block['blockName'] ?? '') && 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''))
+                $childSiblings = $this->isNativeNavigationCarrier($block)
                     ? $block['innerBlocks']
                     : array();
                 $this->collectBlockNavigationMenus($block['innerBlocks'], $blockPath . '.innerBlocks', $menus, $childSiblings);
@@ -676,6 +674,26 @@ final class SemanticParityReporter
                 return true;
             }
             if ( is_array($block['innerBlocks'] ?? null) && $this->containsBlockName($block['innerBlocks'], $name) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function isNativeNavigationCarrier(array $block): bool
+    {
+        if ( 'core/group' === ($block['blockName'] ?? '') ) {
+            return 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''));
+        }
+
+        if ( 'custom/layout-shell' !== ($block['blockName'] ?? '') || $this->containsBlockName(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), 'core/navigation') ) {
+            return false;
+        }
+
+        foreach ( $block['attrs']['wrappers'] ?? array() as $wrapper ) {
+            if ( is_array($wrapper) && 'nav' === strtolower((string) ($wrapper['tagName'] ?? '')) ) {
                 return true;
             }
         }

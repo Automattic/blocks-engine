@@ -58,9 +58,50 @@ $navigationShellClass = (string) ($navigationShellBlock['attrs']['className'] ??
 preg_match('/blocks-engine-source-nav-[^\s]+/', $navigationShellClass, $navigationShellMarker);
 $assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigationMenuBlock['attrs']['className'] ?? ''), 'blocks-engine-source-nav-') && str_contains($navigationShellCss, ':where(.' . $navigationShellMarker[0] . '):not(blocks-engine-specificity-') && ! preg_match('/(^|[},])nav\s*\{/', $navigationShellCss), 'nav type selectors stay scoped to the canonical source navigation shell instead of matching nested core navigation markup');
 
+$responsiveDirectNavigation = $transform('<style>@layer utilities{.hidden{display:none}@media (min-width:1024px){.lg\\:flex{display:flex}}}</style><nav class="hidden lg:flex"><a href="#one">One</a></nav>');
+$responsiveDirectNavigationCss = $css($responsiveDirectNavigation);
+$assert(
+    str_contains($responsiveDirectNavigationCss, ':root .wp-block-navigation.hidden{display:none!important}')
+        && str_contains($responsiveDirectNavigationCss, '@media (min-width:1024px){:root .wp-block-navigation.lg\\:flex{display:flex!important}}'),
+    'direct navigation retains source-owned hidden and responsive display states against core navigation layout CSS'
+);
+
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
-$assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
+$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
+
+$layeredNativeButton = $transform('<style>@layer utilities{@media (max-width:600px){button.cta{background:#135e96;padding:8px 16px;font-size:12px;font-weight:700}}}</style><button class="cta">Buy</button>');
+$layeredNativeButtonCss = $css($layeredNativeButton);
+$assert(
+    str_contains($layeredNativeButtonCss, '@layer utilities{@media (max-width:600px){')
+        && str_contains($layeredNativeButtonCss, ':not([style*="background"]){background:#135e96!important')
+        && preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+/', $layeredNativeButtonCss)
+        && str_contains($layeredNativeButtonCss, 'background:#135e96!important')
+        && str_contains($layeredNativeButtonCss, 'padding:8px 16px!important')
+        && str_contains($layeredNativeButtonCss, 'font-size:12px!important')
+        && str_contains($layeredNativeButtonCss, 'font-weight:700!important'),
+    'layered native button presentation projects onto the core button link with source ownership priority'
+);
+
+$nestedNativeCta = $transform('<style>@layer utilities{.bg-primary{background-color:var(--primary);color:var(--primary-foreground);padding:0 12px;font-size:14px;font-weight:600}}</style><a href="#valuation"><button class="bg-primary">Publicar mi propiedad</button></a>');
+$nestedNativeCtaCss = $css($nestedNativeCta);
+$assert(
+    preg_match('/blocks-engine-control-[a-f0-9]+-\d+\.blocks-engine-control-[a-f0-9]+-\d+.*background-color:var\(--primary\)!important/', $nestedNativeCtaCss)
+        && str_contains($nestedNativeCtaCss, 'padding:0 12px!important')
+        && str_contains($nestedNativeCtaCss, 'font-weight:600!important'),
+    'nested anchor native CTA retains layered paint through its exact lowered button target'
+);
+
+$mixedNativeButtonTargets = $transform('<style>button.cta,button.icon{background:#135e96;padding:8px 16px;font-size:12px}</style><button class="cta">Buy</button><button class="icon"><svg><path d="M0 0h1v1z"/></svg></button>');
+$mixedNativeButtonTargetsCss = $css($mixedNativeButtonTargets);
+preg_match('/(?:^|})([^{}]+)\{background:#135e96!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
+$assert(
+    2 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
+        && 2 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
+        && isset($mixedNativeButtonPriorityRule[1])
+        && ! str_contains($mixedNativeButtonPriorityRule[1], ','),
+    'mixed ordinary and icon native button matches scope source ownership to the ordinary control'
+);
 
 $sharedReset = $transform('<style>div,a,button{padding:0}.box{padding-left:24px}</style><div class="box"><a class="cta" href="/go" style="padding:1px;background:#000">Go</a></div>');
 $sharedResetCss = $css($sharedReset);
@@ -103,7 +144,7 @@ $assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sh
 
 $relations = $transform('<style>p{margin:0}p + a.cta{color:red}p ~ button.cta{color:blue}main > p + a.cta{padding:1rem}</style><main><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button></main>');
 $relationCss = $css($relations);
-$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 3 === substr_count($relationCss, '> :where(.wp-block-button__link)') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
+$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 4 === substr_count($relationCss, '> :where(.wp-block-button__link)') && str_contains($relationCss, 'color:blue!important') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
 
 $base = '<style>.blocks-engine-source-p-deadbeef-0{display:block}p{color:red}</style><p>Collision</p>';
 $baseCss = $css($transform($base));
@@ -192,6 +233,15 @@ $assert(
 $zeroWidthControl = $transform('<style>.skip{position:absolute;left:50%;width:0;height:0;padding:0 24px}</style><button class="skip">Skip</button>');
 $zeroWidthControlCss = $css($zeroWidthControl);
 $assert(str_contains($zeroWidthControlCss, ':where(.wp-block-buttons){position:absolute;left:50%;width:0;height:0}') && str_contains($zeroWidthControlCss, '> :where(.wp-block-button__link){padding:0 24px}'), 'control dimensions and positioning stay on the native wrapper while inner paint remains on the button link');
+
+$heroLayers = $transform('<style>.hero{position:relative;min-height:46rem}.hero-image,.hero-overlay{position:absolute;inset:0}.hero-copy{position:relative}</style><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div><div class="hero-copy"><h1>Visible hero copy</h1></div></section>');
+$heroLayersCss = $css($heroLayers);
+$assert(
+    str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}')
+        && ! str_contains($heroLayersCss, 'block-editor-block-list__block:has(> .hero-image)')
+        && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
+    'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
+);
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
 $wrapperCss = $css($wrapper);
@@ -455,6 +505,16 @@ $richTextPillMarkup = (string) ($richTextPill['serialized_blocks'] ?? '');
 $richTextPillCss = $css($richTextPill);
 $assert(str_contains($richTextPillMarkup, '<mark class="pill"') && str_contains($richTextPillMarkup, '--blocks-engine-richtext-marker:blocks-engine-richtext-') && str_contains($richTextPillCss, 'mark[style*="--blocks-engine-richtext-marker:blocks-engine-richtext-') && 'pass' === ($richTextPill['source_reports']['wp_block_validity']['status'] ?? ''), 'RichText-contained selector hooks survive through valid mark formatting and projected CSS');
 
+$standaloneInlineLeaves = $transform('<strong class="metric-value">+150</strong><span class="metric-label">Properties</span>');
+$standaloneInlineLeavesMarkup = (string) ($standaloneInlineLeaves['serialized_blocks'] ?? '');
+$standaloneInlineLeavesCss = $css($standaloneInlineLeaves);
+$assert(2 === substr_count($standaloneInlineLeavesMarkup, '<p class="blocks-engine-synthetic-paragraph">') && str_contains($standaloneInlineLeavesCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}') && 'pass' === ($standaloneInlineLeaves['source_reports']['wp_block_validity']['status'] ?? ''), 'standalone inline leaves receive margin-neutral native paragraph carriers');
+$authoredParagraph = $transform('<style>p{margin:13px 0 7px}</style><p>Authored copy</p>');
+$authoredParagraphMarkup = (string) ($authoredParagraph['serialized_blocks'] ?? '');
+$authoredParagraphCss = $css($authoredParagraph);
+$assert(! str_contains($authoredParagraphMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($authoredParagraphCss, 'margin:13px 0 7px') && 'pass' === ($authoredParagraph['source_reports']['wp_block_validity']['status'] ?? ''), 'authored paragraphs retain their source-owned margins');
+
+
 $richTextColor = $transform('<style>:root{--amber:#e8a020}.quote-mark{font-size:4rem;color:var(--amber)}</style><p><span class="quote-mark">&quot;</span>Testimonial</p>');
 $richTextColorMarkup = (string) ($richTextColor['serialized_blocks'] ?? '');
 $richTextColorCss = $css($richTextColor);
@@ -563,6 +623,19 @@ $assert(str_contains($emptyAccessibleLinkMarkup, '<p class="blocks-engine-synthe
 $semanticInline = $transform('<style>*{margin:0;padding:0}em,i{font-style:italic;font-weight:inherit}</style><p>Read <em>this</em> now.</p>');
 $semanticInlineMarkup = (string) ($semanticInline['serialized_blocks'] ?? '');
 $assert(str_contains($semanticInlineMarkup, '<em>this</em>') && ! str_contains($semanticInlineMarkup, '<mark') && str_contains($css($semanticInline), 'em,i{font-style:italic;font-weight:inherit}') && 'pass' === ($semanticInline['source_reports']['wp_block_validity']['status'] ?? ''), 'attribute-free semantic RichText keeps its native tag and author selector without a redundant mark wrapper');
+
+$layeredUniversalReset = $transform('<style>@layer base{@media (min-width:1px){*,:after,:before,::backdrop{margin:0;padding:0}}}</style><h1>Reset heading</h1>');
+$layeredUniversalResetCss = $css($layeredUniversalReset);
+$assert(
+    str_contains($layeredUniversalResetCss, '@layer base{@media (min-width:1px){')
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):after/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\):before/', $layeredUniversalResetCss)
+        && 1 === preg_match('/:not\(\.blocks-engine-specificity-[^)]+\)::backdrop/', $layeredUniversalResetCss)
+        && str_contains($layeredUniversalResetCss, '{margin:0}')
+        && ! str_contains($layeredUniversalResetCss, ':after:not(.blocks-engine-specificity-')
+        && ! str_contains($layeredUniversalResetCss, ':before:not(.blocks-engine-specificity-'),
+    'layered conditional universal margin resets retain valid legacy and double-colon pseudo-element selectors'
+);
 
 $structural = $transform('<style>.product-layout{display:grid;grid-template-columns:1fr 20rem;gap:3rem}.product-layout > .detail-pane{min-width:0}</style><div class="product-layout"><div>Primary</div><aside class="detail-pane">Secondary</aside></div>');
 $structuralMarkup = (string) ($structural['serialized_blocks'] ?? '');
@@ -772,6 +845,19 @@ $assert(1 === substr_count($commentAnnotatedGroupChainMarkup, '<!-- wp:group') &
 $sameSourceGroupChainSelectorEdge = $transform('<style>.outer > .middle{color:red}</style><div class="outer"><div class="middle"><div class="content"><p>Copy</p></div></div></div>');
 $assert(1 === substr_count((string) ($sameSourceGroupChainSelectorEdge['serialized_blocks'] ?? ''), '<!-- wp:custom/layout-shell') && 2 === count($sameSourceGroupChainSelectorEdge['blocks'][0]['attrs']['wrappers'] ?? array()) && str_contains($css($sameSourceGroupChainSelectorEdge), '.outer > .middle{color:red}'), 'same-source Group chains retain the selected outer boundary inside their layout shell');
 
+$semanticWrapperChain = $transform('<section class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2></div></div></section>');
+$semanticWrapperBlock = $semanticWrapperChain['blocks'][0] ?? array();
+$assert(
+    str_ends_with((string) ($semanticWrapperBlock['blockName'] ?? ''), '/layout-shell')
+    && array('section', 'div') === array_column($semanticWrapperBlock['attrs']['wrappers'] ?? array(), 'tagName')
+    && str_contains((string) ($semanticWrapperBlock['attrs']['wrappers'][1]['attributes']['class'] ?? ''), 'copy rich')
+    && array('core/heading') === array_column($semanticWrapperBlock['innerBlocks'] ?? array(), 'blockName'),
+    'a unary semantic wrapper chain becomes one labeled layout shell while retaining native editable text leaves'
+);
+
+$siblingSemanticSections = $transform('<main><section><h2>First</h2></section><section><h2>Second</h2></section></main>');
+$assert(2 === count($siblingSemanticSections['blocks'][0]['innerBlocks'] ?? array()), 'sibling semantic sections remain separately selectable editor areas');
+
 $nestedFlex = $transform('<div style="display:flex"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $nestedFlexMarkup = (string) ($nestedFlex['serialized_blocks'] ?? '');
 $assert(1 === substr_count($nestedFlexMarkup, '<!-- wp:group') && str_contains($nestedFlexMarkup, 'blocks-engine-css-owned-layout'), 'redundant nested flex wrappers coalesce to the child geometry group');
@@ -781,6 +867,16 @@ $assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''),
 
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
 $assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers retain their direct CSS-owned child topology');
+
+$boxedTextWrapper = $transform('<style>@layer utilities{.footer-note{margin-top:calc(var(--spacing) * 12);padding-top:calc(var(--spacing) * 6);border-top-style:solid;border-top-width:1px}}</style><footer><div class="footer-note">Footer text</div></footer>');
+$boxedTextWrapperMarkup = (string) ($boxedTextWrapper['serialized_blocks'] ?? '');
+$assert(
+    str_contains($boxedTextWrapperMarkup, '<div class="wp-block-group footer-note">')
+        && str_contains($boxedTextWrapperMarkup, '<p>Footer text</p>')
+        && ! str_contains($boxedTextWrapperMarkup, '<p class="footer-note"'),
+    'box-styled div text wrappers retain a native group so source spacing and border utilities do not lose to synthetic paragraph resets',
+    $boxedTextWrapperMarkup
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "Author selector semantics unit tests: {$failures} failed, {$passes} passed\n");

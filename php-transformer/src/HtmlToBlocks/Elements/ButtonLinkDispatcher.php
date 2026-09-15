@@ -36,6 +36,10 @@ final class ButtonLinkDispatcher
      */
     public function convertAnchor(DOMElement $element, array &$fallbacks): ?array
     {
+        if ( $this->requiresWrappedButtonPreservation($element) ) {
+            return $this->context->htmlPreservationBlock($element);
+        }
+
         if ( $this->context->isRuntimeDomTarget($element) ) {
             return $this->context->htmlPreservationBlock($element);
         }
@@ -83,6 +87,43 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        $button = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || $button instanceof DOMElement ) {
+                return false;
+            }
+            $button = $child;
+        }
+        if ( ! $button instanceof DOMElement || ! ($button->hasAttribute('class') || $button->hasAttribute('id') || $button->hasAttribute('style')) ) {
+            return false;
+        }
+
+        $type = strtolower(trim($button->getAttribute('type')));
+        if ( ! in_array($type, array( '', 'button' ), true) ) {
+            return true;
+        }
+        if ( '' === $type ) {
+            for ( $ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+                if ( 'form' === strtolower($ancestor->tagName) ) {
+                    return true;
+                }
+            }
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $button->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

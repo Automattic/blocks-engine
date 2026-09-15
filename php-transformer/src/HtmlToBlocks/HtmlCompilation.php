@@ -363,6 +363,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private HtmlTransformerSession $session;
 
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
+    private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
     private const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_UNDECORATED_CLASS;
 
@@ -1355,8 +1356,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $runtimeRegisteredBlocks = $this->runtime->runtimeRegisteredCoreBlockNames();
         $capabilityMatrix = (new CoreBlockCapabilityMatrix($this->runtime))->coverage($nativeTargetBlocks, $runtimeRegisteredBlocks);
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
-        $runtimeBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_runtime_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
-        $visualBlockPaths = array_values(array_filter(array_map(static fn (array $entry): string => !empty($entry['editability_visual_owned']) ? (string) ($entry['block_path'] ?? '') : '', $sourceProvenance)));
+        $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
         $generatedCarrierCss = $this->engineSupportCss();
         $resultComposer = new HtmlResultComposer();
         $diagnostics = $resultComposer->diagnostics(array(
@@ -1371,7 +1371,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
-            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $runtimeBlockPaths, $visualBlockPaths, $sourceProvenance),
+            editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
             responsiveCounterpartContracts: $responsiveCounterpartContracts,
             layoutGeometryProof: $this->layoutGeometry()->proofProvenance(),
             reusableComponents: $reusableComponentRecognition,
@@ -1923,7 +1923,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $authorCssParts[] = $split['stylesheet'];
             }
         }
-        $geometryCss = $this->styleResolver->generatedGeometryCss($serializedBlocks);
+        $geometryCss = $this->styleResolver->generatedGeometryCss(
+            $serializedBlocks,
+            array() !== $this->transformationEvidence()->authorLayoutTopologyFindings()
+        );
         if ( '' !== $geometryCss ) {
             // Important carrier rules precede author CSS: they retain inline
             // precedence over normal selectors while authored !important rules
@@ -1941,6 +1944,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 . "\n" . ':root :where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.has-text-color)>a{color:inherit}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . ')>a{text-decoration:underline}'
                 . "\n" . ':where(p.' . self::SYNTHETIC_PARAGRAPH_CLASS . '.' . self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS . ')>a{text-decoration:none}';
+        }
+        if ( str_contains($serializedBlocks, self::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
+            // A standalone SVG becomes valid RichText image markup inside a
+            // paragraph. Its source was a block box, so remove the paragraph's
+            // otherwise-added line box without affecting inline SVG text.
+            $beforeAuthorCssParts[] = ':root p.' . self::SYNTHETIC_SVG_PARAGRAPH_CLASS . '{line-height:0!important}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS) ) {
             $beforeAuthorCssParts[] = ':root :where(.' . SourceBlockAttributeProjector::HIDDEN_RICH_TEXT_MARKER_CLASS . '){display:none!important}';
@@ -1991,6 +2000,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
+        }
+        if ( str_contains($serializedBlocks, self::EMPTY_VISUAL_GROUP_CLASS) ) {
+            // An empty painted layer has no portable interaction contract. It
+            // must not cover native controls after its source runtime is absent.
+            $beforeAuthorCssParts[] = ':where(.' . self::EMPTY_VISUAL_GROUP_CLASS . '){pointer-events:none!important}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_FLOW_CLASS) ) {
             // Core flow spacing is not part of a source grid or flex contract.
@@ -2084,6 +2098,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( str_contains($serializedBlocks, 'blocks-engine-native-responsive-navigation') ) {
                 $afterAuthorCssParts[] = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}';
             }
+            if ( str_contains($serializedBlocks, 'blocks-engine-sidebar-navigation-carrier') ) {
+                // Core's mobile overlay is active at this breakpoint. The source
+                // rail counterpart is intentionally collapsed there, so release
+                // only the generated carrier and let native navigation own it.
+                $afterAuthorCssParts[] = '@media(max-width:600px){nav.wp-block-group.blocks-engine-sidebar-navigation-carrier{position:relative!important;inset:auto!important;width:auto!important;height:auto!important;min-height:0!important;z-index:auto!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation{width:100%!important;height:auto!important;min-height:48px!important}nav.wp-block-group.blocks-engine-sidebar-navigation-carrier>.wp-block-navigation>.wp-block-navigation__responsive-container-open{display:flex!important;width:48px!important;height:48px!important;padding:12px!important;visibility:visible!important}}';
+            }
             if ( str_contains($serializedBlocks, 'blocks-engine-projected-dialog-navigation') ) {
                 $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
                 $fallbackTextColor = '';
@@ -2122,7 +2142,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             // is declared important. The <nav> keeps the authored class list and
             // therefore still paints the source box exactly once, whether the
             // source declared it on the menu element or on its list.
-            $afterAuthorCssParts[] = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
+            $afterAuthorCssParts[] = 'nav.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
             foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
                 $afterAuthorCssParts[] = $inlineMarginRule;
             }
@@ -2161,6 +2181,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( '' !== $directNavigationCss ) {
             $afterAuthorCssParts[] = $directNavigationCss;
         }
+        array_push($afterAuthorCssParts, ...$this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
         array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
         array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still
@@ -3190,6 +3211,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $tagName = strtolower($element->tagName);
 
+        if ( 'a' === $tagName && $this->requiresWrappedButtonPreservation($element) ) {
+            return $this->htmlPreservationBlock($element);
+        }
+
         if ( 0 < $this->nativeGetFormDepth ) {
             if ( 'label' === $tagName && '' !== $this->attr($element, 'for') ) {
                 // The associated typed control renders this external label so it
@@ -3213,6 +3238,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // scaffolding with no editable static content to retain.
         if ( $this->isInertLiveRegionScaffolding($element) ) {
             return null;
+        }
+
+        // Captured pages can retain invalid inline form hosts. Lower the host
+        // before inline conversion so its native form reaches FormDispatcher.
+        if ( 'span' === $tagName && 0 < $element->getElementsByTagName('form')->length ) {
+            $children = $this->convertChildren($element, $fallbacks, $captureUnsupported);
+            return array() === $children ? null : $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
         }
 
         // A direct phrasing child participates in its parent's flex or grid
@@ -3274,7 +3306,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( 'svg' === $tagName && $this->svgMaterializer->svgNeedsPhrasingHost($element) ) {
             $imageMarkup = $this->svgMaterializer->inlineSvgRichTextImageMarkup($element);
             if ( null !== $imageMarkup ) {
-                return $this->createBlock('core/paragraph', array( 'content' => $imageMarkup ), array(), $element);
+                return $this->createBlock('core/paragraph', array(
+                    'content' => $imageMarkup,
+                    'className' => self::SYNTHETIC_SVG_PARAGRAPH_CLASS,
+                ), array(), $element);
             }
         }
 
@@ -3289,7 +3324,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        if ( $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
+        // FormDispatcher preserves generic capture metadata while producing the
+        // provider-materializable fallback declaration for native forms.
+        if ( 'form' === $tagName ) {
+            return $this->formDispatcher->convert($element, $fallbacks);
+        }
+
+        if ( ! $this->containsCapturedProviderForm($element) && $this->runtimeIslands->shouldPreserveDataAttributeRuntimeTarget($element) ) {
             return $this->htmlPreservationBlock($element);
         }
 
@@ -3313,6 +3354,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // unsupported content element.
         if ( 'style' === $tagName && StyleTagScanner::isCssType($this->attr($element, 'type')) ) {
             return null;
+        }
+
+        $standaloneSearchTrigger = $this->searchBlockConverter->searchBlockFromStandaloneTrigger($element);
+        if ( null !== $standaloneSearchTrigger ) {
+            return $standaloneSearchTrigger;
         }
 
         $mathBlock = $this->recognizePatterns($element, $fallbacks, array(MathPattern::class));
@@ -3405,10 +3451,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $postStructuralDispatch->block;
         }
 
-        if ( 'form' === $tagName ) {
-            return $this->formDispatcher->convert($element, $fallbacks);
-        }
-
         if ( 'nav' === $tagName ) {
             $navigation = $this->recognizePatterns($element, $fallbacks, array(AccordionPattern::class, SocialLinksPattern::class, NavigationPattern::class));
             if ( null !== $navigation ) {
@@ -3466,6 +3508,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return null;
+    }
+
+    private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
+    {
+        $button = null;
+        foreach ( $anchor->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || $button instanceof DOMElement ) {
+                return false;
+            }
+            $button = $child;
+        }
+        if ( ! $button instanceof DOMElement || ! ($button->hasAttribute('class') || $button->hasAttribute('id') || $button->hasAttribute('style')) ) {
+            return false;
+        }
+
+        $type = strtolower(trim($button->getAttribute('type')));
+        if ( ! in_array($type, array( '', 'button' ), true) ) {
+            return true;
+        }
+        if ( '' === $type && $this->hasAncestorTag($button, array( 'form' )) ) {
+            return true;
+        }
+
+        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
+            if ( $button->hasAttribute($attribute) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return array<string, mixed>|null */
@@ -3742,6 +3817,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return true;
     }
 
+    private function containsCapturedProviderForm(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('form') as $form ) {
+            if ( '' !== trim($this->attr($form, 'data-ux')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isInertLiveRegionScaffolding(DOMElement $element): bool
     {
         if ( ! str_contains(strtolower($element->tagName), '-')
@@ -3973,6 +4059,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! $preserveInlineLayoutLeaf ) {
             $attrs = $this->hoistContentWrappingSpans($name, $attrs);
         }
+        if ( 'core/paragraph' === $name && ! $preserveInlineLayoutLeaf && ! $sourceElement instanceof DOMElement && str_contains((string) ($attrs['content'] ?? ''), 'class=') ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+        }
         if ( $sourceElement instanceof DOMElement && in_array($name, array( 'core/paragraph', 'core/heading' ), true) ) {
             $textAlign = strtolower(trim((string) ($this->styleResolver->presentationDeclarations($sourceElement)['text-align'] ?? '')));
             if ( in_array($textAlign, array( 'left', 'center', 'right' ), true) ) {
@@ -3999,12 +4088,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $logicalControl = $logicalSourceElement ?? $sourceElement;
             $logicalControlPath = $logicalControl->getNodePath() ?? '';
+            $sourceControlPath = $sourceElement->getNodePath() ?? '';
             $hasAuthorControlProjection = in_array($name, array( 'core/button', 'core/buttons' ), true)
                 && in_array(strtolower($logicalControl->tagName), array( 'a', 'button' ), true)
                 && ($this->authorSelectorProjections()->isControlPath($logicalControlPath)
+                    || $this->authorSelectorProjections()->isControlPath($sourceControlPath)
                     || ('' !== $this->authorStyles()->combinedCss()
-                        && 'a' === strtolower($logicalControl->tagName)
-                        && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id')))));
+                        && (( 'a' === strtolower($logicalControl->tagName)
+                                && ('' !== trim($this->attr($logicalControl, 'class')) || '' !== trim($this->attr($logicalControl, 'id'))))
+                            || ( 'button' === $sourceTagName
+                                && ('' !== trim($this->attr($sourceElement, 'class')) || '' !== trim($this->attr($sourceElement, 'id')))))));
             $preserveGeneratedStyle = ('core/button' === $name && $this->sourceElementClassifier->hasLogoBrandSignal($sourceElement))
                 || ('core/spacer' === $name && $this->isEmptyVisualInlineCandidate($sourceElement));
             $attrs = $this->sourceBlockAttributeProjector->project(
@@ -4426,10 +4519,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        // Native RichText image objects keep their existing inline paragraph
-        // carrier so their media save shape remains editor-valid.
+        // Native image objects keep their existing inline paragraph carrier.
+        // SVG is materialized by the standalone leaf path below before it reaches
+        // RichText, so its source markup never becomes a structural attribute.
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), array( 'img', 'svg' ), true) ) {
+            if ( $descendant instanceof DOMElement && 'img' === strtolower($descendant->tagName) ) {
                 return false;
             }
         }
@@ -4451,6 +4545,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         if ( ! $this->isDirectChildOfStructuralLayout($element) ) {
             return false;
+        }
+
+        if ( 0 < $element->getElementsByTagName('svg')->length ) {
+            return true;
         }
 
         $typographyProperties = array( 'font', 'font-family', 'font-size', 'font-style', 'font-variant', 'font-weight', 'letter-spacing', 'line-height', 'text-align', 'text-decoration', 'text-indent', 'text-shadow', 'text-transform', 'word-spacing' );
@@ -4543,7 +4641,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function inlineLayoutCarrierBlock(DOMElement $element): ?array
     {
         $content = $this->outerHtml($element);
-        if ( '' === trim($this->runtime->stripAllTags($content)) ) {
+        $inlineSvgContent = $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
+        if ( null !== $inlineSvgContent ) {
+            $content = $inlineSvgContent;
+        }
+        if ( '' === trim($this->runtime->stripAllTags($content)) || $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content) ) {
             return null;
         }
 
@@ -4558,30 +4660,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function authorLayoutBlockFromElement(DOMElement $element, array &$fallbacks): array
     {
         $children = $this->convertChildren($element, $fallbacks, true);
-        if ( 1 === count($children) ) {
+        $isAuthorOwnedLayout = $this->isAuthorOwnedLayout($element);
+        $sourceChildCount = $isAuthorOwnedLayout ? $this->childElementCount($element) : 0;
+        $sourceTags = $isAuthorOwnedLayout ? $this->directChildTags($element) : array();
+        $blockTags = $isAuthorOwnedLayout ? $this->directBlockTags($children) : array();
+        $topologyChanged = $isAuthorOwnedLayout
+            && 0 < $sourceChildCount
+            && ( $sourceChildCount !== count($children) || $sourceTags !== $blockTags );
+        if ( 1 === count($children) && ! $topologyChanged ) {
             $coalesced = $this->coalescedSingleGroupWrapper($element, $children[0]);
             if ( null !== $coalesced ) {
                 return $coalesced;
             }
         }
-        if ( $this->isAuthorOwnedLayout($element) ) {
+        if ( $isAuthorOwnedLayout ) {
             $this->transformationEvidence()->recordAuthorLayoutTopology(
                 $this->elementSelector($element),
-                $this->childElementCount($element),
+                $sourceChildCount,
                 count($children),
-                $this->directChildTags($element),
-                $this->directBlockTags($children)
+                $sourceTags,
+                $blockTags
             );
         }
-        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element), $children, $element);
+        return $this->createBlock('core/group', $this->cssOwnedGroupAttributes($element, false, $topologyChanged), $children, $element);
     }
 
     /** @return array<string, mixed> */
-    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false): array
+    private function cssOwnedGroupAttributes(DOMElement $element, bool $carryOwnTextAlignment = false, bool $topologyChanged = false): array
     {
+        // A fixed inline height can become a clipping constraint when conversion
+        // replaces a CSS-owned container's direct children with block wrappers.
+        $excludedGeometryProperties = $topologyChanged ? array( 'height' ) : array();
         $attrs = $this->styleResolver->presentationAttributes(
             $element,
-            array(),
+            $excludedGeometryProperties,
             $carryOwnTextAlignment ? array( 'text-align' ) : array()
         );
         $layout = $attrs['layout'] ?? null;
@@ -4612,11 +4724,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $this->isCssOwnedGridElement($element) ) {
-            return $this->cssOwnedGridAttributes($element);
+            return $this->cssOwnedGridAttributes($element, $excludedGeometryProperties);
         }
 
         if ( $this->isCssOwnedFlexElement($element) ) {
-            $attrs = $this->cssOwnedFlexAttributes($element);
+            $attrs = $this->cssOwnedFlexAttributes($element, $excludedGeometryProperties);
         }
 
         unset($attrs['layout']);
@@ -4667,7 +4779,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>
      */
-    private function cssOwnedFlexAttributes(DOMElement $element): array
+    private function cssOwnedFlexAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         // Deliberately the CONFLICT-only predicate, not the wider carrier one.
@@ -4677,7 +4789,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // differs from the tag default has no such guarantee, and demoting it
         // lets any author selector above (0,2,0) win.
         if ( $this->styleResolver->inlineDisplayConflictsWithAuthorLayout($element, $inlineDeclarations) ) {
-            return $this->styleResolver->presentationAttributes($element);
+            return $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties);
         }
 
         // Carry only the inline-present properties so the fallback to
@@ -4685,7 +4797,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // overrides explicit row-gap/column-gap values.
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_FLEX_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
 
-        return $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
+        return $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
     }
 
     private function isCssOwnedGridElement(DOMElement $element): bool
@@ -4710,14 +4822,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      *
      * @return array<string, mixed>
      */
-    private function cssOwnedGridAttributes(DOMElement $element): array
+    private function cssOwnedGridAttributes(DOMElement $element, array $excludedGeometryProperties = array()): array
     {
         // Carry only the inline-present properties so the fallback to
         // mapper-synthesized declarations cannot invent a `gap` that
         // overrides explicit row-gap/column-gap values.
         $inlineDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $carriedProperties = array_values(array_intersect(self::CSS_OWNED_GRID_CARRIER_PROPERTIES, array_keys($inlineDeclarations)));
-        $attrs = $this->styleResolver->presentationAttributes($element, array(), $carriedProperties);
+        $attrs = $this->styleResolver->presentationAttributes($element, $excludedGeometryProperties, $carriedProperties);
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),
@@ -5242,14 +5354,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if (isset($block['_binding_token'])) return 'binding_boundary';
         if ($this->hasIndependentWrapperOwnership($block)) return 'owned_wrapper';
         if (in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return 'list_semantics';
-        if ('div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return 'semantic_boundary';
         return 'serialization_unsafe';
     }
 
     /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     private function foldableWrapperDescriptor(array $block): ?array
     {
-        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || 'div' !== strtolower((string) ($block['attrs']['tagName'] ?? 'div'))) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -6541,7 +6652,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // authored as `<div class="label">` avoided it) do not capture the collapsed
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
-        if ( 0 === $this->childElementCount($element) ) {
+        if ( 0 === $this->childElementCount($element) && ! ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) ) {
             return $this->createBlock(
                 'core/paragraph',
                 array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
@@ -6575,6 +6686,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private const BOX_CHROME_WRAPPER_PROPERTIES = array( 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'border', 'border-color', 'border-radius', 'width', 'height', 'min-width', 'max-width', 'min-height' );
 
+    /** @var array<int, string> */
+    private const MARGIN_WRAPPER_PROPERTIES = array( 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' );
+
     private function hasVisualTextWrapperSignal(DOMElement $element): bool
     {
         $className = strtolower($this->attr($element, 'class'));
@@ -6597,6 +6711,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasBoxChromeWrapperStyling(DOMElement $element): bool
     {
         return $this->wrapperStylingMatches($element, self::BOX_CHROME_WRAPPER_PROPERTIES);
+    }
+
+    private function hasMarginWrapperStyling(DOMElement $element): bool
+    {
+        return $this->wrapperStylingMatches($element, self::MARGIN_WRAPPER_PROPERTIES);
     }
 
     /**
@@ -6670,6 +6789,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $content = $this->richTextMaterializer->content($element);
         if ( '' === trim($this->runtime->stripAllTags($content)) ) {
             return null;
+        }
+
+        // A non-paragraph wrapper that owns spacing must retain a native
+        // container: resetting a synthetic paragraph can override layered
+        // author margin utilities.
+        if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
+            return $this->createBlock(
+                'core/group',
+                $this->styleResolver->presentationAttributes($element),
+                array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+                $element
+            );
         }
 
         $attrs = $this->styleResolver->presentationAttributes($element);
@@ -9917,11 +10048,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function imageStylesheetDimension(DOMElement $image, string $property): string
     {
         $declaration = $this->styleResolver->imageShapeDeclarations($image)[$property] ?? array();
-        if (!is_array($declaration) || array() !== ($declaration['conditions'] ?? array())) {
+        if (!is_array($declaration) || ! $this->imageStylesheetDimensionIsViewportInvariant($declaration['conditions'] ?? array())) {
             return '';
         }
         $value = trim($this->cssValueWithoutImportant((string) ($declaration['value'] ?? '')));
         return in_array(strtolower($value), array( '', 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ? '' : $value;
+    }
+
+    /** @param mixed $conditions */
+    private function imageStylesheetDimensionIsViewportInvariant(mixed $conditions): bool
+    {
+        if (!is_array($conditions)) {
+            return false;
+        }
+        foreach ($conditions as $condition) {
+            if (!is_string($condition) || !preg_match('/^@layer\b/i', trim($condition))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */

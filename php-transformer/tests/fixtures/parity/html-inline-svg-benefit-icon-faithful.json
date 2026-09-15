@@ -16,18 +16,17 @@
     "content": "<main><section class=\"features\"><div class=\"feature\"><svg class=\"benefit-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 12l5 5L20 6\"></path></svg><h3>Fast</h3><p>Quick care.</p></div></section></main>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "features" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast", "level": 3 } }
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph" },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast", "level": 3 } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "assets", "assert": "count", "count": 2 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "class=\"benefit-icon be-inline-geometry-" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "class=\"benefit-icon be-inline-geometry-" },
+    { "path": "blocks.0.innerBlocks.0.attrs.content", "assert": "contains", "value": "style=\"width:24px;height:24px\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
   ]

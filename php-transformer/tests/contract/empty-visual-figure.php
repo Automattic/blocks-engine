@@ -4,6 +4,8 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
+use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
+use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
@@ -12,6 +14,12 @@ $assert = static function (bool $condition, string $message): void {
         fwrite(STDERR, "FAIL: {$message}\n");
         exit(1);
     }
+};
+$engineSupportCss = static function (array $assets): string {
+    return implode("\n", array_map(
+        static fn (array $asset): string => 'engine-support' === ($asset['source'] ?? '') && 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '',
+        $assets
+    ));
 };
 
 $css = ':root{--figure-height:12rem;--figure-border:rgba(20,40,60,.5);--figure-gradient:linear-gradient(135deg,#123,#456)}.border-figure{min-height:var(--figure-height);border:1px solid var(--figure-border)}.gradient-figure{height:4rem;background:var(--figure-gradient)}.pseudo-figure{min-height:3rem}.pseudo-figure::before{content:"";display:block;height:100%;background:#345}.empty-figure{min-height:4rem}';
@@ -99,13 +107,23 @@ $malformedHeading = ( new HtmlTransformer() )->transform('<h3><div class="paragr
 $malformedHeadingReport = (new \Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport())->fromBlocks($malformedHeading['blocks'] ?? array());
 $assert(str_contains((string) ($malformedHeading['serialized_blocks'] ?? ''), 'Name') && ! str_contains((string) ($malformedHeading['serialized_blocks'] ?? ''), '<div class="paragraph">') && 0 === ($malformedHeadingReport['metrics']['structural_rich_text_attribute_count'] ?? -1), 'Block wrappers nested in source headings lower to native heading RichText with valid line breaks.');
 
-$layoutColumns = ( new HtmlTransformer() )->transform('<table><tr><td><table><tr><td></td><td>Copy</td></tr></table></td></tr></table>')->toArray();
+$layoutColumnsResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><tr><td></td><td>Copy</td></tr></table></td></tr></table>');
+$layoutColumns = $layoutColumnsResult->toArray();
 $layoutColumnMetrics = $layoutColumns['source_reports']['editability_report']['metrics'] ?? array();
+$layoutColumnsOutput = $layoutColumnsResult->blockCompilationOutput;
 $assert(1 === ($layoutColumnMetrics['empty_visual_group_count'] ?? null) && 0 === ($layoutColumnMetrics['empty_wrapper_count'] ?? null) && ! str_contains(serialize($layoutColumns['blocks'] ?? array()), '_editability_visual_owned'), 'Blank native layout columns remain visual topology evidence without leaking internal ownership markers.');
+$assert($layoutColumnsOutput instanceof BlockCompilationOutput, 'Blank native layout columns retain compilation ownership output.');
+$layoutColumnsReport = (new EditabilityReport())->fromBlocks($layoutColumnsResult->blocks, '', $layoutColumnsResult->serializedBlocks, $engineSupportCss($layoutColumnsResult->assets), $layoutColumnsOutput->runtimeBlockPaths, $layoutColumnsOutput->visualBlockPaths, $layoutColumnsOutput->sourceProvenance);
+$assert($layoutColumnsReport === $layoutColumnsOutput->editabilityReport && $layoutColumnsReport === ($layoutColumns['source_reports']['editability_report'] ?? null), 'Blank native layout columns use the artifact ownership paths for direct and public editability reports.');
 
-$runtimeEmpty = ( new HtmlTransformer() )->transform('<div id="runtime-empty"></div>', array('runtime_dom_selectors' => array('#runtime-empty')))->toArray();
+$runtimeEmptyResult = ( new HtmlTransformer() )->transform('<div id="runtime-empty"></div>', array('runtime_dom_selectors' => array('#runtime-empty')));
+$runtimeEmpty = $runtimeEmptyResult->toArray();
 $runtimeEmptyMetrics = $runtimeEmpty['source_reports']['editability_report']['metrics'] ?? array();
+$runtimeEmptyOutput = $runtimeEmptyResult->blockCompilationOutput;
 $assert(1 === ($runtimeEmptyMetrics['empty_runtime_group_count'] ?? null) && 0 === ($runtimeEmptyMetrics['empty_wrapper_count'] ?? null) && ! str_contains(serialize($runtimeEmpty['blocks'] ?? array()), '_editability_runtime_owned') && ! str_contains((string) ($runtimeEmpty['serialized_blocks'] ?? ''), '_editability_runtime_owned'), 'Runtime ownership follows explicit selector provenance into direct editability reporting without leaking markers into public blocks.');
+$assert($runtimeEmptyOutput instanceof BlockCompilationOutput && array('blocks.0') === $runtimeEmptyOutput->runtimeBlockPaths, 'The first root block retains its runtime ownership path for artifact handoff.');
+$runtimeEmptyReport = (new EditabilityReport())->fromBlocks($runtimeEmptyResult->blocks, '', $runtimeEmptyResult->serializedBlocks, $engineSupportCss($runtimeEmptyResult->assets), $runtimeEmptyOutput->runtimeBlockPaths, $runtimeEmptyOutput->visualBlockPaths, $runtimeEmptyOutput->sourceProvenance);
+$assert($runtimeEmptyReport === $runtimeEmptyOutput->editabilityReport && $runtimeEmptyReport === ($runtimeEmpty['source_reports']['editability_report'] ?? null), 'Runtime empty groups use the artifact ownership paths for direct and public editability reports.');
 
 $selectorEvidence = ( new HtmlTransformer() )->transform('<style>.canvas .surface.card[data-kind="feature"]{display:flex;padding:12px;background:#123}.canvas .surface.card[data-kind="feature"]{position:relative}.canvas .surface.card:hover{height:40px}.class-only{}.color-only{color:#123}.wrong-token{display:flex;padding:12px}</style><main class="canvas"><div class="surface card" data-kind="feature"></div><div class="class-only"></div><div class="color-only"></div><div class="wrong-token-extra"></div><div class="surface card" data-kind="other"></div></main>')->toArray();
 $selectorProvenance = $selectorEvidence['source_reports']['html']['source_provenance'] ?? array();

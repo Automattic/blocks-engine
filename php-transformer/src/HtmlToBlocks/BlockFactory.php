@@ -792,7 +792,9 @@ final class BlockFactory
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
-                if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) ) {
+                // Gutenberg 7.1 adds height:auto when a percentage-width image
+                // also has a native aspect ratio.
+                if ( ! $this->isPercentageWidth((string) ($attrs['width'] ?? '')) || array_key_exists('aspectRatio', $attrs) ) {
                     $style[] = 'height:auto';
                 }
             } else {

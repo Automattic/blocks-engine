@@ -27,8 +27,9 @@
     { "path": "source_reports.artifact.entry_path", "assert": "equals", "value": "index.html" },
     { "path": "source_reports.artifact.file_count", "assert": "equals", "value": 2 },
     { "path": "source_reports.artifact.files_by_kind.json", "assert": "equals", "value": 1 },
-    { "path": "assets.0.path", "assert": "equals", "value": "products.json" },
-    { "path": "assets.0.kind", "assert": "equals", "value": "json" },
+    { "path": "assets.0.source", "assert": "equals", "value": "engine-support" },
+    { "path": "assets.1.path", "assert": "equals", "value": "products.json" },
+    { "path": "assets.1.kind", "assert": "equals", "value": "json" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Invalid Store" }
   ]
 }

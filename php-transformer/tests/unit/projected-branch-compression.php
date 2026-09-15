@@ -81,8 +81,8 @@ $assert(!in_array('editability_policy_failed', $shallowCodes, true) && 'failed' 
 $assert(1 === substr_count($shallowBlocks, '<!-- wp:custom/layout-shell'), 'A shallow two-wrapper branch uses the same layout-shell representation.');
 $assert(!str_contains($shallowBlocks, '<!-- wp:group') && str_contains($shallowBlocks, 'id="dp-outer-1"') && str_contains($shallowBlocks, 'id="dp-branch-1"'), 'The shallow shell preserves both source wrappers.');
 
-// Endpoint-free responsive copies retain the browser's default GET contract
-// rather than being inferred as provider forms.
+// Endpoint-free responsive copies have no authored submission semantics. Keep
+// them provider-materializable rather than inferring a GET workflow.
 $responsiveForm = static fn(string $viewport): string => '<div id="' . $viewport . '-shell" class="blocks-engine-source-div-' . $viewport . '-shell-1">'
     . '<form id="' . $viewport . '-claim" class="blocks-engine-source-form-' . $viewport . '-claim-1">'
     . str_repeat('<div>', 9) . '<input name="email" type="email">' . str_repeat('</div>', 9)
@@ -98,9 +98,10 @@ $formResult = (new ArtifactCompiler())->compile(array(
 ))->toArray();
 $formPlan = $formResult['source_reports']['wordpress_site_plan'] ?? array();
 $formMarkup = (string) ($formPlan['pages'][0]['canonical_block_markup'] ?? '');
-$assert(2 === substr_count($formMarkup, '<!-- wp:blocks-engine/authored-native-form'), 'Both endpoint-free responsive form copies retain typed native form owners.');
+$formDeclaration = current(array_filter($formPlan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert(2 === count($formDeclaration['payload']['entities'] ?? array()) && ! str_contains($formMarkup, '<!-- wp:blocks-engine/authored-native-form'), 'Both endpoint-free responsive form copies retain provider materialization declarations instead of invented GET owners.');
 $assert(! str_contains($formMarkup, '<!-- wp:html'), 'Endpoint-free responsive forms do not become raw HTML.');
-$assert(array() === ($formResult['fallbacks'] ?? array()), 'Endpoint-free responsive forms do not produce provider fallbacks.');
+$assert(2 === count($formResult['fallbacks'] ?? array()), 'Endpoint-free responsive forms produce provider fallbacks.');
 
 // Variant composition adds ordinary source wrappers rather than source-projection
 // markers. They must still compress when their safe, exact chain would otherwise

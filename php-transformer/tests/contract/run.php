@@ -98,6 +98,27 @@ $assert(
         && isset($boundaryArtifact['source_reports']['wordpress_site_plan']),
     'artifact compilation consumes the producer output to retain generated companions and a canonical block site plan'
 );
+$semanticShellArtifact = (new ArtifactCompiler())->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        'index.html' => '<!doctype html><html><body><main><section id="feature" class="feature"><div class="copy"><div class="rich"><h2>Editable heading</h2><img src="hero.jpg" alt="Hero"><nav><a href="/">Home</a></nav><form method="get" action="/"><label>Search <input type="search" name="s"></label><button type="submit">Send</button></form></div></div></section></main></body></html>',
+        'hero.jpg' => 'image',
+    ),
+))->toArray();
+$semanticShellPageMarkup = (string) ($semanticShellArtifact['source_reports']['wordpress_site_plan']['pages'][0]['canonical_block_markup'] ?? '');
+$assert(
+    'success' === ($semanticShellArtifact['status'] ?? '')
+        && 2 === substr_count($semanticShellPageMarkup, 'wp:custom/layout-shell')
+        && 0 === substr_count($semanticShellPageMarkup, 'wp:group')
+        && str_contains($semanticShellPageMarkup, '"tagName":"section"')
+        && str_contains($semanticShellPageMarkup, '"tagName":"div"')
+        && str_contains($semanticShellPageMarkup, 'Editable heading')
+        && str_contains($semanticShellPageMarkup, 'alt="Hero"')
+        && str_contains($semanticShellPageMarkup, '"label":"Home"')
+        && str_contains($semanticShellPageMarkup, '"label":"Search"')
+        && str_contains($semanticShellPageMarkup, '"buttonText":"Send"'),
+    'artifact page serialization folds unary semantic wrappers into one layout shell while retaining native heading, image, navigation, and form blocks'
+);
 $assert(
     array(
         'schema',
@@ -254,16 +275,23 @@ foreach (array(null, false, 1, array('compact')) as $invalidValidationEvidence) 
     }
     $assert($invalidValidationEvidenceRejected, 'null and non-string validation evidence details are rejected explicitly');
 }
-$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: array(
+$ownershipProvenance = array(
     array('block_path' => '0', 'editability_runtime_owned' => true),
     array('block_path' => '', 'editability_visual_owned' => true),
     array('block_path' => 1, 'editability_runtime_owned' => true),
     array('block_path' => '0.1', 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
-));
+    array('block_path' => null, 'editability_runtime_owned' => true, 'editability_visual_owned' => true),
+    array('block_path' => 'ignored', 'editability_runtime_owned' => false, 'editability_visual_owned' => false),
+    'malformed',
+);
+$ownershipPaths = \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput::editabilityOwnershipPaths($ownershipProvenance);
+$ownershipOutput = new \Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput(sourceProvenance: $ownershipProvenance);
 $assert(
-    array('0', '0.1') === $ownershipOutput->runtimeBlockPaths
-        && array('', '0.1') === $ownershipOutput->visualBlockPaths,
-    'compiler ownership paths retain the original string-only mapping including root and empty paths'
+    array('0', '0.1') === $ownershipPaths['runtime']
+        && array('', '0.1') === $ownershipPaths['visual']
+        && $ownershipPaths['runtime'] === $ownershipOutput->runtimeBlockPaths
+        && $ownershipPaths['visual'] === $ownershipOutput->visualBlockPaths,
+    'compiler ownership paths retain root and empty strings, reject malformed paths, and drive artifact handoff identically'
 );
 
 $videoResult = ( new HtmlTransformer() )->transform('<video src="hero.mp4" autoplay loop muted playsinline></video>')->toArray();
@@ -1251,6 +1279,10 @@ $assert('html_form_fallback' === ($documentFormDiagnostic['diagnostic_code'] ?? 
 $assert(3 === ($documentFormDiagnostic['control_count'] ?? null), 'full HTML document form fallback retains every source control');
 $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_requirement'] ?? ''), 'form runtime island carries the server/client form-handler requirement');
 $nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form method="post" action="#"><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
+$capturedFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form data-ux="Form"><input name="email" type="email"><textarea name="message"></textarea><button type="submit">Send</button></form></main>')))->toArray();
+$capturedFormDeclaration = current(array_filter($capturedFormPlan['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+$assert('html_form_fallback' === ($capturedFormPlan['fallbacks'][0]['diagnostic_code'] ?? '') && 3 === count($capturedFormDeclaration['payload']['entities'][0]['controls'] ?? array()) && ! str_contains((string) ($capturedFormPlan['serialized_blocks'] ?? ''), 'wp:blocks-engine/authored-native-form'), 'capture metadata on an unspecified native form preserves its provider-materializable fallback and declaration rather than inventing GET submission');
+$nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form method="post" action="#"><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
 $nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $nestedFormBinding = $nestedFormDeclaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] ?? '';
 $assert(is_string($nestedFormBinding) && str_contains($nestedFormBinding, '<!-- wp:') && !str_contains($nestedFormBinding, '<!-- wp:html'), 'nested form binding slot uses the normal native converter instead of preserved HTML');
@@ -1652,6 +1684,30 @@ $cssOwnedSvgFillCss = implode("\n", array_map(static fn (array $asset): string =
 $assert(str_contains($cssOwnedSvgFillCss, '.grid-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.flex-scene :where(figure)') && str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG selectors project their media box onto native images in sized grid and flex parents');
 $assert(str_contains($cssOwnedSvgFillCss, '.wp-block-image > img{display:block;width:100%;height:100%;max-width:100%;object-fit:inherit'), 'CSS-owned slice SVG projection does not add object-fit over the source preserveAspectRatio behavior');
 
+$viewportBoundSvg = ( new HtmlTransformer() )->transform(
+    '<style>.desktop-target-2{position:absolute;width:30px;height:35px}.desktop-target-2 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style><main><div class="desktop-target-2"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200" role="presentation"><path d="M30 20h140v160z"/></svg></div></main>'
+)->toArray();
+$viewportBoundSvgMarkup = (string) ($viewportBoundSvg['serialized_blocks'] ?? '');
+$viewportBoundSvgCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $viewportBoundSvg['assets'] ?? array()));
+$assert(! str_contains($viewportBoundSvgMarkup, 'style="width:200px;height:200px"') && ! str_contains($viewportBoundSvgMarkup, '"width":"200px"'), 'CSS-owned viewport-bound SVGs do not serialize their intrinsic canvas dimensions over authored layout');
+$assert(str_contains($viewportBoundSvgCss, '>img{display:inline;vertical-align:baseline;width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%)}'), 'CSS-owned viewport-bound SVGs retain their responsive media-box rule on the native image');
+$assert(str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'preserveAspectRatio="none"') && str_contains((string) ($viewportBoundSvg['assets'][0]['content'] ?? ''), 'viewBox="29.524 20 140.952 159.999"'), 'viewport-bound SVG assets retain their source viewport behavior and viewBox');
+
+$retainedViewportArtifact = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        'website/index.html' => '<html><body><main>Desktop</main></body></html>',
+        'website/mobile.html' => '<html><head><style>.iL7Pq5 svg{width:var(--svg-calculated-width,100%);height:var(--svg-calculated-height,100%);margin:auto;position:absolute;inset:0}</style></head><body class="data-liberation-mobile-document"><main><div id="comp-m1yrz8m1"><div class="iL7Pq5 gx51wo"><svg preserveAspectRatio="none" viewBox="29.524 20 140.952 159.999" width="200" height="200"><path/></svg></div></div></main></body></html>',
+    ),
+    'document_variants' => array(array(
+        'source_path' => 'website/index.html',
+        'variants' => array(array('id' => 'mobile', 'source_path' => 'website/mobile.html', 'media' => '(max-width:980px)')),
+    )),
+))->toArray();
+$retainedViewportMarkup = (string) ($retainedViewportArtifact['source_reports']['compiled_site']['pages'][0]['block_markup'] ?? '');
+preg_match('~id="comp-m1yrz8m1".*?<img\b[^>]*~s', $retainedViewportMarkup, $retainedViewportImage);
+$assert(isset($retainedViewportImage[0]) && ! str_contains($retainedViewportImage[0], 'width:200px') && ! str_contains($retainedViewportImage[0], '"width":"200px"'), 'retained responsive artifact SVGs preserve the CSS-owned viewport instead of serializing their 200px source canvas');
+
 $intrinsicSvgArtwork = ( new HtmlTransformer() )->transform(
     '<style>.intrinsic-scene{display:grid;width:640px;height:1496px}.intrinsic-scene svg{color:#111}</style><main><div class="intrinsic-scene"><svg class="intrinsic-art" viewBox="0 0 700 780" preserveAspectRatio="xMidYMid slice"><rect width="700" height="780" fill="currentColor"/></svg></div></main>'
 )->toArray();
@@ -1738,7 +1794,7 @@ $fixedBackgroundLayerMarkup = (string) ($fixedBackgroundLayer['serialized_blocks
 $assert(str_contains($fixedBackgroundLayerMarkup, 'page-bg'), 'fixed background visual layer keeps its CSS-addressable class');
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*page-bg[^"]*"/', $fixedBackgroundLayerMarkup), 'fixed background visual layer materializes as an empty group wrapper for source CSS');
 $fixedBackgroundEditorCss = implode("\n", array_map(static fn (array $asset): string => 'editor-static-state' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $fixedBackgroundLayer['assets'] ?? array()));
-$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{position:relative!important;inset:auto!important'), 'empty painted groups retain frontend geometry while their Gutenberg placeholder is bounded in normal flow');
+$assert(str_contains($fixedBackgroundLayerMarkup, 'blocks-engine-empty-visual-group') && str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder{min-height:0!important;overflow:hidden!important}') && str_contains($fixedBackgroundEditorCss, '.block-editor-block-list__block>div:not([class]):not([id]):not([style]):has(>.blocks-engine-empty-visual-group.wp-block-group__placeholder){display:contents}'), 'empty painted groups retain source positioning while their WordPress transport wrapper cannot reserve flow geometry');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>*{display:none!important}'), 'painted source layers withhold core empty-group variation pickers so they do not stack layout controls in the editor');
 $assert(str_contains($fixedBackgroundEditorCss, '.blocks-engine-empty-visual-group.wp-block-group__placeholder>.components-placeholder.is-large{display:none!important}'), 'painted source layers override Core’s large empty-group placeholder display rule in the editor');
 // Reserving height for a withheld picker displaces every following block, which
@@ -2200,6 +2256,38 @@ $runtimeDescendantSearch = ( new HtmlTransformer() )->transform(
 $assert(! str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), '<!-- wp:search'), 'synthetic search with an additional runtime descendant is not collapsed to core/search');
 $assert(str_contains((string) ($runtimeDescendantSearch['serialized_blocks'] ?? ''), 'search-status'), 'synthetic search preserves an additional runtime descendant');
 $assert(1 === count($runtimeDescendantSearch['source_reports']['runtime_islands'] ?? array()), 'synthetic search reports its preserved runtime descendant');
+
+$runtimeSearchInput = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><div aria-hidden="true">Search this site</div></div>'
+)->toArray();
+$runtimeSearchInputBlock = $runtimeSearchInput['blocks'][0] ?? array();
+$assert('core/search' === ($runtimeSearchInputBlock['blockName'] ?? ''), 'bounded runtime search input converts to core/search');
+$assert('Search this site' === ($runtimeSearchInputBlock['attrs']['label'] ?? '') && 'button-inside' === ($runtimeSearchInputBlock['attrs']['buttonPosition'] ?? '') && true === ($runtimeSearchInputBlock['attrs']['buttonUseIcon'] ?? null), 'native runtime search keeps an accessible label and native icon submission control');
+$assert(! str_contains((string) ($runtimeSearchInput['serialized_blocks'] ?? ''), 'jsaction='), 'native runtime search removes source-only input event bindings');
+
+$runtimeSearchWithInteractiveSibling = ( new HtmlTransformer() )->transform(
+    '<div class="site-search"><input type="search" aria-label="Search this site" jsaction="input:search"><button aria-label="Clear search">Clear</button></div>'
+)->toArray();
+$assert(! str_contains((string) ($runtimeSearchWithInteractiveSibling['serialized_blocks'] ?? ''), '<!-- wp:search'), 'standalone search preserves clusters with an additional interactive control');
+
+$standaloneSearchTrigger = ( new HtmlTransformer() )->transform(
+    '<header><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"><path d="M1 1"></path></svg></div></header><div class="search-panel"><div class="search-input"><input type="search" aria-label="Search this site"><div aria-hidden="true">Search this site</div></div></div>'
+)->toArray();
+$standaloneSearchTriggerSerialized = (string) ($standaloneSearchTrigger['serialized_blocks'] ?? '');
+$assert(1 === substr_count($standaloneSearchTriggerSerialized, '<!-- wp:search'), 'a separate standalone trigger and input cluster emits one native search block');
+$assert(str_contains($standaloneSearchTriggerSerialized, '"className":"open-search blocks-engine-source-search-icon-') && str_contains($standaloneSearchTriggerSerialized, '"buttonPosition":"button-only"') && str_contains($standaloneSearchTriggerSerialized, '"buttonUseIcon":true'), 'standalone search is anchored at its visible icon trigger with native expansion behavior');
+$assert(! str_contains($standaloneSearchTriggerSerialized, 'jsaction='), 'standalone search trigger replaces source-only behavior bindings');
+
+$multipleStandaloneSearchInputs = ( new HtmlTransformer() )->transform(
+    '<div role="button" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div><input type="search" aria-label="Search one"><input type="search" aria-label="Search two">'
+)->toArray();
+$assert(! str_contains((string) ($multipleStandaloneSearchInputs['serialized_blocks'] ?? ''), '<!-- wp:search'), 'ambiguous standalone search triggers remain unconverted');
+
+$responsiveStandaloneSearchTriggers = ( new HtmlTransformer() )->transform(
+    '<div class="desktop"><input type="search" aria-label="Search desktop"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div><div class="mobile"><input type="search" aria-label="Search mobile"><div role="button" class="open-search" aria-label="Open search bar" tabindex="0"><svg viewBox="0 0 12 13"></svg></div></div>'
+)->toArray();
+$responsiveStandaloneSearchSerialized = (string) ($responsiveStandaloneSearchTriggers['serialized_blocks'] ?? '');
+$assert(2 === substr_count($responsiveStandaloneSearchSerialized, '<!-- wp:search') && 2 === substr_count($responsiveStandaloneSearchSerialized, '"buttonPosition":"button-only"'), 'matching responsive standalone search copies each anchor a native search at their trigger');
 
 $runtimeTargetedSearch = ( new HtmlTransformer() )->transform(
     '<div class="site-search"><input class="js-search" type="search" name="s" placeholder="Search"></div>',
@@ -2799,8 +2887,8 @@ $safeInlineSvg = ( new HtmlTransformer() )->transform(
 $safeInlineSvgSerialized = (string) ($safeInlineSvg['serialized_blocks'] ?? '');
 $assert('success' === ($safeInlineSvg['status'] ?? ''), 'safe inline SVG does not trip strict fallback gates', (string) ($safeInlineSvg['status'] ?? ''));
 $assert(array() === ($safeInlineSvg['fallbacks'] ?? array()), 'safe decorative inline SVG is consumed instead of recorded as fallback metadata');
-$assert('core/group' === ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), 'decorative inline SVG preserves its CSS-addressable wrapper when present');
-$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
+$assert(str_ends_with((string) ($safeInlineSvg['blocks'][0]['blockName'] ?? ''), '/layout-shell') && array('section', 'div') === array_column($safeInlineSvg['blocks'][0]['attrs']['wrappers'] ?? array(), 'tagName'), 'decorative inline SVG preserves its CSS-addressable semantic wrapper chain in one editor shell');
+$assert('core/image' === ($safeInlineSvg['blocks'][0]['innerBlocks'][0]['blockName'] ?? ''), 'icon-context decorative SVG is represented as native core/image, not dynamic core/icon');
 $assert(str_contains($safeInlineSvgSerialized, '<!-- wp:image'), 'icon-context inline SVG is serialized through core/image');
 $assert(str_contains($safeInlineSvgSerialized, 'assets/materialized-svg/'), 'decorative inline SVG uses a materialized SVG asset source');
 $assert(str_contains($safeInlineSvgSerialized, 'style="width:16px;height:16px"'), 'decorative icon SVG keeps intrinsic viewBox dimensions through core/image save styles');
@@ -5865,7 +5953,7 @@ $emptyFeatureShellResult = (new HtmlTransformer())->transform(
 $emptyFeatureShellSerialized = (string) ($emptyFeatureShellResult['serialized_blocks'] ?? '');
 $assert(! str_contains($emptyFeatureShellSerialized, 'empty-search-shell'), 'empty search chrome and its wrapper subtree are pruned');
 $assert(! str_contains($emptyFeatureShellSerialized, 'mini-cart'), 'empty cart chrome is pruned instead of becoming an empty group');
-$assert(str_contains($emptyFeatureShellSerialized, 'real-search-shell') && str_contains($emptyFeatureShellSerialized, 'aria-label="Search"'), 'a real search control remains on its existing safe conversion path');
+$assert(str_contains($emptyFeatureShellSerialized, '<!-- wp:search') && str_contains($emptyFeatureShellSerialized, '"className":"real-search-shell"') && str_contains($emptyFeatureShellSerialized, '"label":"Search"'), 'a bounded real search control converts to native search semantics');
 $assert(str_contains($emptyFeatureShellSerialized, '2 items'), 'cart chrome carrying visible state remains authored content');
 $assert(str_contains($emptyFeatureShellSerialized, 'runtime-cart'), 'runtime-bound empty cart shells remain available to their behavior owner');
 

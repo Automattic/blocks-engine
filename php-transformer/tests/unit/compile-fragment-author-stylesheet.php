@@ -94,6 +94,10 @@ $assert(
         && ! str_contains($utilityCrop->serializedBlocks, '"height":"1400px"'),
     'CSS-owned utility crop remains valid native core/image markup without intrinsic dimensions'
 );
+$assert(
+    str_contains($utilityCrop->serializedBlocks, 'style="aspect-ratio:4/5;object-fit:cover;width:100%;height:auto"'),
+    'CSS-owned percentage crop uses the WordPress 7.1 core/image save shape'
+);
 
 $fillImage = $compiler->compileFragment(
     '<div style="height:400px"><img class="h-full w-full object-cover" src="https://example.com/hero.jpg" width="1920" height="1080" alt="Hero"></div>',
@@ -105,6 +109,21 @@ $fillImageAttrs = is_array($fillImage->blocks[0]['innerBlocks'][0]['attrs'] ?? n
 $assert(
     '100%' === ($fillImageAttrs['width'] ?? null) && '100%' === ($fillImageAttrs['height'] ?? null),
     'viewport-invariant stylesheet fill dimensions override intrinsic image dimensions'
+);
+
+// Tailwind emits its utility declarations in a cascade layer. A layer controls
+// cascade precedence, not viewport applicability, so it must not make a
+// stylesheet-owned image dimension fall back to the file's HTML dimensions.
+$layeredFillImage = $compiler->compileFragment(
+    '<div class="grid"><div>Copy</div><img class="h-full min-h-80 w-full object-cover" src="https://example.com/hero.jpg" width="1400" height="1100" alt="Hero"></div>',
+    'design/home.html',
+    'html',
+    array( 'static_css' => '@layer utilities{.h-full{height:100%}.min-h-80{min-height:20rem}.w-full{width:100%}.object-cover{object-fit:cover}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}}' )
+);
+$layeredFillImageAttrs = is_array($layeredFillImage->blocks[0]['innerBlocks'][1]['attrs'] ?? null) ? $layeredFillImage->blocks[0]['innerBlocks'][1]['attrs'] : array();
+$assert(
+    '100%' === ($layeredFillImageAttrs['width'] ?? null) && '100%' === ($layeredFillImageAttrs['height'] ?? null),
+    'layered stylesheet fill dimensions override intrinsic image dimensions'
 );
 $assert(
     str_contains($with->serializedBlocks, '"aspectRatio":"4/3"')

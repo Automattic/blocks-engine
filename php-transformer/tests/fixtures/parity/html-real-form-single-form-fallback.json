@@ -13,7 +13,7 @@
   },
   "operation": "html_transformer.transform",
   "input": {
-    "content": "<main><div class=\"wrapper\"><form class=\"signup\"><label for=\"e\">Email address</label><input type=\"email\" id=\"e\" name=\"email\" placeholder=\"you@example.com\" required><button>Subscribe</button></form></div></main>"
+    "content": "<main><div class=\"wrapper\"><form action=\"/subscribe\" class=\"signup\"><label for=\"e\">Email address</label><input type=\"email\" id=\"e\" name=\"email\" placeholder=\"you@example.com\" required><button>Subscribe</button></form></div></main>"
   },
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },

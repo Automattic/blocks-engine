@@ -16,16 +16,15 @@
     "content": "<header class=\"masthead\"><nav class=\"primary-nav\" role=\"navigation\" aria-label=\"Primary\"><a href=\"index.html\" class=\"brand\">Northwind</a><ul class=\"nav-menu\"><li>Seasonal hours vary</li><li><a href=\"gatherings.html\">Gatherings</a></li><li><a href=\"stories.html\">Stories</a></li></ul><button class=\"hamburger\" aria-label=\"Open navigation menu\" aria-controls=\"nav-menu\" aria-expanded=\"false\"><span></span><span></span><span></span></button></nav></header>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "masthead" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "primary-nav" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "brand blocks-engine-synthetic-paragraph" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/list", "attrs": { "className": "nav-menu" } }
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "brand blocks-engine-synthetic-paragraph" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/list", "attrs": { "className": "nav-menu" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 2 },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 2 },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:button" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "hamburger" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },

@@ -29,6 +29,13 @@ final class FormDispatcher
             return $nativeGetForm;
         }
 
+        // An anchor-wrapped button is invalid interactive nesting, but an
+        // omitted type still submits its ancestor form. Do not detach that
+        // control into a dead core/button when native form lowering declines it.
+        if ( $this->hasAnchorWrappedButton($element) ) {
+            return $this->context->htmlPreservationBlock($element);
+        }
+
         if ( FormControlClassifier::hasDataEntryControls($element) ) {
             $composition = $this->context->compose($element, $fallbacks);
             if ( null !== $composition ) {
@@ -64,6 +71,22 @@ final class FormDispatcher
         }
 
         return $readableFormBlock;
+    }
+
+    private function hasAnchorWrappedButton(DOMElement $form): bool
+    {
+        foreach ( $form->getElementsByTagName('button') as $button ) {
+            if ( ! $button instanceof DOMElement ) {
+                continue;
+            }
+            for ( $ancestor = $button->parentNode; $ancestor instanceof DOMElement && $ancestor !== $form; $ancestor = $ancestor->parentNode ) {
+                if ( 'a' === strtolower($ancestor->tagName) ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */

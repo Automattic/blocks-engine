@@ -16,18 +16,17 @@
     "content": "<footer class=\"site-footer\"><div class=\"footer-grid\"><div class=\"footer-col\"><h4>Explore</h4><ul><li><a href=\"/about\">About</a></li><li><a href=\"/shop\">Shop</a></li></ul></div><div class=\"footer-col\"><h4>Visit</h4><p>123 Garden Lane</p></div><div class=\"footer-col\"><h4>Hours</h4><p>Mon-Fri 9-5</p></div><div class=\"footer-col\"><h4>Contact</h4><p>hello@example.com</p></div></div></footer>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "site-footer" } },
-    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-grid", "layout": { "type": "grid" } } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-col" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "level": 4 } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.1", "name": "core/list" }
+    { "path": "blocks.0", "name": "custom/layout-shell" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-col" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "level": 4 } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/list" }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks", "assert": "count", "count": 0 },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 4 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"footer-grid\",\"layout\":{\"type\":\"grid\"}} -->" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/layout-shell" },
     { "path": "serialized_blocks", "assert": "contains", "value": "\"className\":\"footer-col\"" }
   ]
 }

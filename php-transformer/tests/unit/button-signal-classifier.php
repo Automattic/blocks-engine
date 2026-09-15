@@ -9,6 +9,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonSignalClassifier;
 
 $failures = 0;
@@ -40,6 +41,7 @@ $element = static function (string $html): DOMElement {
 };
 
 $classifier = new ButtonSignalClassifier();
+$wrappedButtons = new ButtonsPattern();
 
 $assert($classifier->hasClassSignal($element('<a class="hero-btn" href="#">Learn more</a>')), '1: class signal detects btn substring');
 $assert($classifier->hasClassSignal($element('<a id="actionButton" href="#">Learn more</a>')), '2: id signal detects button substring');
@@ -131,6 +133,39 @@ $assert(! str_contains($legalMarkup, 'wp:button') && ! str_contains($legalMarkup
 $linkedPhoto = ( new HtmlTransformer() )->transform('<style>*,*::before,*::after{padding:0}.photo{display:block;width:100%;aspect-ratio:21/9;background:#232224}</style><a href="/work" aria-label="View work"><div class="photo" role="img" aria-label="Work"><span>Installation view</span></div></a>', array())->toArray();
 $linkedPhotoMarkup = (string) ($linkedPhoto['serialized_blocks'] ?? '');
 $assert(! str_contains($linkedPhotoMarkup, 'wp:button') && str_contains($linkedPhotoMarkup, 'class="photo ') && str_contains($linkedPhotoMarkup, 'href="/work"'), '29: reset-padded linked visual media retains its authored surface and non-button link', $linkedPhotoMarkup);
+
+$wrappedIconButton = ( new HtmlTransformer() )->transform('<style>.whatsapp-surface{display:inline-flex;min-height:44px;padding:0;background:#25d366;color:#fff;border-radius:6px}</style><a href="https://wa.me/123" target="_blank" rel="noreferrer" aria-label="Contactar por WhatsApp"><button class="whatsapp-surface"><svg aria-hidden="true" width="18" height="18"><path d="M0 0h18v18H0z"/></svg></button></a>', array())->toArray();
+$wrappedIcon = $wrappedIconButton['blocks'][0] ?? array();
+$wrappedIconMarkup = (string) ($wrappedIconButton['serialized_blocks'] ?? '');
+$wrappedIconCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $wrappedIconButton['assets'] ?? array()));
+$assert('custom/accessible-link' === ($wrappedIcon['blockName'] ?? ''), '30: classless anchor around a static styled icon button promotes to the editable accessible-link primitive', json_encode($wrappedIconButton['blocks'] ?? array()));
+$assert('https://wa.me/123' === ($wrappedIcon['attrs']['href'] ?? '') && '_blank' === ($wrappedIcon['attrs']['linkTarget'] ?? '') && 'noreferrer' === ($wrappedIcon['attrs']['rel'] ?? '') && 'Contactar por WhatsApp' === ($wrappedIcon['attrs']['accessibleLabel'] ?? ''), '31: wrapped icon button retains outer navigation and accessible name', json_encode($wrappedIcon['attrs'] ?? array()));
+$assert(str_contains($wrappedIconCss, '.whatsapp-surface{display:inline-flex') && str_contains($wrappedIconCss, 'background:#25d366') && str_contains($wrappedIconCss, 'min-height:44px') && str_contains($wrappedIconMarkup, '<button class="whatsapp-surface">'), '32: wrapped icon button retains its inner presentation surface and authored CSS', $wrappedIconMarkup . $wrappedIconCss);
+$assert('pass' === ($wrappedIconButton['source_reports']['wp_block_validity']['status'] ?? ''), '33: wrapped icon button serialization remains Gutenberg-valid', json_encode($wrappedIconButton['source_reports']['wp_block_validity'] ?? array()));
+
+$wrappedTextButton = ( new HtmlTransformer() )->transform('<style>.cta-surface{display:inline-flex;min-height:36px;padding:0 12px;background:oklch(0.24 0.058 250);color:#fff;border-radius:6px;font-size:14px}</style><a href="/publish"><button class="cta-surface">Publicar mi propiedad</button></a>', array())->toArray();
+$wrappedText = $wrappedTextButton['blocks'][0]['innerBlocks'][0] ?? array();
+$wrappedTextCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $wrappedTextButton['assets'] ?? array()));
+$assert('core/button' === ($wrappedText['blockName'] ?? '') && '/publish' === ($wrappedText['attrs']['url'] ?? '') && 'Publicar mi propiedad' === strip_tags((string) ($wrappedText['attrs']['text'] ?? '')), '34: wrapped text CTA retains outer navigation and inner visible label', json_encode($wrappedText));
+$assert(str_contains($wrappedTextCss, '> :where(.wp-block-button__link)') && str_contains($wrappedTextCss, 'background:oklch(0.24 0.058 250)') && str_contains($wrappedTextCss, 'padding:0 12px') && str_contains($wrappedTextCss, 'font-size:14px'), '35: wrapped text CTA projects inner-surface paint and metrics onto the native link', $wrappedTextCss);
+
+$wrappedDifferentName = ( new HtmlTransformer() )->transform('<a href="/go" aria-label="Open account"><button class="cta" style="padding:8px;background:#135e96">Go</button></a>', array())->toArray();
+$differentName = $wrappedDifferentName['blocks'][0] ?? array();
+$assert('custom/accessible-link' === ($differentName['blockName'] ?? '') && 'Open account' === ($differentName['attrs']['accessibleLabel'] ?? '') && str_contains((string) ($differentName['attrs']['content'] ?? ''), '>Go<'), '36: wrapped text CTA with a distinct source name retains that name through the accessible-link companion', json_encode($differentName));
+
+foreach ( array(
+    'disabled' => '<a href="/go"><button class="cta" disabled style="padding:8px;background:#135e96">Go</button></a>',
+    'implicit-submit' => '<form><a href="/go"><button class="cta" style="padding:8px;background:#135e96">Go</button></a></form>',
+    'form-action' => '<a href="/go"><button class="cta" type="button" formaction="/submit" formmethod="post" style="padding:8px;background:#135e96">Go</button></a>',
+    'popover' => '<a href="/go"><button class="cta" type="button" popovertarget="menu" style="padding:8px;background:#135e96">Go</button></a>',
+) as $semantics => $markup ) {
+    if ( 'implicit-submit' !== $semantics ) {
+        $assert($wrappedButtons->requiresWrappedButtonPreservation($element($markup)), '37-' . $semantics . 'a: semantic guard identifies the non-static wrapped button before conversion');
+    }
+    $preserved = ( new HtmlTransformer() )->transform($markup, array())->toArray();
+    $serialized = (string) ($preserved['serialized_blocks'] ?? '');
+    $assert(str_contains($serialized, '<!-- wp:html') && str_contains($serialized, $semantics === 'implicit-submit' ? '<form>' : 'href="/go"'), '37-' . $semantics . ': wrapped button semantics remain source HTML rather than becoming a dead promoted control', $serialized);
+}
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "ButtonSignalClassifier unit tests: {$failures} failed, {$passes} passed\n");

@@ -57,8 +57,9 @@ final class NativeGetFormBlockBuilder
             return false;
         }
         $action = trim(SourceDom::attr($form, 'action'));
-        // An omitted endpoint and method do not establish a GET workflow in a
-        // captured artifact. Preserve the provider path for unspecified forms.
+        // The browser's default GET is not enough evidence that a captured
+        // form is a search/filter workflow. Keep unspecified forms available
+        // for provider materialization, where their submission handler lives.
         if ( '' === $method && '' === $action ) {
             return false;
         }
@@ -70,6 +71,7 @@ final class NativeGetFormBlockBuilder
                 || ! FormControlClassifier::isReadableControl($control)
                 || $control->hasAttribute('formaction')
                 || $control->hasAttribute('formmethod')
+                || ( 'button' === strtolower($control->tagName) && $this->hasAnchorAncestor($control, $form) )
             ) {
                 return false;
             }
@@ -85,5 +87,16 @@ final class NativeGetFormBlockBuilder
             }
         }
         return true;
+    }
+
+    private function hasAnchorAncestor(DOMElement $element, DOMElement $boundary): bool
+    {
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement && $ancestor !== $boundary; $ancestor = $ancestor->parentNode ) {
+            if ( 'a' === strtolower($ancestor->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
