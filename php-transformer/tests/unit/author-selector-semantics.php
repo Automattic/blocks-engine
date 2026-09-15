@@ -60,7 +60,29 @@ $assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigation
 
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
-$assert(2 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus'), 'promoted anchors and native buttons project dynamic selectors onto their links once');
+$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus{padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
+
+$layeredNativeButton = $transform('<style>@layer utilities{@media (max-width:600px){button.cta{background:#135e96;padding:8px 16px;font-size:12px;font-weight:700}}}</style><button class="cta">Buy</button>');
+$layeredNativeButtonCss = $css($layeredNativeButton);
+$assert(
+    str_contains($layeredNativeButtonCss, '@layer utilities{@media (max-width:600px){')
+        && str_contains($layeredNativeButtonCss, 'background:#135e96!important')
+        && str_contains($layeredNativeButtonCss, 'padding:8px 16px!important')
+        && str_contains($layeredNativeButtonCss, 'font-size:12px!important')
+        && str_contains($layeredNativeButtonCss, 'font-weight:700!important'),
+    'layered native button presentation projects onto the core button link with source ownership priority'
+);
+
+$mixedNativeButtonTargets = $transform('<style>button.cta,button.icon{background:#135e96;padding:8px 16px;font-size:12px}</style><button class="cta">Buy</button><button class="icon"><svg><path d="M0 0h1v1z"/></svg></button>');
+$mixedNativeButtonTargetsCss = $css($mixedNativeButtonTargets);
+preg_match('/(?:^|})([^{}]+)\{background:#135e96!important;padding:8px 16px!important;font-size:12px!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
+$assert(
+    1 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
+        && 1 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
+        && isset($mixedNativeButtonPriorityRule[1])
+        && ! str_contains($mixedNativeButtonPriorityRule[1], ','),
+    'mixed ordinary and icon native button matches scope source ownership to the ordinary control'
+);
 
 $sharedReset = $transform('<style>div,a,button{padding:0}.box{padding-left:24px}</style><div class="box"><a class="cta" href="/go" style="padding:1px;background:#000">Go</a></div>');
 $sharedResetCss = $css($sharedReset);
@@ -103,7 +125,7 @@ $assert(! str_contains($sharedCss, ':not(.wp-block-button)') && str_contains($sh
 
 $relations = $transform('<style>p{margin:0}p + a.cta{color:red}p ~ button.cta{color:blue}main > p + a.cta{padding:1rem}</style><main><p>Before</p><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button></main>');
 $relationCss = $css($relations);
-$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 3 === substr_count($relationCss, '> :where(.wp-block-button__link)') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
+$assert(str_contains($relationCss, ':where(.blocks-engine-source-p-') && 4 === substr_count($relationCss, '> :where(.wp-block-button__link)') && str_contains($relationCss, 'color:blue!important') && ! str_contains($relationCss, 'p + a.cta'), 'child and sibling source matches project through exact controls while independent p selectors retain provenance');
 
 $base = '<style>.blocks-engine-source-p-deadbeef-0{display:block}p{color:red}</style><p>Collision</p>';
 $baseCss = $css($transform($base));
