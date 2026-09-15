@@ -855,12 +855,41 @@ final class NavigationToggleSuppressor
     {
         $links = array();
         foreach ( $navigation->getElementsByTagName('a') as $anchor ) {
-            if ( $anchor instanceof DOMElement && '' !== trim($anchor->textContent ?? '') ) {
+            if ( $anchor instanceof DOMElement
+                && '' !== trim($anchor->textContent ?? '')
+                && $this->isNavigationDestinationAnchor($anchor)
+            ) {
                 $links[] = strtolower(trim($anchor->textContent ?? '')) . '|' . trim(SourceDom::attr($anchor, 'href'));
             }
         }
 
         return 2 > count($links) ? '' : implode("\n", $links);
+    }
+
+    /**
+     * Whether an anchor is a real navigation destination rather than a
+     * disclosure/overflow toggle (e.g. a "More" menu trigger that duplicates
+     * the surrounding items in a nested submenu). Toggle anchors carry
+     * aria-expanded/aria-controls or a non-navigating href (empty, "#", or
+     * javascript:) and must not count toward a nav's link signature: a source
+     * that expresses the same toggle as a labelled anchor in one header
+     * instance and as a <details>/<summary> disclosure in a duplicate instance
+     * (or omits its visible label under a narrower layout) must still compare
+     * as the equivalent navigation, so its responsive overlay is preserved
+     * instead of silently downgrading the menu to overlayMenu "never".
+     */
+    private function isNavigationDestinationAnchor(DOMElement $anchor): bool
+    {
+        if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
+            return false;
+        }
+
+        $href = trim(SourceDom::attr($anchor, 'href'));
+        if ( '' === $href || str_starts_with($href, '#') ) {
+            return false;
+        }
+
+        return ! str_starts_with(strtolower($href), 'javascript:');
     }
 
 

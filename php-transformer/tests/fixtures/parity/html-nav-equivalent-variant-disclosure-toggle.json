@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-nav-equivalent-variant-disclosure-toggle",
+  "description": "A source page declares the same navigation twice: an inline desktop menu whose trailing overflow control is a labelless anchor with aria-expanded (href=\"#\"), and a hidden mobile-panel counterpart whose equivalent overflow control is instead a native <details>/<summary> disclosure. The two menus carry identical real destination links, so the desktop nav's overlay must resolve to 'mobile' (Core renders the responsive overlay and enqueues the navigation/view Interactivity module) even though the two overflow-toggle representations differ. Before this fix, the desktop menu's overflow anchor was folded into the nav's link signature, so the two menus compared as non-equivalent and the desktop nav silently downgraded to overlayMenu='never' -- dropping the mobile hamburger behavior even though the source unambiguously declares a mobile counterpart.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-nav-equivalent-variant-disclosure-toggle.json",
+    "notes": "Product-neutral fixture derived from a real-world regression: a page builder's responsive header renders the same overflow ('More') toggle as a bare anchor in one menu instance and as a <details>/<summary> disclosure in its mobile counterpart. Detection is structural (nav landmark identity by real link signature); no vendor-specific markup is referenced."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<header><nav id=\"primary-menu\" class=\"main-nav\" aria-label=\"Primary\"><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li><li><a href=\"#\" aria-expanded=\"false\" aria-haspopup=\"menu\">More</a></li></ul></nav></header><nav id=\"mobile-menu-panel\" class=\"mobile-menu-panel\" aria-label=\"Primary\" hidden><details><summary aria-expanded=\"false\">More</summary></details><ul><li><a href=\"/\">Home</a></li><li><a href=\"/about\">About</a></li><li><a href=\"/contact\">Contact</a></li></ul></nav>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/navigation", "attrs": { "anchor": "primary-menu", "className": "main-nav blocks-engine-list-navigation blocks-engine-native-responsive-navigation", "style": { "spacing": { "blockGap": "0px" } }, "overlayMenu": "mobile" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/navigation-link", "attrs": { "label": "Home", "url": "/", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/navigation-link", "attrs": { "label": "About", "url": "/about", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.2", "name": "core/navigation-link", "attrs": { "label": "Contact", "url": "/contact", "kind": "custom" } },
+    { "path": "blocks.0.innerBlocks.3", "name": "core/navigation-link", "attrs": { "label": "More", "url": "#", "kind": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.attrs.overlayMenu", "assert": "equals", "value": "mobile" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 4 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "\"overlayMenu\":\"mobile\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:navigation-link {\"label\":\"Home\",\"url\":\"/\",\"kind\":\"custom\"} -->" }
+  ]
+}
