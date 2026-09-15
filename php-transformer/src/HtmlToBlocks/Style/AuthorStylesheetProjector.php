@@ -371,9 +371,37 @@ final class AuthorStylesheetProjector
             if ( '' === $name || '' === $value || ( ! $this->isButtonLinkLayoutProperty($name) && ! $this->isButtonLinkPresentationProperty($name) ) ) {
                 continue;
             }
-            $declarations[] = preg_match('/\s*!important\s*$/i', $value) ? $name . ':' . $value : $name . ':' . $value . '!important';
+            $exclusion = $this->nativeButtonEditedPropertyExclusion($name);
+            $declarations[$exclusion][] = preg_match('/\s*!important\s*$/i', $value) ? $name . ':' . $value : $name . ':' . $value . '!important';
         }
-        return array() === $declarations ? '' : implode(',', array_values(array_unique($projected))) . '{' . implode(';', $declarations) . '}';
+        if ( array() === $declarations ) {
+            return '';
+        }
+        $rules = array();
+        foreach ( $declarations as $exclusion => $properties ) {
+            $rules[] = implode(',', array_values(array_unique($projected))) . $exclusion . '{' . implode(';', $properties) . '}';
+        }
+        return implode('', $rules);
+    }
+
+    private function nativeButtonEditedPropertyExclusion(string $property): string
+    {
+        if ( str_starts_with($property, 'background') ) {
+            return ':not([style*="background"])';
+        }
+        if ( str_starts_with($property, 'padding') ) {
+            return ':not([style*="padding"])';
+        }
+        if ( str_starts_with($property, 'border') ) {
+            return ':not([style*="border"])';
+        }
+        if ( str_starts_with($property, 'font') || 'line-height' === $property || 'letter-spacing' === $property || 'text-transform' === $property ) {
+            return ':not([style*="font"]):not([style*="line-height"]):not([style*="letter-spacing"]):not([style*="text-transform"])';
+        }
+        if ( 'color' === $property ) {
+            return ':not([style*="color:"])';
+        }
+        return ':not([style*="text-decoration"])';
     }
 
     private function isSpecializedNativeButton(DOMElement $element, string $body): bool

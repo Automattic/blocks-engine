@@ -60,12 +60,13 @@ $assert(isset($navigationShellMarker[0]) && ! str_contains((string) ($navigation
 
 $controls = $transform('<style>a.cta:hover{padding:1rem}button.cta:focus{padding:2rem}</style><a class="cta" href="/go" style="padding:1px;background:#000">Go</a><button class="cta" style="padding:1px;background:#000">Send</button>');
 $controlCss = $css($controls);
-$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus{padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
+$assert(3 === substr_count($controlCss, '> :where(.wp-block-button__link)') && str_contains($controlCss, ':hover') && str_contains($controlCss, ':focus:not([style*="padding"]){padding:2rem!important}'), 'promoted anchors and native buttons project dynamic selectors while native source ownership remains authoritative');
 
 $layeredNativeButton = $transform('<style>@layer utilities{@media (max-width:600px){button.cta{background:#135e96;padding:8px 16px;font-size:12px;font-weight:700}}}</style><button class="cta">Buy</button>');
 $layeredNativeButtonCss = $css($layeredNativeButton);
 $assert(
     str_contains($layeredNativeButtonCss, '@layer utilities{@media (max-width:600px){')
+        && str_contains($layeredNativeButtonCss, ':not([style*="background"]){background:#135e96!important')
         && str_contains($layeredNativeButtonCss, 'background:#135e96!important')
         && str_contains($layeredNativeButtonCss, 'padding:8px 16px!important')
         && str_contains($layeredNativeButtonCss, 'font-size:12px!important')
@@ -75,7 +76,7 @@ $assert(
 
 $mixedNativeButtonTargets = $transform('<style>button.cta,button.icon{background:#135e96;padding:8px 16px;font-size:12px}</style><button class="cta">Buy</button><button class="icon"><svg><path d="M0 0h1v1z"/></svg></button>');
 $mixedNativeButtonTargetsCss = $css($mixedNativeButtonTargets);
-preg_match('/(?:^|})([^{}]+)\{background:#135e96!important;padding:8px 16px!important;font-size:12px!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
+preg_match('/(?:^|})([^{}]+)\{background:#135e96!important}/', $mixedNativeButtonTargetsCss, $mixedNativeButtonPriorityRule);
 $assert(
     1 === substr_count($mixedNativeButtonTargetsCss, 'background:#135e96!important')
         && 1 === substr_count($mixedNativeButtonTargetsCss, 'padding:8px 16px!important')
