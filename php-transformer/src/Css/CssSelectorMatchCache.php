@@ -11,7 +11,14 @@ use WeakMap;
 /** Caches immutable-DOM selector inputs for one author-selector discovery pass. */
 final class CssSelectorMatchCache
 {
-    public const MAX_MATCHES = 4096;
+    /**
+     * A large source document resolves selectors against far more elements than
+     * a small one, and evicting a hot result only to recompute it is the cost
+     * this cache exists to avoid. The bound is per instance so a test can prove
+     * eviction behaviour at a small capacity instead of building a document
+     * large enough to overflow the production bound.
+     */
+    public const MAX_MATCHES = 131072;
 
     public const MAX_CANDIDATE_RULES = 4096;
 
@@ -84,8 +91,14 @@ final class CssSelectorMatchCache
 
     public int $connectedElementKeyHits = 0;
 
-    public function __construct()
+    private int $maxMatches;
+
+    public function __construct(?int $maxMatches = null)
     {
+        if ( null !== $maxMatches && $maxMatches < 1 ) {
+            throw new \InvalidArgumentException('A selector match cache must retain at least one result.');
+        }
+        $this->maxMatches = $maxMatches ?? self::MAX_MATCHES;
         $this->detachedElementKeys = new WeakMap();
         $this->connectedElementKeys = new WeakMap();
         $this->connectedDocumentKeys = new WeakMap();
@@ -149,7 +162,7 @@ final class CssSelectorMatchCache
         }
 
         ++$this->matchMisses;
-        if ( count($this->matches) >= self::MAX_MATCHES ) {
+        if ( count($this->matches) >= $this->maxMatches ) {
             unset($this->matches[array_key_first($this->matches)]);
             ++$this->matchEvictions;
         }
