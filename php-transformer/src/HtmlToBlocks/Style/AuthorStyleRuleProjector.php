@@ -623,6 +623,9 @@ final class AuthorStyleRuleProjector
         if ( in_array(strtolower(CssValueInspector::withoutImportant((string) ($elementStyle['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
             return false;
         }
+        if ( $this->receivesDefiniteBlockSize($element) ) {
+            return false;
+        }
         $ancestor = $element->parentNode;
         while ( $ancestor instanceof DOMElement && $ancestor !== $authorStyles->sourceBody() ) {
             $style = $this->styleResolver->structuralPresentationDeclarations($ancestor);

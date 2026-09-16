@@ -70,6 +70,14 @@ $assert(str_contains($percentageHeightCss, '.background-grid{position:absolute;i
 $assert(str_contains($percentageHeightCss, '.mixed-fill{height:100%}'), 'mixed structural and height-owning selectors retain their authored percentage height');
 $assert(in_array('responsive_geometry_ambiguous_percentage_height', array_column($percentageHeight['diagnostics'] ?? array(), 'code'), true), 'mixed percentage-height selectors emit a bounded ambiguity diagnostic');
 
+$gridPercentageHeight = (new HtmlTransformer())->transform(
+    '<style>.image-grid{display:grid;grid-template-rows:repeat(2,minmax(120px,auto))}.image-cell{grid-area:1/1/3/2}.image-frame,.image-inner{height:100%}.image-well{height:100%!important;position:relative}.image-well img{position:absolute;width:100%;height:100%;object-fit:cover}</style>'
+    . '<section><div class="image-grid"><div class="image-cell"><div class="image-frame"><div class="image-inner"><div class="image-well"><img src="photo.jpg" alt="Photo"></div></div></div></div></div></section>'
+)->toArray();
+$gridPercentageHeightCss = $css($gridPercentageHeight);
+$assert(str_contains($gridPercentageHeightCss, '.image-frame,.image-inner{height:100%}'), 'percentage-height wrapper chains retain the definite block size received from a stretched grid cell');
+$assert(str_contains($gridPercentageHeightCss, '.image-well{height:100%!important;position:relative}'), 'positioned image wells retain their percentage height and declaration priority inside a definite grid');
+
 $viewportRoot = (new HtmlTransformer())->transform(
     '<style>html,body,#root{height:100%}.canvas{height:100%;overflow:hidden}.page{position:absolute;inset:0}</style>'
     . '<div class="data-liberation-desktop-document"><div id="root"><main class="canvas"><div class="page"><p>Hero</p></div></main></div></div>'
