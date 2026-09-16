@@ -18,6 +18,9 @@ final class GeneratedSupportStylesheetState
     /** @var array<string, string> */
     private array $disclosureSummaryPresentation = array();
 
+    /** @var array<string, array<string, string>> */
+    private array $disclosureControlConditionalDisplay = array();
+
     /** @var array<string, string> */
     private array $accordionTogglePresentation = array();
 
@@ -108,6 +111,12 @@ final class GeneratedSupportStylesheetState
         $this->disclosureSummaryPresentation[$className] = $declarations;
     }
 
+    /** @param array<string, string> $rules */
+    public function registerDisclosureControlConditionalDisplay(string $className, array $rules): void
+    {
+        $this->disclosureControlConditionalDisplay[$className] = $rules;
+    }
+
     public function registerAccordionTogglePresentation(string $className, string $declarations): void
     {
         $this->accordionTogglePresentation[$className] = $declarations;
@@ -167,6 +176,22 @@ final class GeneratedSupportStylesheetState
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
+            }
+        }
+        foreach ($this->disclosureControlConditionalDisplay as $className => $rules) {
+            if (!str_contains($serializedBlocks, $className)) continue;
+            // A responsive utility states the control's visibility per viewport.
+            // The conditions travel with the values so a control the source only
+            // shows on small screens stays hidden on large ones.
+            // The condition hid the whole control in the source, so it applies
+            // to the block that now holds the control's slot. Hiding only the
+            // inner trigger would leave a zero-sized block still taking part in
+            // its parent's layout.
+            $selector = str_starts_with($className, 'blocks-engine-accordion-toggle-')
+                ? '.wp-block-accordion-heading.' . $className
+                : '.wp-block-details.' . $className;
+            foreach ($rules as $condition => $display) {
+                $parts[] = $condition . '{' . $selector . '{display:' . $display . '}' . str_repeat('}', substr_count($condition, '{') + 1);
             }
         }
         foreach ($this->accordionTogglePresentation as $className => $declarations) {
