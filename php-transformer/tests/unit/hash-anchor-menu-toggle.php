@@ -97,7 +97,8 @@ $assert(
 );
 $assert(
     str_contains($weeblyAssets, 'responsive-container-close{display:flex') && str_contains($weeblyAssets, 'opacity:0')
-        && ( str_contains($weeblyAssets, 'top:calc(0px - 60px)') || str_contains($weeblyAssets, 'top:-60px') ),
+        && ( str_contains($weeblyAssets, 'top:calc(0px - 60px)') || str_contains($weeblyAssets, 'top:-60px') )
+        && str_contains($weeblyAssets, 'is-menu-open') && str_contains($weeblyAssets, 'overflow:visible'),
     'a second click on MENU hits an invisible close control in the same box',
     $weeblyAssets
 );
