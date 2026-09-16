@@ -2824,13 +2824,20 @@ final class ArtifactCompiler
             $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
+        $entryTitle = '';
+        foreach ( $artifact['files'] as $file ) {
+            if ( $entryPath === ($file['path'] ?? '') ) {
+                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath);
+                break;
+            }
+        }
         foreach ( $artifact['files'] as $file ) {
             if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle);
             $slug = $this->slugFromPath($path);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -3304,7 +3311,7 @@ final class ArtifactCompiler
         return 'css' === ($asset['kind'] ?? '') && ('visual-repair' === $role || 'visual-repair' === $intent || preg_match('/(?:^|[-_\/])visual[-_]repair(?:[-_\/]|\.)/i', $path));
     }
 
-    private function titleFromHtml(string $html, string $path, string $entryPath = ''): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = ''): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
@@ -3332,7 +3339,7 @@ final class ArtifactCompiler
 
         if ( preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
             $title = $normalize($match[1]);
-            if ( '' !== $title && ( '' === $entryPath || $path === $entryPath ) ) {
+            if ( '' !== $title && ( $path === $entryPath || '' === $entryPath || $title !== $entryTitle ) ) {
                 return $title;
             }
         }

@@ -41,6 +41,7 @@ $pages = (new ArtifactCompiler())->compile(array(
         'index.html' => '<!doctype html><html><head><title>Rachel Braun UX Design</title></head><body>' . $header . '<main><h2>Home</h2></main></body></html>',
         'bulletin-board/index.html' => '<!doctype html><html><head><title>Rachel Braun UX Design</title></head><body>' . $header . '<main><p>Case study</p></main></body></html>',
         'diabetes-capstone/index.html' => '<!doctype html><html><head><title>Site</title></head><body>' . $header . '<main><h1>Diabetes Capstone&nbsp;</h1></main></body></html>',
+        'about.html' => '<!doctype html><html><head><title>About Northline</title></head><body>' . $header . '<main><p>About the studio.</p></main></body></html>',
     ),
 ))->toArray()['source_reports']['wordpress_site_plan']['pages'] ?? array();
 $bySource = array();
@@ -50,5 +51,6 @@ foreach ($pages as $page) {
 $assert('Rachel Braun UX Design' === ($bySource['index.html'] ?? null), 'The entry page keeps its document title.');
 $assert('Bulletin Board' === ($bySource['bulletin-board/index.html'] ?? null), 'A nested page whose title matches the site chrome title uses its path title.');
 $assert('Diabetes Capstone' === ($bySource['diabetes-capstone/index.html'] ?? null), 'Content headings win and trailing nbsp is stripped.');
+$assert('About Northline' === ($bySource['about.html'] ?? null), 'A nested page keeps a unique document title when it differs from the entry title.');
 
 fwrite(STDOUT, "header-link-cluster-navigation contract passed\n");
