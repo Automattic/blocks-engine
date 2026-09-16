@@ -188,7 +188,15 @@ final class ProjectedNavigationConverter implements ElementConverter
         return $open . '{box-sizing:border-box!important;position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 20px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
             . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;height:60px!important;margin:0!important;padding:0!important}'
-            . $open . ' .wp-block-navigation__container{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;width:auto!important;height:60px!important;margin:0!important;padding:0!important;list-style:none!important}'
+            // The source menu bar lays its items out inline, so the gap between
+            // two labels is the collapsed whitespace text node the source had
+            // between list items, advanced in the list's own font. Core's
+            // navigation save() emits no whitespace between items, so a flex
+            // bar loses that gap entirely. Keep the bar an inline formatting
+            // context and restore the separator as generated content, which
+            // lets the browser measure it in the same inherited font instead
+            // of pinning a guessed pixel gap.
+            . $open . ' .wp-block-navigation__container{display:block!important;white-space:nowrap!important;width:auto!important;height:60px!important;margin:0!important;padding:0!important;list-style:none!important}'
             . $this->nativeNavigationToggleItemCss($open, $navigation)
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
@@ -297,7 +305,9 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $open . ' .wp-block-navigation-item,'
-            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:' . $padding . '!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
+            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:inline-block!important;vertical-align:middle!important;height:auto!important;padding:' . $padding . '!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
+            . $open . ' .wp-block-navigation-item::after{content:" "!important;white-space:pre!important;display:inline!important}'
+            . $open . ' .wp-block-navigation-item:last-child::after{content:none!important}'
             . $open . ' .wp-block-navigation-item__content{display:inline!important;white-space:nowrap!important;padding:0!important;' . implode(';', $withoutColor) . '}'
             . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
