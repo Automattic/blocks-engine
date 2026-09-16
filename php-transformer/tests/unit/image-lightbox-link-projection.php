@@ -86,6 +86,37 @@ $assert(
     $nonImage
 );
 
+// A gallery card: the trigger wraps the image plus a caption overlay, so the
+// link is propagated as a card-link wrapper rather than a bare image link.
+$galleryCard = $transform(
+    '<main><div class="galleryInnerImageHolder">'
+    . '<a href="/uploads/img-1631_orig.jpeg" rel="lightbox[gallery219311460416557837]" title="Yosemite" class="w-fancybox">'
+    . '<img src="/media/img-1631.jpeg" class="galleryImage" width="800" height="600" alt="Yosemite">'
+    . '<div class="galleryCaptionHolder"><div class="galleryCaptionInnerText">Yosemite National Park, USA</div></div>'
+    . '</a></div></main>'
+);
+$assert(
+    str_contains($galleryCard, '"lightbox":{"enabled":true}'),
+    'a gallery card whose trigger also wraps a caption still opts into the native lightbox',
+    $galleryCard
+);
+$assert(
+    ! str_contains($galleryCard, '"linkDestination"') && ! str_contains($galleryCard, 'href="/uploads/img-1631_orig.jpeg"'),
+    'the gallery card trigger link is not propagated onto the image',
+    $galleryCard
+);
+
+// A real card link wrapping an image plus copy keeps propagating its link.
+$cardLink = $transform(
+    '<main><div><a href="/research.html"><img src="/media/thumb.jpg" width="800" height="600" alt="R">'
+    . '<div><p>Read the research</p></div></a></div></main>'
+);
+$assert(
+    ! str_contains($cardLink, '"lightbox"') && str_contains($cardLink, '/research.html'),
+    'an ordinary card link keeps propagating its destination',
+    $cardLink
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "image lightbox link projection FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);

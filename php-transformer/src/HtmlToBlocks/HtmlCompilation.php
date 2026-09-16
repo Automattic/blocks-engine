@@ -9744,6 +9744,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $linkAttrs = $this->linkPropagationAttributes($anchor);
+        // A gallery thumbnail wraps its image, and often a caption overlay, in
+        // a lightbox trigger. That link is the viewer, not a destination, so
+        // core's native lightbox replaces it rather than propagating an href
+        // that would navigate away from the page.
+        if ( $this->imageLinkOpensNativeLightbox($anchor) && $this->enableNativeLightboxOnImages($children) ) {
+            return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($anchor), $children, $anchor);
+        }
         if ( array() !== $linkAttrs && ! $this->propagateLinkWrapper($children, $linkAttrs) ) {
             $this->recordDroppedLinkWrapper($anchor);
         }
@@ -9902,6 +9909,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<string, mixed> $block
      * @param array<string, string> $linkAttrs
      */
+    /**
+     * Opt every unlinked image inside a lightbox trigger into core's native
+     * lightbox. An image that already carries its own link keeps it, because
+     * core suppresses its lightbox when a link is present.
+     *
+     * @param array<int, array<string, mixed>> $blocks
+     */
+    private function enableNativeLightboxOnImages(array &$blocks): bool
+    {
+        $enabled = false;
+        foreach ( $blocks as $index => $block ) {
+            if ( ! is_array($block) ) {
+                continue;
+            }
+
+            if ( 'core/image' === (string) ($block['blockName'] ?? '') ) {
+                $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
+                if ( '' === (string) ($attrs['href'] ?? '') ) {
+                    $attrs['lightbox'] = array( 'enabled' => true );
+                    $blocks[ $index ] = $this->rebuildBlock($block, $attrs);
+                    $enabled = true;
+                }
+                continue;
+            }
+
+            if ( is_array($block['innerBlocks'] ?? null) && $this->enableNativeLightboxOnImages($blocks[ $index ]['innerBlocks']) ) {
+                $enabled = true;
+            }
+        }
+
+        return $enabled;
+    }
+
     private function propagateLinkOntoImage(array &$block, array $linkAttrs): bool
     {
         $attrs = is_array($block['attrs'] ?? null) ? $block['attrs'] : array();
