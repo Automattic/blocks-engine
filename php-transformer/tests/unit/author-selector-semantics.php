@@ -67,6 +67,22 @@ $assert(
     (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
     'relative nested selectors retain their host and receive the same margin priority as later parent declarations'
 );
+$behaviorStyledImage = $transform(
+    '<style>.photo-frame{height:240px}.js-photo-wrapper{height:100%;position:relative}.photo-fill{position:absolute;inset:0}.photo-fill img{width:100%;height:100%;object-fit:cover}@media(max-width:600px){.js-mobile-only{color:red}}</style>'
+    . '<div class="photo-frame"><div class="js-photo-wrapper js-unused"><div class="photo-fill"><img src="photo.jpg" alt="Photo"></div></div></div><p class="js-mobile-only">Caption</p>'
+);
+$behaviorStyledMarkup = (string) ($behaviorStyledImage['serialized_blocks'] ?? '');
+$assert(str_contains($behaviorStyledMarkup, 'js-photo-wrapper'), 'a behavior-hook class that owns authored image containing-block styles survives conversion');
+$assert(str_contains($behaviorStyledMarkup, 'js-mobile-only'), 'behavior-hook classes referenced only by responsive author rules survive conversion');
+$assert(! str_contains($behaviorStyledMarkup, 'js-unused'), 'behavior-only hooks without authored CSS remain excluded');
+
+$behaviorSelectors = $transform(
+    '<style>.js\\:escaped{color:red}.js-decoration::before{content:"Photo"}p:not(.js-excluded){color:blue}.js-shorter{color:green}[data-label=".js-attribute-value"]{color:purple}</style>'
+    . '<p class="js:escaped js-decoration js-excluded js-short js-attribute-value">Caption</p>'
+);
+$behaviorSelectorMarkup = (string) ($behaviorSelectors['serialized_blocks'] ?? '');
+$assert(str_contains($behaviorSelectorMarkup, 'js:escaped') && str_contains($behaviorSelectorMarkup, 'js-decoration') && str_contains($behaviorSelectorMarkup, 'js-excluded'), 'escaped, generated-content, and negated class selectors preserve their source classes');
+$assert(! str_contains($behaviorSelectorMarkup, 'js-short') && ! str_contains($behaviorSelectorMarkup, 'js-attribute-value'), 'class prefixes and attribute values do not count as authored class selectors');
 
 $candidateDom = new DOMDocument();
 $candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
