@@ -3137,6 +3137,37 @@ final class StyleResolver implements ElementPresentationResolver
     public function cssDeclarations(string $style): array
     {
         $declarations = array();
+        foreach ( $this->verbatimCssDeclarations($style) as $name => $value ) {
+            foreach ( $this->physicalBoxDeclarations($name, $value) as $boxName => $boxValue ) {
+                // Importance precedes source order even within one declaration
+                // list. Reducing to a property map must retain that winner.
+                if (isset($declarations[$boxName]) && CssValueInspector::isImportant($declarations[$boxName]) && ! CssValueInspector::isImportant($boxValue)) {
+                    continue;
+                }
+                // Keep the surviving declaration at its final authored position.
+                // Border shorthands and longhands reset one another in source
+                // order, so overwriting a prior key in place is not sufficient.
+                unset($declarations[$boxName]);
+                $declarations[$boxName] = $boxValue;
+            }
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * Parse a declaration list without logical-to-physical box expansion.
+     *
+     * Author-stylesheet projection re-emits authored declaration text, so it
+     * must keep the authored property names (`margin-inline`, …) byte-for-byte;
+     * only cascade resolution and classification read the expanded physical
+     * sides.
+     *
+     * @return array<string, string>
+     */
+    public function verbatimCssDeclarations(string $style): array
+    {
+        $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($style, array( ';' )) as $declaration ) {
             if ( ! str_contains($declaration, ':') ) {
                 continue;
@@ -3162,6 +3193,57 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $declarations;
+    }
+
+    /**
+     * Expand a logical box property into its physical side longhands.
+     *
+     * A builder's box utilities are increasingly authored as logical properties
+     * (`padding-block`, `padding-inline`), while the cascade and every
+     * downstream box consumer (control-surface classification, spacing
+     * projection) read physical sides. Expansion assumes the desktop reference
+     * viewport's horizontal-tb, left-to-right writing mode — the same fixed
+     * assumption the rest of style resolution makes.
+     *
+     * @return array<string, string> Physical declarations keyed by property.
+     */
+    private function physicalBoxDeclarations(string $property, string $value): array
+    {
+        $axes = array(
+            'padding-block' => array( 'padding-top', 'padding-bottom' ),
+            'padding-inline' => array( 'padding-left', 'padding-right' ),
+            'margin-block' => array( 'margin-top', 'margin-bottom' ),
+            'margin-inline' => array( 'margin-left', 'margin-right' ),
+        );
+        if ( isset($axes[$property]) ) {
+            $important = CssValueInspector::isImportant($value) ? ' !important' : '';
+            $plain = trim(preg_replace('/\s*!\s*important\s*$/i', '', $value) ?? $value);
+            $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+            if ( count($parts) < 1 || count($parts) > 2 ) {
+                return array();
+            }
+
+            return array(
+                $axes[$property][0] => $parts[0] . $important,
+                $axes[$property][1] => ( $parts[1] ?? $parts[0] ) . $important,
+            );
+        }
+
+        $sides = array(
+            'padding-block-start' => 'padding-top',
+            'padding-block-end' => 'padding-bottom',
+            'padding-inline-start' => 'padding-left',
+            'padding-inline-end' => 'padding-right',
+            'margin-block-start' => 'margin-top',
+            'margin-block-end' => 'margin-bottom',
+            'margin-inline-start' => 'margin-left',
+            'margin-inline-end' => 'margin-right',
+        );
+        if ( isset($sides[$property]) ) {
+            return array( $sides[$property] => $value );
+        }
+
+        return array( $property => $value );
     }
 
     /**

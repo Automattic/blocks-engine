@@ -33,7 +33,7 @@ final class AuthorStylesheetProjector
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
         $hasMargins = $hasNestedRules && array_filter(
-            $this->styleResolver->cssDeclarations($body),
+            $this->styleResolver->verbatimCssDeclarations($body),
             static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'),
             ARRAY_FILTER_USE_KEY
         );
