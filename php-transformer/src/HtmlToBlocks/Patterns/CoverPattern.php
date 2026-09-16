@@ -132,8 +132,10 @@ final class CoverPattern implements PatternRecognizerInterface
         // geometry carrier (className + authored stylesheet), the one channel
         // core/cover's save() round-trips verbatim — an inline wrapper height
         // would diverge from save() and flag the block for editor recovery.
+        $inlineHeight = strtolower(trim((string) ($this->styleResolver->declarations(SourceDom::attr($element, 'style'))['height'] ?? '')));
+        $heightIsAuto = 'auto' === $inlineHeight;
         $excludedProperties = array( 'background', 'background-image', 'background-size', 'background-position', 'background-repeat', 'min-height' );
-        if ( null === $minHeight || empty($minHeight['definite']) ) {
+        if ( ! $heightIsAuto && ( null === $minHeight || empty($minHeight['definite']) ) ) {
             $excludedProperties[] = 'height';
         }
         try {
@@ -178,7 +180,20 @@ final class CoverPattern implements PatternRecognizerInterface
         $this->promoteDesignGradient($attrs, $dim);
         $this->removeConsumedGradient($attrs);
 
-        if ( null !== $minHeight ) {
+        if ( $heightIsAuto ) {
+            $attrs['minHeight'] = 0;
+            $attrs['minHeightUnit'] = 'px';
+            $styleSupport = isset($attrs['style']) && is_array($attrs['style']) ? $attrs['style'] : array();
+            $spacing = isset($styleSupport['spacing']) && is_array($styleSupport['spacing']) ? $styleSupport['spacing'] : array();
+            $spacing['padding'] = array(
+                'top' => '0',
+                'right' => '0',
+                'bottom' => '0',
+                'left' => '0',
+            );
+            $styleSupport['spacing'] = $spacing;
+            $attrs['style'] = $styleSupport;
+        } elseif ( null !== $minHeight ) {
             $attrs['minHeight'] = $minHeight['minHeight'];
             $attrs['minHeightUnit'] = $minHeight['minHeightUnit'];
         }
