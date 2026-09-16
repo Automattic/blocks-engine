@@ -52,6 +52,9 @@ final class NavigationToggleSuppressor
 
             foreach ( preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-controls'))) ?: array() as $controlledId ) {
                 $target = $elementsById[ltrim($controlledId, '#')] ?? null;
+                if ( ! $target instanceof DOMElement || $this->isInsideOwnDisclosurePanel($control, $target) ) {
+                    continue;
+                }
                 $navigation = $target instanceof DOMElement ? $this->hiddenNavigationInControlledTarget($target) : null;
                 if ( ! $target instanceof DOMElement || ! $navigation instanceof DOMElement ) {
                     continue;
@@ -102,6 +105,12 @@ final class NavigationToggleSuppressor
             $navigationCandidates = array();
             foreach ( $scope->getElementsByTagName('*') as $candidate ) {
                 if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($control) ) {
+                    continue;
+                }
+
+                // A native disclosure's own collapsible panel is the content the
+                // details block preserves, never the control's overlay target.
+                if ( $this->isInsideOwnDisclosurePanel($control, $candidate) ) {
                     continue;
                 }
 
@@ -239,7 +248,75 @@ final class NavigationToggleSuppressor
             return false;
         }
 
+        // A native disclosure whose panel is still its own content is operable
+        // zero-JS UI: its summary toggles the panel the `core/details` block
+        // preserves natively, so it can never be the redundant chrome a rebuilt
+        // overlay navigation supersedes — dropping it would delete the panel.
+        if ( $this->isNativeDisclosureWithPanel($element) ) {
+            return false;
+        }
+
         return $this->hasAssociatedNavigationMenu($element);
+    }
+
+    /**
+     * Whether the element is a native `details` disclosure — or the summary of
+     * one — that still carries panel content beyond its summary.
+     */
+    private function isNativeDisclosureWithPanel(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( 'details' === $tagName ) {
+            $details = $element;
+        } elseif ( 'summary' === $tagName
+            && $element->parentNode instanceof DOMElement
+            && 'details' === strtolower($element->parentNode->tagName) ) {
+            $details = $element->parentNode;
+        } else {
+            return false;
+        }
+
+        foreach ( $details->childNodes as $child ) {
+            if ( $child instanceof DOMElement && 'summary' !== strtolower($child->tagName) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the candidate element lives inside the toggle's own native
+     * `details` disclosure: the toggle is the details itself or its summary,
+     * and the candidate is a descendant of that same details. A disclosure's
+     * own collapsible panel is the content the converted `core/details` block
+     * keeps closed until its summary opens it — it can never be an external
+     * menu that makes the toggle redundant chrome or a projected overlay
+     * target. Without this boundary, a captured disclosure with an icon-only
+     * menu summary and a `<nav>`/dialog panel was dropped wholesale (the
+     * hamburger read as redundant for its own panel) and the panel was
+     * suppressed as an overlay it was never separate from.
+     */
+    private function isInsideOwnDisclosurePanel(DOMElement $toggle, DOMElement $candidate): bool
+    {
+        $tagName = strtolower($toggle->tagName);
+        if ( 'details' === $tagName ) {
+            $details = $toggle;
+        } elseif ( 'summary' === $tagName
+            && $toggle->parentNode instanceof DOMElement
+            && 'details' === strtolower($toggle->parentNode->tagName) ) {
+            $details = $toggle->parentNode;
+        } else {
+            return false;
+        }
+
+        for ( $node = $candidate; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($details) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** A native disclosure with a captured dialog has its own preservation path. */
@@ -654,7 +731,10 @@ final class NavigationToggleSuppressor
             }
 
             $target = $this->elementWithId($toggle, $controlledId);
-            if ( $target instanceof DOMElement && ! $target->isSameNode($toggle) && $this->isAssociatedNavigationTarget($target) ) {
+            if ( $target instanceof DOMElement
+                && ! $target->isSameNode($toggle)
+                && ! $this->isInsideOwnDisclosurePanel($toggle, $target)
+                && $this->isAssociatedNavigationTarget($target) ) {
                 return true;
             }
         }
@@ -666,6 +746,10 @@ final class NavigationToggleSuppressor
 
         foreach ( $scope->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement || $candidate->isSameNode($toggle) ) {
+                continue;
+            }
+
+            if ( $this->isInsideOwnDisclosurePanel($toggle, $candidate) ) {
                 continue;
             }
 
