@@ -3030,6 +3030,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 }
             }
             if ( ! $matched ) {
+                foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'class'))) ?: array() as $className ) {
+                    if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?:$|[.\s\[:#>+~])/', $selector) ) {
+                        $matched = true;
+                        break;
+                    }
+                }
+            }
+            if ( ! $matched ) {
                 continue;
             }
             $picked = array();

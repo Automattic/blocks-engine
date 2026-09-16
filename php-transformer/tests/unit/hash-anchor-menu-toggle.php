@@ -66,7 +66,7 @@ $assert(
     $weeblyMarkup
 );
 $assert(
-    str_contains($weeblyAssets, 'content:"MENU"') || str_contains($weeblyAssets, 'content:MENU'),
+    str_contains($weeblyAssets, 'responsive-container-open::after') && ( str_contains($weeblyAssets, 'content:"MENU"') || str_contains($weeblyAssets, 'content:MENU') ),
     'the source MENU generated-content label is projected onto the open control',
     $weeblyAssets
 );
