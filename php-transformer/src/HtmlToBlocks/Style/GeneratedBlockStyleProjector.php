@@ -275,6 +275,14 @@ final class GeneratedBlockStyleProjector
                 $outerWrapperDeclarations[] = 'height:100%';
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';
+            } elseif ( self::sourceControlPinsToItsWrapper($sourceDeclarations) ) {
+                // The source control takes its box from a sized wrapper by pinning
+                // to every edge. Core's link sits in flow instead, so it shrinks to
+                // its label unless it is told to fill that same box.
+                $outerWrapperDeclarations[] = 'height:100%';
+                $wrapperDeclarations[] = 'height:100%';
+                $declarations[] = 'width:100%!important';
+                $declarations[] = 'height:100%!important';
             }
             foreach ( array( 'border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius' ) as $property ) {
                 $value = CssValueInspector::comparable((string) ($sourceStructuralDeclarations[$property] ?? ''));
@@ -355,6 +363,29 @@ final class GeneratedBlockStyleProjector
      *
      * @return array<string, true>
      */
+    /**
+     * Whether the control is pinned to every edge of its containing block.
+     *
+     * @param array<string, string> $sourceDeclarations
+     */
+    private static function sourceControlPinsToItsWrapper(array $sourceDeclarations): bool
+    {
+        if ( 'absolute' !== CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? '')) ) {
+            return false;
+        }
+        $inset = CssValueInspector::comparable((string) ($sourceDeclarations['inset'] ?? ''));
+        if ( 1 === preg_match('/^0(?:px)?(?:\s+0(?:px)?){0,3}$/', $inset) ) {
+            return true;
+        }
+        foreach ( array( 'top', 'right', 'bottom', 'left' ) as $edge ) {
+            if ( 1 !== preg_match('/^0(?:px)?$/', CssValueInspector::comparable((string) ($sourceDeclarations[$edge] ?? ''))) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private function responsiveAuthoredProperties(DOMElement $sourceControl): array
     {
         $propertySources = array(
