@@ -265,13 +265,14 @@ final class NavigationPatternContext
     }
 
     /**
-     * Keep a painted menu painted once.
+     * Keep a painted or framed menu stated once.
      *
      * WordPress copies a navigation block's classes onto both the `nav` and its
-     * responsive container, so a source rule that paints the menu through one
-     * of those classes matches twice and the source's single painted region
-     * renders stacked on itself. Where the source paints the menu, state that
-     * paint once by neutralising it on the inner container.
+     * responsive container, so a source rule that styles the menu through one
+     * of those classes matches twice. Paint renders stacked on itself; a frame
+     * — the menu's own padding and rules — is charged twice and doubles the
+     * menu's height. Where the source states either, neutralise it on the
+     * inner container so the `nav` keeps the single source declaration.
      *
      * @param array<int, string> $authorClasses
      */
@@ -281,22 +282,41 @@ final class NavigationPatternContext
             return;
         }
 
-        $paints = false;
-        foreach ( array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' ) as $property ) {
-            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
-            if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)' ), true) ) {
-                $paints = true;
-                break;
-            }
+        $resets = array();
+        if ( $this->navigationDeclaresAny($navigation, array( 'background-color', 'background-image', 'background', 'border-top-left-radius', 'border-radius', 'box-shadow' )) ) {
+            $resets[] = 'background:none!important';
+            $resets[] = 'border-radius:0!important';
+            $resets[] = 'box-shadow:none!important';
         }
-        if ( ! $paints ) {
+        if ( $this->navigationDeclaresAny($navigation, array( 'padding', 'padding-top', 'padding-bottom', 'padding-block', 'border-top', 'border-bottom', 'border-block', 'border-width', 'border-top-width', 'border-bottom-width' )) ) {
+            $resets[] = 'padding:0!important';
+            $resets[] = 'border:0!important';
+        }
+        if ( array() === $resets ) {
             return;
         }
 
         // Descendant, not child: core nests the container inside its responsive
         // wrapper, so a child combinator never reaches it.
         $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
-        $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, 'background:none!important;border-radius:0!important;box-shadow:none!important');
+        $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $resets));
+    }
+
+    /**
+     * Does the source navigation itself state any of these properties?
+     *
+     * @param array<int, string> $properties
+     */
+    private function navigationDeclaresAny(DOMElement $navigation, array $properties): bool
+    {
+        foreach ( $properties as $property ) {
+            $value = $this->navigationItemPresentationValue($navigation, $navigation, $property);
+            if ( '' !== $value && ! in_array(strtolower($value), array( 'none', 'transparent', '0', '0px', 'rgba(0, 0, 0, 0)', 'medium none', '0 none' ), true) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
