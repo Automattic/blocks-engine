@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
@@ -38,7 +39,13 @@ final class HighValueStyleBoundaryPolicy
             SourceDom::attr($element, 'role'),
         ))));
 
-        if ( preg_match('/(?:^|[^a-z0-9])(?:btn|button|cta|action|nav|menu|logo|brand|branding|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|badge|chip|pill|status|indicator|marker|dot|orb|media|image|photo|gallery|cover|thumb|thumbnail|art|artwork|illustration)(?:[^a-z0-9]|$)/', $tokens) ) {
+        // The nav/menu alternation below is sourced from MenuVocabulary's
+        // unconditional token set (nav|navbar|navigation|menu) rather than
+        // the narrower 'nav|menu' this mega-regex used to hard-code; see
+        // MenuVocabulary's docblock for the reconciliation.
+        $highValueTokens = 'btn|button|cta|action|' . MenuVocabulary::unconditionalMenuTokenRegexFragment()
+            . '|logo|brand|branding|cards?|tile|panel|pricing|price|product|grid|columns|layout|stack|cluster|row|wrap|hero|masthead|banner|badge|chip|pill|status|indicator|marker|dot|orb|media|image|photo|gallery|cover|thumb|thumbnail|art|artwork|illustration';
+        if ( preg_match('/(?:^|[^a-z0-9])(?:' . $highValueTokens . ')(?:[^a-z0-9]|$)/', $tokens) ) {
             return true;
         }
 
