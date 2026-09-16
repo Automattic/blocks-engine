@@ -883,6 +883,41 @@ $assert(
 );
 
 
+$descendantClassResult = $transform(
+    '<style>.site .header .menu{display:flex}.menu a{padding:13px 20px}'
+        . '.site .header .menu .menu-link{padding-left:4px;padding-right:4px}'
+        . '.secondary .menu-link{padding-left:12px}'
+        . '.footer .menu-link{padding-left:99px}</style>'
+        . '<div class="site"><header class="header"><nav class="menu"><ul>'
+        . '<li><a class="menu-link" href="/">Home</a></li>'
+        . '<li><a class="menu-link" href="/services">Services</a></li>'
+        . '</ul></nav></header>'
+        . '<nav class="secondary"><ul><li><a class="menu-link" href="/help">Help</a></li></ul></nav></div>'
+);
+$descendantClassCss = implode("\n", array_column($descendantClassResult['assets'] ?? array(), 'content'));
+$descendantItemSelector = '.site .header .menu .wp-block-navigation-item.menu-link';
+$assert(
+    str_contains($descendantClassCss, $descendantItemSelector . '>.wp-block-navigation-item__content{padding-left:4px;padding-right:4px}')
+        && str_contains($descendantClassCss, $descendantItemSelector . '{padding-left:revert;padding-right:revert}'),
+    'a scoped class rule retains link padding on the native anchor without adding padding to its new item wrapper',
+    $descendantClassCss
+);
+$assert(
+    str_contains($descendantClassCss, '.secondary .wp-block-navigation-item.menu-link>.wp-block-navigation-item__content{padding-left:12px}')
+        && ! str_contains($descendantClassCss, '.footer .wp-block-navigation-item.menu-link')
+        && 'pass' === ($descendantClassResult['source_reports']['wp_block_validity']['status'] ?? ''),
+    'scoped anchor projection keeps unrelated source contexts out and preserves valid native navigation'
+);
+$structuralDescendantResult = $transform(
+    '<style>.menu{display:flex}.menu li .menu-link{padding-left:4px}</style>'
+        . '<nav class="menu"><ul><li><a class="menu-link" href="/">Home</a></li></ul></nav>'
+);
+$structuralDescendantCss = implode("\n", array_column($structuralDescendantResult['assets'] ?? array(), 'content'));
+$assert(
+    ! str_contains($structuralDescendantCss, '.menu li .wp-block-navigation-item.menu-link'),
+    'scoped anchor projection does not retain source list structure that core replaces'
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Navigation brand cue carrier contract: {$failures} failed, {$passes} passed\n");
     exit(1);
