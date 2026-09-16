@@ -73,6 +73,7 @@ $templatePartStylePlan = (new ArtifactCompiler())->compile(array('entrypoint' =>
 $templatePartStyleWrites = $writeMap($templatePartStylePlan['writes'] ?? array());
 $assert(str_contains((string) ($templatePartStyleWrites['functions.php']['payload']['data'] ?? ''), "0 => 'header'"), 'Page-owned styles are admitted to an extracted template-part editor from the same source document.');
 $assert(3 === (json_decode((string) $writes['theme.json']['payload']['data'], true)['version'] ?? null), 'Theme configuration is parseable and supported.');
+$assert(true === (json_decode((string) $writes['theme.json']['payload']['data'], true)['settings']['spacing']['blockGap'] ?? null), 'Theme configuration opts into blockGap support so core honors per-block spacing.blockGap values and the global gap default instead of its 0.5em fallback.');
 $tokenArtifact = array(
     'entrypoint' => 'index.html',
     'files' => array(

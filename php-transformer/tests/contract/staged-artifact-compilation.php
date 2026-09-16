@@ -278,6 +278,7 @@ $assert(str_contains($bootstrap, "empty( \$style['author_css'] )") && str_contai
 $assert(str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && !str_contains($bootstrap, "add_filter( 'wp_theme_json_data_theme'") && !str_contains($bootstrap, "blocks_engine_presentation_css") && str_contains($bootstrap, "file_get_contents( \$path )"), 'Canonical bootstrap uses Core editor settings for route-matched author CSS without theme-JSON materializing it.');
 $themeScaffold = json_decode((string) ($siteWrites['theme.json']['payload']['data'] ?? ''), true);
 $assert(is_array($themeScaffold) && '0px' === ($themeScaffold['styles']['spacing']['blockGap'] ?? null), 'Generated theme.json declares an explicit block gap so the editor canvas does not inherit the WordPress 24px layout gap that the frontend never emits.');
+$assert(is_array($themeScaffold) && true === ($themeScaffold['settings']['spacing']['blockGap'] ?? null), 'Generated theme.json opts into blockGap support so WordPress serializes the block gaps the blocks already carry instead of its 0.5em fallback.');
 $inlineEntryArtifact = $inlineArtifact;
 $inlineEntryArtifact['entrypoints'] = array('about.html');
 $inlineSitePlan = $compiler->compile($inlineEntryArtifact)->toArray()['source_reports']['wordpress_site_plan'] ?? array();

@@ -125,6 +125,17 @@ final class ThemeJsonProjection
         // layout gap (`:root :where(.is-layout-flow) > *`), which the frontend
         // never emits, so the same markup renders taller in the editor canvas.
         if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = '0px';
+        // The styles default above is dead in WordPress unless the theme also
+        // declares the setting: core's layout serializer gates on
+        // `isset( $this->theme_json['settings']['spacing']['blockGap'] )`
+        // (WP_Theme_JSON::get_layout_styles() and
+        // wp_render_layout_support_flag()) and falls back to a 0.5em gap,
+        // silently discarding every per-block style.spacing.blockGap value the
+        // blocks already carry. A boolean true opts in without changing the
+        // global gap value owned by the styles declaration above, so
+        // WordPress serializes layout gap CSS from that global default and
+        // from each block's own blockGap instead of the fallback.
+        $settings['spacing']['blockGap'] = true;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
     }
 
