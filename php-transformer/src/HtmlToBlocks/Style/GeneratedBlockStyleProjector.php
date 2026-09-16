@@ -226,11 +226,16 @@ final class GeneratedBlockStyleProjector
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
             $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
+            $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
             if ( '' !== $definiteAncestorWidth ) {
                 $outerWrapperDeclarations[] = 'width:' . $definiteAncestorWidth;
                 $outerWrapperDeclarations[] = 'max-width:100%';
                 $declarations[] = 'box-sizing:border-box';
                 $declarations[] = 'width:100%';
+            } elseif ( $stretchingFlex ) {
+                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'width:100%';
+                $declarations[] = 'max-width:100%';
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
                 $outerWrapperDeclarations[] = 'width:max-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
@@ -456,6 +461,24 @@ final class GeneratedBlockStyleProjector
         // No explicit style component means the shorthand resets border-*-style to its
         // initial value of `none`, so the side has no visible border.
         return null !== $styleToken && ! in_array($styleToken, array( 'none', 'hidden' ), true);
+    }
+
+    /** @param array<string, string> $sourceDeclarations */
+    private function sourceControlStretchesFlex(array $sourceDeclarations): bool
+    {
+        $display = CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? ''));
+        if ( ! in_array($display, array( 'flex', 'inline-flex' ), true) ) {
+            return false;
+        }
+        $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
+        $width = CssValueInspector::comparable((string) ($sourceDeclarations['width'] ?? ''));
+        $flexGrow = CssValueInspector::comparable((string) ($sourceDeclarations['flex-grow'] ?? ''));
+        $flex = CssValueInspector::comparable((string) ($sourceDeclarations['flex'] ?? ''));
+
+        return '100%' === $height
+            || '100%' === $width
+            || 1 === preg_match('/^[1-9]/', $flexGrow)
+            || 1 === preg_match('/^[1-9]/', $flex);
     }
 
     private function definiteAncestorWidth(DOMElement $sourceControl): string

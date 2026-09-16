@@ -10588,7 +10588,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 && (($declarations['aspect-ratio']['inline'] ?? false) === true
                     || ! $this->imageDimensionsAreIntrinsicAttributes($image)))
         ) {
-            return (($declarations['object-fit']['inline'] ?? false) === true) ? array( 'scale' => $scale ) : array();
+            if ( ($declarations['object-fit']['inline'] ?? false) === true || $this->imageShapeFillsBox($declarations) ) {
+                return array( 'scale' => $scale );
+            }
+
+            return array();
         }
 
         return array(
@@ -10600,6 +10604,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function cssValueWithoutImportant(string $value): string
     {
         return CssValueInspector::withoutImportant($value);
+    }
+
+    /** @param array<string, array<string, mixed>> $declarations */
+    private function imageShapeFillsBox(array $declarations): bool
+    {
+        foreach ( array( 'width', 'height' ) as $property ) {
+            $value = strtolower($this->cssValueWithoutImportant((string) ($declarations[$property]['value'] ?? '')));
+            if ( '100%' === $value ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function cssValueIsImportant(string $value): bool

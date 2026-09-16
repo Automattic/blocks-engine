@@ -35,6 +35,8 @@ final class ButtonElementConverter implements ElementConverter
                     )
                 );
             }
+
+            return ConversionOutcome::unhandled();
         }
 
         return ConversionOutcome::handled($this->context->convertButton($element));
