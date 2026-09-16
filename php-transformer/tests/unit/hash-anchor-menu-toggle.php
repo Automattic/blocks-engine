@@ -101,6 +101,26 @@ $assert(
     $weeblyAssets
 );
 
+$sticky = $transform(
+    '<style>' . $weeblyCss
+    . '.header-wrap{background-color:#2B2B2B;height:60px}'
+    . '.topbar{position:absolute;top:0;left:0;right:0;height:61px;background-color:transparent}'
+    . '</style>'
+    . '<header class="header-wrap"><div id="topBar" class="topbar"><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    . '<div class="nav-wrap" style="display:none"><nav><ul>'
+    . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
+    . '</ul></nav></div></div></header>'
+);
+$stickyAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($sticky['assets'] ?? null) ? $sticky['assets'] : array()
+));
+$assert(
+    str_contains($stickyAssets, '#topBar{position:fixed') && ( str_contains($stickyAssets, 'background-color:#2B2B2B') || str_contains($stickyAssets, 'background-color:#2b2b2b') ),
+    'an absolutely pinned header bar is projected as a fixed opaque bar',
+    $stickyAssets
+);
+
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
 );

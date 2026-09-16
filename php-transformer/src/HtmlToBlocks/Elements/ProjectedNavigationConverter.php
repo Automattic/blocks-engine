@@ -41,10 +41,14 @@ final class ProjectedNavigationConverter implements ElementConverter
                 if ( $this->navigationToggleSuppressor->isImplicitDialogNavigationControl($element) ) {
                     $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
                 }
+                $controlClassName = (string) ($controlAttrs['className'] ?? '');
+                if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($element) ) {
+                    $controlClassName = '';
+                }
                 $block['attrs']['className'] = SourceDom::mergeClassNames(
                     $nativeClassNames,
                     (string) ($block['attrs']['className'] ?? ''),
-                    (string) ($controlAttrs['className'] ?? ''),
+                    $controlClassName,
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
@@ -118,12 +122,244 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        $always = $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle);
+        $extra = '';
+        $openDeclarations = $declarations;
+        if ( $always ) {
+            $display = strtolower(CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['display'] ?? ''))));
+            if ( 'table-cell' === $display && ! $hasUsableHeight ) {
+                $openDeclarations[] = 'min-height:60px!important';
+            }
+            foreach ( array( 'border', 'border-right', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-align' ) as $property ) {
+                $value = trim((string) ($sourceDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                    $openDeclarations[] = $property . ':' . CssValueInspector::withoutImportant($value) . '!important';
+                }
+            }
+            $openDeclarations[] = 'display:flex!important';
+            $openDeclarations[] = 'align-items:center!important';
+            $openDeclarations[] = 'justify-content:center!important';
+            $pseudo = $this->nativeNavigationToggleGeneratedContent($toggle);
+            if ( array() !== $pseudo ) {
+                $afterParts = array();
+                foreach ( $pseudo as $property => $value ) {
+                    $afterParts[] = $property . ':' . $value . '!important';
+                }
+                $extra .= 'SVG_HIDE';
+                $extra .= 'AFTER:' . implode(';', $afterParts);
+            }
+        }
+
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $rule = '@media(max-width:599px){' . $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important}'
-            . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
+        $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important;position:relative!important}';
+        $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
+        $extraRules = '';
+        if ( str_contains($extra, 'SVG_HIDE') ) {
+            $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
+        }
+        if ( str_contains($extra, 'AFTER:') ) {
+            $afterBody = substr($extra, strpos($extra, 'AFTER:') + 6);
+            $extraRules .= $host . '>.wp-block-navigation__responsive-container-open::after{' . $afterBody . '}';
+        }
+        if ( $always ) {
+            $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
+            $extraRules .= $this->nativeNavigationTogglePinnedHeaderCss($toggle);
+        }
+        $rule = $always
+            ? $hostRule . $openRule . $extraRules
+            : '@media(max-width:599px){' . $hostRule . $openRule . '}';
         $this->session->generatedSupportStylesheetState()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    private function nativeNavigationToggleDropdownCss(string $host, DOMElement $navigation): string
+    {
+        $panel = $navigation->parentNode instanceof DOMElement ? $navigation->parentNode : $navigation;
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($panel)
+        );
+        $declarations = $this->styleResolver->cssDeclarations($resolved);
+        $background = '#fff';
+        $maxHeight = CssValueInspector::withoutImportant(trim((string) ($declarations['max-height'] ?? '')));
+        if ( '' === $maxHeight || 'none' === strtolower($maxHeight) || '0' === $maxHeight || '0px' === $maxHeight ) {
+            $maxHeight = '200px';
+        }
+        $topOffset = $this->nativeNavigationToggleHeaderOffset($navigation);
+        $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
+        return $open . '{position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:hidden!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+            . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0 15px!important}'
+            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
+            . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
+            . $open . ' .wp-block-navigation-item span::after{content:none!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:0!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:8!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
+            . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}'
+            . 'body:has(' . $open . '){overflow:visible!important}'
+            . 'body.admin-bar ' . $open . ' .wp-block-navigation__responsive-container-close{top:var(--wp-admin--admin-bar--height,32px)!important}';
+    }
+
+    private function nativeNavigationTogglePinnedHeaderCss(DOMElement $toggle): string
+    {
+        $bar = $this->absolutelyPinnedHeaderBar($toggle);
+        if ( ! $bar instanceof DOMElement ) {
+            return '';
+        }
+        $selector = $this->cssSelectorForElement($bar);
+        if ( '' === $selector ) {
+            return '';
+        }
+        $background = $this->opaqueBackgroundColor($bar);
+        $rule = $selector . '{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:8!important';
+        if ( '' !== $background ) {
+            $rule .= ';background-color:' . $background . '!important';
+        }
+        return $rule . '}';
+    }
+
+    private function nativeNavigationToggleHeaderOffset(DOMElement $navigation): string
+    {
+        $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
+        if ( ! $toggle instanceof DOMElement ) {
+            return '60px';
+        }
+        $bar = $this->absolutelyPinnedHeaderBar($toggle);
+        $target = $bar instanceof DOMElement ? $bar : $toggle;
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($target)
+        );
+        $height = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['height'] ?? '')));
+        if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $height) ) {
+            return $height;
+        }
+        if ( $bar instanceof DOMElement && $bar->parentNode instanceof DOMElement ) {
+            $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($bar->parentNode)
+            );
+            $parentHeight = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['height'] ?? '')));
+            if ( 1 === preg_match('/^\d+(?:\.\d+)?px$/', $parentHeight) ) {
+                return $parentHeight;
+            }
+        }
+
+        return '60px';
+    }
+
+    private function absolutelyPinnedHeaderBar(DOMElement $toggle): ?DOMElement
+    {
+        $node = $toggle->parentNode;
+        while ( $node instanceof DOMElement ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            if ( array() === $declarations ) {
+                $declarations = $this->styleResolver->structuralPresentationDeclarations($node);
+            }
+            $position = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['position'] ?? ''))));
+            $top = strtolower(CssValueInspector::withoutImportant(trim((string) ($declarations['top'] ?? ''))));
+            if ( in_array($position, array( 'absolute', 'fixed' ), true) && in_array($top, array( '', 'auto', '0', '0px' ), true) ) {
+                return $node;
+            }
+            $node = $node->parentNode;
+        }
+
+        return null;
+    }
+
+    private function opaqueBackgroundColor(DOMElement $element): string
+    {
+        $node = $element;
+        while ( $node instanceof DOMElement ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($node)
+            );
+            $value = strtolower(CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? ''))));
+            if ( '' !== $value && ! in_array($value, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) ) {
+                return CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? '')));
+            }
+            $node = $node->parentNode;
+        }
+
+        return '';
+    }
+
+    private function cssSelectorForElement(DOMElement $element): string
+    {
+        $id = trim(SourceDom::attr($element, 'id'));
+        if ( '' !== $id && 1 === preg_match('/^[A-Za-z][\w-]*$/', $id) ) {
+            return '#' . $id;
+        }
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
+            if ( '' !== $className && 1 === preg_match('/^[A-Za-z][\w-]*$/', $className) ) {
+                return '.' . $className;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function nativeNavigationToggleGeneratedContent(DOMElement $toggle): array
+    {
+        $targets = array($toggle);
+        foreach ( $toggle->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $targets[] = $child;
+            }
+        }
+        foreach ( $this->session->sourceStyleResolutionState()->pseudoElementRules() as $rule ) {
+            if ( 'after' !== ($rule['pseudo'] ?? '') && ':after' !== ($rule['pseudo'] ?? '') ) {
+                continue;
+            }
+            $selector = (string) ($rule['selector'] ?? '');
+            $matched = false;
+            foreach ( $targets as $target ) {
+                if ( $this->styleResolver->matchesCssSelector($target, $selector) ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                foreach ( preg_split('/\s+/', trim(SourceDom::attr($toggle, 'class'))) ?: array() as $className ) {
+                    if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?:$|[.\s\[:#>+~])/', $selector) ) {
+                        $matched = true;
+                        break;
+                    }
+                }
+            }
+            if ( ! $matched ) {
+                continue;
+            }
+            $picked = array();
+            foreach ( array( 'content', 'color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'display', 'text-align' ) as $property ) {
+                $value = trim((string) (($rule['declarations'][$property] ?? '')));
+                if ( '' === $value || preg_match('/[{}<>]/', $value) ) {
+                    continue;
+                }
+                $picked[$property] = CssValueInspector::withoutImportant($value);
+            }
+            if ( isset($picked['content']) && ! in_array(strtolower($picked['content']), array( 'none', 'normal', '""', "''" ), true) ) {
+                $picked['content'] = $this->nativeNavigationToggleContentValue($picked['content']);
+                return $picked;
+            }
+        }
+
+        return array();
+    }
+
+    private function nativeNavigationToggleContentValue(string $value): string
+    {
+        $trimmed = trim($value);
+        $unquoted = ltrim(trim($trimmed, "\"'"), '\\');
+        if ( 1 === preg_match('/^[A-Za-z][A-Za-z0-9 -]*$/', $unquoted) ) {
+            return '"' . $unquoted . '"';
+        }
+
+        return $trimmed;
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
