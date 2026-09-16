@@ -36,8 +36,8 @@ $weebly = $transform(
 $weeblyMarkup = $markup($weebly);
 
 $assert(
-    str_contains($weeblyMarkup, '"overlayMenu":"mobile"') || str_contains($weeblyMarkup, '"overlayMenu":"always"'),
-    'a hash-anchor Menu control promotes native overlay navigation',
+    str_contains($weeblyMarkup, '"overlayMenu":"always"'),
+    'a hash-anchor Menu control promotes a viewport-forced native overlay',
     $weeblyMarkup
 );
 $assert(

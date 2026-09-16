@@ -904,6 +904,11 @@ final class NavigationToggleSuppressor
      * redundant chrome — without a hidden panel the source trigger is still
      * the visible MENU label.
      */
+    public function isHashAnchorMenuProjection(DOMElement $element): bool
+    {
+        return $this->isProjectableHashAnchorMenuToggle($element);
+    }
+
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
     {
         if ( 'a' !== strtolower($element->tagName) || '' !== $this->visibleMenuToggleLabel($element) ) {

@@ -3363,7 +3363,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
-                $block['attrs']['overlayMenu'] = 'mobile';
+                $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->isHashAnchorMenuProjection($element)
+                    ? 'always'
+                    : 'mobile';
                 return $block;
             }
         }
