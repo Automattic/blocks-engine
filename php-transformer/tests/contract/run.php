@@ -1562,6 +1562,14 @@ $assert(array( 'First Name', 'Last Name', 'Phone', 'Message' ) === $visibleFormL
 $assert('Submit' === ($visibleFormSubmit[0]['text'] ?? ''), 'submit buttons keep the visible label instead of concatenating hidden state text');
 $assert(1 === count($visibleFormPhone) && 'Phone' === ($visibleFormPhone[0]['label'] ?? ''), 'tel autocomplete fields keep legend labels and telephone type');
 $assert(true === ($visibleFormMessage[0]['required'] ?? false) && 'Message' === ($visibleFormMessage[0]['label'] ?? ''), 'visual required captions on textareas become required without staying in the label');
+$assert(! array_key_exists('required_indicator', $visibleFormMessage[0] ?? array()), 'visible required captions keep the provider required marker enabled');
+
+$placeholderEmail = ( new HtmlTransformer() )->transform(
+    '<main><form class="newsletter-form"><label class="title" for="email"></label><input id="email" class="field-element" type="text" name="email" x-autocompletetype="email" placeholder="Email Address"><button type="submit">Claim My Reward</button></form></main>'
+)->toArray();
+$placeholderEmailControl = array_values(array_filter($placeholderEmail['fallbacks'][0]['controls'] ?? array(), static fn (array $control): bool => 'email' === ($control['name'] ?? '')))[0] ?? array();
+$assert('email' === ($placeholderEmailControl['type'] ?? ''), 'email-named text inputs with email autocomplete become email controls');
+$assert(! isset($placeholderEmailControl['label']) || '' === ($placeholderEmailControl['label'] ?? 'x'), 'empty source labels stay empty instead of copying the placeholder');
 
 $nestedPseudoForm = ( new HtmlTransformer() )->transform(
     '<article><nav aria-label="Blog"><a href="/posts">Posts</a></nav><div class="content-wrapper"><h1>Article title</h1><p>Article copy stays editable.</p><div class="contact-panel" action="/contact"><label for="contact-email">Email</label><input id="contact-email" name="email" type="email"><button>Send message</button><p role="status">Thanks, we will reply shortly.</p></div><p>Related reading.</p></div></article>'
