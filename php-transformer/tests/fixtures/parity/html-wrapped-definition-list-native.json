@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-wrapped-definition-list-native",
-  "description": "Preserves valid wrapped dt/dd definition-list entries as editable native blocks instead of dropping entry bodies.",
+  "description": "Preserves valid wrapped dt/dd definition-list entries as one description-list companion instead of a group tree.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-wrapped-definition-list-native.json",
@@ -17,14 +17,13 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "section" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "entry__date mono" } },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/group", "attrs": { "className": "entry__body" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/description-list", "attrs": { "className": "entries" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/layout-shell {\"wrappers\":[{\"tagName\":\"div\",\"attributes\":{\"class\":\"wp-block-group entries\"}},{\"tagName\":\"div\",\"attributes\":{\"class\":\"wp-block-group entry\"}}]} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/description-list" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:group {\"className\":\"entry" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__date mono\">2017-2022</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__title\">Ph.D., Neuroscience</p>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__org\"><em>Stanford University</em></p>" },
