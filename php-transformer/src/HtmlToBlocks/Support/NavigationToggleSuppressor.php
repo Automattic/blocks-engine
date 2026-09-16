@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
@@ -267,10 +268,18 @@ final class NavigationToggleSuppressor
 
     private function sourceElementIsHidden(DOMElement $element): bool
     {
-        return $this->context->sourceElementStartsHidden($element)
+        if ( $this->context->sourceElementStartsHidden($element)
             || $element->hasAttribute('hidden')
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
-            || 'false' === strtolower(SourceDom::attr($element, 'data-visible'));
+            || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
+            return true;
+        }
+
+        $maxHeight = CssValueInspector::comparable(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['max-height'] ?? '')
+        );
+
+        return in_array($maxHeight, array( '0', '0px' ), true);
     }
 
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement

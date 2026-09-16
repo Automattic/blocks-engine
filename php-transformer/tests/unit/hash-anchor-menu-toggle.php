@@ -161,6 +161,33 @@ $assert(
     $dualDocMarkup
 );
 
+$clipped = $transform(
+    '<style>.nav-wrap{display:block;max-height:0;overflow:hidden}.nav-wrap a{font-size:14px;font-weight:700;text-transform:uppercase;color:#444444}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div>'
+);
+$clippedMarkup = $markup($clipped);
+$clippedAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($clipped['assets'] ?? null) ? $clipped['assets'] : array()
+));
+$assert(
+    str_contains($clippedMarkup, '"overlayMenu":"always"')
+        && 1 === substr_count($clippedMarkup, '<!-- wp:navigation '),
+    'a max-height:0 nav-wrap is the overlay panel, not a second always-visible menu',
+    $clippedMarkup
+);
+$assert(
+    str_contains($clippedAssets, 'text-transform:uppercase') && str_contains($clippedAssets, 'font-size:14px'),
+    'overlay items keep the source uppercase 14px menu labels',
+    $clippedAssets
+);
+$assert(
+    str_contains($clippedAssets, ':has(.wp-block-navigation__responsive-container.is-menu-open)>') && str_contains($clippedAssets, 'background:#fff'),
+    'an open overlay paints the MENU control onto the white dropdown',
+    $clippedAssets
+);
+
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
 );

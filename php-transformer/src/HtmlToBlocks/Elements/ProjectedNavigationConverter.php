@@ -164,6 +164,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         if ( $always ) {
             $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
+            $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
             $extraRules .= $this->nativeNavigationTogglePinnedHeaderCss($toggle);
         }
         $rule = $always
@@ -189,14 +190,78 @@ final class ProjectedNavigationConverter implements ElementConverter
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
         return $open . '{position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
-            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0 15px!important}'
-            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
-            . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0!important}'
+            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;width:auto!important;margin:0!important}'
+            . $this->nativeNavigationToggleItemCss($open, $navigation)
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
             . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
             . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}'
             . 'body:has(' . $open . '){overflow:visible!important}';
+    }
+
+    private function nativeNavigationToggleOpenControlCss(string $host): string
+    {
+        $open = $host . '>.wp-block-navigation__responsive-container-open';
+        $whenOpen = $host . ':has(.wp-block-navigation__responsive-container.is-menu-open)>.wp-block-navigation__responsive-container-open';
+        return $whenOpen . '{background:#fff!important}'
+            . $whenOpen . '::after{color:#444!important}'
+            . $open . ':hover{background:#fff!important}'
+            . $open . ':hover::after{color:#444!important}';
+    }
+
+    private function nativeNavigationToggleItemCss(string $open, DOMElement $navigation): string
+    {
+        $anchor = null;
+        foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
+            if ( $candidate instanceof DOMElement && '' !== trim($candidate->textContent ?? '') ) {
+                $href = trim(SourceDom::attr($candidate, 'href'));
+                if ( '' !== $href && ! str_starts_with($href, '#') ) {
+                    $anchor = $candidate;
+                    break;
+                }
+            }
+        }
+        $item = array(
+            'font-size' => '14px',
+            'font-weight' => '700',
+            'text-transform' => 'uppercase',
+            'letter-spacing' => '0.04em',
+            'color' => '#444',
+            'padding' => '15px 10px',
+            'line-height' => 'normal',
+        );
+        if ( $anchor instanceof DOMElement ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($anchor)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            foreach ( array( 'font-size', 'font-weight', 'text-transform', 'letter-spacing', 'color', 'line-height' ) as $property ) {
+                $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
+                if ( '' !== $value && ! preg_match('/[{}<>]/', $value) ) {
+                    $item[$property] = $value;
+                }
+            }
+            $parent = $anchor->parentNode instanceof DOMElement ? $anchor->parentNode : null;
+            if ( $parent instanceof DOMElement ) {
+                $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($parent)
+                );
+                $padding = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['padding'] ?? '')));
+                if ( '' !== $padding && ! preg_match('/[{}<>]/', $padding) ) {
+                    $item['padding'] = $padding;
+                }
+            }
+        }
+        $content = array();
+        $padding = $item['padding'];
+        unset($item['padding']);
+        foreach ( $item as $property => $value ) {
+            $content[] = $property . ':' . $value . '!important';
+        }
+
+        return $open . ' .wp-block-navigation-item{padding:' . $padding . '!important}'
+            . $open . ' .wp-block-navigation-item__content{' . implode(';', $content) . '}';
     }
 
     private function nativeNavigationTogglePinnedHeaderCss(DOMElement $toggle): string
