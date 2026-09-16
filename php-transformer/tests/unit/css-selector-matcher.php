@@ -281,6 +281,20 @@ $lazyClassCache->matches($attributeOnly, '.ready', CssSelectorMatcher::parse('.r
 $lazyClassCache->matches($attributeOnly, '.ready.active', CssSelectorMatcher::parse('.ready.active'));
 $assert(1 === $lazyClassCache->classTokenBuilds, 'class membership uses one token set across selector matches for an element');
 
+$restingDom = new DOMDocument();
+$restingDom->loadHTML('<a class="root hasBg">Get in touch</a>');
+$restingAnchor = $restingDom->getElementsByTagName('a')->item(0);
+$restingSelector = CssSelectorMatcher::parse('.root:not(:hover):not([disabled]).hasBg');
+$restingMatch = CssSelectorMatcher::matches($restingAnchor, $restingSelector);
+$assert(true === $restingSelector['supported'] && true === $restingMatch['supported'] && true === $restingMatch['matches'], 'a negated dynamic state describes the resting document a static snapshot represents');
+$assert(40 === CssSelectorMatcher::specificity($restingSelector), 'a negated dynamic state keeps its pseudo-class specificity');
+$disabledAnchor = $restingDom->createElement('a');
+$disabledAnchor->setAttribute('class', 'root hasBg');
+$disabledAnchor->setAttribute('disabled', 'disabled');
+$assert(false === CssSelectorMatcher::matches($disabledAnchor, $restingSelector)['matches'], 'a real attribute negation alongside a dynamic one still excludes its element');
+$hoverSelector = CssSelectorMatcher::parse('.root:hover');
+$assert(false === CssSelectorMatcher::matches($restingAnchor, $hoverSelector)['supported'], 'an unnegated dynamic state stays outside the resting cascade');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

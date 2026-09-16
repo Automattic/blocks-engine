@@ -83,7 +83,7 @@ final class CssSelectorMatcher
         $specificity = 0;
         foreach ( $selector['compounds'] as $compound ) {
             $specificity += 100 * count($compound['ids']);
-            $specificity += 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child']);
+            $specificity += 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child'] + ($compound['resting_state_negations'] ?? 0));
             $specificity += null === $compound['type'] ? 0 : 1;
             foreach ( $compound['not'] as $negated ) {
                 $specificity += self::compoundSpecificity($negated);
@@ -98,7 +98,7 @@ final class CssSelectorMatcher
     /** @param array<string, mixed> $compound */
     private static function compoundSpecificity(array $compound): int
     {
-        $specificity = 100 * count($compound['ids']) + 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child']);
+        $specificity = 100 * count($compound['ids']) + 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child'] + ($compound['resting_state_negations'] ?? 0));
         $specificity += null === $compound['type'] ? 0 : 1;
         foreach ( $compound['not'] as $negated ) {
             $specificity += self::compoundSpecificity($negated);
@@ -134,7 +134,7 @@ final class CssSelectorMatcher
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */
     private static function parseCompound(string $source, int $sourceStart, bool $isRightmost): ?array
     {
-        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
+        $compound = array( 'type' => null, 'universal' => false, 'classes' => array(), 'ids' => array(), 'attributes' => array(), 'not' => array(), 'nth_child' => null, 'first_child' => false, 'last_child' => false, 'resting_state_negations' => 0, 'zero_specificity' => array( 'types' => 0, 'classes' => 0, 'ids' => 0, 'attributes' => 0 ) );
         $offset = 0;
         $suffix = null;
         $typeSpan = null;
@@ -192,7 +192,16 @@ final class CssSelectorMatcher
                     if ( false === $closing ) {
                         return null;
                     }
-                    $negated = self::parseCompound(trim(substr($source, $offset + 1, $closing - $offset - 1)), 0, false);
+                    $argument = trim(substr($source, $offset + 1, $closing - $offset - 1));
+                    // A negated dynamic state describes the resting document, which is
+                    // exactly what a static snapshot represents, so it always holds here.
+                    if ( 1 === preg_match('/^(?::(?:hover|focus|focus-visible|focus-within|active|visited)\s*)+$/i', $argument) ) {
+                        $compound['resting_state_negations'] += preg_match_all('/:/', $argument);
+                        $offset = $closing + 1;
+                        $hasSimple = true;
+                        continue;
+                    }
+                    $negated = self::parseCompound($argument, 0, false);
                     if ( null === $negated || null !== $negated['suffix'] || array() !== $negated['compound']['not'] ) {
                         return null;
                     }
