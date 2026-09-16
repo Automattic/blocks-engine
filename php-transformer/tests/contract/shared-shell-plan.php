@@ -318,4 +318,27 @@ $styleNormalizedArtifacts = (new ArtifactCompiler())->compile(array('entrypoint'
 )))->toArray()['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
 $assert(array('header-1', 'header-2') === array_column($styleNormalizedArtifacts, 'slug'), 'Equivalent nested headers that differ only by style whitespace still compile as canonical shared shells.');
 
+// A nested shell candidate's block-tree position must be authoritative for
+// removal. Regression for https://github.com/Automattic/blocks-engine/issues/1861:
+// a page whose shared header fragment also happens to repeat byte-for-byte
+// elsewhere on the page (here, duplicated inside <main>, which disqualifies
+// it as a candidate but leaves its bytes in the page) must still extract the
+// single legitimate candidate deterministically instead of a string search
+// finding two byte-identical matches and bailing as "ambiguous".
+$duplicateFragmentShell = static fn(string $title): string => '<div class="wrap"><header id="chrome" class="site-header"><nav><a href="index.html">Home</a></nav></header><main><h1>' . $title . '</h1><header id="chrome" class="site-header"><nav><a href="index.html">Home</a></nav></header></main></div>';
+$duplicateFragmentResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => '<!doctype html><html><body>' . $duplicateFragmentShell('Home') . '</body></html>',
+    'about.html' => '<!doctype html><html><body>' . $duplicateFragmentShell('About') . '</body></html>',
+)))->toArray();
+$duplicateFragmentPlan = $duplicateFragmentResult['source_reports']['wordpress_site_plan'];
+$duplicateFragmentPages = $pages($duplicateFragmentPlan);
+$duplicateFragmentHeaders = array_values(array_filter($duplicateFragmentPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$duplicateFragmentDiagnostic = current(array_filter($duplicateFragmentPlan['diagnostics'], static fn(array $diagnostic): bool => 'header' === ($diagnostic['area'] ?? null)));
+$assert(1 === count($duplicateFragmentHeaders), 'A page whose shared header fragment repeats byte-for-byte elsewhere on the page still extracts exactly one template part.');
+$assert('wordpress_site_plan_shell_extracted' === ($duplicateFragmentDiagnostic['code'] ?? null), 'The duplicate-fragment page extracts its shared header rather than retaining it as ambiguous.');
+foreach (array('index.html', 'about.html') as $source) {
+    $markup = $duplicateFragmentPages[$source]['canonical_block_markup'] ?? '';
+    $assert(1 === substr_count($markup, '"tagName":"header"'), "{$source} retains only its unextracted duplicate header fragment inside main content, not the extracted shared shell instance.");
+}
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
