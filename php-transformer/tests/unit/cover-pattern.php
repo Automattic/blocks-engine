@@ -438,6 +438,22 @@ $laterUrlCover = $laterUrlResult['blocks'][0] ?? array();
 $assertSame('core/cover', $laterUrlCover['blockName'] ?? null, 'K8: Later background-image URL remains core/cover.');
 $assertSame('https://example.com/second.jpg', $laterUrlCover['attrs']['url'] ?? null, 'K8: Later background-image URL wins.');
 
+$autoHeightResult = $transformHtml(
+    '<style>.wsite-header-section{height:600px}</style>'
+    . '<section class="wsite-header-section" style="height:auto;background-image:url(https://example.com/hero.jpg);background-size:cover">'
+    . '<h2>RESEARCH</h2></section>'
+);
+$autoHeightCover = $autoHeightResult['blocks'][0] ?? array();
+$autoHeightCss = $assetCss($autoHeightResult);
+$assertSame('core/cover', $autoHeightCover['blockName'] ?? null, 'inline height:auto still becomes core/cover');
+$assertSame(0, $autoHeightCover['attrs']['minHeight'] ?? null, 'inline height:auto does not keep a class-owned 600px minHeight');
+$assertTrue(str_contains($autoHeightCss, 'height:auto'), 'inline height:auto rides the geometry carrier so class height:600px cannot stretch the hero');
+$assertSame(
+    array( 'top' => '0', 'right' => '0', 'bottom' => '0', 'left' => '0' ),
+    $autoHeightCover['attrs']['style']['spacing']['padding'] ?? null,
+    'auto-height covers drop core/cover 1em padding the source section did not have'
+);
+
 echo "cover pattern ok\n";
 
 exit(0 === $failures ? 0 : 1);
