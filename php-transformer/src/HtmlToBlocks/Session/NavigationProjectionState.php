@@ -28,6 +28,11 @@ final class NavigationProjectionState
     /** @var array<string, true> */
     private array $implicitDialogControlPaths = array();
 
+    public function hasProjection(): bool
+    {
+        return array() !== $this->targetsByControlPath;
+    }
+
     public function hasTargetForControl(DOMElement $control): bool
     {
         return isset($this->targetsByControlPath[$control->getNodePath()]);

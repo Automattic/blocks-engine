@@ -121,6 +121,44 @@ $assert(
     $stickyAssets
 );
 
+$links = '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>';
+$twoHidden = $transform(
+    '<style>.nav-wrap{display:none}.w-navpane.mobile-nav{display:none}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div>'
+    . '<div class="w-navpane nav mobile-nav"><a class="hamburger" href="#" aria-label="Menu"><span></span></a><ul>' . $links . '</ul></div>'
+);
+$twoHiddenMarkup = $markup($twoHidden);
+$assert(
+    str_contains($twoHiddenMarkup, '"overlayMenu":"always"'),
+    'equivalent hidden nav-wrap and mobile pane still promote a native overlay',
+    $twoHiddenMarkup
+);
+$assert(
+    ! str_contains($twoHiddenMarkup, '<a class="hamburger"'),
+    'the leftover pane hamburger is not left as a dead hash-anchor over MENU',
+    $twoHiddenMarkup
+);
+
+$dualDoc = $transform(
+    '<style>.nav-wrap{display:none}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="data-liberation-desktop-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div></div>'
+    . '<div class="data-liberation-mobile-document"><div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div></div>'
+);
+$dualDocMarkup = $markup($dualDoc);
+$assert(
+    str_contains($dualDocMarkup, '"overlayMenu":"always"'),
+    'duplicate captured documents with the same hidden menu still promote a native overlay',
+    $dualDocMarkup
+);
+$assert(
+    ! str_contains($dualDocMarkup, '<a class="hamburger"'),
+    'duplicate-document hash-anchor hamburgers are not left covering the overlay toggle',
+    $dualDocMarkup
+);
+
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
 );

@@ -125,8 +125,11 @@ final class NavigationToggleSuppressor
                 // A capture can retain only the initially closed menu while the
                 // source creates its dialog after a click. A unique hidden nav
                 // in the control's bounded scope is its static counterpart.
+                if ( $this->context->navigationProjection()->isSuppressed($candidate) ) {
+                    continue;
+                }
                 $navigation = $this->hiddenNavigationInControlledTarget($candidate);
-                if ( $navigation instanceof DOMElement ) {
+                if ( $navigation instanceof DOMElement && ! $this->context->navigationProjection()->isSuppressed($navigation) ) {
                     $navigationCandidates[] = array('target' => $candidate, 'navigation' => $navigation);
                 }
             }
@@ -141,11 +144,76 @@ final class NavigationToggleSuppressor
                 return $navigationCandidates[0];
             }
             if ( 1 < count($navigationCandidates) ) {
-                return null;
+                $equivalent = $this->equivalentHiddenNavigationCandidates($navigationCandidates);
+                if ( array() !== $equivalent ) {
+                    return $this->nearestHiddenNavigationCandidate($control, $equivalent);
+                }
             }
         }
 
         return null;
+    }
+
+    /**
+     * @param list<array{target: DOMElement, navigation: DOMElement}> $candidates
+     * @return list<array{target: DOMElement, navigation: DOMElement}>
+     */
+    private function equivalentHiddenNavigationCandidates(array $candidates): array
+    {
+        $grouped = array();
+        foreach ( $candidates as $candidate ) {
+            $signature = $this->sourceNavigationSignature($candidate['navigation']);
+            if ( '' === $signature ) {
+                continue;
+            }
+            $grouped[$signature][] = $candidate;
+        }
+        foreach ( $grouped as $group ) {
+            if ( 1 < count($group) ) {
+                return $group;
+            }
+        }
+
+        return array();
+    }
+
+    /**
+     * @param list<array{target: DOMElement, navigation: DOMElement}> $candidates
+     * @return array{target: DOMElement, navigation: DOMElement}
+     */
+    private function nearestHiddenNavigationCandidate(DOMElement $control, array $candidates): array
+    {
+        $best = $candidates[0];
+        $bestDistance = $this->elementTreeDistance($control, $best['target']);
+        foreach ( $candidates as $index => $candidate ) {
+            if ( 0 === $index ) {
+                continue;
+            }
+            $distance = $this->elementTreeDistance($control, $candidate['target']);
+            if ( $distance < $bestDistance ) {
+                $best = $candidate;
+                $bestDistance = $distance;
+            }
+        }
+
+        return $best;
+    }
+
+    private function elementTreeDistance(DOMElement $from, DOMElement $to): int
+    {
+        $fromAncestors = array();
+        $depth = 0;
+        for ( $node = $from; $node instanceof DOMElement; $node = $node->parentNode, ++$depth ) {
+            $fromAncestors[spl_object_id($node)] = $depth;
+        }
+        $walk = 0;
+        for ( $node = $to; $node instanceof DOMElement; $node = $node->parentNode, ++$walk ) {
+            if ( isset($fromAncestors[spl_object_id($node)]) ) {
+                return $fromAncestors[spl_object_id($node)] + $walk;
+            }
+        }
+
+        return PHP_INT_MAX;
     }
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
@@ -244,7 +312,12 @@ final class NavigationToggleSuppressor
             return false;
         }
 
-        if ( ! $this->isHamburgerMenuToggleControl($element) ) {
+        if ( $this->isProjectableHashAnchorMenuToggle($element) ) {
+            if ( $this->context->navigationProjection()->hasTargetForControl($element)
+                || ! $this->context->navigationProjection()->hasProjection() ) {
+                return false;
+            }
+        } elseif ( ! $this->isHamburgerMenuToggleControl($element) ) {
             return false;
         }
 
