@@ -290,7 +290,15 @@ final class GeneratedBlockStyleProjector
                         break;
                     }
                 }
-                if ( ! $hasCornerRadius ) {
+                $sourceRadius = trim((string) ($sourceStructuralDeclarations['border-radius'] ?? ''));
+                if ( $hasCornerRadius ) {
+                    $sourceRadius = '';
+                }
+                if ( '' !== $sourceRadius && ! preg_match('/[{}<>;]/', $sourceRadius) ) {
+                    // A source shorthand radius is the control's own corner geometry,
+                    // so it replaces the theme default rather than being squared off.
+                    $declarations[] = 'border-radius:' . $sourceRadius . '!important';
+                } elseif ( ! $hasCornerRadius ) {
                     // Anchors have square corners by default; core/button applies
                     // the active theme's radius unless it is neutralized.
                     $declarations[] = 'border-radius:0!important';
