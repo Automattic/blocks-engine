@@ -60,6 +60,16 @@ $assert(
         && str_contains($repeaterMarkup, '"label":"Contact"'),
     'A Wix repeater of heading links with empty visual layers still becomes core/navigation.'
 );
+$flexMarkup = (new HtmlTransformer())->transform(
+    '<!doctype html><html><body>' . $repeaterHeader . '<main><h2>Home</h2></main></body></html>',
+    array('source' => 'index.html', 'static_css' => '.Exmq9{display:flex}')
+)->serializedBlocks;
+$assert(
+    str_contains($flexMarkup, '<!-- wp:navigation')
+        && str_contains($flexMarkup, '"label":"Work"')
+        && str_contains($flexMarkup, '"label":"Contact"'),
+    'A CSS-owned flex repeater of heading links still becomes core/navigation.'
+);
 
 $pages = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
