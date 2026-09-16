@@ -188,4 +188,44 @@ $assert(
     'a full-width thumbnail strip stays underneath the stage instead of becoming a side rail'
 );
 
+$overflowCropSource = '<div id="portrait-slideshow" class="photo-slideshow"><div class="stage"><div class="slides">'
+    . '<div class="slide"><div class="crop" style="width:400px;left:-200px;top:-300px"><img src="tall-one.jpg" style="width:100%"></div></div>'
+    . '<div class="slide" style="display:none"><div class="crop" style="width:900px;left:-450px;top:-296px"><img src="wide-two.jpg" style="width:100%"></div></div>'
+    . '<div class="slide" style="display:none"><div class="crop" style="width:900px;left:-450px;top:-300px"><img src="wide-three.jpg" style="width:100%"></div></div>'
+    . '</div></div><div class="picker" style="width:75px"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a><a><img src="three-t.jpg"></a></div></div>';
+$overflowCropResult = (new HtmlTransformer())->transform($overflowCropSource)->toArray();
+$overflowCrop = $overflowCropResult['blocks'][0] ?? array();
+$overflowCropMarkup = (string) ($overflowCropResult['serialized_blocks'] ?? '');
+$assert(
+    'custom/authored-carousel' === ($overflowCrop['blockName'] ?? null)
+        && 0 === ($overflowCrop['attrs']['viewportHeight'] ?? null)
+        && '400/592' === ($overflowCrop['attrs']['stageAspectRatio'] ?? null),
+    'a stage sized by a runtime script is recovered from the smallest centered cover layer on each axis'
+);
+$assert(
+    str_contains($overflowCropMarkup, 'blocks-engine-authored-carousel--stage-aspect')
+        && str_contains($overflowCropMarkup, '--blocks-engine-carousel-stage-aspect:400/592'),
+    'the recovered stage box ships as a responsive ratio on the carousel root'
+);
+$overflowCropStyle = (string) ($overflowCropResult['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? '');
+$assert(
+    str_contains($overflowCropStyle, '--stage-aspect .blocks-engine-authored-carousel__track{height:auto;aspect-ratio:var(--blocks-engine-carousel-stage-aspect)}')
+        && str_contains($overflowCropStyle, '--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:center}'),
+    'the recovered stage crops every slide to the same frame instead of growing to the tallest image'
+);
+$assert(
+    720 === ($slideshow['attrs']['viewportHeight'] ?? null) && '' === ($slideshow['attrs']['stageAspectRatio'] ?? null),
+    'a slideshow that declares its own pixel height keeps that height instead of a recovered ratio'
+);
+
+$uncenteredLayerSource = '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><div class="crop" style="width:400px;left:-40px;top:-30px"><img src="a.jpg" style="width:100%"></div></div>'
+    . '<div class="slide" style="display:none"><div class="crop" style="width:400px;left:-40px;top:-30px"><img src="b.jpg" style="width:100%"></div></div>'
+    . '</div><div class="picker" style="width:75px"><a><img src="a-t.jpg"></a><a><img src="b-t.jpg"></a></div></div>';
+$uncenteredLayer = (new HtmlTransformer())->transform($uncenteredLayerSource)->toArray()['blocks'][0] ?? array();
+$assert(
+    'custom/authored-carousel' === ($uncenteredLayer['blockName'] ?? null) && '' === ($uncenteredLayer['attrs']['stageAspectRatio'] ?? null),
+    'an offset that does not centre its own layer is not read as a cover crop'
+);
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");

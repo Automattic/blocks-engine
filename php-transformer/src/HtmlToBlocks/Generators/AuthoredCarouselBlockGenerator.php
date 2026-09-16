@@ -53,6 +53,7 @@ final class AuthoredCarouselBlockGenerator
             'fullBleed' => array('type' => 'boolean', 'default' => false),
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
+            'stageAspectRatio' => array('type' => 'string', 'default' => ''),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -62,13 +63,17 @@ final class AuthoredCarouselBlockGenerator
     function normalizedCount( value ) { return Math.max( 0, Math.round( Number( value ) || 0 ) ); }
     function normalizedThumbnails( value ) { return Array.isArray( value ) ? value.filter( function( thumbnail ) { return thumbnail && thumbnail.url; } ) : []; }
     function normalizedPosition( value ) { return 'bottom' === value ? 'bottom' : 'right'; }
+    function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
         var thumbnails = normalizedThumbnails( attributes.thumbnails );
         var thumbnailModifier = thumbnails.length > 1 ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' + normalizedPosition( attributes.thumbnailPosition ) : '';
         var presentation = 'slideshow' === attributes.presentation ? 'slideshow' : 'track';
         var initial = Math.min( Math.max( 0, Math.round( Number( attributes.initialSlide ) || 0 ) ), Math.max( 0, normalizedCount( attributes.slideCount ) - 1 ) );
-        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier, style: attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        var aspect = attributes.viewportHeight > 0 ? '' : normalizedAspect( attributes.stageAspectRatio );
+        var style = attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined;
+        if ( aspect ) { style = { '--blocks-engine-carousel-stage-aspect': aspect, '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' }; }
+        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -233,6 +238,16 @@ JS;
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{position:relative;display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
+        // The source sized its stage with a runtime script the artifact cannot
+        // carry, but every slide declares a centered layer scaled to cover that
+        // box. The recovered ratio keeps the stage a fixed frame that crops each
+        // slide, and stays responsive instead of pinning the source pixel height.
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__viewport{height:auto}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track{height:auto;aspect-ratio:var(--blocks-engine-carousel-stage-aspect)}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;height:auto!important}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image{display:flex}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:center}';
+
         // A thumbnail pager is the source's own slide selector, so the rail is a
         // scrollable column beside the stage rather than a second slide track.
         $style .= '.blocks-engine-authored-carousel--thumbnails{--blocks-engine-carousel-thumbnail-size:80px}'
@@ -293,7 +308,16 @@ JS;
         $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
         $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
             . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
-        $styleAttribute = 0 < $viewportHeight ? ' style="--blocks-engine-carousel-height:' . $viewportHeight . 'px;--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"' : '';
+        $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
+        if ( '' !== $stageAspect ) {
+            $classes .= ' blocks-engine-authored-carousel--stage-aspect';
+        }
+        $styleAttribute = '';
+        if ( 0 < $viewportHeight ) {
+            $styleAttribute = ' style="--blocks-engine-carousel-height:' . $viewportHeight . 'px;--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
+        } elseif ( '' !== $stageAspect ) {
+            $styleAttribute = ' style="--blocks-engine-carousel-stage-aspect:' . $stageAspect . ';--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
+        }
 
         $context = htmlspecialchars(
             (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
@@ -522,6 +546,7 @@ JS;
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
+            'stageAspectRatio' => 'slideshow' === $presentation && 0 === $viewportHeight ? $this->stageAspectRatioForItems($items, $styleResolver) : '',
         );
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
@@ -537,6 +562,84 @@ JS;
             'innerHTML' => $shell['opening'] . $shell['closing'],
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * The stage box a slideshow clipped its slides into, recovered from the
+     * slides themselves.
+     *
+     * A builder that crops with overflow rather than `object-fit` scales each
+     * slide's layer to cover a shared box and centres it by pulling the layer
+     * back half its own size. Every slide therefore reports a layer at least as
+     * large as the box on both axes, and exactly equal to it on the axis that
+     * constrained the cover fit, so the smallest width and the smallest height
+     * across those layers reconstruct the box.
+     *
+     * @param array<int, DOMElement> $items
+     */
+    private function stageAspectRatioForItems(array $items, StyleResolver $styleResolver): string
+    {
+        $width = null;
+        $height = null;
+        foreach ( $items as $item ) {
+            $layer = $this->centeredCoverLayer($item, $styleResolver);
+            if ( null === $layer ) {
+                continue;
+            }
+            $width = null === $width ? $layer['width'] : min($width, $layer['width']);
+            $height = null === $height ? $layer['height'] : min($height, $layer['height']);
+        }
+        if ( null === $width || null === $height || 0.0 >= $width || 0.0 >= $height ) {
+            return '';
+        }
+
+        return $this->normalizedAspectRatio(
+            rtrim(rtrim(number_format($width, 2, '.', ''), '0'), '.') . '/' . rtrim(rtrim(number_format($height, 2, '.', ''), '0'), '.')
+        );
+    }
+
+    /** @return array{width: float, height: float}|null */
+    private function centeredCoverLayer(DOMElement $item, StyleResolver $styleResolver): ?array
+    {
+        $candidates = array($item);
+        foreach ( $item->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement ) {
+                $candidates[] = $descendant;
+            }
+        }
+        foreach ( $candidates as $candidate ) {
+            $declarations = $styleResolver->cssDeclarations(SourceDom::attr($candidate, 'style'));
+            $width = $this->pixelLength((string) ($declarations['width'] ?? ''));
+            $left = $this->pixelLength((string) ($declarations['left'] ?? ''));
+            $top = $this->pixelLength((string) ($declarations['top'] ?? ''));
+            if ( null === $width || null === $left || null === $top || 0.0 >= $width || 0.0 <= $left || 0.0 <= $top ) {
+                continue;
+            }
+            // The layer is pulled back half its own width, which is what centres
+            // it on the box; the same offset on the block axis reports the
+            // rendered layer height the box clipped.
+            if ( 1.0 < abs(abs($left) - $width / 2) ) {
+                continue;
+            }
+
+            return array('width' => $width, 'height' => abs($top) * 2);
+        }
+
+        return null;
+    }
+
+    private function pixelLength(string $value): ?float
+    {
+        return 1 === preg_match('/^(-?[0-9]+(?:\.[0-9]+)?)px$/', strtolower(trim($value)), $matches)
+            ? (float) $matches[1]
+            : null;
+    }
+
+    private function normalizedAspectRatio(mixed $value): string
+    {
+        return is_string($value) && 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/', trim($value))
+            ? trim($value)
+            : '';
     }
 
     /**
