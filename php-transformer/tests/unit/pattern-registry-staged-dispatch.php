@@ -172,11 +172,7 @@ $navigationContext = new PatternContext(
     static fn (DOMElement $source, array $excluded = array()): array => array(),
     $createBlock,
     $navigationConverter,
-    new NavigationPatternContext(
-        null,
-        static fn (DOMElement $item, DOMElement $anchor): string => '',
-        static fn (DOMElement $source): string => ''
-    )
+    new NavigationPatternContext()
 );
 $navigationResult = (new NavigationPattern())->recognize($navigationElement, $navigationContext);
 $assert('core/group' === ($navigationResult?->block()['blockName'] ?? null), 'Navigation brand carrier wins with a recursively converted brand.');
