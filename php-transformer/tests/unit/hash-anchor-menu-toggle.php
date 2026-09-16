@@ -26,14 +26,22 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
 $markup = static fn (array $r): string => (string) ($r['serialized_blocks'] ?? '');
 
+$weeblyCss = '.hamburger{display:none;padding:0 20px;width:100px;border-right:1px solid rgba(255,255,255,0.15);box-sizing:border-box}'
+    . '.hamburger span{display:block;color:#fff;text-align:center}'
+    . '.hamburger span:after{display:block;color:#fff;font-weight:bold;font-size:14px;content:"MENU"}';
 $weebly = $transform(
-    '<header><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    '<style>' . $weeblyCss . '</style>'
+    . '<header><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
     . '<div class="nav-wrap" style="display:none"><nav><ul>'
     . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
     . '<li><a href="/research">Research</a></li>'
     . '</ul></nav></div></header>'
 );
 $weeblyMarkup = $markup($weebly);
+$weeblyAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($weebly['assets'] ?? null) ? $weebly['assets'] : array()
+));
 
 $assert(
     str_contains($weeblyMarkup, '"overlayMenu":"always"'),
@@ -51,6 +59,66 @@ $assert(
     str_contains($weeblyMarkup, 'blocks-engine-native-responsive-navigation'),
     'the promoted navigation is the native responsive overlay host',
     $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyMarkup, 'blocks-engine-native-navigation-toggle-'),
+    'source toggle geometry is marked on the native overlay host',
+    $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyAssets, 'responsive-container-open::after') && ( str_contains($weeblyAssets, 'content:"MENU"') || str_contains($weeblyAssets, 'content:MENU') ),
+    'the source MENU generated-content label is projected onto the open control',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, 'width:100px') && str_contains($weeblyAssets, 'responsive-container-open'),
+    'the source 100px toggle width is projected onto the open control at every viewport',
+    $weeblyAssets
+);
+$assert(
+    ! str_contains($weeblyAssets, '@media(max-width:599px){.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-native-navigation-toggle-'),
+    'a viewport-forced overlay does not confine toggle presentation to the mobile breakpoint',
+    $weeblyAssets
+);
+$assert(
+    1 !== preg_match('/wp:navigation \{[^}]*\bhamburger\b/', $weeblyMarkup),
+    'toggle class hamburger is not copied onto the navigation host',
+    $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyAssets, 'is-menu-open') && str_contains($weeblyAssets, 'flex-direction:row'),
+    'the open overlay is a horizontal dropdown bar, not a left drawer',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, 'html.has-modal-open') && str_contains($weeblyAssets, 'overflow:visible'),
+    'opening the dropdown does not lock document scroll the way a modal overlay does',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, 'responsive-container-close{display:flex') && str_contains($weeblyAssets, 'opacity:0'),
+    'a second click on MENU hits an invisible close control in the same box',
+    $weeblyAssets
+);
+
+$sticky = $transform(
+    '<style>' . $weeblyCss
+    . '.header-wrap{background-color:#2B2B2B;height:60px}'
+    . '.topbar{position:absolute;top:0;left:0;right:0;height:61px;background-color:transparent}'
+    . '</style>'
+    . '<header class="header-wrap"><div id="topBar" class="topbar"><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    . '<div class="nav-wrap" style="display:none"><nav><ul>'
+    . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
+    . '</ul></nav></div></div></header>'
+);
+$stickyAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($sticky['assets'] ?? null) ? $sticky['assets'] : array()
+));
+$assert(
+    str_contains($stickyAssets, '#topBar{position:fixed') && ( str_contains($stickyAssets, 'background-color:#2B2B2B') || str_contains($stickyAssets, 'background-color:#2b2b2b') ),
+    'an absolutely pinned header bar is projected as a fixed opaque bar',
+    $stickyAssets
 );
 
 $realLink = $transform(

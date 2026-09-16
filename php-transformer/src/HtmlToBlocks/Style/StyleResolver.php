@@ -581,7 +581,7 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $conditions = $rule['conditions'] ?? array();
-            $applies    = array() === $conditions || $this->desktopConditionsApply($conditions);
+            $applies    = array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions);
             if ( null !== ($rule['layer'] ?? null) ) {
                 $matchedLayeredDeclaration = true;
                 if ( $applies ) {
@@ -2560,6 +2560,63 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Resolve the authored resting cascade across static AND media-conditional
+     * rules that apply at the desktop reference viewport.
+     *
+     * `specificityResolvedPresentationStyle()` reads the static collection only,
+     * which is right for carrying presentation: class-owned conditional values
+     * must stay under author-stylesheet ownership so media queries keep winning
+     * the cascade. Recognition, however, needs to SEE those values — a capture
+     * serialises a builder's desktop styles behind a width query, so an explicit
+     * control surface can be invisible to the static view even though it is what
+     * the document renders with. Consumers must use this for classification
+     * signals only, never for presentation projection.
+     */
+    public function controlSurfaceResolvedStyle(DOMElement $element): string
+    {
+        $cascade = array();
+        $sequence = 0;
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
+                continue;
+            }
+            if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtReferenceViewport($rule['conditions']) ) {
+                continue;
+            }
+
+            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
+            foreach ( $rule['declarations'] as $property => $value ) {
+                $this->applyMediaTextCascadeDeclaration(
+                    $cascade,
+                    (string) $property,
+                    (string) $value,
+                    false,
+                    $specificity,
+                    ++$sequence
+                );
+            }
+        }
+
+        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
+            $this->applyMediaTextCascadeDeclaration(
+                $cascade,
+                (string) $property,
+                (string) $value,
+                true,
+                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
+                ++$sequence
+            );
+        }
+
+        $declarations = array();
+        foreach ( $cascade as $property => $entry ) {
+            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
+        }
+
+        return $this->cssDeclarationString($declarations);
+    }
+
+    /**
      * Return the authored cascade winner for an inherited property. Theme and
      * user-agent defaults are deliberately absent: callers use this only when
      * preserving a value the source CSS actually states.
@@ -2859,8 +2916,12 @@ final class StyleResolver implements ElementPresentationResolver
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
                         $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $declarations, 'conditions' => $conditions);
+                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector)) {
+                            $pseudoDeclarations = $declarations;
+                            if (isset($rawDeclarations['content'])) {
+                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
+                            }
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $conditions);
                         }
                     }
                 }
@@ -2895,7 +2956,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $facts = array();
         foreach ($this->context->sourceStyles()->imageShapeRules() as $rule) {
-            if (!$this->matchesCssSelector($element, $rule['selector']) || !$this->desktopConditionsApply($rule['conditions'])) continue;
+            if (!$this->matchesCssSelector($element, $rule['selector']) || !$this->conditionsApplyAtReferenceViewport($rule['conditions'])) continue;
             CssCascade::apply($facts, $rule['property'], array(
                 'value' => $rule['value'],
                 'important' => CssValueInspector::isImportant($rule['value']),
@@ -2911,14 +2972,8 @@ final class StyleResolver implements ElementPresentationResolver
         return $facts;
     }
 
-    /**
-     * Whether a rule's at-rule conditions hold at the desktop reference
-     * viewport. `@layer` conditions scope cascade origin, not application, and
-     * never gate a rule.
-     *
-     * @param list<string> $conditions
-     */
-    private function desktopConditionsApply(array $conditions): bool
+    /** @param list<string> $conditions */
+    private function conditionsApplyAtReferenceViewport(array $conditions): bool
     {
         foreach ($conditions as $condition) {
             $condition = trim($condition);

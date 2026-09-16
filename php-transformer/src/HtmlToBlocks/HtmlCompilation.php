@@ -2618,7 +2618,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->richTextMaterializer,
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
-                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content)
+                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->controlSurfaceResolvedStyle($sourceElement), $sourceElement)
             ),
             new QuotePatternContext(
                 $this->sourceElementClassifier,
@@ -4232,7 +4233,78 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->styleResolver->geometryStructuralPath($element)
             );
         }
+        return $this->hoistSoleGroupUnderAuthoredGrid($element, $block);
+    }
+
+    /**
+     * Child-combinator grid placements only apply to direct grid items.
+     * A sole nested group between an authored grid and those items is redundant.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function hoistSoleGroupUnderAuthoredGrid(DOMElement $element, array $block): array
+    {
+        $className = (string) ($block['attrs']['className'] ?? '');
+        if ( ! str_contains($className, 'blocks-engine-css-owned-grid') ) {
+            return $block;
+        }
+        $inner = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        if ( 1 !== count($inner) || 'core/group' !== ($inner[0]['blockName'] ?? null) ) {
+            return $block;
+        }
+        $grand = is_array($inner[0]['innerBlocks'] ?? null) ? $inner[0]['innerBlocks'] : array();
+        if ( count($grand) < 2 || $this->groupCarriesAuthorClass($inner[0]) ) {
+            return $block;
+        }
+        $block['innerBlocks'] = $grand;
         return $block;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $wrappers
+     * @return array<int, array<string, mixed>>
+     */
+    private function truncateWrappersAfterAuthoredGrid(array $wrappers): array
+    {
+        $trimmed = array();
+        $seenGrid = false;
+        foreach ( $wrappers as $wrapper ) {
+            $className = (string) (is_array($wrapper['attributes'] ?? null) ? ($wrapper['attributes']['class'] ?? '') : '');
+            if ( ! $seenGrid ) {
+                $trimmed[] = $wrapper;
+                $seenGrid = str_contains($className, 'blocks-engine-css-owned-grid');
+                continue;
+            }
+            if ( $this->classListHasAuthorToken($className) ) {
+                $trimmed[] = $wrapper;
+                continue;
+            }
+            break;
+        }
+        return $trimmed;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function groupCarriesAuthorClass(array $block): bool
+    {
+        return $this->classListHasAuthorToken((string) ($block['attrs']['className'] ?? ''));
+    }
+
+    private function classListHasAuthorToken(string $className): bool
+    {
+        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+            if ( '' === $class
+                || str_starts_with($class, 'blocks-engine-')
+                || str_starts_with($class, 'wp-block-')
+                || str_starts_with($class, 'is-layout-')
+                || str_starts_with($class, 'be-inline-')
+            ) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     /** @return array<string, mixed> */
@@ -4943,6 +5015,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
         if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+        if ( 2 <= count($terminalBlocks) ) {
+            $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
+        }
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
@@ -9638,6 +9713,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
+            || $this->containsDocumentShellLandmarks($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
             || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
             || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
@@ -9750,6 +9826,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Deep media layout capture is for a content region, not the site shell.
+     * An ancestor that also owns header/footer chrome must convert children
+     * so landmarks stay native blocks.
+     */
+    private function containsDocumentShellLandmarks(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'main', 'article' ), true) ) {
+            return false;
+        }
+
+        if ( 0 < $element->getElementsByTagName('header')->length
+            || 0 < $element->getElementsByTagName('footer')->length ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($this->attr($descendant, 'role')), array( 'banner', 'contentinfo' ), true) ) {
+                return true;
+            }
+        }
+
         return false;
     }
 
