@@ -51,6 +51,8 @@ final class AuthoredCarouselBlockGenerator
             'autoplayInterval' => array('type' => 'number', 'default' => 0),
             'showDots' => array('type' => 'boolean', 'default' => false),
             'fullBleed' => array('type' => 'boolean', 'default' => false),
+            'thumbnails' => array('type' => 'array', 'default' => array()),
+            'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -58,11 +60,15 @@ final class AuthoredCarouselBlockGenerator
     var InnerBlocks = blockEditor.InnerBlocks;
     function normalizedItems( value ) { value = Math.round( Number( value ) || 4 ); return Math.min( 6, Math.max( 1, value ) ); }
     function normalizedCount( value ) { return Math.max( 0, Math.round( Number( value ) || 0 ) ); }
+    function normalizedThumbnails( value ) { return Array.isArray( value ) ? value.filter( function( thumbnail ) { return thumbnail && thumbnail.url; } ) : []; }
+    function normalizedPosition( value ) { return 'bottom' === value ? 'bottom' : 'right'; }
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
+        var thumbnails = normalizedThumbnails( attributes.thumbnails );
+        var thumbnailModifier = thumbnails.length > 1 ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' + normalizedPosition( attributes.thumbnailPosition ) : '';
         var presentation = 'slideshow' === attributes.presentation ? 'slideshow' : 'track';
         var initial = Math.min( Math.max( 0, Math.round( Number( attributes.initialSlide ) || 0 ) ), Math.max( 0, normalizedCount( attributes.slideCount ) - 1 ) );
-        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ), style: attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier, style: attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
@@ -72,12 +78,16 @@ final class AuthoredCarouselBlockGenerator
         },
         save: function( props ) {
             var dotCount = props.attributes.showDots ? normalizedCount( props.attributes.slideCount ) : 0;
+            var thumbnails = normalizedThumbnails( props.attributes.thumbnails );
             var dots = Array.from( { length: dotCount }, function( _, index ) { return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__dot', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' } ); } );
             return createElement( 'div', rootProps( props.attributes ),
                 createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__previous', 'data-carousel-previous': 'true', 'data-wp-on--click': 'actions.previous', 'data-wp-bind--disabled': 'state.atStart' }, 'Previous' ),
                 createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ),
                 createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next', 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd' }, 'Next' ),
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
+                thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
+                    return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__thumbnail', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' }, createElement( 'img', { src: thumbnail.url, alt: thumbnail.alt || '', loading: 'lazy', decoding: 'async' } ) );
+                } ) ) : null,
                 createElement( 'span', { className: 'blocks-engine-authored-carousel__status', 'aria-live': 'polite', 'aria-atomic': 'true', 'data-wp-text': 'state.statusText' } )
             );
         }
@@ -116,13 +126,19 @@ const syncSlideshow = ( root, context ) => {
         slide.setAttribute( 'aria-hidden', active ? 'false' : 'true' );
         slide.toggleAttribute( 'inert', ! active );
     } );
-    root.querySelectorAll( '.blocks-engine-authored-carousel__dot' ).forEach( ( dot, index ) => {
-        dot.classList.toggle( 'blocks-engine-authored-carousel__dot--active', index === context.index );
-        if ( index === context.index ) {
-            dot.setAttribute( 'aria-current', 'true' );
-        } else {
-            dot.removeAttribute( 'aria-current' );
-        }
+    [ 'dot', 'thumbnail' ].forEach( ( kind ) => {
+        root.querySelectorAll( '.blocks-engine-authored-carousel__' + kind ).forEach( ( control, index ) => {
+            const active = index === context.index;
+            control.classList.toggle( 'blocks-engine-authored-carousel__' + kind + '--active', active );
+            if ( active ) {
+                control.setAttribute( 'aria-current', 'true' );
+                if ( 'thumbnail' === kind && ! window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
+                    control.scrollIntoView( { block: 'nearest', inline: 'nearest' } );
+                }
+            } else {
+                control.removeAttribute( 'aria-current' );
+            }
+        } );
     } );
 };
 
@@ -217,6 +233,22 @@ JS;
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{position:relative;display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
+        // A thumbnail pager is the source's own slide selector, so the rail is a
+        // scrollable column beside the stage rather than a second slide track.
+        $style .= '.blocks-engine-authored-carousel--thumbnails{--blocks-engine-carousel-thumbnail-size:80px}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{display:grid;position:relative;grid-template-columns:minmax(0,1fr) var(--blocks-engine-carousel-thumbnail-size);gap:var(--blocks-engine-carousel-gap);align-items:start}'
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-bottom{display:grid;position:relative;grid-template-rows:minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap)}'
+            . '.blocks-engine-authored-carousel--thumbnails .blocks-engine-authored-carousel__thumbnails{display:grid;gap:calc(var(--blocks-engine-carousel-gap)/2);min-width:0;margin:0;padding:0}'
+            . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:row;grid-auto-rows:max-content;max-height:var(--blocks-engine-carousel-height,100%);overflow-y:auto;overscroll-behavior:contain}'
+            . '.blocks-engine-authored-carousel--thumbnails-bottom .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);overflow-x:auto;overscroll-behavior:contain}'
+            . '.blocks-engine-authored-carousel__thumbnail{display:block;box-sizing:border-box;padding:0;border:0;background:none;cursor:pointer;opacity:.55;transition:opacity 150ms ease}'
+            . '.blocks-engine-authored-carousel__thumbnail img{display:block;width:100%;height:100%;aspect-ratio:1;object-fit:cover}'
+            . '.blocks-engine-authored-carousel__thumbnail:hover,.blocks-engine-authored-carousel__thumbnail:focus-visible,.blocks-engine-authored-carousel__thumbnail--active{opacity:1}'
+            . '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__thumbnails,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__thumbnail{pointer-events:auto}'
+            . '.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__next{right:calc(var(--blocks-engine-carousel-thumbnail-size) + var(--blocks-engine-carousel-gap))}'
+            . '@media(max-width:600px){.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--thumbnails-right{grid-template-columns:minmax(0,1fr)}.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{grid-auto-flow:column;grid-auto-columns:var(--blocks-engine-carousel-thumbnail-size);max-height:none;overflow-x:auto}.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__next{right:0}}'
+            . '@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__thumbnail{transition:none}}';
+
         return array(
             'name' => self::LOCAL_NAME,
             'block_json' => array(
@@ -257,7 +289,10 @@ JS;
         $autoplayInterval = max(0, (int) ($attributes['autoplayInterval'] ?? 0));
         $fullBleed = true === ($attributes['fullBleed'] ?? false);
         $showDots = true === ($attributes['showDots'] ?? false) && 1 < $slideCount;
-        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '');
+        $thumbnails = $this->normalizedThumbnails($attributes['thumbnails'] ?? array());
+        $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
+        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
+            . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
         $styleAttribute = 0 < $viewportHeight ? ' style="--blocks-engine-carousel-height:' . $viewportHeight . 'px;--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"' : '';
 
         $context = htmlspecialchars(
@@ -275,9 +310,19 @@ JS;
             $dots .= '</div>';
         }
 
+        $rail = '';
+        if ( 1 < count($thumbnails) ) {
+            $rail = '<div class="blocks-engine-authored-carousel__thumbnails" role="group" aria-label="Choose slide">';
+            foreach ( $thumbnails as $index => $thumbnail ) {
+                $rail .= '<button type="button" class="blocks-engine-authored-carousel__thumbnail" aria-label="Show slide ' . ($index + 1) . '" data-carousel-index="' . $index . '" data-wp-on--click="actions.goTo">'
+                    . '<img src="' . htmlspecialchars($thumbnail['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" alt="' . htmlspecialchars($thumbnail['alt'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '" loading="lazy" decoding="async"></button>';
+            }
+            $rail .= '</div>';
+        }
+
         return array(
             'opening' => '<div class="' . $classes . '"' . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
-            'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
+            'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
 
@@ -336,7 +381,11 @@ JS;
             }
         }
         $paginationCount = $this->carouselPaginationCount($element);
-        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
+        // An image-only control cluster beside the slides is the source's own
+        // slide selector, so it is pagination even when the builder ships no
+        // labelled previous/next control.
+        $pagerItems = $list instanceof DOMElement ? $this->thumbnailPagerItems($element, $list) : array();
+        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2 && count($pagerItems) < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
             return null;
         }
 
@@ -378,6 +427,10 @@ JS;
         $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
         $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
         $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        // Selecting a slide from a thumbnail means one slide is on stage.
+        if ( 1 < count($pagerItems) ) {
+            $presentation = 'slideshow';
+        }
         $initialSlide = 0;
         foreach ( $items as $index => $item ) {
             if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
@@ -436,6 +489,24 @@ JS;
         $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
             && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
 
+        // Each thumbnail selects the slide at its own index, so a pager that
+        // does not line up with the captured slides is not a usable selector.
+        $thumbnails = array();
+        foreach ( array_slice($pagerItems, 0, count($slides)) as $pagerItem ) {
+            $thumbnailImage = $pagerItem->getElementsByTagName('img')->item(0);
+            $url = $thumbnailImage instanceof DOMElement ? trim(SourceDom::attr($thumbnailImage, 'src')) : '';
+            if ( '' === $url ) {
+                continue;
+            }
+            $thumbnails[] = array('url' => $url, 'alt' => trim(SourceDom::attr($thumbnailImage, 'alt')));
+        }
+        if ( count($thumbnails) < 2 || count($thumbnails) !== count($slides) ) {
+            $thumbnails = array();
+        }
+        $thumbnailPosition = array() === $thumbnails
+            ? 'bottom'
+            : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $styleResolver);
+
         $registry->register(self::class, $this->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
@@ -447,8 +518,10 @@ JS;
             'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
             'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
             'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showDots' => 'slideshow' === $presentation && $showDots,
+            'showDots' => 'slideshow' === $presentation && $showDots && array() === $thumbnails,
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
+            'thumbnails' => $thumbnails,
+            'thumbnailPosition' => $thumbnailPosition,
         );
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
@@ -464,6 +537,90 @@ JS;
             'innerHTML' => $shell['opening'] . $shell['closing'],
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * Controls that carry only an image and no label are thumbnail pagination:
+     * the source renders one slide on stage and lets a visitor pick the next
+     * one from its own picture. Detection is structural, so any builder's
+     * image-only selector is recognized without naming its classes.
+     *
+     * @return array<int, DOMElement>
+     */
+    private function thumbnailPagerItems(DOMElement $root, DOMElement $stageList): array
+    {
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true)
+                || SourceDom::elementContains($stageList, $candidate)
+                || 1 !== $candidate->getElementsByTagName('img')->length
+                || '' !== trim(str_replace("\xc2\xa0", ' ', $candidate->textContent ?? ''))
+            ) {
+                continue;
+            }
+            $image = $candidate->getElementsByTagName('img')->item(0);
+            if ( $image instanceof DOMElement && '' !== trim(SourceDom::attr($image, 'src')) ) {
+                $items[] = $candidate;
+            }
+        }
+
+        return $items;
+    }
+
+    /**
+     * A pager box narrow enough to sit beside the stage is a side rail; a pager
+     * that spans the carousel is a strip underneath it. The declared width can
+     * live on any wrapper between the controls and the carousel root, so the
+     * search walks that bounded chain.
+     */
+    private function thumbnailPagerPosition(?DOMElement $pagerRoot, DOMElement $carouselRoot, StyleResolver $styleResolver): string
+    {
+        for ( $ancestor = $pagerRoot; $ancestor instanceof DOMElement && $ancestor !== $carouselRoot; $ancestor = $ancestor->parentNode ) {
+            $width = trim((string) ($styleResolver->structuralPresentationDeclarations($ancestor)['width'] ?? ''));
+            if ( 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', $width, $matches) ) {
+                return 260.0 >= (float) $matches[1] ? 'right' : 'bottom';
+            }
+        }
+
+        return 'bottom';
+    }
+
+    /** @param array<int, DOMElement> $elements */
+    private function commonAncestor(array $elements): ?DOMElement
+    {
+        $first = $elements[0] ?? null;
+        if ( ! $first instanceof DOMElement ) {
+            return null;
+        }
+        for ( $ancestor = $first->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            foreach ( $elements as $element ) {
+                if ( ! SourceDom::elementContains($ancestor, $element) ) {
+                    continue 2;
+                }
+            }
+            return $ancestor;
+        }
+
+        return null;
+    }
+
+    /** @return array<int, array{url: string, alt: string}> */
+    private function normalizedThumbnails(mixed $value): array
+    {
+        if ( ! is_array($value) ) {
+            return array();
+        }
+        $thumbnails = array();
+        foreach ( $value as $thumbnail ) {
+            $url = is_array($thumbnail) ? trim((string) ($thumbnail['url'] ?? '')) : '';
+            if ( '' === $url ) {
+                continue;
+            }
+            $thumbnails[] = array('url' => $url, 'alt' => is_array($thumbnail) ? trim((string) ($thumbnail['alt'] ?? '')) : '');
+        }
+
+        return $thumbnails;
     }
 
     /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
