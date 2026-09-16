@@ -10,16 +10,23 @@ use DOMElement;
  * Projects captured scroll-driven class/style toggle evidence (a header/logo
  * that shrinks or gains a background once the page scrolls past some offset)
  * into the matching source document, as a marker attribute pair consumed by
- * HtmlCompilation's scroll-state dispatch. Mirrors CapturedDialogProjector's
- * shape and matching strategy so both capture surfaces behave consistently.
+ * HtmlCompilation's scroll-state dispatch.
+ *
+ * The report and receipt sidecars are consumed structurally: this projector
+ * validates the shape and value types it actually reads and does not assume
+ * any particular capture tool produced them, so it carries no vendor schema
+ * identity or capture-tool-specific attribute/class names. A capture tool
+ * that marks one side of a responsive document pair with its own class
+ * tokens (beyond this engine's own `ResponsiveDocumentVariants`-composed
+ * `site-document-variant-*` classes) declares those tokens itself via the
+ * receipt's optional `document_scope_classes` list.
  */
 final class ScrollStateProjector
 {
-    private const REPORT_SCHEMA = 'data-liberation/captured-scroll-states/v1';
-    private const RECEIPT_SCHEMA = 'data-liberation/capture-receipt/v1';
     private const MAX_PAGES = 128;
     private const MAX_TOGGLES_PER_PAGE = 8;
     private const MAX_STYLE_TARGETS_PER_TOGGLE = 4;
+    private const MAX_DOCUMENT_SCOPE_CLASSES = 16;
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -31,15 +38,15 @@ final class ScrollStateProjector
         if (null === $report) {
             return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
         }
-        if (self::REPORT_SCHEMA !== ($report['schema'] ?? null) || ! is_array($report['pages'] ?? null)) {
-            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_invalid', 'warning', 'The captured scroll-state report has an unsupported schema or pages shape.')), 'projected_count' => 0);
+        if (! is_array($report['pages'] ?? null)) {
+            return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_invalid', 'warning', 'The captured scroll-state report has a malformed or missing pages list.')), 'projected_count' => 0);
         }
         if (count($report['pages']) > self::MAX_PAGES) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_limit_exceeded', 'warning', 'The captured scroll-state report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
         }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
-        if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
+        if (null === $receipt || ! is_array($receipt['routes'] ?? null)) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_scroll_states_route_map_missing', 'warning', 'Captured scroll states were not projected because the capture receipt route map is unavailable.')), 'projected_count' => 0);
         }
 
@@ -50,6 +57,7 @@ final class ScrollStateProjector
             }
             $routes[$this->normalizedUrl($route['url'])] = $route['path'];
         }
+        $documentScopeClasses = $this->documentScopeClasses($receipt['document_scope_classes'] ?? null);
         $fileIndexes = array();
         foreach ($files as $index => $file) {
             if (is_string($file['path'] ?? null)) {
@@ -75,7 +83,7 @@ final class ScrollStateProjector
                 continue;
             }
 
-            $projection = $this->projectPage((string) $files[$index]['content'], $page['toggles'], $path);
+            $projection = $this->projectPage((string) $files[$index]['content'], $page['toggles'], $path, $documentScopeClasses);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
                 $files[$index]['content'] = $projection['html'];
@@ -89,9 +97,10 @@ final class ScrollStateProjector
 
     /**
      * @param array<int, mixed> $toggles
+     * @param array<int, string> $documentScopeClasses
      * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
-    private function projectPage(string $html, array $toggles, string $sourcePath): array
+    private function projectPage(string $html, array $toggles, string $sourcePath, array $documentScopeClasses): array
     {
         $previous = libxml_use_internal_errors(true);
         $document = new DOMDocument('1.0', 'UTF-8');
@@ -118,7 +127,7 @@ final class ScrollStateProjector
                 continue;
             }
 
-            $found = $this->findTarget($document, $target);
+            $found = $this->findTarget($document, $target, $documentScopeClasses);
             if ('ambiguous' === $found['status']) {
                 $diagnostics[] = $this->diagnostic('captured_scroll_state_target_ambiguous', 'warning', 'A captured scroll-state target matched multiple source elements in the same route or responsive document scope.', array('source_path' => $sourcePath, 'selector' => (string) ($target['selector'] ?? '')));
                 continue;
@@ -195,11 +204,12 @@ final class ScrollStateProjector
 
     /**
      * @param array<string, mixed> $target
+     * @param array<int, string> $documentScopeClasses
      * @return array{status:'matched'|'unmatched'|'ambiguous', elements:array<int, DOMElement>}
      */
-    private function findTarget(DOMDocument $document, array $target): array
+    private function findTarget(DOMDocument $document, array $target, array $documentScopeClasses): array
     {
-        $scopes = $this->documentScopes($document);
+        $scopes = $this->documentScopes($document, $documentScopeClasses);
         if (count($scopes) > self::MAX_TOGGLES_PER_PAGE) {
             return array('status' => 'ambiguous', 'elements' => array());
         }
@@ -219,8 +229,11 @@ final class ScrollStateProjector
         return array('status' => 'matched', 'elements' => $elements);
     }
 
-    /** @return array<int, DOMElement> */
-    private function documentScopes(DOMDocument $document): array
+    /**
+     * @param array<int, string> $documentScopeClasses
+     * @return array<int, DOMElement>
+     */
+    private function documentScopes(DOMDocument $document, array $documentScopeClasses): array
     {
         $body = $document->getElementsByTagName('body')->item(0) ?? $document->documentElement;
         if (! $body instanceof DOMElement) {
@@ -228,21 +241,50 @@ final class ScrollStateProjector
         }
         $scopes = array();
         foreach ($body->childNodes as $child) {
-            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child)) {
+            if ($child instanceof DOMElement && $this->isResponsiveDocumentWrapper($child, $documentScopeClasses)) {
                 $scopes[] = $child;
             }
         }
         return array() === $scopes ? array($body) : $scopes;
     }
 
-    private function isResponsiveDocumentWrapper(DOMElement $element): bool
+    /**
+     * A responsive document scope is either this engine's own
+     * `ResponsiveDocumentVariants`-composed wrapper, or a class the capture
+     * tool declared itself via the receipt's `document_scope_classes` list.
+     * This projector never assumes a class name belongs to any one tool.
+     *
+     * @param array<int, string> $documentScopeClasses
+     */
+    private function isResponsiveDocumentWrapper(DOMElement $element, array $documentScopeClasses): bool
     {
         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $class) {
-            if (str_starts_with($class, 'site-document-variant-') || in_array($class, array('data-liberation-desktop-document', 'data-liberation-mobile-document'), true)) {
+            if (str_starts_with($class, ResponsiveDocumentVariants::DOCUMENT_VARIANT_CLASS_PREFIX) || in_array($class, $documentScopeClasses, true)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Duck-typed: any array of non-empty strings is accepted as consumer-
+     * declared document-scope class tokens. Absent or malformed input simply
+     * yields no additional tokens (the engine's own prefix still applies).
+     *
+     * @return array<int, string>
+     */
+    private function documentScopeClasses(mixed $value): array
+    {
+        if (! is_array($value)) {
+            return array();
+        }
+        $classes = array();
+        foreach (array_slice($value, 0, self::MAX_DOCUMENT_SCOPE_CLASSES) as $class) {
+            if (is_string($class) && '' !== trim($class)) {
+                $classes[] = trim($class);
+            }
+        }
+        return $classes;
     }
 
     /**
