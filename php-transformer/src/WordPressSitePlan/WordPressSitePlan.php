@@ -21,6 +21,8 @@ final class WordPressSitePlan
     public const IDENTITY_SCHEMA = 'blocks-engine/wordpress-site-plan-identity/v1';
     public const TOKEN_PREFIX = '{{wordpress-site-plan:asset:';
     public const MAX_DOCUMENT_IDENTITY_DIAGNOSTICS = 50;
+    /** Generated, document-namespaced class names the projected author CSS selects on. */
+    private const GENERATED_CLASS_PATTERN = '/blocks-engine-[a-z-]+-[0-9a-f]{12}-\d+/';
     public const EDITOR_CORE_IMAGE_INTERACTION_CSS = ':root .block-editor-block-list__block.wp-block-image img{pointer-events:auto!important}';
     public const EDITOR_POST_TITLE_INTERACTION_CSS = ':root .editor-post-title{position:relative;z-index:100000;pointer-events:auto!important}';
     public const EDITOR_LINK_INTERACTION_CSS = ':root .editor-styles-wrapper a[href]{pointer-events:none!important}';
@@ -170,6 +172,7 @@ final class WordPressSitePlan
         $shells['diagnostics'] = array_values(array_filter($shells['diagnostics'], static fn(array $diagnostic): bool => !isset($inlineAreas[$diagnostic['area'] ?? '']) || 'wordpress_site_plan_shell_retained_incomplete' !== ($diagnostic['code'] ?? null)));
         $pages = $shells['pages'];
         $parts = array_merge($existingParts, $inlineShells['parts'], $shells['parts']);
+        $assets = self::globalizeSharedChromeStylesheets($assets, $parts);
         if (array() !== $parts) $themeProjection['theme']['templateParts'] = array_values(array_map(static fn(array $part): array => array('name' => $part['slug'], 'title' => $part['title'], 'area' => $part['area']), $parts));
         $runtimeDeclarations = $shells['runtime_declarations'];
         $runtimeDeclarations = $this->canonicalEntityBindings($runtimeDeclarations, $references, $routeMap, $pages);
@@ -1110,6 +1113,41 @@ final class WordPressSitePlan
             }
             $page = $pagesBySource[$compilation['id']];
             $asset['scopes'] = array(array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']));
+        }
+        unset($asset);
+        return $assets;
+    }
+
+    /**
+     * Shared chrome is extracted from one document but rendered on every page
+     * that binds the part. Its generated class namespace is document-scoped, so
+     * a stylesheet defining those classes cannot stay page-scoped: on every
+     * other page the classes resolve to nothing and the chrome silently loses
+     * its authored layout while still rendering its text. Scope is decided
+     * before shells are known, so promote here, where the parts exist.
+     *
+     * @param array<int,array<string,mixed>> $assets
+     * @param array<int,array<string,mixed>> $parts
+     * @return array<int,array<string,mixed>>
+     */
+    private static function globalizeSharedChromeStylesheets(array $assets, array $parts): array
+    {
+        $classes = array();
+        foreach ($parts as $part) {
+            if (!in_array($part['placement']['kind'] ?? '', array('shared_shell', 'inline_shared_shell'), true)) continue;
+            if (!preg_match_all(self::GENERATED_CLASS_PATTERN, (string) ($part['canonical_block_markup'] ?? ''), $matches)) continue;
+            foreach ($matches[0] as $class) $classes['.' . $class] = true;
+        }
+        if (array() === $classes) return $assets;
+        $classes = array_keys($classes);
+        foreach ($assets as &$asset) {
+            if ('css' !== ($asset['kind'] ?? null) || !is_array($asset['scopes'] ?? null) || array() === $asset['scopes']) continue;
+            foreach ($asset['scopes'] as $scope) if ('global' === ($scope['kind'] ?? null)) continue 2;
+            $content = (string) ($asset['content'] ?? '');
+            if ('' === $content) continue;
+            foreach ($classes as $class) {
+                if (str_contains($content, $class)) { $asset['scopes'] = array(array('kind' => 'global')); continue 2; }
+            }
         }
         unset($asset);
         return $assets;
