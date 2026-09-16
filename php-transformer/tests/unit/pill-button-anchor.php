@@ -111,15 +111,14 @@ $heroMarkup = (string) ( $hero['serialized_blocks'] ?? '' );
 $assert(str_contains($heroMarkup, 'wp:buttons') && str_contains($heroMarkup, 'wp:button '), '15: hero/body pill with svg + text becomes core/buttons > core/button', $heroMarkup);
 $assert(0 === substr_count($heroMarkup, 'wp:paragraph'), '16: hero/body pill does not split into paragraph-links', $heroMarkup);
 
-// The resolved box keeps the authored logical padding: the projected support
-// CSS must carry physical side padding for the button link, not the preflight 0.
-$projectedCss = '';
-foreach ( $hero['assets'] ?? array() as $asset ) {
-    if ( 'css' === ($asset['kind'] ?? '') ) {
-        $projectedCss .= (string) ( $asset['content'] ?? '' );
-    }
-}
-$assert(preg_match('/\.wp-block-button__link\{[^}]*padding-top:(?!\s*0)[^}]*}/', $projectedCss) === 1, '17: projected button CSS restores physical side padding from logical box utilities', $projectedCss);
+// Gutenberg drops calc() on style.spacing.padding. Bake plain rem lengths.
+$heroButton = $hero['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? $hero['blocks'][0]['innerBlocks'][0] ?? array();
+$heroPadding = $heroButton['attrs']['style']['spacing']['padding'] ?? array();
+$assert(
+    ($heroPadding['top'] ?? '') === '0.5rem' && ($heroPadding['right'] ?? '') === '1.5rem',
+    '17: logical py-2/px-6 bake as plain rem padding Gutenberg will apply',
+    (string) json_encode($heroPadding)
+);
 
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "pill button anchor tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
