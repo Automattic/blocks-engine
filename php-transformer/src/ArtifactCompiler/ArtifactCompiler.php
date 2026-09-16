@@ -4330,15 +4330,42 @@ final class ArtifactCompiler
 
     private function titleFromHtml(string $html, string $path): string
     {
-        if ( preg_match('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $match) || preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
-            $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $match[1]) ?? $match[1];
-            $title = trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5)) ?? '');
+        $normalize = static function (string $titleHtml): string {
+            $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
+
+            return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5)) ?? '');
+        };
+
+        if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $matches) ) {
+            foreach ( $matches[1] as $headingHtml ) {
+                if ( $this->headingIsHyperlinkChrome($headingHtml) ) {
+                    continue;
+                }
+                $title = $normalize($headingHtml);
+                if ( '' !== $title ) {
+                    return $title;
+                }
+            }
+        }
+
+        if ( preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
+            $title = $normalize($match[1]);
             if ( '' !== $title ) {
                 return $title;
             }
         }
 
         return $this->titleFromPath($path);
+    }
+
+    private function headingIsHyperlinkChrome(string $headingHtml): bool
+    {
+        $remaining = trim($headingHtml);
+        while ( preg_match('/^<span\b[^>]*>([\s\S]*)<\/span>$/is', $remaining, $match) ) {
+            $remaining = trim($match[1]);
+        }
+
+        return (bool) preg_match('/^<a\b[^>]*>[\s\S]*<\/a>$/is', $remaining);
     }
 
     /**
