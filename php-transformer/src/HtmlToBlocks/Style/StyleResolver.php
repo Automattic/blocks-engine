@@ -3099,9 +3099,34 @@ final class StyleResolver implements ElementPresentationResolver
     public function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class) && ! self::isTransformerMarkerClassName($class));
+        $classes = array_filter($classes, fn (string $class): bool => '' !== $class
+            && (! self::isBehaviorHookClassName($class) || $this->hasAuthorClassSelector($class))
+            && ! self::isGeneratedCoreClassName($class)
+            && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    private function hasAuthorClassSelector(string $className): bool
+    {
+        foreach ( $this->context->authorStyles()->styleRules() as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
+                    foreach ( array_merge(array($compound), $compound['not'] ?? array()) as $part ) {
+                        if ( in_array($className, $part['classes'] ?? array(), true) ) {
+                            return true;
+                        }
+                    }
+                }
+                // Retain references in selectors outside the matcher's subset,
+                // including generated content and functional pseudo-classes.
+                if ( ! ($selector['parsed']['supported'] ?? false)
+                    && preg_match('/\.' . preg_quote($className, '/') . '(?![a-zA-Z0-9_-])/', $selector['selector']) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
