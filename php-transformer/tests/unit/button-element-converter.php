@@ -19,11 +19,12 @@ $assert = static function (bool $condition, string $label) use (&$assertions, &$
 };
 
 $document = new DOMDocument();
-$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><button><img src="x"></button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><button><img src="x"></button><button><span class="v6-visually-hidden" aria-hidden="true">View fullsize</span><img src="logo.png" alt="Hero logo"></button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
 $button = $document->getElementsByTagName('button')->item(0);
 $imageButton = $document->getElementsByTagName('button')->item(1);
+$hiddenLabelImageButton = $document->getElementsByTagName('button')->item(2);
 $div = $document->getElementsByTagName('div')->item(0);
-if ( ! $button instanceof DOMElement || ! $imageButton instanceof DOMElement || ! $div instanceof DOMElement ) {
+if ( ! $button instanceof DOMElement || ! $imageButton instanceof DOMElement || ! $hiddenLabelImageButton instanceof DOMElement || ! $div instanceof DOMElement ) {
     throw new RuntimeException('Fixture elements not parsed');
 }
 
@@ -68,6 +69,11 @@ $assert('core/group' === ($image->block['blockName'] ?? ''), 'image-carrier-beco
 $assert('carrier' === ($image->block['attrs']['className'] ?? '') && 'core/image' === ($image->block['innerBlocks'][0]['blockName'] ?? ''), 'image-carrier-content-preserved');
 $assert(true === $captureUnsupported && 1 === count($fallbacks), 'image-children-forward-fallback-state');
 $assert(0 === $genericCalls, 'image-carrier-short-circuits-generic-button');
+
+$hiddenLabel = $converter->convert($hiddenLabelImageButton, 'button', $fallbacks);
+$assert('core/group' === ($hiddenLabel->block['blockName'] ?? ''), 'hidden-label-image-carrier-becomes-group');
+$assert('core/image' === ($hiddenLabel->block['innerBlocks'][0]['blockName'] ?? ''), 'hidden-label-image-carrier-content-preserved');
+$assert(0 === $genericCalls, 'hidden-label-image-carrier-short-circuits-generic-button');
 
 $mode = 'empty-image';
 $emptyImage = $converter->convert($imageButton, 'button', $fallbacks);

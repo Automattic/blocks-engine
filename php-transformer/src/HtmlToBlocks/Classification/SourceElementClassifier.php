@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\InlineContentEl
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
+use DOMText;
 
 /**
  * The engine's structural source-element vocabulary.
@@ -551,11 +552,45 @@ final class SourceElementClassifier
 
     public function isImageCarrierButton(DOMElement $element): bool
     {
-        if ( '' !== trim($element->textContent ?? '') || 'submit' === strtolower(SourceDom::attr($element, 'type')) ) {
+        if ( 'submit' === strtolower(SourceDom::attr($element, 'type')) ) {
             return false;
         }
 
-        return 0 < $element->getElementsByTagName('img')->length;
+        if ( 0 === $element->getElementsByTagName('img')->length ) {
+            return false;
+        }
+
+        return '' === $this->visibleTextContent($element);
+    }
+
+    private function visibleTextContent(DOMElement $element): string
+    {
+        $text = '';
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( ! $this->isVisuallyHidden($child) ) {
+                    $text .= $this->visibleTextContent($child);
+                }
+                continue;
+            }
+            if ( $child instanceof DOMText ) {
+                $text .= $child->textContent;
+            }
+        }
+
+        return trim(preg_replace('/\s+/', ' ', $text) ?? '');
+    }
+
+    private function isVisuallyHidden(DOMElement $element): bool
+    {
+        if ( 'true' === strtolower(SourceDom::attr($element, 'aria-hidden')) || $element->hasAttribute('hidden') ) {
+            return true;
+        }
+
+        return 1 === preg_match(
+            '/(?:^|[\s_-])(?:visually-hidden|sr-only|screen-reader-only|screen-reader-text)(?:$|[\s_-])/',
+            strtolower(SourceDom::attr($element, 'class'))
+        );
     }
 
     public function hasResponsiveImageSources(DOMElement $element): bool
