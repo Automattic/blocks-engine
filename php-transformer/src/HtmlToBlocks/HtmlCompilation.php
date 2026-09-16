@@ -2631,7 +2631,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
             ),
             new LogoPatternContext(
-                $this->richTextMaterializer
+                $this->richTextMaterializer,
+                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement)
             ),
             new GalleryPatternContext(
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),
@@ -2758,7 +2759,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $sourceCode): string => $this->codeContent($sourceCode)
             ),
             logoContext: new LogoPatternContext(
-                $this->richTextMaterializer
+                $this->richTextMaterializer,
+                fn (DOMElement $sourceElement): array => $this->styleResolver->structuralPresentationDeclarations($sourceElement)
             ),
             galleryContext: new GalleryPatternContext(
                 fn (DOMElement $image, ?DOMElement $figure = null, ?DOMElement $picture = null, ?DOMElement $link = null): ?array => $this->convertImageElement($image, $figure, $picture, $link),

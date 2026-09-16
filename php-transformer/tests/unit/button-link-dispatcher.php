@@ -176,6 +176,94 @@ $logoFirst = $makeDispatcher(array(
 ));
 $assert('core/site-logo' === ($logoFirst->convertAnchor($elementFrom('<a href="/"><svg></svg></a>'), $fallbacks)['blockName'] ?? ''), 'linked-logo-precedes-pattern-recognition');
 
+// A brand lockup whose spans stack (column flex link) converts as a link
+// wrapper group instead of a paragraph host that merges its two lines.
+$declarationsFor = static fn (array $map): Closure => static function (DOMElement $e) use ($map): array {
+    return $map[$e->getAttribute('class')] ?? array();
+};
+$stacked = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
+    )),
+    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
+        return array('blockName' => 'core/group');
+    },
+));
+$assert(
+    'core/group' === ($stacked->convertAnchor($elementFrom('<a class="flex flex-col" href="#home"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'column-flex-brand-lockup-converts-as-link-wrapper'
+);
+
+// A row flex link keeps its items on one line, so it stays a paragraph host.
+$rowFlex = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'flex' => array( 'display' => 'flex' ),
+    )),
+    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
+        return array('blockName' => 'core/group');
+    },
+));
+$assert(
+    'core/paragraph' === ($rowFlex->convertAnchor($elementFrom('<a class="flex" href="/"><span>Icon</span><span>Label</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'row-flex-link-stays-paragraph-host'
+);
+
+// Without a navigable href there is no link to propagate, so a stacked lockup
+// keeps today's paragraph host rather than a wrapper group it cannot fill.
+$unlinked = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
+    )),
+    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
+        return array('blockName' => 'core/group');
+    },
+));
+$assert(
+    'core/paragraph' === ($unlinked->convertAnchor($elementFrom('<a class="flex flex-col"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'stacked-anchor-without-href-stays-paragraph-host'
+);
+
+// A stacked lockup whose wrapper conversion yields nothing still falls back to
+// the paragraph host instead of dropping.
+$unavailable = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
+    )),
+));
+$assert(
+    'core/paragraph' === ($unavailable->convertAnchor($elementFrom('<a class="flex flex-col" href="/"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'stacked-anchor-without-wrapper-block-falls-back-to-paragraph-host'
+);
+
+// Block-level spans stack in plain flow: the lockup converts as a wrapper.
+$blockSpans = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'lockup-name' => array( 'display' => 'block' ),
+        'lockup-role' => array( 'display' => 'block' ),
+    )),
+    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
+        return array('blockName' => 'core/group');
+    },
+));
+$assert(
+    'core/group' === ($blockSpans->convertAnchor($elementFrom('<a href="/"><span class="lockup-name">Name</span><span class="lockup-role">Role</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'block-level-span-lockup-converts-as-link-wrapper'
+);
+
+// A single span child never stacks, whatever its container displays.
+$singleSpan = $makeDispatcher(array(
+    'structural'  => $declarationsFor(array(
+        'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
+    )),
+    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
+        return array('blockName' => 'core/group');
+    },
+));
+$assert(
+    'core/paragraph' === ($singleSpan->convertAnchor($elementFrom('<a class="flex flex-col" href="/"><span>Name</span></a>'), $fallbacks)['blockName'] ?? ''),
+    'single-span-anchor-stays-paragraph-host'
+);
+
 if ($failures) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
     exit(1);

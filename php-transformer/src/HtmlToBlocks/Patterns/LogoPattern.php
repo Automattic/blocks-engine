@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
@@ -14,6 +15,19 @@ final class LogoPattern implements PatternRecognizerInterface
     {
         $logo = $context->logoContext();
         if ( null === $logo ) {
+            return null;
+        }
+
+        // A linked text lockup whose spans render as stacked block boxes — a
+        // column flex/grid brand, or block-level spans — keeps its two authored
+        // lines only as a link wrapper. Flattening it into one label merges
+        // the lines into a single run, so decline and let the anchor dispatcher
+        // convert it as a link wrapper group.
+        if (
+            'a' === strtolower($element->tagName)
+            && '' !== LinkUrlSanitizer::sanitize($element->hasAttribute('href') ? $element->getAttribute('href') : '')
+            && InlineStackingClassifier::stacksInlineChildren($element, $logo->structuralPresentationDeclarations(...))
+        ) {
             return null;
         }
 

@@ -102,8 +102,10 @@ $assert(
     $unlistedMarkup
 );
 $assert(
-    str_contains($unlistedMarkup, '<a class="mark" href="/">'),
-    'unlisted brand class: the branding anchor keeps its own class so its authored layout still applies',
+    str_contains($unlistedMarkup, '<div class="wp-block-group mark"')
+        && str_contains($unlistedMarkup, '<span class="name"')
+        && str_contains($unlistedMarkup, '<span class="place"'),
+    'unlisted brand class: the branding lockup keeps its class identity so its authored layout still applies',
     $unlistedMarkup
 );
 $assert(

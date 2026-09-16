@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\InlineStackingClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonAnchorPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPattern;
@@ -74,7 +75,10 @@ final class ButtonLinkDispatcher
             return null;
         }
 
-        if ( $this->context->hasBlockContentChildren($element) ) {
+        // Tag-wise inline children can still stack: a linked brand lockup whose
+        // spans render as block boxes keeps two authored lines that a paragraph
+        // host would merge and de-link. Convert it like a link wrapper.
+        if ( $this->context->hasBlockContentChildren($element) || $this->stacksLinkedInlineChildren($element) ) {
             $linkWrapper = $this->context->convertLinkWrapperGroup($element, $fallbacks);
             if ( null !== $linkWrapper ) {
                 return $linkWrapper;
@@ -87,6 +91,23 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    /**
+     * Whether a linked anchor's tag-wise inline children render as stacked
+     * block boxes.
+     *
+     * Only linked anchors qualify: an anchor without a navigable href has no
+     * link to propagate onto inner blocks, and its inline runs flatten
+     * harmlessly on one line.
+     */
+    private function stacksLinkedInlineChildren(DOMElement $anchor): bool
+    {
+        if ( '' === $this->context->safeLinkUrl(SourceDom::attr($anchor, 'href')) ) {
+            return false;
+        }
+
+        return InlineStackingClassifier::stacksInlineChildren($anchor, $this->context->structuralPresentationDeclarations(...));
     }
 
     private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
