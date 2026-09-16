@@ -1656,7 +1656,12 @@ final class WordPressSitePlan
         if (array() !== $templateAssetTokens) {
             $lines[] = '$blocks_engine_template_asset_tokens = ' . var_export($templateAssetTokens, true) . ';';
             $lines[] = '$blocks_engine_resolve_template_assets = static function ( string $content ) use ( $blocks_engine_template_asset_tokens ): string {';
-            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) \$references[ \$token ] = get_theme_file_uri( \$path );";
+            // A literal `+` is a valid path character but decodes to a space on
+            // serving layers that treat a path like a query string, so a capture
+            // whose filenames contain one resolves on some hosts and 404s on
+            // others. Percent-encode it in the emitted URL only, leaving the
+            // on-disk path -- and therefore the theme-file lookup -- untouched.
+            $lines[] = "    \$references = array(); foreach ( \$blocks_engine_template_asset_tokens as \$token => \$path ) { \$uri = get_theme_file_uri( \$path ); \$references[ \$token ] = str_ends_with( \$uri, \$path ) ? substr( \$uri, 0, -strlen( \$path ) ) . str_replace( '+', '%2B', \$path ) : \$uri; }";
             $lines[] = '    return strtr( $content, $references );';
             $lines[] = '};';
             $lines[] = "add_filter( 'get_block_file_template', static function ( \$template, string \$id, string \$type ) use ( \$blocks_engine_resolve_template_assets ) { if ( \$template instanceof WP_Block_Template && \$template->has_theme_file && get_stylesheet() === \$template->theme ) \$template->content = \$blocks_engine_resolve_template_assets( \$template->content ); return \$template; }, 10, 3 );";
