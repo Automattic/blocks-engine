@@ -1867,7 +1867,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) ) {
+            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) ) {
                 $anchor = $this->primaryNavigationAnchor($child);
                 if ( $anchor instanceof DOMElement ) {
                     $anchors[] = $anchor;
@@ -2232,7 +2232,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
-            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p' ), true) || $this->hasSubmenuSignal($child) ) {
+            if ( in_array(strtolower($child->tagName), array( 'span', 'div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ), true) || $this->hasSubmenuSignal($child) ) {
                 $this->collectAnchorsExcluding($child, $anchors, $excluded);
             }
         }
@@ -2272,6 +2272,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
+        if ( $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element) ) {
+            return true;
+        }
+
         foreach ( array( 'class', 'id' ) as $attribute ) {
             $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
             foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
@@ -2285,6 +2289,55 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return false;
+    }
+
+    private function hasRepeatedLinkItems(DOMElement $element): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $anchors = array();
+            $this->collectAnchorsExcluding($child, $anchors, array());
+            if ( 1 !== count($anchors) ) {
+                return false;
+            }
+            $href = trim($anchors[0]->hasAttribute('href') ? $anchors[0]->getAttribute('href') : '');
+            $label = trim(preg_replace('/\s+/', ' ', $anchors[0]->textContent ?? '') ?? '');
+            if ( '' === $href || '' === $label || str_starts_with($href, '#') ) {
+                return false;
+            }
+            ++$items;
+        }
+
+        return 3 <= $items;
+    }
+
+    private function hasHeaderLinkCluster(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        $role = strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '');
+        if ( 'header' !== $tag && 'banner' !== $role ) {
+            return false;
+        }
+
+        $anchors = array();
+        $this->collectAnchorsExcluding($element, $anchors, array());
+        $labels = array();
+        foreach ( $anchors as $anchor ) {
+            $href = trim($anchor->hasAttribute('href') ? $anchor->getAttribute('href') : '');
+            $label = trim(preg_replace('/\s+/', ' ', $anchor->textContent ?? '') ?? '');
+            if ( '' === $href || '' === $label || str_starts_with($href, '#') ) {
+                continue;
+            }
+            $labels[$label] = true;
+        }
+
+        return 3 <= count($labels);
     }
 
     private function isContactLinkCluster(DOMElement $element): bool
