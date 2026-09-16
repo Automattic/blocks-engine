@@ -158,6 +158,7 @@ final class Runtime
         if ( null === $metadata ) return array( 'attrs' => $attrs, 'fallbackStyle' => array() );
         $supports = $metadata['supports'];
         $fallback = array();
+        if ( isset($attrs['anchor']) && ! $this->supportsFeature($supports, 'anchor', 'anchor') ) unset($attrs['anchor']);
         if ( isset($attrs['layout']) && ! $this->supportsFeature($supports, 'layout', 'layout') ) unset($attrs['layout']);
         if ( 'grid' === ($attrs['layout']['type'] ?? null) && ! $this->supportsFeature($supports, 'layout', 'grid') ) unset($attrs['layout']);
         // The legacy core/button width attribute is never serialized by the
