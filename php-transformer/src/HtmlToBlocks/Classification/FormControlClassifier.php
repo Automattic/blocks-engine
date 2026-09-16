@@ -150,8 +150,22 @@ final class FormControlClassifier
 
     public static function isPseudoFormSubmitControl(DOMElement $control): bool
     {
-        return in_array(self::controlType($control), array( 'submit', 'image' ), true)
-            || self::hasSubmitSemantics($control);
+        $type = self::controlType($control);
+        if ( 'image' === $type ) {
+            return true;
+        }
+        if ( 'submit' === $type ) {
+            // HTML defaults a typeless button to submit. Outside a real form that
+            // default is not form-submit evidence — add-to-cart and quantity
+            // steppers must not become contact-form islands.
+            if ( 'button' === strtolower($control->tagName) && ! $control->hasAttribute('type') && ! self::hasFormAncestor($control) ) {
+                return self::hasSubmitSemantics($control);
+            }
+
+            return true;
+        }
+
+        return self::hasSubmitSemantics($control);
     }
 
     public static function isPseudoFormDataEntryControl(DOMElement $control): bool
