@@ -102,7 +102,7 @@ final class HtmlResultComposer
                     'runtime_registered_blocks' => $input['runtime_registered_blocks'],
                     'capability_matrix' => $input['capability_matrix'],
                     'block_count' => count($input['blocks']),
-                    'fallback_count' => count($input['fallbacks']),
+                    'fallback_count' => FallbackDiagnostic::countableFallbackCount($input['fallbacks']),
                     'source_provenance_count' => count($blockCompilationOutput->sourceProvenance),
                 ),
             ),
@@ -155,7 +155,7 @@ final class HtmlResultComposer
         return array(
             'input_bytes'           => strlen($input),
             'block_count'           => $this->countBlocks($blocks),
-            'fallback_count'        => count($fallbacks),
+            'fallback_count'        => FallbackDiagnostic::countableFallbackCount($fallbacks),
             'diagnostic_count'      => count($diagnostics),
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($output),

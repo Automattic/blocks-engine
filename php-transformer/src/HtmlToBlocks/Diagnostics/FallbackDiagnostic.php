@@ -31,6 +31,24 @@ final class FallbackDiagnostic
     }
 
     /**
+     * Quality fallback_count is unresolved conversion loss, not inert metadata.
+     *
+     * @param array<int, mixed> $fallbacks
+     */
+    public static function countableFallbackCount(array $fallbacks): int
+    {
+        $count = 0;
+        foreach ( $fallbacks as $fallback ) {
+            if ( ! is_array($fallback) || 'native_conversion' === ($fallback['conversion_classification'] ?? '') ) {
+                continue;
+            }
+            ++$count;
+        }
+
+        return $count;
+    }
+
+    /**
      * @param array<string, mixed> $fields
      * @return array<string, mixed>
      */

@@ -3676,6 +3676,17 @@ $assert('data_template' === ($templateRuntimeIslands[0]['template_role'] ?? ''),
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<!-- wp:html'), 'runtime HTML template does not emit raw HTML fallback blocks');
 $assert(! str_contains((string) ($runtimeTemplate['serialized_blocks'] ?? ''), '<template'), 'runtime HTML template does not serialize inert template markup into visual output');
 
+$inertLightboxTemplate = ( new HtmlTransformer() )->transform(
+    '<main><button type="button" class="js-lightbox-trigger"><img src="https://example.test/hero.jpg" alt="Hero"><template class="js-cdk-image-lightbox-template"><div role="dialog" aria-label="Image"><button type="button" class="sqs-lightbox-close">Close</button></div></template></button></main>'
+)->toArray();
+$inertLightboxDiagnostics = $inertLightboxTemplate['source_reports']['conversion_report']['fallback_diagnostics'] ?? array();
+$inertLightboxMetadata = array_values(array_filter($inertLightboxDiagnostics, static fn (array $diagnostic): bool => 'html_template_metadata' === ($diagnostic['diagnostic_code'] ?? '')));
+$inertLightboxRuntime = array_values(array_filter($inertLightboxDiagnostics, static fn (array $diagnostic): bool => 'html_template_runtime_fallback' === ($diagnostic['diagnostic_code'] ?? '')));
+$assert(1 === count($inertLightboxMetadata), 'lightbox clone templates emit inert metadata instead of runtime fallback');
+$assert(array() === $inertLightboxRuntime, 'lightbox clone templates are not runtime islands');
+$assert(0 === (int) ($inertLightboxTemplate['metrics']['fallback_count'] ?? -1), 'inert template metadata does not increment quality fallback_count');
+$assert(! str_contains((string) ($inertLightboxTemplate['serialized_blocks'] ?? ''), '<template'), 'lightbox clone templates stay out of visual block output');
+
 $canvasFallback = ( new HtmlTransformer() )->transform(
     '<main><canvas id="bonsai" class="stage" width="640" height="360">Fallback</canvas><script src="/js/script.js"></script></main>',
     array('runtime_canvas_selectors' => array('#bonsai'))
