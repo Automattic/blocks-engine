@@ -568,9 +568,11 @@ final class SourceElementClassifier
         $text = '';
         foreach ( $element->childNodes as $child ) {
             if ( $child instanceof DOMElement ) {
-                if ( ! $this->isVisuallyHidden($child) ) {
-                    $text .= $this->visibleTextContent($child);
+                $tagName = strtolower($child->tagName);
+                if ( in_array($tagName, array( 'template', 'script', 'style', 'noscript' ), true) || $this->isVisuallyHidden($child) ) {
+                    continue;
                 }
+                $text .= $this->visibleTextContent($child);
                 continue;
             }
             if ( $child instanceof DOMText ) {

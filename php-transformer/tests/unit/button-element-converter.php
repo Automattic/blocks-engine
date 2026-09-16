@@ -77,7 +77,7 @@ $assert(0 === $genericCalls, 'hidden-label-image-carrier-short-circuits-generic-
 
 $mode = 'empty-image';
 $emptyImage = $converter->convert($imageButton, 'button', $fallbacks);
-$assert('core/buttons' === ($emptyImage->block['blockName'] ?? '') && 1 === $genericCalls, 'empty-image-carrier-falls-through');
+$assert(! $emptyImage->handled && 0 === $genericCalls, 'empty-image-carrier-does-not-become-a-text-button');
 
 $mode = 'generic';
 $generic = $converter->convert($button, 'button', $fallbacks);
