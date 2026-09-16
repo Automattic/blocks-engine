@@ -11,6 +11,7 @@ final class SourceBlockAttributeProjectionFacts
         public readonly bool $isAuthorLayoutItem,
         public readonly bool $hasAuthorControlProjection,
         public readonly bool $isDirectChildOfAuthorFlexLayout,
-        public readonly bool $preserveGeneratedStyle
+        public readonly bool $preserveGeneratedStyle,
+        public readonly bool $syntheticImageFigureFollowsInlineFlow
     ) {}
 }
