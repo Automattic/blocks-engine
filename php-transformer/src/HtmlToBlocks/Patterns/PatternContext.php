@@ -38,8 +38,23 @@ final class PatternContext
         private readonly ?LogoPatternContext $logoContext = null,
         private readonly ?GalleryPatternContext $galleryContext = null,
         private readonly ?Closure $sourceElementStartsHidden = null,
-        private readonly ?Closure $disclosureSummaryMarker = null
+        private readonly ?Closure $disclosureSummaryMarker = null,
+        private readonly ?Closure $accordionToggleMarker = null
     ) {
+    }
+
+    /**
+     * Marker for an accordion trigger whose presentation core cannot save.
+     *
+     * core/accordion-heading saves a bare `<button>`, so a source trigger's box —
+     * most visibly the vertical padding that sets every row's height — has
+     * nowhere to live on the block. The owning transformer registers the
+     * resolved presentation and returns an opaque marker class for the heading
+     * to carry.
+     */
+    public function accordionToggleMarker(DOMElement $control): string
+    {
+        return null === $this->accordionToggleMarker ? '' : ($this->accordionToggleMarker)($control);
     }
 
     /**

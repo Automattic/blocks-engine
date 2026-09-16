@@ -29,7 +29,7 @@ final class AccordionPattern implements PatternRecognizerInterface
         $fallbacks = array();
         $items = array();
         foreach ( $itemElements as $child ) {
-            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes);
+            $item = $this->accordionItem($child, $fallbacks, $innerHtml, $converter, $createBlock, $presentationAttributes, $context->accordionToggleMarker(...));
             if ( null === $item ) {
                 return null;
             }
@@ -47,7 +47,7 @@ final class AccordionPattern implements PatternRecognizerInterface
     }
 
     /** @param list<array<string, mixed>> $fallbacks */
-    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes): ?array
+    private function accordionItem(DOMElement $item, array &$fallbacks, callable $innerHtml, PatternTreeConverter $converter, callable $createBlock, callable $presentationAttributes, callable $accordionToggleMarker): ?array
     {
         if ( ! $this->isAccordionItemElement($item) || $this->hasRuntimeHeavyDescendant($item) ) {
             return null;
@@ -77,10 +77,14 @@ final class AccordionPattern implements PatternRecognizerInterface
             return null;
         }
 
-        $headingAttrs = array(
+        // core saves the toggle button with a fixed class and no others, so the
+        // source trigger's own box — the vertical padding that gives every row
+        // its height — is carried on the heading as a marker instead.
+        $headingAttrs = array_filter(array(
             'title' => $titleHtml,
             'level' => $this->headingLevel($title),
-        );
+            'className' => $control instanceof DOMElement ? $accordionToggleMarker($control) : '',
+        ), static fn ($value): bool => '' !== $value);
 
         return $createBlock('core/accordion-item', array_filter(array_merge($presentationAttributes($item), array(
             'openByDefault' => $this->isOpen($item, $control, $panel) ? true : '',
