@@ -155,7 +155,8 @@ final class EngineSupportCss
     {
         $parts = array();
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
-            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{gap:0}';
+            $parts[] = ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '{display:flex;flex-wrap:nowrap;gap:0}'
+                . "\n" . ':root .wp-block-columns.' . self::LAYOUT_TABLE_COLUMNS_CLASS . '>.wp-block-column{box-sizing:border-box;min-width:0}';
         }
         if ( str_contains($serializedBlocks, self::PROPAGATED_LINK_COLOR_CARRIER_CLASS) ) {
             // The source painted this text; the anchor around it only exists
