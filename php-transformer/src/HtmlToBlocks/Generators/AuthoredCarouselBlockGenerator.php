@@ -3,10 +3,37 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\BlockFactory;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
+use Closure;
+use DOMElement;
+use LogicException;
+
 /** Builds an editable companion block for bounded authored carousels. */
 final class AuthoredCarouselBlockGenerator
 {
     public const LOCAL_NAME = 'authored-carousel';
+
+    /**
+     * @param Closure(DOMElement): ?array<string, mixed> $convertImage
+     * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
+     */
+    public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
+        private readonly ?StyleResolver $styleResolver = null,
+        private readonly ?SourceBlockCreator $createBlock = null,
+        private readonly ?BlockFactory $blockFactory = null,
+        private readonly ?Runtime $runtime = null,
+        private readonly ?HtmlTransformerSession $session = null,
+        private readonly ?Closure $convertImage = null,
+        private readonly ?Closure $convertChildren = null
+    ) {
+    }
 
     /** @return array<string, mixed> */
     public function definition(string $namespace): array
@@ -252,5 +279,357 @@ JS;
             'opening' => '<div class="' . $classes . '"' . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
             'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
+    }
+
+    /** @return array<string, mixed>|null */
+    public function convert(DOMElement $element): ?array
+    {
+        $styleResolver = $this->styleResolver ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $createBlock = $this->createBlock ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $blockFactory = $this->blockFactory ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $runtime = $this->runtime ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $session = $this->session ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $convertImage = $this->convertImage ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $convertChildren = $this->convertChildren ?? throw new LogicException('AuthoredCarouselBlockGenerator was not wired for conversion.');
+        $registry = $session->generatedBlockRegistry()
+            ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
+
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
+            return null;
+        }
+
+        $hasPrevious = false;
+        $hasNext = false;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
+                SourceDom::attr($candidate, 'aria-label'),
+                SourceDom::attr($candidate, 'title'),
+                SourceDom::attr($candidate, 'class'),
+                SourceDom::attr($candidate, 'data-hook'),
+                SourceDom::attr($candidate, 'data-testid'),
+            ))));
+            $text = strtolower(trim($candidate->textContent ?? ''));
+            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
+                && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
+            ) {
+                continue;
+            }
+            $identity = $metadataIdentity . ' ' . $text;
+            $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
+            $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
+        }
+        [$list, $items] = $this->richestCarouselList($element);
+        $localList = $list;
+        if ( count($items) < 2 ) {
+            foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
+                if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
+                    continue;
+                }
+                [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
+                if ( count($candidateItems) > count($items) ) {
+                    $list = $candidateList;
+                    $items = $candidateItems;
+                }
+            }
+        }
+        $paginationCount = $this->carouselPaginationCount($element);
+        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
+            return null;
+        }
+
+        $slides = array();
+        foreach ( $items as $sourceItem ) {
+            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
+            $image = $item->getElementsByTagName('img')->item(0);
+            if ( $image instanceof DOMElement ) {
+                $slide = $convertImage($image);
+                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $caption = $this->carouselItemCaption($item, $runtime);
+                if ( '' !== $caption ) {
+                    $slide['attrs']['caption'] = $caption;
+                    $slide = $blockFactory->create('core/image', $slide['attrs'], array());
+                }
+            } else {
+                $slideFallbacks = array();
+                $children = $convertChildren($item, $slideFallbacks);
+                if ( array() === $children || array() !== $slideFallbacks ) {
+                    if ( $temporary ) {
+                        $item->parentNode?->removeChild($item);
+                    }
+                    return null;
+                }
+                $slide = $createBlock->createBlock('core/group', $styleResolver->presentationAttributes($item), $children, $item);
+            }
+            $slides[] = $slide;
+            if ( $temporary ) {
+                $item->parentNode?->removeChild($item);
+            }
+        }
+
+        $listIdentity = strtolower(implode(' ', array($list->tagName, SourceDom::attr($list, 'class'), SourceDom::attr($list, 'role'), SourceDom::attr($list, 'data-hook'))));
+        $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, SourceDom::attr($element, 'id'), SourceDom::attr($element, 'class'), SourceDom::attr($element, 'data-testid')))));
+        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
+        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
+        $initialSlide = 0;
+        foreach ( $items as $index => $item ) {
+            if ( '' !== SourceDom::attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== SourceDom::attr($item, 'aria-hidden')) ) {
+                $presentation = 'slideshow';
+            }
+            if ( ('slideshow' === $presentation && 'false' === strtolower(trim(SourceDom::attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower(SourceDom::attr($item, 'class')) . ' ', ' active ') ) {
+                $initialSlide = $index;
+            }
+        }
+
+        $showDots = $paginationCount >= 2;
+        foreach ( $element->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                if ( ctype_digit(trim(SourceDom::attr($candidate, $attribute))) ) {
+                    $showDots = true;
+                    break 2;
+                }
+            }
+        }
+
+        $durationMilliseconds = static function (string $value): int {
+            if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
+                return 0;
+            }
+            $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
+            return (int) round($milliseconds);
+        };
+        $transitionDuration = 0;
+        $autoplayInterval = 0;
+        foreach ( $items as $item ) {
+            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($item, 'style'))['animation-duration'] ?? '')));
+            foreach ( $item->getElementsByTagName('*') as $descendant ) {
+                if ( ! $descendant instanceof DOMElement ) {
+                    continue;
+                }
+                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($styleResolver->cssDeclarations(SourceDom::attr($descendant, 'style'))['animation-duration'] ?? '')));
+            }
+        }
+        if ( $autoplayInterval <= $transitionDuration ) {
+            $autoplayInterval = 0;
+        }
+        if ( 0 === $transitionDuration ) {
+            $transitionDuration = 300;
+        }
+
+        $geometryList = $localList instanceof DOMElement ? $localList : $list;
+        $listHeight = (string) ($styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
+        $rootHeight = (string) ($styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
+        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
+        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
+        $rootDeclarations = $styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
+        $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
+        $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
+            && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
+
+        $registry->register(self::class, $this->definition($registry->namespace()));
+        $attributes = array(
+            'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
+            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
+            'wrap' => $hasPrevious && $hasNext,
+            'presentation' => $presentation,
+            'slideCount' => count($slides),
+            'initialSlide' => $initialSlide,
+            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
+            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
+            'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
+            'showDots' => 'slideshow' === $presentation && $showDots,
+            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
+        );
+        $shell = $this->shell($attributes);
+        $innerContent = array($shell['opening']);
+        foreach ( $slides as $_ ) {
+            $innerContent[] = null;
+        }
+        $innerContent[] = $shell['closing'];
+
+        return array(
+            'blockName' => $registry->blockName(self::LOCAL_NAME),
+            'attrs' => $attributes,
+            'innerBlocks' => $slides,
+            'innerHTML' => $shell['opening'] . $shell['closing'],
+            'innerContent' => $innerContent,
+        );
+    }
+
+    /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
+    private function richestCarouselList(DOMElement $root): array
+    {
+        $list = null;
+        $items = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
+                continue;
+            }
+            $candidateItems = $this->carouselListItems($candidate);
+            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
+                $list = $candidate;
+                $items = $candidateItems;
+            }
+        }
+        return array($list, $items);
+    }
+
+    /** @param array<int, DOMElement> $items */
+    private function carouselItemsHaveContent(array $items): bool
+    {
+        foreach ( $items as $item ) {
+            if ( 0 === $item->getElementsByTagName('img')->length
+                && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function carouselPaginationCount(DOMElement $root): int
+    {
+        $count = 0;
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
+                continue;
+            }
+            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
+                SourceDom::attr($candidate, 'aria-label'),
+                SourceDom::attr($candidate, 'class'),
+                SourceDom::attr($candidate, 'data-testid'),
+            ))));
+            $indexed = false;
+            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
+                $indexed = $indexed || ctype_digit(trim(SourceDom::attr($candidate, $attribute)));
+            }
+            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
+                ++$count;
+            }
+        }
+        return $count;
+    }
+
+    /** @return array{0: DOMElement, 1: bool} */
+    private function carouselItemInRoot(DOMElement $item, DOMElement $root, ?DOMElement $localList): array
+    {
+        for ( $ancestor = $item; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            if ( $ancestor === $root ) {
+                return array($item, false);
+            }
+        }
+        if ( $localList instanceof DOMElement ) {
+            $itemId = trim(SourceDom::attr($item, 'id'));
+            if ( '' !== $itemId ) {
+                foreach ( $this->carouselListItems($localList) as $localItem ) {
+                    if ( $itemId === trim(SourceDom::attr($localItem, 'id')) ) {
+                        return array($localItem, false);
+                    }
+                }
+            }
+        }
+
+        $clone = $item->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            return array($item, false);
+        }
+        ($localList ?? $root)->appendChild($clone);
+        return array($clone, true);
+    }
+
+    private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
+    {
+        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
+            return false;
+        }
+        $leftId = trim(SourceDom::attr($left, 'id'));
+        if ( '' !== $leftId && $leftId === trim(SourceDom::attr($right, 'id')) ) {
+            return true;
+        }
+
+        $identityClasses = static function (string $classes): array {
+            $matches = array();
+            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
+                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
+                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
+                    $matches[] = $class;
+                }
+            }
+            return $matches;
+        };
+        return array() !== array_intersect($identityClasses(SourceDom::attr($left, 'class')), $identityClasses(SourceDom::attr($right, 'class')));
+    }
+
+    /** @return array<int, DOMElement> */
+    private function carouselListItems(DOMElement $list): array
+    {
+        $items = array();
+        foreach ( $list->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( 'listitem' === strtolower(trim(SourceDom::attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
+                $items[] = $child;
+                continue;
+            }
+
+            $identity = strtolower(implode(' ', array(
+                $child->tagName,
+                SourceDom::attr($child, 'class'),
+                SourceDom::attr($child, 'data-hook'),
+                SourceDom::attr($child, 'data-testid'),
+            )));
+            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
+                && 0 < $child->getElementsByTagName('img')->length
+            ) {
+                $items[] = $child;
+                continue;
+            }
+            if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
+                && ! in_array(strtolower($child->tagName), array('a', 'button', 'nav'), true)
+            ) {
+                $items[] = $child;
+            }
+        }
+
+        return $items;
+    }
+
+    private function carouselItemCaption(DOMElement $item, Runtime $runtime): string
+    {
+        $title = '';
+        $description = '';
+        foreach ( $item->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $identity = strtolower(SourceDom::attr($candidate, 'class') . ' ' . SourceDom::attr($candidate, 'data-hook'));
+            if ( '' === $title && 1 === preg_match('/(?:^|[^a-z0-9])title(?:[^a-z0-9]|$)/', $identity) ) {
+                $title = trim($candidate->textContent ?? '');
+            }
+            if ( '' === $description && 1 === preg_match('/(?:^|[^a-z0-9])description(?:[^a-z0-9]|$)/', $identity) ) {
+                $description = trim($candidate->textContent ?? '');
+            }
+        }
+        if ( '' === $title ) {
+            $title = trim(SourceDom::attr($item, 'aria-label'));
+        }
+        if ( '' === $title && '' === $description ) {
+            $description = trim($item->textContent ?? '');
+        }
+
+        $title = '' === $title ? '' : '<strong>' . $runtime->escapeHtml($title) . '</strong>';
+        $description = $runtime->escapeHtml($description);
+        return trim($title . ('' !== $title && '' !== $description ? '<br>' : '') . $description);
     }
 }

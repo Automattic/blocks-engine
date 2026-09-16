@@ -3,6 +3,12 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Closure;
+use DOMElement;
+use LogicException;
+
 /**
  * Builds the static companion block that fills Gutenberg's description-list gap.
  *
@@ -12,6 +18,13 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 final class DescriptionListBlockGenerator
 {
     public const NAME = 'blocks-engine/description-list';
+
+    /** @param Closure(string, array<string, mixed>): void $registerGeneratedBlock */
+    public function __construct(
+        private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
+        private readonly ?Closure $registerGeneratedBlock = null
+    ) {
+    }
 
     /** @return array<string, mixed> */
     public function blockJson(): array
@@ -133,5 +146,232 @@ JS;
             'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ),
             'assets' => $this->assets(),
         );
+    }
+
+    /**
+     * Preserve valid direct and div-grouped description lists as a static
+     * companion block while retaining the existing direct-list group schema.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function convert(DOMElement $list): ?array
+    {
+        $groups = array();
+        $group = null;
+
+        foreach ( $list->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return null;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( 'div' === $tag ) {
+                if ( null !== $group ) {
+                    $groups[] = $group;
+                    $group = null;
+                }
+                $wrappedGroup = $this->wrappedGroup($child);
+                if ( null === $wrappedGroup ) {
+                    return null;
+                }
+                $groups[] = $wrappedGroup;
+                continue;
+            }
+            if ( ! in_array($tag, array( 'dt', 'dd' ), true) || ! $this->itemSupportsRichText($child) ) {
+                return null;
+            }
+            if ( 'dt' === $tag ) {
+                if ( null === $group || array() !== $group['descriptions'] ) {
+                    if ( null !== $group ) {
+                        $groups[] = $group;
+                    }
+                    $group = array( 'terms' => array(), 'descriptions' => array() );
+                }
+                $group['terms'][] = $this->item($child);
+                continue;
+            }
+            if ( 'dd' !== $tag || null === $group || array() === $group['terms'] ) {
+                return null;
+            }
+            $group['descriptions'][] = $this->item($child);
+        }
+
+        if ( null !== $group ) {
+            if ( array() === $group['descriptions'] ) {
+                return null;
+            }
+            $groups[] = $group;
+        }
+        if ( array() === $groups ) {
+            return null;
+        }
+
+        $register = $this->registerGeneratedBlock
+            ?? throw new LogicException('DescriptionListBlockGenerator was not wired for conversion.');
+        $register(self::class, $this->definition());
+
+        $markup = $this->markup($list, $groups);
+        return array(
+            'blockName' => self::NAME,
+            'attrs' => array_filter(array(
+                'className' => $list->getAttribute('class'),
+                'style' => $list->getAttribute('style'),
+                'groups' => $groups,
+            ), static fn (mixed $value): bool => '' !== $value),
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    private function itemSupportsRichText(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                return false;
+            }
+
+            $tag = strtolower($child->tagName);
+            if ( 'a' !== $tag && 'br' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
+                return false;
+            }
+            foreach ( $child->attributes as $attribute ) {
+                $attributeName = strtolower($attribute->name);
+                if ( ! ( 'a' === $tag && in_array($attributeName, array( 'href', 'target', 'rel' ), true) ) && ! ( 'time' === $tag && 'datetime' === $attributeName ) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->itemSupportsRichText($child) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function wrappedGroup(DOMElement $wrapper): ?array
+    {
+        $items = array();
+        $hasTerm = false;
+        $hasDescription = false;
+        foreach ( $wrapper->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) || ! $this->itemSupportsRichText($child) ) {
+                return null;
+            }
+            $tag = strtolower($child->tagName);
+            if ( 'dt' === $tag ) {
+                if ( $hasTerm && ! $hasDescription ) {
+                    // Multiple terms may describe the same following definition.
+                } elseif ( $hasDescription ) {
+                    $hasDescription = false;
+                }
+                $hasTerm = true;
+            } elseif ( ! $hasTerm ) {
+                return null;
+            } else {
+                $hasDescription = true;
+            }
+            $items[] = array_merge(array( 'tagName' => $tag ), $this->item($child));
+        }
+
+        if ( ! $hasDescription ) {
+            return null;
+        }
+
+        return array(
+            'wrapper' => $this->wrapper($wrapper),
+            'items' => $items,
+        );
+    }
+
+    /** @return array<string, string> */
+    private function item(DOMElement $element): array
+    {
+        return array_filter(array(
+            'content' => SourceDom::innerHtml($element),
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+    }
+
+    /** @return array<string, mixed> */
+    private function wrapper(DOMElement $element): array
+    {
+        $wrapper = array_filter(array(
+            'className' => $element->getAttribute('class'),
+            'style' => $element->getAttribute('style'),
+        ), static fn (mixed $value): bool => '' !== $value);
+        $attributes = array();
+        foreach ( $element->attributes as $attribute ) {
+            $name = strtolower($attribute->name);
+            if ( $this->wrapperAttributeIsSafe($name) ) {
+                $attributes[$name] = $attribute->value;
+            }
+        }
+        if ( array() !== $attributes ) {
+            $wrapper['attributes'] = $attributes;
+        }
+        return $wrapper;
+    }
+
+    private function wrapperAttributeIsSafe(string $name): bool
+    {
+        if ( in_array($name, array( 'id', 'role' ), true) || str_starts_with($name, 'aria-') ) {
+            return true;
+        }
+
+        return str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-');
+    }
+
+    /** @param array<int, array<string, mixed>> $groups */
+    private function markup(DOMElement $list, array $groups): string
+    {
+        $markup = '<dl' . $this->markupAttributes(array(
+            'className' => $list->getAttribute('class'),
+            'style' => $list->getAttribute('style'),
+        )) . '>';
+        foreach ( $groups as $group ) {
+            if ( isset($group['wrapper']) && is_array($group['wrapper']) ) {
+                $markup .= '<div' . $this->markupAttributes($group['wrapper']) . '>';
+                foreach ( $group['items'] ?? array() as $item ) {
+                    $tag = $item['tagName'] ?? '';
+                    $markup .= '<' . $tag . $this->markupAttributes($item) . '>' . ($item['content'] ?? '') . '</' . $tag . '>';
+                }
+                $markup .= '</div>';
+                continue;
+            }
+            foreach ( $group['terms'] as $term ) {
+                $markup .= '<dt' . $this->markupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
+            }
+            foreach ( $group['descriptions'] as $description ) {
+                $markup .= '<dd' . $this->markupAttributes($description) . '>' . ($description['content'] ?? '') . '</dd>';
+            }
+        }
+        return $markup . '</dl>';
+    }
+
+    /** @param array<string, mixed> $attributes */
+    private function markupAttributes(array $attributes): string
+    {
+        $markup = '';
+        foreach ( array( 'className' => 'class', 'style' => 'style' ) as $key => $name ) {
+            if ( '' !== (string) ($attributes[$key] ?? '') ) {
+                $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+            }
+        }
+        foreach ( $attributes['attributes'] ?? array() as $name => $value ) {
+            $markup .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
+        }
+        return $markup;
     }
 }
