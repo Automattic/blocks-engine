@@ -25,10 +25,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use Automattic\BlocksEngine\PhpTransformer\Support\StyleTagScanner;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\DocumentIdentityException;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\ValidationException;
 use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlan;
-use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanInput;
 use DOMDocument;
 use DOMElement;
 
@@ -176,8 +173,9 @@ final class ArtifactCompiler
     }
 
     /**
-     * Finalize collected facts into the canonical result. Receipt composition
-     * enters here only after all page payload access and content work is done.
+     * Finalize collected facts into the canonical transformer envelope. Receipt
+     * composition enters here only after all page payload access and content
+     * work is done. WordPress site-plan production is derived afterward.
      *
      * @param array<string,mixed> $artifact
      * @param array<string,mixed> $reduction
@@ -437,88 +435,32 @@ final class ArtifactCompiler
             'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
             'output_bytes'          => strlen($serializedBlocks),
         );
-        $wordpressSitePlan = null;
-        // Editability failures retain a failed-quality plan as review evidence;
-        // all other failures have no materializable source identity or site plan.
-        if ( array() === $identityFailures && ( 'failed' !== $this->statusFromDiagnostics($diagnostics) || 'failed' === ($editabilityPolicy['status'] ?? null) ) ) {
-            try {
-                $wordpressSitePlanInput = WordPressSitePlanInput::fromCompiledSite($compiledSite, $editabilityPolicy, $runtimeIslandPackage, $fallbackEvidence);
-                $wordpressSitePlan = ( new WordPressSitePlan() )->fromCompilerInput(array(
-                    'schema' => TransformerResult::SCHEMA,
-                    'status' => $this->statusFromDiagnostics($diagnostics),
-                    'components' => $components,
-                    'block_types' => $blockTypes,
-                    'blocks' => $entryBlocks['blocks'],
-                    'serialized_blocks' => $serializedBlocks,
-                    'documents' => $documents['documents'],
-                    'assets' => $assets,
-                    'diagnostics' => $diagnostics,
-                    'fallbacks' => $allFallbacks,
-                    'provenance' => $provenance,
-                    'coverage' => array(),
-                    'context' => array(),
-                    'metrics' => $metrics,
-                ), $wordpressSitePlanInput);
-                $editabilityReport = (new EditabilityReport())->withTemplateSurfaceSelection($editabilityReport, $wordpressSitePlan['templates']);
-                $sourceReports['editability_report'] = $editabilityReport;
-            } catch (DocumentIdentityException $exception) {
-                foreach ( $exception->diagnostics() as $identityDiagnostic ) {
-                    $diagnostics[] = array_merge($identityDiagnostic, array('source' => self::class));
-                }
-            } catch (\InvalidArgumentException $exception) {
-                $diagnostics[] = $exception instanceof ValidationException
-                    ? array_merge($exception->diagnostic(), array('severity' => 'error', 'source' => self::class))
-                    : $this->diagnostic('wordpress_site_plan_not_self_contained', 'error', $exception->getMessage());
-            }
-        }
-        if ( null !== $wordpressSitePlan ) {
-            $fontMaterialization = $wordpressSitePlan['theme']['font_materialization'] ?? array();
-            if (is_array($fontMaterialization) && array() !== $fontMaterialization) {
-                $sourceReports['font_materialization'] = $fontMaterialization;
-            }
-        } else {
-            // Failed results have no canonical plan to project, but retain the
-            // established report-only diagnostic handoff.
-            $fontMaterialization = WordPressSitePlanInput::fromCompiledSite($compiledSite, $editabilityPolicy, $runtimeIslandPackage, $fallbackEvidence)->fontMaterialization;
-            if (array() !== $fontMaterialization) $sourceReports['font_materialization'] = $fontMaterialization;
-        }
+        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $sourceReports, $assets, $provenance, $metrics);
 
-        $metrics['diagnostic_count'] = count($diagnostics);
-        $metrics['transform_duration_ms'] = (hrtime(true) - $startedAt) / 1000000;
-        $reportSourceReports = $sourceReports;
-        if ( null !== $wordpressSitePlan ) {
-            $reportSourceReports['wordpress_site_plan'] = $wordpressSitePlan;
-        }
-        $sourceReports['conversion_report'] = ConversionReportProjection::fromResultParts('artifact', $entryBlocks['blocks'], $allFallbacks, $reportSourceReports, $assets, $provenance, $metrics);
-        if ( null !== $wordpressSitePlan ) {
-            $sourceReports['wordpress_site_plan'] = $wordpressSitePlan;
-        }
-        // This counter is intentionally outside the canonical report/site-plan
-        // projections: it describes process work, not output identity.
-        $metrics['html_document_transform_count'] = $this->htmlDocumentTransformCount;
-        // These counters describe process work and intentionally remain out of
-        // canonical reports and WordPress site-plan equality.
-        $metrics['normalization_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
-        $metrics['analysis_count'] = !empty($reduction['inline_compilation']) ? 1 : 0;
-        $metrics['terminal_reduction_count'] = 1;
-        $sourceReports['wordpress_site_plan_diagnostics'] = array_values(array_filter($diagnostics, static fn (array $diagnostic): bool => str_starts_with((string) ($diagnostic['code'] ?? ''), 'wordpress_site_plan_')));
-        if ( array() === $sourceReports['wordpress_site_plan_diagnostics'] ) {
-            unset($sourceReports['wordpress_site_plan_diagnostics']);
-        }
-
-        return new TransformerResult(
-            status: $this->statusFromDiagnostics($diagnostics),
-            components: $components,
-            blockTypes: $blockTypes,
-            sourceReports: $sourceReports,
-            blocks: $entryBlocks['blocks'],
-            serializedBlocks: $serializedBlocks,
-            documents: $documents['documents'],
-            assets: $assets,
-            diagnostics: $diagnostics,
-            fallbacks: $allFallbacks,
-            provenance: $provenance,
-            metrics: $metrics
+        return ( new WordPressSitePlanComposer() )->compose(
+            new TransformerResult(
+                status: $this->statusFromDiagnostics($diagnostics),
+                components: $components,
+                blockTypes: $blockTypes,
+                sourceReports: $sourceReports,
+                blocks: $entryBlocks['blocks'],
+                serializedBlocks: $serializedBlocks,
+                documents: $documents['documents'],
+                assets: $assets,
+                diagnostics: $diagnostics,
+                fallbacks: $allFallbacks,
+                provenance: $provenance,
+                metrics: $metrics
+            ),
+            array(
+                // These counters describe process work and intentionally remain
+                // out of canonical reports and WordPress site-plan equality.
+                'html_document_transform_count' => $this->htmlDocumentTransformCount,
+                'normalization_count' => !empty($reduction['inline_compilation']) ? 1 : 0,
+                'analysis_count' => !empty($reduction['inline_compilation']) ? 1 : 0,
+                'terminal_reduction_count' => 1,
+            ),
+            $startedAt
         );
     }
 

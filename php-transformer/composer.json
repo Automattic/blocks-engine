@@ -94,6 +94,7 @@
       "php tests/unit/list-item-lowering.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/staged-transport.php",
+      "php tests/unit/wordpress-site-plan-composer.php",
       "php tests/unit/style-tag-scanner.php",
       "php tests/unit/artifact-normalizer-source-budget.php",
       "php tests/unit/subtree-classifier.php",

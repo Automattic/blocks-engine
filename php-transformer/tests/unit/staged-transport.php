@@ -41,7 +41,7 @@ foreach ( array('prepareShared', 'preparePage', 'preparePages', 'compilePage', '
 }
 
 $assert(preg_match('/function\s+compile\s*\(/', $compilerSource) === 1, 'canonical compile() stays on ArtifactCompiler');
-$assert(preg_match('/function\s+finalizeArtifact\s*\(/', $compilerSource) === 1, 'site-plan finalize stays on ArtifactCompiler');
+$assert(preg_match('/function\s+finalizeArtifact\s*\(/', $compilerSource) === 1, 'envelope finalize stays on ArtifactCompiler');
 $assert(! preg_match('/function\s+compile\s*\(/', $transportSource), 'canonical compile() did not move onto StagedTransport');
 $assert(! preg_match('/function\s+finalizeArtifact\s*\(/', $transportSource), 'finalizeArtifact did not move onto StagedTransport');
 
