@@ -152,6 +152,9 @@ final class FormControlMetadataBuilder
                 $metadata['required_text'] = '(required)';
             }
         }
+        if ( '' !== ($metadata['required_text'] ?? '') ) {
+            unset($metadata['required_indicator']);
+        }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
             if ( $control->hasAttribute($attribute) ) {
                 $metadata[$attribute] = true;
@@ -234,8 +237,13 @@ final class FormControlMetadataBuilder
             return $type;
         }
         $autocomplete = strtolower(trim(SourceDom::attr($control, 'autocomplete')));
-        if ( str_starts_with($autocomplete, 'tel') ) {
+        $legacy       = strtolower(trim(SourceDom::attr($control, 'x-autocompletetype')));
+        $name         = strtolower(trim(SourceDom::attr($control, 'name')));
+        if ( str_starts_with($autocomplete, 'tel') || str_starts_with($legacy, 'tel') ) {
             return 'tel';
+        }
+        if ( str_starts_with($autocomplete, 'email') || str_starts_with($legacy, 'email') || 'email' === $name ) {
+            return 'email';
         }
 
         return $type;
