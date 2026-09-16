@@ -39,21 +39,45 @@ final class SocialLinksPattern implements PatternRecognizerInterface
 
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
+        return $this->recognizeCluster($element, $context, false);
+    }
+
+    private function recognizeCluster(DOMElement $element, PatternContext $context, bool $explicit): ?PatternRecognitionResult
+    {
         // A source navigation landmark carries menu semantics that core/social-links
         // cannot retain; NavigationPattern owns that dynamic landmark contract.
         if ( 'nav' === strtolower($element->tagName) || 'navigation' === strtolower($this->attr($element, 'role')) ) {
             return null;
         }
         $anchors = $this->anchors($element);
-        if ( array() === $anchors || ! $this->isSocialCluster($element, $anchors) ) {
+        $explicit = $explicit || self::isExplicitSocialCluster($element);
+        if ( array() === $anchors || (! $explicit && ! $this->isSocialCluster($element, $anchors)) ) {
             return null;
+        }
+
+        // A named social region can wrap the actual icon row. Its width or
+        // alignment belongs to the outer box, while responsive gap and margins
+        // belong to the inner row; flattening them loses the row's CSS hooks.
+        $children = $this->directChildElements($element);
+        if ( 'div' === strtolower($element->tagName)
+            && 1 === count($children)
+            && 'div' === strtolower($children[0]->tagName)
+        ) {
+            $row = $this->recognizeCluster($children[0], $context, $explicit);
+            if ( null !== $row ) {
+                return new PatternRecognitionResult($context->createBlock(
+                    'core/group',
+                    $context->presentationAttributes($element),
+                    array($row->block()),
+                    $element
+                ));
+            }
         }
 
         $links = array();
         $showLabels = false;
         $iconOnly = true;
         $structuralItems = true;
-        $explicit = self::isExplicitSocialCluster($element);
         foreach ( $anchors as $anchor ) {
             $url = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
             $label = trim($this->attr($anchor, 'aria-label'));
