@@ -12,6 +12,7 @@ final class FormCustomPropertyResolver
 {
     private const MAX_EXPANSION_DEPTH = 5;
     private const MAX_EXPANDED_BYTES = 4096;
+    private const DEFAULT_VIEWPORT_PX = 1280;
 
     /** @param list<array<string, mixed>> $rules */
     public static function resolve(string $value, DOMElement $element, ?array $condition, array $rules): string
@@ -28,8 +29,7 @@ final class FormCustomPropertyResolver
             // Cascade each element before applying its declarations over inherited values.
             $declared = array();
             foreach ( $rules as $rule ) {
-                // A conditional cascade inherits its base custom properties while excluding other conditions.
-                if ( ( null !== ($rule['condition'] ?? null) && ($rule['condition'] ?? null) !== $condition ) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
+                if ( ! self::ruleConditionApplies($rule['condition'] ?? null, $condition) || ! CssSelectorMatcher::matches($ancestor, $rule['parsed_selector'])['matches'] ) {
                     continue;
                 }
                 foreach ( $rule['declarations'] as $declaration ) {
@@ -90,6 +90,36 @@ final class FormCustomPropertyResolver
             }
         }
         return array_values($conditions);
+    }
+
+    /** @param array<string, mixed>|null $ruleCondition @param array<string, mixed>|null $requested */
+    private static function ruleConditionApplies(?array $ruleCondition, ?array $requested): bool
+    {
+        if ( null === $ruleCondition ) {
+            return true;
+        }
+        if ( null !== $requested ) {
+            return $ruleCondition === $requested;
+        }
+
+        return self::mediaMatchesDefaultViewport($ruleCondition);
+    }
+
+    /** @param array<string, mixed> $condition */
+    private static function mediaMatchesDefaultViewport(array $condition): bool
+    {
+        if ( 'media' !== ( $condition['kind'] ?? null ) ) {
+            return false;
+        }
+        $query = strtolower(trim((string) ( $condition['query'] ?? '' )));
+        if ( 1 === preg_match('/^\(\s*min-width\s*:\s*([0-9]+)px\s*\)$/', $query, $match) ) {
+            return self::DEFAULT_VIEWPORT_PX >= (int) $match[1];
+        }
+        if ( 1 === preg_match('/^\(\s*max-width\s*:\s*([0-9]+)px\s*\)$/', $query, $match) ) {
+            return self::DEFAULT_VIEWPORT_PX <= (int) $match[1];
+        }
+
+        return false;
     }
 
     /** @param array<string, array<string, mixed>> $declared @param array<string, string> $inherited @return array<string, string|null> */
