@@ -1096,7 +1096,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement && $this->isNavigationChromeElement($child) ) {
-                if ( $navigationContext?->isRuntimeDomTarget($child) && ! $this->isInertOverlayNavigationChrome($child) ) {
+                if ( $navigationContext?->isRuntimeDomTarget($child)
+                    && ! $this->isInertOverlayNavigationChrome($child)
+                    && ! $hasListBackedMenu ) {
                     return array();
                 }
                 continue;
