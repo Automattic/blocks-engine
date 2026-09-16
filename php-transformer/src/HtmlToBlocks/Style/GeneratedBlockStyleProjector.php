@@ -253,7 +253,7 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'max-width:100%';
             }
             $background = CssValueInspector::comparable((string) ($sourceDeclarations['background'] ?? ''));
-            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) ) {
+            if ( '' === trim((string) ($style['color']['background'] ?? '')) && preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent)(?:\s+none)?$/', $background) && ! $this->sourceControlSurfaceIsFilled($sourceControl) ) {
                 $declarations[] = 'background-color:transparent!important';
             }
             if ( ! self::sourceControlHasVisibleBorder($sourceDeclarations) ) {
@@ -322,6 +322,31 @@ final class GeneratedBlockStyleProjector
             ? ''
             : '.' . $marker . '.' . $marker . '.wp-block-button{' . implode(';', $intrinsicWrapperDeclarations) . '}';
         $generatedStyles->registerNativeButton($marker, $outerWrapperRule . $wrapperRule . $intrinsicWrapperRule . '.' . $marker . '.' . $marker . '>.wp-block-button__link{' . implode(';', $declarations) . '}');
+    }
+
+    /**
+     * Whether the control renders a fill at the desktop reference viewport.
+     *
+     * A builder can serialise a control's fill behind a width query, which the
+     * static view does not see. The generated link paints over the wrapper that
+     * carries that fill, so neutralizing it would hide what the document renders
+     * with. This is a classification signal, never a projected value.
+     */
+    private function sourceControlSurfaceIsFilled(DOMElement $sourceControl): bool
+    {
+        $declarations = $this->styleResolver->cssDeclarations(
+            $this->styleResolver->controlSurfaceResolvedStyle($sourceControl)
+        );
+        foreach ( array( 'background', 'background-color' ) as $property ) {
+            $value = CssValueInspector::comparable((string) ($declarations[$property] ?? ''));
+            if ( '' === $value || preg_match('/^(?:0(?:px)?(?:\s+0(?:px)?)*|none|transparent|initial|inherit|unset|revert)(?:\s+none)?$/', $value) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
