@@ -305,6 +305,13 @@ final class AuthorStylesheetProjector
             }
             $name = trim(substr($declaration, 0, $colon));
             $value = trim(substr($declaration, $colon + 1));
+            $plainValue = trim((string) preg_replace('/\s*!important\s*$/i', '', $value));
+            if ( $this->preludeIsUniversalReset($prelude)
+                && ( 'padding' === $name || str_starts_with($name, 'padding-') )
+                && 1 === preg_match('/^(?:0(?:px|rem|em)?)$/i', $plainValue)
+            ) {
+                continue;
+            }
             if ( '' === $name || '' === $value || ! $this->isButtonLinkLayoutProperty($name) || preg_match('/\s*!important\s*$/i', $value) ) {
                 $declarations[] = $declaration;
                 continue;
@@ -419,6 +426,23 @@ final class AuthorStylesheetProjector
             }
         }
         return false;
+    }
+
+    private function preludeIsUniversalReset(string $prelude): bool
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || array() === $selectors ) {
+            return false;
+        }
+
+        foreach ( $selectors as $selector ) {
+            $selector = strtolower(trim($selector));
+            if ( ! in_array($selector, array( '*', '::before', '::after', ':before', ':after' ), true) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isButtonLinkLayoutProperty(string $property): bool

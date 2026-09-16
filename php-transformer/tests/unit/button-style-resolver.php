@@ -240,6 +240,16 @@ $assert(
     (string) json_encode($logicalSideSides)
 );
 
+$preflightButton = ( new HtmlTransformer() )->transform(
+    '<style>*,::before,::after{box-sizing:border-box;border:0 solid;padding:0}.cta{padding:8px 24px;background:oklch(0.56 0.13 45);color:#fff;border-radius:9999px}</style><a class="cta" href="/x">Agendar</a>'
+)->toArray();
+$preflightCss = implode("\n", array_column($preflightButton['assets'] ?? array(), 'content'));
+$assert(
+    ! preg_match('/wp-block-button__link\{[^}]*padding:\s*0!important/', $preflightCss),
+    'Tailwind preflight padding:0 is not forced onto the native button link',
+    $preflightCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);
