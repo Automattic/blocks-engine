@@ -4666,7 +4666,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<string,mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
     private function foldableWrapperDescriptor(array $block): ?array
     {
-        if (!in_array($block['blockName'] ?? null, array('core/group', 'core/columns', 'core/column'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return null;
+        if (!in_array($block['blockName'] ?? null, array('core/group'), true) || isset($block['_binding_token']) || $this->hasIndependentWrapperOwnership($block) || in_array(strtolower((string) ($block['attrs']['tagName'] ?? 'div')), array('ul', 'ol', 'li'), true)) return null;
         return $this->groupWrapperDescriptor($block);
     }
 
@@ -4679,7 +4679,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || !empty($attrs['backgroundColor'])
             || !empty($attrs['gradient'])
             || !empty($attrs['style'])
-            || str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-');
+            || str_contains((string) ($attrs['className'] ?? ''), 'be-inline-geometry-')
+            || in_array($block['blockName'] ?? null, array('core/columns', 'core/column'), true);
     }
 
     /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
