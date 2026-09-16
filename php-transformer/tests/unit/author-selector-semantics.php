@@ -67,6 +67,22 @@ $assert(
     (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
     'relative nested selectors retain their host and receive the same margin priority as later parent declarations'
 );
+$behaviorStyledImage = $transform(
+    '<style>.photo-frame{height:240px}.js-photo-wrapper{height:100%;position:relative}.photo-fill{position:absolute;inset:0}.photo-fill img{width:100%;height:100%;object-fit:cover}@media(max-width:600px){.js-mobile-only{color:red}}</style>'
+    . '<div class="photo-frame"><div class="js-photo-wrapper js-unused"><div class="photo-fill"><img src="photo.jpg" alt="Photo"></div></div></div><p class="js-mobile-only">Caption</p>'
+);
+$behaviorStyledMarkup = (string) ($behaviorStyledImage['serialized_blocks'] ?? '');
+$assert(str_contains($behaviorStyledMarkup, 'js-photo-wrapper'), 'a behavior-hook class that owns authored image containing-block styles survives conversion');
+$assert(str_contains($behaviorStyledMarkup, 'js-mobile-only'), 'behavior-hook classes referenced only by responsive author rules survive conversion');
+$assert(! str_contains($behaviorStyledMarkup, 'js-unused'), 'behavior-only hooks without authored CSS remain excluded');
+
+$behaviorSelectors = $transform(
+    '<style>.js\\:escaped{color:red}.js-decoration::before{content:"Photo"}p:not(.js-excluded){color:blue}.js-shorter{color:green}[data-label=".js-attribute-value"]{color:purple}</style>'
+    . '<p class="js:escaped js-decoration js-excluded js-short js-attribute-value">Caption</p>'
+);
+$behaviorSelectorMarkup = (string) ($behaviorSelectors['serialized_blocks'] ?? '');
+$assert(str_contains($behaviorSelectorMarkup, 'js:escaped') && str_contains($behaviorSelectorMarkup, 'js-decoration') && str_contains($behaviorSelectorMarkup, 'js-excluded'), 'escaped, generated-content, and negated class selectors preserve their source classes');
+$assert(! str_contains($behaviorSelectorMarkup, 'js-short') && ! str_contains($behaviorSelectorMarkup, 'js-attribute-value'), 'class prefixes and attribute values do not count as authored class selectors');
 
 $candidateDom = new DOMDocument();
 $candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');
@@ -280,6 +296,13 @@ $assert(
         && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
     'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
 );
+$stickyHeader = $transform('<style>.site-header{position:fixed;top:0;left:0;right:0;z-index:50}.hero-image,.hero-overlay{position:absolute;inset:0}</style><header class="site-header">Brand</header><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div></section>');
+$stickyHeaderCss = $css($stickyHeader);
+$assert(
+    ! str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .site-header{position:fixed')
+        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}'),
+    'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still beat Core positioning'
+);
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
 $wrapperCss = $css($wrapper);
@@ -475,7 +498,7 @@ $assert(str_contains($iconOnlyMarkup, '<button type="button" class="wp-block-but
 
 $labeledIconButton = $transform('<style>.ins-block span{font-size:.68rem;font-weight:600}</style><button class="ins-block"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h18v18H3z"/></svg><span>Paragraph</span></button>');
 $labeledIconButtonMarkup = (string) ($labeledIconButton['serialized_blocks'] ?? '');
-$assert(str_contains($labeledIconButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($labeledIconButtonMarkup, 'font-size:.68rem') && str_contains($labeledIconButtonMarkup, 'font-weight:600') && str_contains($labeledIconButtonMarkup, '>Paragraph</span>') && 1 === count(array_filter($labeledIconButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($labeledIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'labeled controls preserve passive inline SVG artwork and descendant typography beside their visible RichText label');
+$assert(str_contains($labeledIconButtonMarkup, '<img src="assets/materialized-svg/') && str_contains($labeledIconButtonMarkup, 'font-size:.68rem') && str_contains($labeledIconButtonMarkup, 'font-weight:600') && str_contains($labeledIconButtonMarkup, '--blocks-engine-richtext-marker:') && str_contains($labeledIconButtonMarkup, '>Paragraph</mark>') && 1 === count(array_filter($labeledIconButton['assets'] ?? array(), static fn (array $asset): bool => 'inline-svg' === ($asset['source'] ?? ''))) && 'pass' === ($labeledIconButton['source_reports']['wp_block_validity']['status'] ?? ''), 'labeled controls preserve passive inline SVG artwork and descendant typography beside their visible RichText label');
 
 $wrappedPercentageIconButton = $transform('<button><span>WhatsApp</span><div class="icon-wrap" data-source-visual-width="34.75898" data-source-visual-height="34.916664"><svg viewBox="0 0 34.759 34.917" width="100%" height="100%" data-figma-vector="true" aria-hidden="true"><path d="M0 0h34.759v34.917z"/></svg></div></button>');
 $wrappedPercentageIconMarkup = (string) ($wrappedPercentageIconButton['serialized_blocks'] ?? '');
@@ -827,6 +850,38 @@ $assert(
 $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(135deg,var(--tone),#fff)}</style><div class="tour-card" style="width:344px;height:430px;--tone:#f06;--unused:discard">First</div><div class="tour-card" style="width:344px;height:430px;--tone:#0af;--unused:discard">Second</div>');
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
 $assert(! str_contains($customPropertyCardsMarkup, '--tone:') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), '--tone:#f06 !important') && str_contains($css($customPropertyCards), '--tone:#0af !important') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values in generated carrier CSS without unused-property or cross-card leakage');
+
+$customPropertyBackground = (new HtmlTransformer())->transform(
+    '<style>.scene{background-image:var(--scene-image);background-size:cover;min-height:280px}@media(max-width:600px){.scene{background-image:var(--mobile-image)}}</style>'
+    . '<section class="scene" style="--scene-image:url(/media/hero.jpg?variant=wide#crop);--mobile-image:url(/media/mobile.jpg);--unused:url(/media/unused.jpg)"><h2>Welcome</h2></section>',
+    array('asset_metadata' => array(
+        '/media/hero.jpg' => array('url' => '/theme/assets/hero.jpg'),
+        '/media/mobile.jpg' => array('url' => '/theme/assets/mobile.jpg'),
+    ))
+)->toArray();
+$customPropertyBackgroundCss = $css($customPropertyBackground);
+$assert(
+    str_contains($customPropertyBackgroundCss, '--scene-image:url(/theme/assets/hero.jpg?variant=wide#crop) !important')
+    && str_contains($customPropertyBackgroundCss, '--mobile-image:url(/theme/assets/mobile.jpg) !important')
+    && str_contains($customPropertyBackgroundCss, 'background-image:var(--scene-image)')
+    && str_contains($customPropertyBackgroundCss, 'background-image:var(--mobile-image)')
+    && ! str_contains($customPropertyBackgroundCss, 'unused.jpg'),
+    'consumed inline background-image custom properties retain localized URLs and conditional image selection without carrying unused URLs'
+);
+$assert(
+    'core/group' === ($customPropertyBackground['blocks'][0]['blockName'] ?? '')
+    && ! str_contains((string) $customPropertyBackground['serialized_blocks'], '--scene-image:')
+    && 'pass' === ($customPropertyBackground['source_reports']['wp_block_validity']['status'] ?? ''),
+    'custom-property backgrounds retain native Group serialization with CSS-owned responsive paint'
+);
+
+foreach (array('url(javascript:alert(1))', 'expression(alert(1))') as $unsafeValue) {
+    $unsafeCustomPropertyBackground = $transform('<style>.scene{background-image:var(--scene-image)}</style><section class="scene" style="--scene-image:' . $unsafeValue . '"><h2>Welcome</h2></section>');
+    $assert(
+        ! str_contains($css($unsafeCustomPropertyBackground), $unsafeValue),
+        'URL custom-property carriers retain the existing unsafe-value rejection'
+    );
+}
 
 $pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";background:var(--accent)}</style><div class="tour-card" style="width:344px;height:430px;--accent:#fc0;--unused:discard">Card</div>');
 $pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');

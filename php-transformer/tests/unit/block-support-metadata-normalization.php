@@ -22,6 +22,10 @@ $style = array(
     'border' => array( 'width' => '2px' ),
     'shadow' => '0 1px 2px #000',
 );
+$panelAnchor = $runtime->normalizeBlockSupportAttributes('core/accordion-panel', array( 'anchor' => 'radix-_R_2diaq_', 'className' => 'text-sm' ));
+$assert(! isset($panelAnchor['attrs']['anchor']) && 'text-sm' === ($panelAnchor['attrs']['className'] ?? ''), 'Accordion panel drops unsupported anchor so Gutenberg save() is not given an id it will not reproduce.');
+$groupAnchor = $runtime->normalizeBlockSupportAttributes('core/group', array( 'anchor' => 'inicio' ));
+$assert('inicio' === ($groupAnchor['attrs']['anchor'] ?? ''), 'Group retains supported anchor.');
 $paragraph = $runtime->normalizeBlockSupportAttributes('core/paragraph', array( 'style' => $style, 'layout' => array( 'type' => 'flex' ) ));
 $paragraphStyle = $paragraph['attrs']['style'] ?? array();
 $assert(! isset($paragraphStyle['dimensions']['minHeight']) && isset($paragraph['fallbackStyle']['dimensions']['minHeight']), 'Paragraph rejects unsupported dimensions into the carrier payload.');
@@ -52,6 +56,13 @@ $css = implode("\n", array_column($result['assets'] ?? array(), 'content'));
 $assert(! isset($block['attrs']['style']['dimensions']['minHeight']), 'Paragraph output omits unsupported dimensions attributes.');
 $assert(! str_contains((string) ($result['serialized_blocks'] ?? ''), 'min-height:12rem') && str_contains($css, 'min-height:12rem'), 'Paragraph output retains unsupported min-height through the deterministic carrier.');
 $assert('pass' === ($result['source_reports']['wp_block_validity']['status'] ?? ''), 'Carrier-backed Paragraph output passes the WordPress parse/save validity check.');
+
+$accordionHtml = '<div data-orientation="vertical"><div class="border-b"><h3><button type="button" aria-expanded="false" aria-controls="p1">Q?</button></h3><div id="p1" role="region"><p>A.</p></div></div><div class="border-b"><h3><button type="button" aria-expanded="false" aria-controls="p2">Q2?</button></h3><div id="p2" role="region"><p>A2.</p></div></div></div>';
+$accordion = ( new HtmlTransformer() )->transform($accordionHtml)->toArray();
+$serialized = (string) ($accordion['serialized_blocks'] ?? '');
+$assert('core/accordion' === ($accordion['blocks'][0]['blockName'] ?? ''), 'Heading-wrapped ARIA toggles still emit core/accordion.');
+$assert(! str_contains($serialized, 'id="p1"') && ! str_contains($serialized, '"anchor":"p1"'), 'Accordion panel save markup does not keep the source region id Gutenberg cannot round-trip.');
+$assert(str_contains($serialized, 'role="region"') && str_contains($serialized, 'wp:accordion-panel'), 'Accordion panel still emits core save() role="region" wrapper.');
 
 if ( 0 !== $failures ) exit(1);
 fwrite(STDOUT, "Block support metadata normalization tests passed.\n");

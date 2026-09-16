@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use DOMDocument;
 use DOMElement;
 
 final class ButtonsPattern
@@ -326,19 +327,53 @@ final class ButtonsPattern
      */
     private function unwrapPresentationalSpan(string $html): string
     {
-        if ( str_contains($html, '--blocks-engine-richtext-marker:') ) {
-            // RichText accepts mark but strips bare span wrappers on save. Retain
-            // the marker carrier so label-owned paint has a valid saved surface.
-            $html = preg_replace_callback('/^<span\b([^>]*)>(.*)<\/span>$/is', static function (array $matches): string {
-                $attributes = preg_replace('/\sdata-blocks-engine-richtext-marker=("[^"]*"|\'[^\']*\')/i', '', $matches[1]) ?? $matches[1];
-                return '<mark' . $attributes . '>' . $matches[2] . '</mark>';
-            }, $html) ?? $html;
-        }
+        $html = $this->semanticMarkerSpansAsMarks($html);
         while ( preg_match('/^<span\b[^>]*>(.*)<\/span>$/is', $html, $matches) === 1 && $this->spanWrapsEntireContent($matches[1]) ) {
             $html = trim($matches[1]);
         }
 
         return $html;
+    }
+
+    private function semanticMarkerSpansAsMarks(string $html): string
+    {
+        if ( ! str_contains($html, '--blocks-engine-richtext-marker:') ) {
+            return $html;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $html . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return $html;
+        }
+
+        // RichText accepts mark but strips bare span wrappers on save. Convert
+        // each marker carrier independently so sibling label/state spans keep
+        // their boundaries and their own paint, including display:none.
+        $spans = array();
+        foreach ( $body->getElementsByTagName('span') as $span ) {
+            if ( $span instanceof DOMElement && str_contains($span->getAttribute('style'), '--blocks-engine-richtext-marker:') ) {
+                $spans[] = $span;
+            }
+        }
+        foreach ( $spans as $span ) {
+            $mark = $document->createElement('mark');
+            foreach ( $span->attributes as $attribute ) {
+                if ( 'data-blocks-engine-richtext-marker' !== $attribute->nodeName ) {
+                    $mark->setAttribute($attribute->nodeName, $attribute->nodeValue ?? '');
+                }
+            }
+            while ( null !== $span->firstChild ) {
+                $mark->appendChild($span->firstChild);
+            }
+            $span->parentNode?->replaceChild($mark, $span);
+        }
+
+        return SourceDom::innerHtml($body);
     }
 
     /**

@@ -120,7 +120,8 @@ $assert(2 === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlo
 $assert('First question' === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs']['title'] ?? null), 'The accordion-heading title is the control\'s clean text, with decorative icon markup stripped, not the raw heading innerHTML.');
 $assert(true === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['attrs']['openByDefault'] ?? null), 'aria-expanded="true" on the inner control (not the heading) still marks the item open by default.');
 $assert('' === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][1]['attrs']['openByDefault'] ?? ''), 'aria-expanded="false" on the inner control keeps the item closed by default.');
-$assert(str_contains((string) ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][1]['attrs']['anchor'] ?? ''), 'p1'), 'The panel is resolved via the inner control\'s aria-controls, not the heading wrapper.');
+        $assert('First answer.' === ($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][1]['innerBlocks'][0]['attrs']['content'] ?? null), 'The panel is resolved via the inner control\'s aria-controls, not the heading wrapper.');
+        $assert(! isset($headingWrappedAccordion['blocks'][0]['innerBlocks'][0]['innerBlocks'][1]['attrs']['anchor']), 'Accordion panel does not keep an unsupported source id as anchor.');
 
 $disclosure = (new HtmlTransformer())->transform('<div><button aria-expanded="false" aria-controls="answer">Question?</button><div id="answer"><p>Answer.</p><object data="/answer.pdf"></object></div></div>')->toArray();
 $assert('core/details' === ($disclosure['blocks'][0]['blockName'] ?? null), 'Disclosure recognition survives an unsupported panel child.');

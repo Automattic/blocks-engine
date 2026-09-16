@@ -1096,7 +1096,9 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement && $this->isNavigationChromeElement($child) ) {
-                if ( $navigationContext?->isRuntimeDomTarget($child) ) {
+                if ( $navigationContext?->isRuntimeDomTarget($child)
+                    && ! $this->isInertOverlayNavigationChrome($child)
+                    && ! $hasListBackedMenu ) {
                     return array();
                 }
                 continue;
@@ -1997,8 +1999,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
 
-        if ( (bool) preg_match('/overlay|fullscreen|drawer|offcanvas/', $tokens)
-            && 0 === $element->getElementsByTagName('a')->length ) {
+        if ( $this->isInertOverlayNavigationChrome($element) ) {
             return true;
         }
 
@@ -2020,6 +2021,14 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return (bool) preg_match('/(?:^|[^a-z0-9])(?:toggle|hamburger|menu-button|menu-toggle)(?:[^a-z0-9]|$)/', $tokens);
+    }
+
+    private function isInertOverlayNavigationChrome(DOMElement $element): bool
+    {
+        $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+
+        return (bool) preg_match('/overlay|fullscreen|drawer|offcanvas/', $tokens)
+            && 0 === $element->getElementsByTagName('a')->length;
     }
 
     /**

@@ -829,6 +829,13 @@ final class StyleResolver implements ElementPresentationResolver
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
         }
+        $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
+        if ( in_array($float, array( 'left', 'right' ), true) ) {
+            // WordPress flow groups are flex containers. Float is ignored on a
+            // flex item, so the parent that owns the floated box has to be a
+            // block formatting context for the source wrapping to survive.
+            $rules[] = '.wp-block-group:has(> .' . $className . '){display:block !important}';
+        }
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
@@ -1519,7 +1526,7 @@ final class StyleResolver implements ElementPresentationResolver
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
-                $customProperties[$property] = $value;
+                $customProperties[$property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
         }
         ksort($customProperties, SORT_STRING);
@@ -2964,7 +2971,9 @@ final class StyleResolver implements ElementPresentationResolver
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            $allowsImageUrl = in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
+            // A consumed custom property can supply the URL to an authored
+            // background rule. Keep it for the same sanitized carrier path.
+            $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
                 // Importance precedes source order even within one declaration
                 // list. Reducing to a property map must retain that winner.
@@ -3101,9 +3110,34 @@ final class StyleResolver implements ElementPresentationResolver
     public function presentationClassName(string $className): string
     {
         $classes = preg_split('/\s+/', trim($className)) ?: array();
-        $classes = array_filter($classes, static fn (string $class): bool => '' !== $class && ! self::isBehaviorHookClassName($class) && ! self::isGeneratedCoreClassName($class) && ! self::isTransformerMarkerClassName($class));
+        $classes = array_filter($classes, fn (string $class): bool => '' !== $class
+            && (! self::isBehaviorHookClassName($class) || $this->hasAuthorClassSelector($class))
+            && ! self::isGeneratedCoreClassName($class)
+            && ! self::isTransformerMarkerClassName($class));
 
         return implode(' ', array_values(array_unique($classes)));
+    }
+
+    private function hasAuthorClassSelector(string $className): bool
+    {
+        foreach ( $this->context->authorStyles()->styleRules() as $rule ) {
+            foreach ( $rule['selectors'] as $selector ) {
+                foreach ( $selector['parsed']['compounds'] ?? array() as $compound ) {
+                    foreach ( array_merge(array($compound), $compound['not'] ?? array()) as $part ) {
+                        if ( in_array($className, $part['classes'] ?? array(), true) ) {
+                            return true;
+                        }
+                    }
+                }
+                // Retain references in selectors outside the matcher's subset,
+                // including generated content and functional pseudo-classes.
+                if ( ! ($selector['parsed']['supported'] ?? false)
+                    && preg_match('/\.' . preg_quote($className, '/') . '(?![a-zA-Z0-9_-])/', $selector['selector']) ) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

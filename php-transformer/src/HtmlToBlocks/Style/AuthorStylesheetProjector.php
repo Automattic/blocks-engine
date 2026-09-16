@@ -119,12 +119,21 @@ final class AuthorStylesheetProjector
                     }
                     $editorSelectors[] = ':root .editor-styles-wrapper ' . $selector;
                 }
+                if ( 'fixed' === strtolower($position) ) {
+                    // Core's editor canvas is position:relative. Re-forcing
+                    // source `position:fixed` with !important pins site chrome
+                    // (sticky headers, FABs) over the document being edited.
+                    // Absolute layers still need the override so hero overlays
+                    // keep stacking; leave relative/sticky unforced.
+                    return '';
+                }
+
                 return array() === $editorSelectors
                     ? ''
                     // Core adds `position:relative` to the actual editor block
                     // root. Preserve source visual layers without changing
                     // ordinary relative or sticky editing surfaces.
-                    : implode(',', $editorSelectors) . '{position:' . $position . ( in_array(strtolower($position), array('absolute', 'fixed'), true) ? '!important' : '' ) . '}';
+                    : implode(',', $editorSelectors) . '{position:' . $position . ( 'absolute' === strtolower($position) ? '!important' : '' ) . '}';
             }
         );
     }

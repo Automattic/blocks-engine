@@ -51,9 +51,10 @@ final class TableClassificationPolicy
     }
 
     /**
-     * A nested table can be lowered to responsive columns only when every table
-     * in its subtree is a single, headerless layout row. Data and spanning
-     * tables intentionally remain outside this narrow conversion.
+     * Nested layout tables lower to columns. Descendant tables must each be a
+     * single headerless layout row. The outer table may stack several such
+     * rows (Weebly-style blog chrome) so long as it has no data-table signals.
+     * Nested data tables stay outside this conversion.
      */
     public function isNestedLayoutTable(DOMElement $table): bool
     {
@@ -61,7 +62,21 @@ final class TableClassificationPolicy
             return false;
         }
 
-        return $this->isSingleRowLayoutTable($table);
+        $signals = $this->tableSignals($table);
+        if ( true === $signals['data_signals'] ) {
+            return false;
+        }
+
+        foreach ( $table->getElementsByTagName('table') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || $descendant->isSameNode($table) ) {
+                continue;
+            }
+            if ( true === $this->tableSignals($descendant)['data_signals'] ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function isNestedLayoutTableMember(DOMElement $table): bool
