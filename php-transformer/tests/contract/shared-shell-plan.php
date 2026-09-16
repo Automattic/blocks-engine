@@ -280,4 +280,42 @@ foreach (array(
     $assert($linkedWholeFooter === $linkedStagedFooter, 'Staged shared-shell compilation must resolve linked stylesheets before classifying footer layout, matching whole compilation.');
 }
 
+$nestedThemeHeader = static function (string $title, string $docHash): string {
+    return '<!-- wp:group {"className":"site-root"} --><div class="wp-block-group site-root">'
+        . '<!-- wp:group {"anchor":"SITE_HEADER","className":"SITE_HEADER blocks-engine-attribute-' . $docHash . '-15","tagName":"header"} --><header id="SITE_HEADER" class="wp-block-group SITE_HEADER blocks-engine-attribute-' . $docHash . '-15"><!-- wp:paragraph --><p>Brand</p><!-- /wp:paragraph --><!-- wp:paragraph --><p><a href="/">Work</a> <a href="/about">About</a></p><!-- /wp:paragraph --></header><!-- /wp:group -->'
+        . '<!-- wp:group {"tagName":"main"} --><main class="wp-block-group"><!-- wp:heading --><h2 class="wp-block-heading">' . $title . '</h2><!-- /wp:heading --></main><!-- /wp:group -->'
+        . '</div><!-- /wp:group -->';
+};
+$nestedThemeResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><h1>Home</h1></main>', 'about.html' => '<main><h1>About</h1></main>')))->toArray();
+foreach ($nestedThemeResult['source_reports']['compiled_site']['pages'] as &$nestedThemePage) {
+    $nestedThemePage['block_markup'] = $nestedThemeHeader('index.html' === $nestedThemePage['source_path'] ? 'Home' : 'About', 'index.html' === $nestedThemePage['source_path'] ? '62a405cae06c' : 'd27302898fe6');
+}
+unset($nestedThemePage);
+$nestedThemePlan = (new WordPressSitePlan())->fromResult($nestedThemeResult);
+$nestedThemePages = $pages($nestedThemePlan);
+$nestedThemeWrites = $writes($nestedThemePlan);
+$nestedThemeHeaderPart = array_values(array_filter($nestedThemePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$assert('shared_shell' === ($nestedThemeHeaderPart['placement']['kind'] ?? null) && 1 === count(array_filter($nestedThemePlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'A repeated nested header becomes one shared theme chrome part rather than page-owned markup.');
+$assert(str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'Brand') && str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', 'SITE_HEADER') && !str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', '"tagName":"header"') && !str_contains($nestedThemeHeaderPart['canonical_block_markup'] ?? '', '<header'), 'Extracted nested header keeps its presentation hooks without nesting a landmark inside the template-part wrapper.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $nestedThemePages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'SITE_HEADER') && !str_contains($markup, 'Brand') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h2>'), "{$source} page content loses the nested header and does not keep an inline template-part reference.");
+}
+$assert(1 === substr_count($nestedThemeWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($nestedThemeWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Singular templates bind the nested header as theme chrome so the page editor does not own it.');
+
+$nestedThemeDivergentResult = $nestedThemeResult;
+foreach ($nestedThemeDivergentResult['source_reports']['compiled_site']['pages'] as &$nestedThemePage) {
+    $nestedThemePage['block_markup'] = str_replace('Brand', 'index.html' === $nestedThemePage['source_path'] ? 'Brand' : 'Other brand', $nestedThemeHeader('index.html' === $nestedThemePage['source_path'] ? 'Home' : 'About', 'aaaaaa111111'));
+}
+unset($nestedThemePage);
+$nestedThemeDivergent = (new WordPressSitePlan())->fromResult($nestedThemeDivergentResult);
+$assert(array() === array_values(array_filter($nestedThemeDivergent['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && str_contains($pages($nestedThemeDivergent)['index.html']['canonical_block_markup'] ?? '', 'Brand') && str_contains($pages($nestedThemeDivergent)['about.html']['canonical_block_markup'] ?? '', 'Other brand'), 'Nested headers that differ in authored content remain page-owned.');
+
+$styleNormalizedShell = static fn(string $title, string $none): string => '<div class="desktop-document"><header class="desktop-header"><nav><a href="/">Home</a></nav></header><main><h1>' . $title . '</h1></main></div><div class="mobile-document"><header class="mobile-header"><ul aria-hidden="true" style="' . $none . '"></ul></header><main><h1>' . $title . ' mobile</h1></main></div>';
+$styleNormalizedArtifacts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $styleNormalizedShell('Home', 'display:none'),
+    'about.html' => $styleNormalizedShell('About', 'display: none;'),
+)))->toArray()['source_reports']['compiled_site']['inline_shell_artifacts'] ?? array();
+$assert(array('header-1', 'header-2') === array_column($styleNormalizedArtifacts, 'slug'), 'Equivalent nested headers that differ only by style whitespace still compile as canonical shared shells.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
