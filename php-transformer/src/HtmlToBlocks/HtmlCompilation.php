@@ -7560,10 +7560,40 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $lists;
     }
 
+    /**
+     * Whether a non-item child of a list carries content a reader would see.
+     * Scripts, templates and empty wrappers are not content.
+     */
+    private function listNonItemChildCarriesContent(DOMElement $child): bool
+    {
+        $tagName = strtolower($child->tagName);
+        if ( in_array($tagName, array( 'script', 'style', 'template', 'link', 'meta' ), true) ) {
+            return false;
+        }
+
+        if ( '' !== trim($child->textContent ?? '') ) {
+            return true;
+        }
+
+        foreach ( array( 'img', 'svg', 'video', 'audio', 'iframe', 'canvas', 'picture', 'input', 'select', 'textarea', 'button' ) as $embedded ) {
+            if ( 0 < $child->getElementsByTagName($embedded)->length ) {
+                return true;
+            }
+        }
+
+        return in_array($tagName, array( 'img', 'svg', 'video', 'audio', 'iframe', 'canvas', 'picture', 'input', 'select', 'textarea', 'button' ), true);
+    }
+
     private function listContainsStructuralItemContent(DOMElement $list): bool
     {
         foreach ( $list->childNodes as $child ) {
             if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+                // A source that puts content directly in a list still renders
+                // it. core/list only carries list items, so such a list has to
+                // decompose or that content is dropped on the floor.
+                if ( $child instanceof DOMElement && $this->listNonItemChildCarriesContent($child) ) {
+                    return true;
+                }
                 continue;
             }
 
@@ -7604,7 +7634,19 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $items = array();
         foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement || 'li' !== strtolower($child->tagName) ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            if ( 'li' !== strtolower($child->tagName) ) {
+                if ( ! $this->listNonItemChildCarriesContent($child) ) {
+                    continue;
+                }
+
+                $block = $this->convertElement($child, $fallbacks, true);
+                if ( null !== $block ) {
+                    $items[] = $block;
+                }
                 continue;
             }
 
