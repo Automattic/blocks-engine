@@ -848,11 +848,11 @@ final class StyleResolver implements ElementPresentationResolver
      *
      * KNOWN LIMITATION, load-bearing: `staticStyleRules` and
      * `conditionalStyleRules` are filtered through `safeVisualDeclarations()`
-     * before they are stored, so only properties on that 86-entry allowlist are
-     * visible here. `position`, `z-index` and `direction` are on it; `overflow`,
-     * `overflow-x/y`, `top`, `right`, `bottom`, `left`, `transform`,
-     * `transition`, `animation`, `opacity`, `visibility`, `float`, `clear`,
-     * `align-self`, `justify-self`, `white-space` and `cursor`
+     * before they are stored, so only properties on that allowlist are
+     * visible here. `position`, `inset`, `top`, `right`, `bottom`, `left`,
+     * `z-index` and `direction` are on it; `overflow`, `overflow-x/y`,
+     * `transform`, `transition`, `animation`, `opacity`, `visibility`,
+     * `float`, `clear`, `align-self`, `justify-self`, `white-space` and `cursor`
      * are NOT. For those, an author declaration cannot register, the inline
      * override falls into the "no author rule declares it" branch, and it is
      * dropped unless it is on the narrow unmatched allowlist — while the
@@ -2655,6 +2655,10 @@ final class StyleResolver implements ElementPresentationResolver
             'place-items',
             'pointer-events',
             'position',
+            'top',
+            'right',
+            'bottom',
+            'left',
             'row-gap',
             'text-align',
             'text-decoration',

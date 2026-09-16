@@ -165,6 +165,11 @@ final class AuthorStylesheetProjector
 
     private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
+        $idPartition = $this->partitionPreludeByIdSpecificity($prelude, $context);
+        if ( is_array($idPartition) ) {
+            return $this->rewriteStyleRule($idPartition[0], $body, $context)
+                . $this->rewriteStyleRule($idPartition[1], $body, $context);
+        }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
             return $buttonPresentationPseudoPrelude . '{' . $body . '}';
@@ -280,13 +285,16 @@ final class AuthorStylesheetProjector
     /**
      * core/button defaults and support styles are emitted after carried author CSS.
      * Keep source button declarations authoritative after their selector is lowered
-     * to a generated marker, including media-query overrides.
+     * to a generated marker, including media-query overrides. ID-themed padding
+     * already beats Gutenberg `:where` defaults, so promoting it to `!important`
+     * would invert a later stretched `padding:0!important` rule.
      */
     private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
             return $body;
         }
+        $preserveSourcePaddingImportance = $this->preludeHasIdSpecificity($prelude, $context);
 
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
@@ -298,6 +306,10 @@ final class AuthorStylesheetProjector
             $name = trim(substr($declaration, 0, $colon));
             $value = trim(substr($declaration, $colon + 1));
             if ( '' === $name || '' === $value || ! $this->isButtonLinkLayoutProperty($name) || preg_match('/\s*!important\s*$/i', $value) ) {
+                $declarations[] = $declaration;
+                continue;
+            }
+            if ( $preserveSourcePaddingImportance && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
                 $declarations[] = $declaration;
                 continue;
             }
@@ -335,6 +347,56 @@ final class AuthorStylesheetProjector
         }
 
         return array( implode(',', $buttonSelectors), implode(',', $otherSelectors) );
+    }
+
+    /** @return array{0: string, 1: string}|null */
+    private function partitionPreludeByIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): ?array
+    {
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || count($selectors) < 2 ) {
+            return null;
+        }
+        $withId = array();
+        $withoutId = array();
+        foreach ( $selectors as $selector ) {
+            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
+                $withId[] = $selector;
+            } else {
+                $withoutId[] = $selector;
+            }
+        }
+        if ( array() === $withId || array() === $withoutId ) {
+            return null;
+        }
+
+        return array( implode(',', $withId), implode(',', $withoutId) );
+    }
+
+    private function preludeHasIdSpecificity(string $prelude, AuthorStylesheetProjectionContext $context): bool
+    {
+        foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array( $prelude ) as $selector ) {
+            if ( $this->selectorHasIdSpecificity($selector, $context) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function selectorHasIdSpecificity(string $selector, AuthorStylesheetProjectionContext $context): bool
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( $parsed['supported'] ) {
+            foreach ( $parsed['compounds'] as $compound ) {
+                if ( array() !== ( $compound['ids'] ?? array() ) ) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return 1 === preg_match('/(?:^|[\s>+~,(])#[A-Za-z_-]/', ' ' . $selector);
     }
 
     private function projectsAnchorButtonControl(string $prelude, AuthorStylesheetProjectionContext $context): bool

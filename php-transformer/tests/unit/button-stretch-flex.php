@@ -30,4 +30,28 @@ if ( preg_match('/wp-block-button__link\{[^}]*width:max-content/', $css) ) {
     exit(1);
 }
 
+$idTheme = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '#siteWrapper.site-wrapper .sqs-button-element--primary,'
+    . '.sqs-modal-lightbox .sqs-button-element--primary{padding-top:1rem;padding-bottom:1rem;padding-left:1.3rem;padding-right:1.3rem;background:#4c2929;color:#fff}'
+    . '.fluid-engine .sqs-block-button.sqs-stretched .sqs-block-button-element{padding-top:0!important;padding-bottom:0!important;height:100%;display:flex;flex:1;align-items:center;justify-content:center}'
+    . '</style>'
+    . '<div id="siteWrapper" class="site-wrapper"><div class="fluid-engine"><div class="sqs-block-button sqs-stretched">'
+    . '<a class="sqs-block-button-element sqs-button-element--primary" href="/order">Order Now</a>'
+    . '</div></div></div>'
+)->toArray();
+$idThemeCss = $cssOf($idTheme);
+if ( ! preg_match('/padding-top:0!important/', $idThemeCss) ) {
+    fwrite(STDERR, "FAIL: stretched zero padding must survive an ID-themed button rule\n" . $idThemeCss . "\n");
+    exit(1);
+}
+if ( preg_match('/#siteWrapper[^\{]*\{[^}]*padding-top:1rem!important/', $idThemeCss) ) {
+    fwrite(STDERR, "FAIL: ID-themed button padding must keep source importance\n" . $idThemeCss . "\n");
+    exit(1);
+}
+if ( str_contains($idThemeCss, '!important!important') ) {
+    fwrite(STDERR, "FAIL: native button padding must not double !important\n" . $idThemeCss . "\n");
+    exit(1);
+}
+
 fwrite(STDOUT, "button stretch flex tests: passed\n");

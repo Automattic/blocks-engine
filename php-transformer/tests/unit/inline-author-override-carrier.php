@@ -614,6 +614,24 @@ $assert(
     $noConflictCss
 );
 
+$insetOverride = $transform(
+    '<style>.section-background{position:absolute;top:var(--pagePadding);right:var(--pagePadding);bottom:var(--pagePadding);left:var(--pagePadding)}</style>'
+    . '<section style="position:relative">'
+    . '<div class="section-background" style="top:107.578px"><img src="hero.jpg" alt="Bagels" width="800" height="400"></div>'
+    . '</section>'
+);
+$insetCss = $cssFor($insetOverride, 'engine-support');
+$assert(
+    '' !== $anyWith($tierRules($insetCss), 'top:107.578px'),
+    'inset conflict: an inline top overriding stylesheet top:var(--pagePadding) is carried',
+    $insetCss
+);
+$assert(
+    str_contains($cssFor($insetOverride, 'author-css'), 'top:var(--pagePadding)'),
+    'inset conflict: the author inset rule stays materialized verbatim',
+    $cssFor($insetOverride, 'author-css')
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline author-override carrier contract: {$failures} failed, {$passes} passed\n");
     exit(1);
