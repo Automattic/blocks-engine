@@ -93,7 +93,8 @@ $assert(
 $assert(
     str_contains($weeblyAssets, 'wp-block-navigation-item.wp-block-navigation-link{display:flex')
         && str_contains($weeblyAssets, 'height:60px')
-        && str_contains($weeblyAssets, 'align-items:center'),
+        && str_contains($weeblyAssets, 'align-items:center')
+        && str_contains($weeblyAssets, 'white-space:nowrap'),
     'overlay items are vertically centered in the 60px bar',
     $weeblyAssets
 );
@@ -226,6 +227,38 @@ $assert(
         && str_contains($desktopVisibleMarkup, '"label":"About"'),
     'a CSS-hidden hamburger with a default-visible desktop list uses overlayMenu mobile',
     $desktopVisibleMarkup
+);
+
+$tableHeader = $transform(
+    '<style>'
+    . '.topbar{display:table;width:100%;height:60px}'
+    . '.hamburger{display:table-cell;width:100px;padding:0 20px;border-right:1px solid rgba(255,255,255,0.15)}'
+    . '.hamburger span:after{content:"MENU"}'
+    . '.logo{display:table-cell;padding:0 20px;vertical-align:middle}'
+    . '.nav-wrap{display:none}'
+    . '</style>'
+    . '<div class="topbar"><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    . '<p class="logo"><a href="/">ANNIE FINNERAN</a></p>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div></div>'
+);
+$tableHeaderAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($tableHeader['assets'] ?? null) ? $tableHeader['assets'] : array()
+));
+$assert(
+    str_contains($tableHeaderAssets, 'blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.blocks-engine-native-navigation-toggle-')
+        && str_contains($tableHeaderAssets, 'display:table-cell!important')
+        && str_contains($tableHeaderAssets, 'width:100px!important')
+        && str_contains($tableHeaderAssets, 'vertical-align:middle!important')
+        && str_contains($tableHeaderAssets, 'overflow:visible!important'),
+    'a table-cell hamburger keeps the overlay host as the first table column',
+    $tableHeaderAssets
+);
+$assert(
+    str_contains($markup($tableHeader), 'class="logo')
+        && str_contains($markup($tableHeader), 'ANNIE FINNERAN'),
+    'the table-cell logo stays a sibling of the overlay host',
+    $markup($tableHeader)
 );
 
 $realLink = $transform(
