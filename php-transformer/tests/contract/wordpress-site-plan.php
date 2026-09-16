@@ -602,6 +602,76 @@ $assert(count($plan['pages']) === ($plan['reporting']['metrics']['source_documen
 $bootstrap = (string) $writes['functions.php']['payload']['data'];
 $assert(str_contains($bootstrap, "wp_register_script") && str_contains($bootstrap, "get_theme_file_uri(") && str_contains($bootstrap, "https://cdn.example.test/external.js") && str_contains($bootstrap, "'strategy' => 'async'") && str_contains($bootstrap, "script_loader_tag") && str_contains($bootstrap, "'nomodule' => true") && str_contains($bootstrap, "'type' => 'module'") && str_contains($bootstrap, 'is_front_page()') && str_contains($bootstrap, "'nested/about' === trim( get_page_uri( get_queried_object_id() ), '/' )") && str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && str_contains($bootstrap, "add_action( 'after_setup_theme'") && str_contains($bootstrap, "add_editor_style( \$style['target_path'] )") && str_contains($bootstrap, "! empty( \$style['editor_only'] )") && str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "'baseURL' => get_theme_file_uri( \$style['target_path'] )") && str_contains($bootstrap, "get_option( 'page_on_front' )") && str_contains($bootstrap, "'_blocks_engine_reconciliation_identity'") && !str_contains($bootstrap, "array (\n  0 => 'blocks-engine-script-"), 'Canonical functions.php registers editor-only presentation styles through Core iframe and scoped editor settings APIs.');
 
+// #1878: the editor presentation matcher must resolve a page scope by persisted
+// reconciliation identity first -- exactly like it already does for post scopes --
+// falling back to route_path only when the identity post meta is absent. Without
+// this, a slug rename, reparenting, or importer slug dedupe silently drops the
+// page's authored CSS in the editor while the front end (which still matches by
+// route_path in wp_enqueue_scripts) stays correct.
+$pageScopeIdentityFirstCondition = "if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
+$legacyUnguardedPageCondition = "'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page']";
+$assert(str_contains($bootstrap, $pageScopeIdentityFirstCondition) && !str_contains($bootstrap, $legacyUnguardedPageCondition), 'The editor presentation matcher resolves a page scope by persisted reconciliation identity before falling back to route path, matching the post scope identity-first behavior.');
+if (!class_exists('WP_Post')) {
+    class WP_Post
+    {
+        public string $post_name = '';
+        public function __construct(public int $ID, public string $post_type) {}
+    }
+}
+$pageScopeMetaByPostId = array();
+$pageScopeUriByPostId = array();
+$pageScopeFrontId = 0;
+if (!function_exists('get_post_meta')) {
+    function get_post_meta(int $postId, string $key, bool $single = false): string
+    {
+        global $pageScopeMetaByPostId;
+        return $pageScopeMetaByPostId[$postId][$key] ?? '';
+    }
+}
+if (!function_exists('get_option')) {
+    function get_option(string $name): mixed
+    {
+        global $pageScopeFrontId;
+        return 'page_on_front' === $name ? $pageScopeFrontId : false;
+    }
+}
+if (!function_exists('get_page_uri')) {
+    function get_page_uri(WP_Post $post): string
+    {
+        global $pageScopeUriByPostId;
+        return $pageScopeUriByPostId[$post->ID] ?? '';
+    }
+}
+$matcherStart = strpos($bootstrap, '$blocks_engine_presentation_matches = static function');
+$assert(false !== $matcherStart, 'Canonical functions.php declares the presentation matcher closure.');
+$matcherEnd = strpos($bootstrap, "\n};", $matcherStart);
+$assert(false !== $matcherEnd, 'The presentation matcher closure has a discoverable closing brace.');
+eval(substr($bootstrap, $matcherStart, $matcherEnd + 3 - $matcherStart));
+$agedIdentity = (string) $pagesBySource['nested/about.html']['reconciliation_identity'];
+$renamedPageId = 90001;
+$pageScopeMetaByPostId[$renamedPageId] = array('_blocks_engine_reconciliation_identity' => $agedIdentity);
+$pageScopeUriByPostId[$renamedPageId] = 'renamed/relocated-about';
+$renamedPost = new WP_Post($renamedPageId, 'page');
+$renamedScope = array('kind' => 'page', 'source_path' => 'nested/about.html', 'route_path' => 'nested/about', 'reconciliation_identity' => $agedIdentity, 'front_page' => false);
+$assert(true === $blocks_engine_presentation_matches(array('scopes' => array($renamedScope), 'template_part_slugs' => array()), $renamedPost, false), 'A page scope resolves by persisted reconciliation identity even after its route, slug, or parent has changed, so a renamed or reparented page keeps its authored CSS in the editor.');
+$mismatchedIdentityScope = $renamedScope;
+$mismatchedIdentityScope['reconciliation_identity'] = str_repeat('9', 64);
+$mismatchedIdentityScope['route_path'] = 'renamed/relocated-about';
+$assert(false === $blocks_engine_presentation_matches(array('scopes' => array($mismatchedIdentityScope), 'template_part_slugs' => array()), $renamedPost, false), 'Once persisted reconciliation identity meta is present, it is authoritative over a coincidentally matching route path.');
+$legacyPageId = 90002;
+$pageScopeMetaByPostId[$legacyPageId] = array();
+$pageScopeUriByPostId[$legacyPageId] = 'nested/about';
+$legacyPost = new WP_Post($legacyPageId, 'page');
+$legacyScope = array('kind' => 'page', 'source_path' => 'nested/about.html', 'route_path' => 'nested/about', 'reconciliation_identity' => $agedIdentity, 'front_page' => false);
+$assert(true === $blocks_engine_presentation_matches(array('scopes' => array($legacyScope), 'template_part_slugs' => array()), $legacyPost, false), 'When persisted reconciliation identity meta is absent, the matcher falls back to route path so plans and sites materialized before this fix keep working.');
+$frontPageId = 90003;
+$pageScopeFrontId = $frontPageId;
+$pageScopeMetaByPostId[$frontPageId] = array();
+$pageScopeUriByPostId[$frontPageId] = 'front-slug';
+$frontOnlyPost = new WP_Post($frontPageId, 'page');
+$frontOnlyScope = array('kind' => 'page', 'source_path' => 'index.html', 'route_path' => '', 'reconciliation_identity' => str_repeat('1', 64), 'front_page' => true);
+$assert(true === $blocks_engine_presentation_matches(array('scopes' => array($frontOnlyScope), 'template_part_slugs' => array()), $frontOnlyPost, false), 'The front-page fallback still matches by page_on_front when identity meta is absent.');
+
 $unsupportedScripts = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><head><script src="https://cdn.example.test/conflict.js" type="module" nomodule></script></head><body><main>Unsupported scripts</main><script>window.inline = true;</script></body></html>', 'assets/unused.js' => 'window.unused=true;')))->toArray();
 $unsupportedPlan = $unsupportedScripts['source_reports']['wordpress_site_plan'] ?? array();
 $unsupportedBootstrap = $writeMap($unsupportedPlan['writes'] ?? array())['functions.php']['payload']['data'] ?? '';
