@@ -24,11 +24,23 @@ final class AuthorStylesheetProjector
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body): string => $this->projectStyleRule($prelude, $body, $context)
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors))
         );
     }
 
-    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    /** @param list<string> $ancestors */
+    private static function ancestorsAreConditional(array $ancestors): bool
+    {
+        foreach ( $ancestors as $ancestor ) {
+            if ( 1 === preg_match('/^@(?:media|supports)\b/i', trim((string) $ancestor) ) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
@@ -43,14 +55,14 @@ final class AuthorStylesheetProjector
                 if ( isset($part['declarations']) ) {
                     // Splitting only contiguous runs retains declarations after
                     // a nested condition at their original cascade position.
-                    $css .= $this->projectStyleRule($prelude, $part['declarations'], $context);
+                    $css .= $this->projectStyleRule($prelude, $part['declarations'], $context, $inConditional);
                 } elseif ( in_array($part['at_rule'], array('media', 'supports'), true) ) {
-                    $css .= $part['prelude'] . '{' . $this->projectStyleRule($prelude, $part['body'], $context) . '}';
+                    $css .= $part['prelude'] . '{' . $this->projectStyleRule($prelude, $part['body'], $context, true) . '}';
                 } else {
                     // Relative selectors and scoped/layer rules retain their
                     // original host. Only media/supports conditions can lift.
                     $nested = '' === $part['at_rule']
-                        ? $this->projectStyleRule($part['prelude'], $part['body'], $context)
+                        ? $this->projectStyleRule($part['prelude'], $part['body'], $context, $inConditional)
                         : $part['prelude'] . '{' . $part['body'] . '}';
                     $css .= $this->rewriteSelectorPrelude($prelude, $context) . '{' . $nested . '}';
                 }
@@ -77,14 +89,14 @@ final class AuthorStylesheetProjector
             : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
         $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
         if ( array() === $margins ) {
-            $css = $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
+            $css = $this->rewriteStyleRule($prelude, $body, $context, $inConditional) . $imageRule . $svgImageRule . $editorDocumentRootRule;
             return $css . $this->editorPositionRules($css);
         }
 
         $inner = array_diff_key($declarations, $margins);
         $rules = '' === $this->styleResolver->cssDeclarationString($inner)
             ? ''
-            : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context);
+            : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context, $inConditional);
         $css = $rules
             . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
             . $imageRule
@@ -163,12 +175,12 @@ final class AuthorStylesheetProjector
         }, $selectors));
     }
 
-    private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    private function rewriteStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
         $idPartition = $this->partitionPreludeByIdSpecificity($prelude, $context);
         if ( is_array($idPartition) ) {
-            return $this->rewriteStyleRule($idPartition[0], $body, $context)
-                . $this->rewriteStyleRule($idPartition[1], $body, $context);
+            return $this->rewriteStyleRule($idPartition[0], $body, $context, $inConditional)
+                . $this->rewriteStyleRule($idPartition[1], $body, $context, $inConditional);
         }
         $buttonPresentationPseudoPrelude = $this->buttonPresentationPseudoPrelude($prelude, $context);
         if ( '' !== $buttonPresentationPseudoPrelude ) {
@@ -202,7 +214,7 @@ final class AuthorStylesheetProjector
             if ( '' === $geometry ) {
                 return $nonButtonLinkRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry . $nativeButtonCompatRule;
             }
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry) . $nativeButtonCompatRule;
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional) . $nativeButtonCompatRule;
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
@@ -212,9 +224,9 @@ final class AuthorStylesheetProjector
             return $nonButtonLinkRule . ( '' === $control ? '' : $projectedPrelude . '{' . $control . '}' ) . $nativeButtonCompatRule;
         }
         if ( '' === $control ) {
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout) . $nativeButtonCompatRule;
+            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
         }
-        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout) . $nativeButtonCompatRule;
+        return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($wrapperPrelude, $layout, $projectedPrelude . '{' . $control . '}' . $nonButtonLayout, $inConditional) . $nativeButtonCompatRule;
     }
 
     /**
@@ -749,7 +761,7 @@ final class AuthorStylesheetProjector
         }));
     }
 
-    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = ''): string
+    private function withButtonWrapperInnerFill(string $wrapperPrelude, string $layoutCss, string $rest = '', bool $clearInnerAutoHeight = false): string
     {
         $css = $wrapperPrelude . '{' . $layoutCss . '}';
         $hasDefiniteWidth = CssValueInspector::hasDefiniteWidth($layoutCss);
@@ -767,7 +779,7 @@ final class AuthorStylesheetProjector
             if ( $hasDefiniteHeight ) {
                 $css .= $button . '{height:100%!important}'
                     . $link . '{height:100%!important}';
-            } elseif ( $hasAutoHeight ) {
+            } elseif ( $hasAutoHeight && $clearInnerAutoHeight ) {
                 $css .= $button . '{height:auto!important}'
                     . $link . '{height:auto!important}';
             }

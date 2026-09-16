@@ -226,7 +226,7 @@ final class CssStylesheetTransformer
             } elseif ( $this->isStylePrelude($prelude) ) {
                 $body = substr($css, $boundary + 1, $blockEnd - $boundary - 1);
                 if ( null !== $transformStyleRule ) {
-                    $output .= $transformStyleRule($prelude, $body);
+                    $output .= $transformStyleRule($prelude, $body, $ancestors);
                 } else {
                     $transformed = $transformSelectorPrelude($prelude, $body, $ancestors);
                     if ( is_array($transformed) ) {
