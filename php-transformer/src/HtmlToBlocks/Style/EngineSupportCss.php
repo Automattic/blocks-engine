@@ -75,6 +75,13 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS) ) {
             $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '){display:contents;margin:0!important;padding:0!important;border:0!important}';
+            // An anchor inside the carrier exists only because a content-wrapping
+            // link was pushed down onto it. It has no presentation of its own,
+            // but as a block box it establishes a line box from the inherited
+            // font, so text the source sized smaller than its surroundings is
+            // measured against that instead of its own line height. A stacked
+            // brand lockup grew by the difference on every line.
+            $parts[] = ':where(p.' . AuthorStylesheetProjector::INLINE_LAYOUT_CARRIER_CLASS . '>a){display:contents}';
         }
         if ( str_contains($serializedBlocks, self::CSS_OWNED_LAYOUT_CLASS) ) {
             // Gutenberg inserts two editor-only InnerBlocks wrappers between a
