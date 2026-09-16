@@ -176,6 +176,8 @@
       "php tests/unit/responsive-canvas-geometry.php",
       "php tests/unit/responsive-footer-geometry.php",
       "php tests/unit/core-html-fallback-reduction.php",
+      "php tests/unit/non-rendered-metadata-pruning.php",
+      "php tests/unit/paragraph-mixed-media-anchor.php",
       "php tests/unit/static-content-containers.php",
       "php tests/unit/inert-capture-scaffolding.php",
       "php tests/unit/inert-closed-state-interactions.php",

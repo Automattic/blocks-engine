@@ -1062,6 +1062,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->hasBoxChromeWrapperStyling($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): ?array => $this->imageBlockFromParagraph($element),
+            function (DOMElement $element, array &$fallbacks): ?array {
+                return $this->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
+            },
             fn (string $text): array => $this->convertText($text),
             $this->runtime,
             function (DOMElement $element, array &$fallbacks, bool $captureUnsupported): array {
@@ -1280,6 +1283,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $body->setAttribute('class', implode(' ', $sourceBodyClasses));
         }
 
+        // Document metadata (`<link>`, `<meta>`, `<base>`, `<title>`) generates no
+        // rendered box and belongs in `<head>`, but browsers tolerate it anywhere
+        // in `<body>` and static captures occasionally leak it into content
+        // (templating artifacts, crawler quirks). Left in place it carries no
+        // visual or textual content of its own, yet its raw tag still matches the
+        // generic element gates every other converter relies on, so an otherwise
+        // convertible parent falls back to a core/html block. Pruning it before
+        // any element dispatch begins keeps the parent eligible for native
+        // conversion and keeps every downstream pass — style matching, selector
+        // projection, rich-text materialization — from ever observing it.
+        $this->pruneNonRenderedMetadataElements($body);
         $this->navigationBlockNormalizer->hydrateDuplicateSubmenus($body);
         $this->materializeDeclarativeCounters($body, (string) ($options['declarative_state_html'] ?? ''));
         // Remove wrapper-convention custom elements before author selectors are
@@ -1651,6 +1665,65 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
     {
         return $this->reusableComponents()->fingerprintForPath((string) $element->getNodePath());
+    }
+
+    /**
+     * Tags that are always metadata content under the HTML content model: never
+     * a rendered box, and — once a document has already been captured and
+     * rendered by a real browser, which is what this transformer receives —
+     * never a behavior the conversion needs to preserve. `<style>` is
+     * deliberately excluded: it has no rendered box either, but its rules apply
+     * wherever it sits in the DOM, so it is not metadata noise.
+     */
+    private const ALWAYS_PRUNED_METADATA_TAGS = array( 'meta', 'base', 'title' );
+
+    /**
+     * Remove non-rendered metadata elements a source leaks into `<body>`.
+     *
+     * `<link>`, `<meta>`, `<base>` and `<title>` are metadata content: the UA
+     * stylesheet gives them no rendered box, and they belong in `<head>`.
+     * Browsers tolerate them anywhere in `<body>` and site builders occasionally
+     * emit them there — a stray RSS `<link rel="alternate">` inside a template
+     * partial, a duplicated `<meta>` from a widget include. Left in the tree
+     * they carry no visual or textual content of their own, yet their raw tag
+     * still matches the generic gates every other converter relies on (a
+     * paragraph's rich-text fallback check, a component recognizer's child
+     * inspection), so an otherwise convertible parent falls back to a
+     * core/html block or the tag leaks verbatim into RichText content. Pruning
+     * this element class before any element dispatch begins keeps every
+     * downstream pass — style matching, selector projection, rich-text
+     * materialization, conversion itself — from ever observing it.
+     *
+     * A `<link rel="stylesheet">` is excluded: unlike the other rel values,
+     * loading a stylesheet is a real behavior, not metadata. So is any `<link>`
+     * nested in `<svg><defs>`, where an external stylesheet reference is a
+     * recognized, safety-checked authoring pattern elsewhere in this class
+     * (see the `link` branch of the SVG-safe-content allow list).
+     */
+    private function pruneNonRenderedMetadataElements(DOMElement $body): void
+    {
+        foreach ( self::ALWAYS_PRUNED_METADATA_TAGS as $tag ) {
+            foreach ( iterator_to_array($body->getElementsByTagName($tag)) as $element ) {
+                if ( $element instanceof DOMElement ) {
+                    $element->parentNode?->removeChild($element);
+                }
+            }
+        }
+
+        foreach ( iterator_to_array($body->getElementsByTagName('link')) as $link ) {
+            if ( $link instanceof DOMElement && $this->isNonRenderedMetadataLink($link) ) {
+                $link->parentNode?->removeChild($link);
+            }
+        }
+    }
+
+    private function isNonRenderedMetadataLink(DOMElement $link): bool
+    {
+        if ( 'stylesheet' === strtolower(trim($this->attr($link, 'rel'))) ) {
+            return false;
+        }
+
+        return ! $this->hasAncestorTag($link, array( 'svg', 'defs' ));
     }
 
     /**
@@ -10025,6 +10098,60 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $image = $this->firstChildElement($anchor, 'img');
         return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
+    }
+
+    /**
+     * A paragraph that only wraps one anchor mixing an image with text is not
+     * RichText — RichText rejects images — but it is not an unsupported
+     * fragment either. The container conversion path turns the same anchor
+     * shape into a link-wrapper group: an image block plus text blocks with
+     * the anchor propagated onto them. Offer the paragraph that same lowering
+     * before its RichText gate rejects the image as a core/html island.
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    private function mixedMediaLinkGroupFromParagraph(DOMElement $paragraph, array &$fallbacks): ?array
+    {
+        $anchor = null;
+        foreach ( $paragraph->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                if ( $anchor instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+                    return null;
+                }
+                $anchor = $child;
+                continue;
+            }
+            if ( '' !== trim($child->textContent ?? '') ) {
+                return null;
+            }
+        }
+
+        if ( ! $anchor instanceof DOMElement
+            || $this->isImageOnlyAnchor($anchor)
+            || '' === trim($anchor->textContent ?? '')
+            || 0 === $anchor->getElementsByTagName('img')->length
+        ) {
+            return null;
+        }
+
+        $group = $this->convertLinkWrapperGroup($anchor, $fallbacks);
+        if ( null === $group ) {
+            return null;
+        }
+
+        // The paragraph is the box this group replaces. Its presentation leads
+        // so source selectors addressing the paragraph keep a styled host; the
+        // unwrapped anchor's own presentation fills the attributes it alone set.
+        $attrs         = (array) ($group['attrs'] ?? array());
+        $paragraphAttrs = $this->styleResolver->presentationAttributes($paragraph);
+        if ( isset($attrs['style'], $paragraphAttrs['style']) && is_array($attrs['style']) && is_array($paragraphAttrs['style']) ) {
+            $attrs['style'] = array_merge($attrs['style'], $paragraphAttrs['style']);
+            unset($paragraphAttrs['style']);
+        }
+        $group['attrs'] = array_merge($attrs, $paragraphAttrs);
+
+        return $group;
     }
 
     private function isImageOnlyAnchor(DOMElement $anchor): bool
