@@ -46,7 +46,7 @@ final class AuthorStyleRuleProjector
         SourceStyleResolutionState $sourceStyles,
         TransformationEvidenceState $evidence
     ): array {
-        $declarations = $this->styleResolver->cssDeclarations($body);
+        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
         $this->acceptProjectedBody($body, $declarations, $this->projectResponsiveCanvasMinimumWidth($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
         $this->acceptProjectedBody($body, $declarations, $this->projectAutoSizedStructuralPercentageHeight($prelude, $body, $declarations, $authorStyles, $sourceStyles, $evidence));
         $this->acceptProjectedBody($body, $declarations, $this->projectSourceContentBoxSizing($prelude, $body, $declarations, $authorStyles, $sourceStyles));
@@ -61,7 +61,7 @@ final class AuthorStyleRuleProjector
             return;
         }
         $body = $projected;
-        $declarations = $this->styleResolver->cssDeclarations($body);
+        $declarations = $this->styleResolver->verbatimCssDeclarations($body);
     }
 
     /** @param array<string, string> $declarations */

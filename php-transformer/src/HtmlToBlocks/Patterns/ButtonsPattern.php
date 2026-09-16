@@ -530,16 +530,31 @@ final class ButtonsPattern
     /** @param array<string, mixed> $native */
     private function hasOutlineSignal(DOMElement $element, string $style, array $native = array()): bool
     {
-        if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
-            return true;
-        }
-
+        // A resolved, visible fill outranks a name signal. Class-token evidence
+        // ("outline", "ghost", …) also matches negating utilities such as
+        // `focus-visible:outline-none`, so a painted control surface must
+        // decide first: a filled surface is not an outline variant. The raw
+        // cascade string is consulted because functional color spaces the
+        // block-style mapper does not carry (oklch, lab, …) still paint.
         $background = trim((string) ($native['style']['color']['background'] ?? ''));
         if ( '' !== $background && ! in_array(strtolower($background), array( 'transparent', 'none' ), true) ) {
             return false;
         }
 
         $normalized = strtolower($style);
+        if ( preg_match('/(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i', $normalized, $backgroundMatches) ) {
+            $resolvedBackground = trim((string) ($backgroundMatches[1] ?? ''));
+            if ( '' !== $resolvedBackground
+                && ! in_array($resolvedBackground, array( 'transparent', 'none' ), true)
+                && ! preg_match('/^rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/i', $resolvedBackground) ) {
+                return false;
+            }
+        }
+
+        if ( $this->hasAnyToken($element, array( 'outline', 'ghost', 'hollow', 'bordered' )) ) {
+            return true;
+        }
+
         if ( ! preg_match('/(?:^|;)\s*border(?:-[a-z-]+)?\s*:\s*[^;]+/', $normalized) ) {
             return false;
         }

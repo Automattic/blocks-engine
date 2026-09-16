@@ -77,6 +77,50 @@ $card = $transform(
 );
 $assert(! str_contains($card, 'wp:button'), '10: structural anchor content does not classify as a pill button', $card);
 
+/**
+ * The production shape behind #1791's recapture: a Tailwind-v4 utility pill
+ * whose box padding is authored as LOGICAL properties (`padding-block` /
+ * `padding-inline` from `py-2` / `px-6`) on top of a `* { padding: 0 }`
+ * preflight reset. The resolution view dropped the logical declarations
+ * entirely, so the control surface resolved to `padding: 0` and declined —
+ * wherever it sat, including inside a lifted header/template-part.
+ */
+$pillCss = '<style>'
+    . '*,::before,::after{box-sizing:border-box;border:0 solid;margin:0;padding:0}'
+    . ':root{--spacing:.25rem;--primary:orange;--primary-foreground:#fff}'
+    . '.inline-flex{display:inline-flex}.items-center{align-items:center}.justify-center{justify-content:center}'
+    . '.gap-2{gap:calc(var(--spacing) * 2)}.rounded-full{border-radius:9999px}.bg-primary{background-color:var(--primary)}'
+    . '.h-9{height:calc(var(--spacing) * 9)}.py-2{padding-block:calc(var(--spacing) * 2)}.px-6{padding-inline:calc(var(--spacing) * 6)}'
+    . '.text-sm{font-size:.875rem}.font-medium{font-weight:500}.text-white{color:#fff}'
+    . '.focus-visible\\:outline-none:focus-visible{outline:none}'
+    . '</style>';
+$pillAnchor = '<a class="inline-flex items-center justify-center gap-2 rounded-full bg-primary h-9 py-2 px-6 text-sm font-medium text-white focus-visible:outline-none" href="https://wa.me/1" target="_blank" rel="noopener noreferrer">' . $svg . 'Agendar sessão</a>';
+$transformData = static fn (string $html): array => ( new HtmlTransformer() )->transform($html)->toArray();
+
+// Template-chrome path: the same pill inside a lifted fixed header landmark.
+$header = $transformData($pillCss . '<header class="fixed"><div>' . $pillAnchor . '</div></header>');
+$headerMarkup = (string) ( $header['serialized_blocks'] ?? '' );
+$assert(str_contains($headerMarkup, 'wp:buttons') && str_contains($headerMarkup, 'wp:button '), '11: pill inside a fixed header landmark becomes core/buttons > core/button', $headerMarkup);
+$assert(0 === substr_count($headerMarkup, 'wp:paragraph'), '12: header pill does not split into paragraph-links', $headerMarkup);
+$assert(! str_contains($headerMarkup, 'is-style-outline'), '13: the outline token of a negating utility does not flip a filled pill to is-style-outline', $headerMarkup);
+$assert(str_contains($headerMarkup, 'Agendar sessão'), '14: header pill keeps its label text', $headerMarkup);
+
+// Hero/body path: the same pill nested in page content.
+$hero = $transformData($pillCss . '<section><div>' . $pillAnchor . '</div></section>');
+$heroMarkup = (string) ( $hero['serialized_blocks'] ?? '' );
+$assert(str_contains($heroMarkup, 'wp:buttons') && str_contains($heroMarkup, 'wp:button '), '15: hero/body pill with svg + text becomes core/buttons > core/button', $heroMarkup);
+$assert(0 === substr_count($heroMarkup, 'wp:paragraph'), '16: hero/body pill does not split into paragraph-links', $heroMarkup);
+
+// The resolved box keeps the authored logical padding: the projected support
+// CSS must carry physical side padding for the button link, not the preflight 0.
+$projectedCss = '';
+foreach ( $hero['assets'] ?? array() as $asset ) {
+    if ( 'css' === ($asset['kind'] ?? '') ) {
+        $projectedCss .= (string) ( $asset['content'] ?? '' );
+    }
+}
+$assert(preg_match('/\.wp-block-button__link\{[^}]*padding-top:(?!\s*0)[^}]*}/', $projectedCss) === 1, '17: projected button CSS restores physical side padding from logical box utilities', $projectedCss);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "pill button anchor tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);
