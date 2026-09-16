@@ -288,11 +288,25 @@ final class ScrollStateProjector
     }
 
     /**
+     * A captured target's `id` field, when present, is the element's plain
+     * (unescaped) id — the same shape already carried by each style target.
+     * Prefer it over re-deriving an id from `selector`, which a capture tool
+     * may have CSS-escaped (e.g. a leading-digit id becomes `#\30 abc...`
+     * per the standard `CSS.escape()` algorithm) in a way this projector
+     * does not need to parse when the plain id is already given.
+     *
      * @param array<string, mixed> $target
      * @return array<int, DOMElement>
      */
     private function matchInScope(DOMElement $scope, array $target): array
     {
+        $id = is_string($target['id'] ?? null) ? trim($target['id']) : '';
+        if ('' !== $id && 1 === preg_match('/^[A-Za-z0-9_][A-Za-z0-9_.:-]*$/', $id)) {
+            $matches = $this->byId($scope, $id);
+            if (array() !== $matches) {
+                return $matches;
+            }
+        }
         $selector = is_string($target['selector'] ?? null) ? trim($target['selector']) : '';
         if (str_starts_with($selector, '#') && 1 === preg_match('/^#[A-Za-z][A-Za-z0-9_.:-]*$/', $selector)) {
             $matches = $this->byId($scope, substr($selector, 1));

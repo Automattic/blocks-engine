@@ -75,6 +75,17 @@ $assert(str_contains($markup, 'data-blocks-engine-scroll-state="true"'), 'the ma
 $assert(str_contains($markup, 'sticky-animate') && str_contains($markup, '"scrolled":"50px"'), 'the projected config carries the captured class and style diff');
 $assert(array() === $codes($idResult), 'a clean id match emits no diagnostics');
 
+// --- CSS-escaped leading-digit id (standard CSS.escape() selector shape) ---
+// A capture tool builds `target.selector` with the platform's CSS.escape(),
+// which escapes a leading digit as `\XX ` (hex codepoint + trailing space).
+// The plain `target.id` field carries the same id unescaped; matching must
+// not depend on parsing the escaped selector form.
+$escapedIdHtml = '<html><body><header id="023b0e84-ac5b-4e2e-9b8d-09220a145c59" class="hdr"></header></body></html>';
+$escapedIdResult = $project($files(array('https://example.test/escaped-id' => $escapedIdHtml), array('https://example.test/escaped-id' => array(
+    $toggle(array('selector' => '#\\30 23b0e84-ac5b-4e2e-9b8d-09220a145c59', 'tag' => 'div', 'id' => '023b0e84-ac5b-4e2e-9b8d-09220a145c59')),
+))));
+$assert(1 === ($escapedIdResult['projected_count'] ?? 0), 'a CSS.escape()-shaped leading-digit id selector matches via the plain id field');
+
 // --- structural selector match (no id) -------------------------------------
 $structuralHtml = '<html><body><header><div><div><nav></nav></div></div></header></body></html>';
 $structuralResult = $project($files(array('https://example.test/structural' => $structuralHtml), array('https://example.test/structural' => array(
