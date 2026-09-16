@@ -43,7 +43,10 @@ final class NavigationToggleSuppressor
         }
 
         foreach ( $root->getElementsByTagName('*') as $control ) {
-            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) || ! $this->isHamburgerMenuToggleControl($control) ) {
+            if ( ! $control instanceof DOMElement || $this->isCapturedDialogControl($control) ) {
+                continue;
+            }
+            if ( ! $this->isHamburgerMenuToggleControl($control) && ! $this->isProjectableHashAnchorMenuToggle($control) ) {
                 continue;
             }
 
@@ -138,12 +141,28 @@ final class NavigationToggleSuppressor
 
     private function hiddenNavigationInControlledTarget(DOMElement $target): ?DOMElement
     {
+        if ( ! $this->sourceElementIsHidden($target) ) {
+            return null;
+        }
+
         $tagName = strtolower($target->tagName);
         $role = strtolower(SourceDom::attr($target, 'role'));
-        if ( ! $this->sourceElementIsHidden($target)
-            || ( ! in_array($tagName, array( 'dialog', 'nav' ), true)
-                && ! in_array($role, array( 'dialog', 'alertdialog', 'navigation' ), true) ) ) {
-            return null;
+        $isLandmark = in_array($tagName, array( 'dialog', 'nav' ), true)
+            || in_array($role, array( 'dialog', 'alertdialog', 'navigation' ), true);
+        if ( ! $isLandmark && ! $this->isAssociatedNavigationTarget($target) ) {
+            $inner = null;
+            foreach ( $target->getElementsByTagName('*') as $candidate ) {
+                if ( $candidate instanceof DOMElement && $this->isAssociatedNavigationTarget($candidate) ) {
+                    if ( $inner instanceof DOMElement ) {
+                        return null;
+                    }
+                    $inner = $candidate;
+                }
+            }
+            if ( ! $inner instanceof DOMElement ) {
+                return null;
+            }
+            $target = $inner;
         }
 
         $candidates = array($target);
@@ -878,6 +897,32 @@ final class NavigationToggleSuppressor
      * as the equivalent navigation, so its responsive overlay is preserved
      * instead of silently downgrading the menu to overlayMenu "never".
      */
+    /**
+     * A hash (or empty) anchor whose accessible name is a menu control, not a
+     * destination. Builders emit this instead of <button> / <a role="button">.
+     * Used only for overlay projection, never for dropping the control as
+     * redundant chrome — without a hidden panel the source trigger is still
+     * the visible MENU label.
+     */
+    private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
+    {
+        if ( 'a' !== strtolower($element->tagName) || '' !== $this->visibleMenuToggleLabel($element) ) {
+            return false;
+        }
+
+        $href = trim(SourceDom::attr($element, 'href'));
+        if ( '' !== $href && ! str_starts_with($href, '#') && ! str_starts_with(strtolower($href), 'javascript:') ) {
+            return false;
+        }
+
+        $accessibleName = strtolower(trim(implode(' ', array(
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'title'),
+        ))));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger)(?:[^a-z0-9]|$)/', $accessibleName);
+    }
+
     private function isNavigationDestinationAnchor(DOMElement $anchor): bool
     {
         if ( $anchor->hasAttribute('aria-controls') || $anchor->hasAttribute('aria-expanded') ) {
