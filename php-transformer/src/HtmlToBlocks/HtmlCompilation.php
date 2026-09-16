@@ -2993,7 +2993,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:' . ( $always ? '100%' : 'fit-content' ) . '!important;min-width:0!important;min-height:0!important;padding:0!important}';
+        $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important;position:relative!important}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
         $extraRules = '';
         if ( str_contains($extra, 'SVG_HIDE') ) {
@@ -3024,8 +3024,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver->specificityResolvedPresentationStyle($panel)
         );
         $declarations = $this->styleResolver->cssDeclarations($resolved);
-        $background = CssValueInspector::withoutImportant(trim((string) ($declarations['background-color'] ?? $declarations['background'] ?? '')));
-        if ( '' === $background || str_starts_with(strtolower($background), 'url(') ) {
+        $background = CssValueInspector::withoutImportant(trim((string) ($declarations['background-color'] ?? '')));
+        if ( '' === $background || 'transparent' === strtolower($background) || str_contains($background, 'url(') ) {
             $background = '#fff';
         }
         $maxHeight = CssValueInspector::withoutImportant(trim((string) ($declarations['max-height'] ?? '')));
@@ -3033,7 +3033,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $maxHeight = '200px';
         }
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
-        return $open . '{position:absolute!important;inset:auto!important;top:100%!important;left:0!important;right:0!important;width:100vw!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;overflow:hidden!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+        return $open . '{position:fixed!important;inset:auto!important;top:60px!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;overflow:hidden!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+            . 'body.admin-bar ' . $open . '{top:calc(60px + var(--wp-admin--admin-bar--height,32px))!important}'
             . $open . ' .wp-block-navigation__responsive-container-content{align-items:center!important;justify-content:flex-start!important;width:100%!important;padding:0!important}'
             . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:1.5rem!important;width:auto!important}'
             . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important}'
