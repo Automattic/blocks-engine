@@ -13,7 +13,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeDomState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
-use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
@@ -1355,54 +1354,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         libxml_clear_errors();
         libxml_use_internal_errors($previous);
 
+        $resultComposer = new HtmlResultComposer();
+        $selectorCache = $this->sourceStyles()->selectorMatchCache;
+
         if ( ! $loaded ) {
-            $diagnostics = array(
-                array(
-                    'code'    => 'html_parse_failed',
-                    'message' => 'Unable to parse HTML input.',
-                    'source'  => HtmlTransformer::class,
-                ),
-            );
-            $fallbacks = array(
-                FallbackDiagnostic::build(array(
-                    'type'            => 'html',
-                    'reason'          => 'parse_failed',
-                    'diagnostic_code' => 'html_parse_failed',
-                    'source_format'   => 'html',
-                    'html'            => $html,
-                ), $this->transformationProvenance()->fallback()),
-            );
-
-            $metrics = $this->metrics($html, array(), '', $fallbacks, $diagnostics, $startedAt);
-            $sourceReports = array(
-                'conversion_report' => ConversionReportProjection::fromResultParts('html', array(), $fallbacks, array(), array(), $provenance, $metrics),
-            );
-
-            return new TransformerResult(
-                diagnostics: $diagnostics,
-                sourceReports: $sourceReports,
-                fallbacks: $fallbacks,
-                provenance: $provenance,
-                context: $context,
-                metrics: $metrics,
-                blockCompilationOutput: BlockCompilationOutput::empty()
+            return $resultComposer->parseFailed(
+                $html,
+                $this->transformationProvenance()->fallback(),
+                $provenance,
+                $context,
+                $startedAt,
+                $selectorCache
             );
         }
 
         $body = $document->getElementsByTagName('body')->item(0);
         if ( ! $body instanceof DOMElement ) {
-            $metrics = $this->metrics($html, array(), '', array(), array(), $startedAt);
-            $sourceReports = array(
-                'conversion_report' => ConversionReportProjection::fromResultParts('html', array(), array(), array(), array(), $provenance, $metrics),
-            );
-
-            return new TransformerResult(
-                sourceReports: $sourceReports,
-                provenance: $provenance,
-                context: $context,
-                metrics: $metrics,
-                blockCompilationOutput: BlockCompilationOutput::empty()
-            );
+            return $resultComposer->emptyBody($html, $provenance, $context, $startedAt, $selectorCache);
         }
 
         if ( array() !== $sourceBodyClasses ) {
@@ -1499,17 +1467,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $supportedBlocks = $capabilityMatrix['supported_blocks'];
         $ownershipPaths = BlockCompilationOutput::editabilityOwnershipPaths($sourceProvenance);
         $generatedCarrierCss = $this->engineSupportCss();
-        $resultComposer = new HtmlResultComposer();
-        $diagnostics = $resultComposer->diagnostics(array(
-            'diagnostics' => $diagnostics,
-            'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
-            'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
-            'head_metadata' => $headMetadata,
-            'author_layout_topology_findings' => $authorLayoutTopologyFindings,
-            'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
-            'source' => HtmlTransformer::class,
-        ));
-        $metrics = $this->metrics($html, $blocks, $serializedBlocks, $fallbacks, $diagnostics, $startedAt);
         $blockCompilationOutput = new BlockCompilationOutput(
             sourceProvenance: $sourceProvenance,
             editabilityReport: (new EditabilityReport())->fromBlocks($blocks, (string) ($options['source'] ?? ''), $serializedBlocks, $generatedCarrierCss, $ownershipPaths['runtime'], $ownershipPaths['visual'], $sourceProvenance),
@@ -1527,12 +1484,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             coreHtmlFallbackEvidence: CoreHtmlFallbackEvidence::fromBlocks($blocks, $fallbacks, $sourceProvenance),
             validationOutcome: $validationOutcome
         );
-        $compositionInput = array(
+
+        return $resultComposer->result(array(
             'source' => HtmlTransformer::class,
+            'html' => $html,
             'blocks' => $blocks,
+            'serialized_blocks' => $serializedBlocks,
+            'assets' => $this->materializedAssets()->assets(),
             'fallbacks' => $fallbacks,
             'provenance' => $provenance,
-            'metrics' => $metrics,
+            'context' => $context,
+            'started_at' => $startedAt,
+            'selector_cache' => $selectorCache,
             'diagnostics' => $diagnostics,
             'supported_blocks' => $supportedBlocks,
             'native_target_blocks' => $nativeTargetBlocks,
@@ -1553,23 +1516,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'structure_signals' => $this->transformationProvenance()->structureSignals(),
             'script_metadata' => $this->runtimeBehavior()->scriptMetadata(),
             'source_target_projections' => $this->session->sourceTargetProjectionState()->correspondences(),
-        );
-        $composition = $resultComposer->compose($compositionInput, $blockCompilationOutput);
-
-        return new TransformerResult(
-            status: $this->statusForFallbacks($fallbacks, $context),
-            blocks: $blocks,
-            serializedBlocks: $serializedBlocks,
-            assets: $this->materializedAssets()->assets(),
-            diagnostics: $composition['diagnostics'],
-            fallbacks: $fallbacks,
-            provenance: $provenance,
-            sourceReports: $composition['source_reports'],
-            coverage: $composition['coverage'],
-            context: $context,
-            metrics: $metrics,
-            blockCompilationOutput: $blockCompilationOutput
-        );
+            'responsive_geometry_ambiguities' => $this->transformationEvidence()->responsiveGeometryAmbiguities(),
+            'responsive_height_ambiguities' => $this->transformationEvidence()->responsiveHeightAmbiguities(),
+            'has_description_list_block' => $this->generatedBlocks()->has(DescriptionListBlockGenerator::class),
+        ), $blockCompilationOutput);
     }
 
     private function engineSupportCss(): string
@@ -1758,34 +1708,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $classes = array_values(array_unique(array_filter($classes, static fn (string $class): bool => '' !== $class)));
         sort($classes, SORT_STRING);
         return $classes;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @param array<int, array<string, mixed>> $diagnostics
-     * @return array<string, int|float>
-     */
-    private function metrics(string $input, array $blocks, string $output, array $fallbacks, array $diagnostics, int $startedAt): array
-    {
-        $selectorCache = $this->sourceStyles()->selectorMatchCache;
-        return array(
-            'input_bytes'           => strlen($input),
-            'block_count'           => $this->countBlocks($blocks),
-            'fallback_count'        => count($fallbacks),
-            'diagnostic_count'      => count($diagnostics),
-            'transform_duration_ms' => (hrtime(true) - $startedAt) / 1000000,
-            'output_bytes'          => strlen($output),
-            'selector_match_cache_hits' => $selectorCache->matchHits,
-            'selector_match_cache_misses' => $selectorCache->matchMisses,
-            'selector_match_cache_evictions' => $selectorCache->matchEvictions,
-            'selector_match_cache_peak_entries' => $selectorCache->matchPeakEntries,
-            'style_rule_candidate_cache_hits' => $selectorCache->candidateRuleHits,
-            'style_rule_candidate_cache_misses' => $selectorCache->candidateRuleMisses,
-            'style_rule_candidate_cache_evictions' => $selectorCache->candidateRuleEvictions,
-            'style_rule_candidate_cache_peak_entries' => $selectorCache->candidateRulePeakEntries,
-            'style_rule_candidate_cache_peak_rule_references' => $selectorCache->candidateRulePeakRetained,
-        );
     }
 
     private function reusableComponentFingerprintFor(DOMElement $element): ?string
@@ -2448,21 +2370,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return null;
     }
 
-    /** @param array<string, mixed> $parsed */
-    private function countBlocks(array $blocks): int
-    {
-        $count = 0;
-
-        foreach ( $blocks as $block ) {
-            ++$count;
-            if ( ! empty($block['innerBlocks']) && is_array($block['innerBlocks']) ) {
-                $count += $this->countBlocks($block['innerBlocks']);
-            }
-        }
-
-        return $count;
-    }
-
     private function normalizeHtml5VoidElements(string $html): string
     {
         return preg_replace('/<source\b([^>]*?)(?<!\/)\s*>/i', '<source$1></source>', $html) ?? $html;
@@ -2531,19 +2438,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return array_values(array_filter(array_unique(preg_split('/\s+/', trim($this->attr($body, 'class'))) ?: array())));
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @param array{strict: bool, allow_fallbacks: bool} $context
-     */
-    private function statusForFallbacks(array $fallbacks, array $context): string
-    {
-        if ( array() === $fallbacks || $context['allow_fallbacks'] ) {
-            return 'success';
-        }
-
-        return $context['strict'] ? 'failed' : 'success_with_warnings';
     }
 
     /**
