@@ -117,6 +117,9 @@ final class ButtonStyleResolver
             ? $mapped['spacing']['padding']
             : array();
         if ( array() !== $padding ) {
+            foreach ( $padding as $side => $value ) {
+                $padding[ $side ] = $this->gutenbergSpacingLength((string) $value, $declarations);
+            }
             $style['spacing']['padding'] = $padding;
         }
 
@@ -262,5 +265,59 @@ final class ButtonStyleResolver
             $axes[0] => $parts[0] . $important,
             $axes[1] => ( $parts[1] ?? $parts[0] ) . $important,
         );
+    }
+
+    /**
+     * Gutenberg spacing.padding does not apply calc() values, so Tailwind
+     * `calc(.25rem * 6)` was stored and then dropped at render (pad 0).
+     *
+     * @param array<string, string> $declarations
+     */
+    private function gutenbergSpacingLength(string $value, array $declarations): string
+    {
+        $value = trim(CssValueInspector::withoutImportant($value));
+        if ( '' === $value || '0' === $value ) {
+            return $value;
+        }
+
+        if ( 1 === preg_match('/^calc\(\s*(.+?)\s*\*\s*([0-9]*\.?[0-9]+)\s*\)$/i', $value, $match) ) {
+            $rem = $this->lengthInRem(trim($match[1]), $declarations);
+            if ( null !== $rem ) {
+                return $this->formatRem($rem * (float) $match[2]);
+            }
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    private function lengthInRem(string $token, array $declarations): ?float
+    {
+        if ( 1 === preg_match('/^var\(\s*(--[a-z0-9_-]+)\s*\)$/i', $token, $match) ) {
+            $resolved = trim((string) ($declarations[ $match[1] ] ?? ''));
+
+            return '' === $resolved ? null : $this->lengthInRem($resolved, $declarations);
+        }
+
+        if ( 1 === preg_match('/^([0-9]*\.?[0-9]+)rem$/i', $token, $match) ) {
+            return (float) $match[1];
+        }
+
+        if ( 1 === preg_match('/^([0-9]*\.?[0-9]+)px$/i', $token, $match) ) {
+            return (float) $match[1] / 16.0;
+        }
+
+        return null;
+    }
+
+    private function formatRem(float $rem): string
+    {
+        if ( abs($rem) < 0.0001 ) {
+            return '0';
+        }
+
+        return rtrim(rtrim(number_format($rem, 4, '.', ''), '0'), '.') . 'rem';
     }
 }

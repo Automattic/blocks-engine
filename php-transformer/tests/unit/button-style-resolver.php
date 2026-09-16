@@ -220,13 +220,13 @@ $logicalPaddingBlock = $logicalPaddingButton['blocks'][0]['innerBlocks'][0] ?? a
 $logicalPaddingMarkup = (string) ($logicalPaddingButton['serialized_blocks'] ?? '');
 $logicalPaddingSides = $logicalPaddingBlock['attrs']['style']['spacing']['padding'] ?? array();
 $assert(
-    array( 'top' => 'calc(.25rem * 2)', 'right' => 'calc(.25rem * 6)', 'bottom' => 'calc(.25rem * 2)', 'left' => 'calc(.25rem * 6)' ) === $logicalPaddingSides,
-    'logical padding-inline/padding-block resolve and bake onto core/button spacing',
+    array( 'top' => '0.5rem', 'right' => '1.5rem', 'bottom' => '0.5rem', 'left' => '1.5rem' ) === $logicalPaddingSides,
+    'logical padding-inline/padding-block bake as plain rem lengths Gutenberg will apply',
     (string) json_encode($logicalPaddingSides)
 );
 $assert(
-    str_contains($logicalPaddingMarkup, 'padding-top:calc(.25rem * 2)') && str_contains($logicalPaddingMarkup, 'padding-left:calc(.25rem * 6)'),
-    'logical padding serializes onto the native button link',
+    str_contains($logicalPaddingMarkup, 'padding-top:0.5rem') && str_contains($logicalPaddingMarkup, 'padding-left:1.5rem') && ! str_contains($logicalPaddingMarkup, 'padding-top:calc('),
+    'logical padding serializes onto the native button link as plain lengths, not calc()',
     $logicalPaddingMarkup
 );
 
@@ -235,8 +235,8 @@ $logicalSidePaddingButton = ( new HtmlTransformer() )->transform(
 )->toArray();
 $logicalSideSides = $logicalSidePaddingButton['blocks'][0]['innerBlocks'][0]['attrs']['style']['spacing']['padding'] ?? array();
 $assert(
-    array( 'top' => 'calc(.25rem * 1)', 'right' => 'calc(.25rem * 8)', 'bottom' => 'calc(.25rem * 3)', 'left' => 'calc(.25rem * 4)' ) === $logicalSideSides,
-    'logical padding side longhands map to their physical sides',
+    array( 'top' => '0.25rem', 'right' => '2rem', 'bottom' => '0.75rem', 'left' => '1rem' ) === $logicalSideSides,
+    'logical padding side longhands map to physical sides as plain rem lengths',
     (string) json_encode($logicalSideSides)
 );
 
