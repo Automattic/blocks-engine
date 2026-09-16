@@ -5622,7 +5622,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return false;
             }
             $anchor = $anchors->item(0);
-            if ( ! $anchor instanceof DOMElement ) {
+            if ( ! $anchor instanceof DOMElement || ! $this->anchorIsHeadingWrapped($anchor, $child) ) {
                 return false;
             }
             $href = trim($this->attr($anchor, 'href'));
@@ -5634,6 +5634,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return 3 <= $items;
+    }
+
+    private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
+    {
+        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool

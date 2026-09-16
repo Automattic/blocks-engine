@@ -2303,7 +2303,7 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
             $anchors = array();
             $this->collectAnchorsExcluding($child, $anchors, array());
-            if ( 1 !== count($anchors) ) {
+            if ( 1 !== count($anchors) || ! $this->anchorIsHeadingWrapped($anchors[0], $child) ) {
                 return false;
             }
             $href = trim($anchors[0]->hasAttribute('href') ? $anchors[0]->getAttribute('href') : '');
@@ -2315,6 +2315,17 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return 3 <= $items;
+    }
+
+    private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
+    {
+        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasHeaderLinkCluster(DOMElement $element): bool
