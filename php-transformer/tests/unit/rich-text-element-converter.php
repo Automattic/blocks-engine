@@ -48,6 +48,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'hasBoxChromeWrapperStyling'        => static fn (DOMElement $e): bool => false,
         'isRuntimeDomTarget'                => static fn (DOMElement $e): bool => false,
         'imageBlockFromParagraph'           => static fn (DOMElement $e): ?array => null,
+        'mixedMediaLinkGroupFromParagraph'  => static fn (DOMElement $e, array &$f): ?array => null,
         'convertText'                       => static fn (string $t): array => '' === $t ? array() : array(array('blockName' => 'core/paragraph', 'attrs' => array('content' => $t))),
         'convertChildren'                   => static function (DOMElement $e, array &$f, bool $c): array {
             return array();
@@ -72,6 +73,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         $c['hasBoxChromeWrapperStyling'],
         $c['isRuntimeDomTarget'],
         $c['imageBlockFromParagraph'],
+        $c['mixedMediaLinkGroupFromParagraph'],
         $c['convertText'],
         new Runtime(),
         $c['convertChildren']
@@ -115,6 +117,17 @@ $assert(null === $converter->convert($elementFrom('<h2>   </h2>'), 'h2', $fallba
 $fallbackConverter = $makeConverter(array('requiresHtmlFallback' => static fn (string $c): bool => true));
 $assert('core/html' === ($fallbackConverter->convert($elementFrom('<h2>x</h2>'), 'h2', $fallbacks)->block['blockName'] ?? ''), 'heading-html-fallback');
 $assert('core/html' === ($fallbackConverter->convert($elementFrom('<p>x</p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'paragraph-html-fallback');
+
+// A paragraph the RichText gate rejects lowers to the container conversion of
+// its mixed image-and-text anchor when that conversion succeeds...
+$mixedAnchor = $makeConverter(array(
+    'requiresHtmlFallback'             => static fn (string $c): bool => true,
+    'mixedMediaLinkGroupFromParagraph' => static fn (DOMElement $e, array &$f): ?array => array('blockName' => 'core/group'),
+));
+$assert('core/group' === ($mixedAnchor->convert($elementFrom('<p><a href="/1/feed"><img src="icon.gif">RSS Feed</a></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'mixed-media-anchor-lowers-to-group-instead-of-fallback');
+
+// ...and stays a core/html fallback when that conversion declines.
+$assert('core/html' === ($fallbackConverter->convert($elementFrom('<p><a href="/1/feed"><img src="icon.gif">RSS Feed</a></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'declined-mixed-anchor-still-falls-back');
 
 // Heading content passes through the heading-specific normalizer.
 $headingNormalized = $makeConverter(array('headingRichTextContent' => static fn (string $c): string => 'NORMALIZED:' . $c));

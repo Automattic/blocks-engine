@@ -101,6 +101,15 @@ final class RichTextElementConverter implements ElementConverter
         }
 
         if ( $this->context->requiresHtmlFallback($content) ) {
+            // A paragraph wrapping one anchor that mixes an image with text is
+            // not RichText, but the container path already converts that anchor
+            // shape natively. Lower it the same way instead of preserving a
+            // core/html island for content the transformer can represent.
+            $mixedMedia = $this->context->mixedMediaLinkGroupFromParagraph($element, $fallbacks);
+            if ( null !== $mixedMedia ) {
+                return $mixedMedia;
+            }
+
             return $this->context->htmlPreservationBlock($element);
         }
 

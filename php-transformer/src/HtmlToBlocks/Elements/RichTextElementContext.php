@@ -28,6 +28,7 @@ final class RichTextElementContext
      * @param Closure(DOMElement): bool                                                                      $hasBoxChromeWrapperStyling
      * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
      * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromParagraph
+     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                   $mixedMediaLinkGroupFromParagraph
      * @param Closure(string): array<int, array<string, mixed>>                                              $convertText
      * @param Closure(DOMElement, array<int, array<string, mixed>>, bool): array<int, array<string, mixed>>   $convertChildren
      */
@@ -41,6 +42,7 @@ final class RichTextElementContext
         private readonly Closure $hasBoxChromeWrapperStyling,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $imageBlockFromParagraph,
+        private readonly Closure $mixedMediaLinkGroupFromParagraph,
         private readonly Closure $convertText,
         private readonly Runtime $runtime,
         private readonly Closure $convertChildren
@@ -130,6 +132,15 @@ final class RichTextElementContext
     public function imageBlockFromParagraph(DOMElement $element): ?array
     {
         return ($this->imageBlockFromParagraph)($element);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $fallbacks
+     * @return array<string, mixed>|null
+     */
+    public function mixedMediaLinkGroupFromParagraph(DOMElement $element, array &$fallbacks): ?array
+    {
+        return ($this->mixedMediaLinkGroupFromParagraph)($element, $fallbacks);
     }
 
     /**
