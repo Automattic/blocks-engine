@@ -739,7 +739,7 @@ final class StyleAttributeMapper
             }
         }
 
-        if ( preg_match('/^(?:rgb|rgba|hsl|hsla)\s*\(/i', $value) ) {
+        if ( preg_match('/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\(/i', $value) ) {
             return $value;
         }
         if ( preg_match('/^var\s*\(\s*--[a-z0-9_-]+/i', $value) ) {

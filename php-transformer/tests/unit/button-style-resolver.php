@@ -180,6 +180,23 @@ $differentMarkup = (string) ($differentAccessibleName['serialized_blocks'] ?? ''
 $differentBlock = $differentAccessibleName['blocks'][0] ?? array();
 $assert('custom/accessible-link' === ($differentBlock['blockName'] ?? '') && 'Open contact form' === ($differentBlock['attrs']['accessibleLabel'] ?? '') && str_contains((string) ($differentBlock['attrs']['content'] ?? ''), 'materialized-svg') && ! str_contains($differentMarkup, '<!-- wp:html') && array() === ($differentAccessibleName['fallbacks'] ?? array()), 'materially different accessible names use a typed companion whose source-ordered RichText content retains the materialized icon', json_encode($differentAccessibleName));
 
+$oklchButton = ( new HtmlTransformer() )->transform(
+    '<a href="/x" style="display:inline-flex;padding:8px 24px;border-radius:9999px;background:oklch(0.56 0.13 45);color:#fff">Agendar</a>'
+)->toArray();
+$oklchButtonBlock = $oklchButton['blocks'][0]['innerBlocks'][0] ?? array();
+$oklchCss = implode("\n", array_column($oklchButton['assets'] ?? array(), 'content'));
+$oklchMarkup = (string) ($oklchButton['serialized_blocks'] ?? '');
+$oklchBackground = (string) ($oklchButtonBlock['attrs']['style']['color']['background'] ?? '');
+$assert('core/button' === ($oklchButtonBlock['blockName'] ?? ''), 'oklch-filled pill becomes core/button', (string) ($oklchButtonBlock['blockName'] ?? '(none)'));
+$assert(
+    str_contains($oklchBackground, 'oklch(0.56 0.13 45)')
+        || str_contains($oklchCss, 'oklch(0.56 0.13 45)')
+        || str_contains($oklchMarkup, 'oklch(0.56 0.13 45)'),
+    'oklch fill is serialized onto the native button, not dropped or replaced with #0000',
+    $oklchBackground . "\n" . $oklchCss
+);
+$assert(! str_contains($oklchCss, '#0000') && ! str_contains($oklchMarkup, '#0000'), 'visible oklch fill is not stored as transparent #0000', $oklchCss);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);
