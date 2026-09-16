@@ -182,16 +182,44 @@ final class WordPressCompatCss
 
     private function navigationAnchorCompatCss(string $css): string
     {
+        $rules = $this->navigationAnchorCompatCssRules($css);
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * A responsive menu states its compact anchor box inside `@media`, so the
+     * replay has to follow the source into its conditional groups or the menu
+     * keeps its widest padding at every width.
+     *
+     * @return array<int, string>
+     */
+    private function navigationAnchorCompatCssRules(string $css): array
+    {
         $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            $selector = trim($rule['selector']);
+            if ( str_starts_with($selector, '@') ) {
+                if ( preg_match('/^@(media|supports|container|layer|scope)\b/i', $selector) ) {
+                    $nested = $this->navigationAnchorCompatCssRules($rule['body']);
+                    if ( array() !== $nested ) {
+                        $rules[] = $selector . ' {' . implode("\n", $nested) . '}';
+                    }
+                }
+                continue;
+            }
+
             $body = $rule['body'];
             if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
-                foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
+            foreach ( $this->splitSelectorList($rule['selector']) as $candidate ) {
+                foreach ( $this->mapNavigationAnchorSelector($candidate) as $mappedSelector ) {
                     $mappedSelectors[$mappedSelector] = true;
                 }
             }
@@ -201,11 +229,7 @@ final class WordPressCompatCss
             }
         }
 
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+        return $rules;
     }
 
     private function navigationStructureCompatCss(string $css): string
