@@ -9751,6 +9751,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function containsDocumentShellLandmarks(DOMElement $element): bool
     {
+        if ( in_array(strtolower($element->tagName), array( 'main', 'article' ), true) ) {
+            return false;
+        }
+
         if ( 0 < $element->getElementsByTagName('header')->length
             || 0 < $element->getElementsByTagName('footer')->length ) {
             return true;

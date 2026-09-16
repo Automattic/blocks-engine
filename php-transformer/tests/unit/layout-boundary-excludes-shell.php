@@ -46,6 +46,18 @@ $assert(
     'a deep media main without document chrome still compiles as a layout boundary'
 );
 
+$mainWithHeader = '<main class="story">' . $nest(
+    '<header><nav aria-label="Primary"><a href="/about">About</a></nav></header>'
+    . '<section><h1>Deep story</h1><img src="hero.jpg" alt="Hero"></section>',
+    21
+) . '</main>';
+$mainHeaderResult = ( new HtmlTransformer() )->transform($mainWithHeader)->toArray();
+$mainHeaderMarkup = (string) ($mainHeaderResult['serialized_blocks'] ?? '');
+$assert(
+    str_contains($mainHeaderMarkup, '<!-- wp:custom/responsive-layout {"content":'),
+    'a deep media main may still capture when an inner header is page content'
+);
+
 if ( 0 !== $failures ) {
     exit(1);
 }
