@@ -829,6 +829,13 @@ final class StyleResolver implements ElementPresentationResolver
         if ( array() !== $importantDeclarations ) {
             $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
         }
+        $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
+        if ( in_array($float, array( 'left', 'right' ), true) ) {
+            // WordPress flow groups are flex containers. Float is ignored on a
+            // flex item, so the parent that owns the floated box has to be a
+            // block formatting context for the source wrapping to survive.
+            $rules[] = '.wp-block-group:has(> .' . $className . '){display:block !important}';
+        }
         $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
 
         return $className;
