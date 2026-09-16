@@ -300,7 +300,9 @@ final class FlowContainerElementConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function navigationClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
     {
-        if ( $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+        if ( $this->context->shouldDeferNavigationPatternToChildren($element)
+            || ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+        ) {
             return null;
         }
         $block = $this->context->recognizePatterns($element, $fallbacks, array( NavigationPattern::class ));

@@ -70,6 +70,19 @@ $assert(
         && str_contains($flexMarkup, '"label":"Contact"'),
     'A CSS-owned flex repeater of heading links still becomes core/navigation.'
 );
+$ctaMarkup = (new HtmlTransformer())->transform(
+    '<!doctype html><html><body><section><div class="closing-links">'
+        . '<a class="button inverted" href="https://example.com/engine">Explore Engine</a>'
+        . '<a href="https://example.com/importer">Importer on GitHub</a>'
+        . '</div></section></body></html>',
+    array('source' => 'index.html', 'static_css' => '.closing-links{display:flex}')
+)->serializedBlocks;
+$assert(
+    ! str_contains($ctaMarkup, '<!-- wp:navigation')
+        && str_contains($ctaMarkup, 'Explore Engine')
+        && str_contains($ctaMarkup, 'Importer on GitHub'),
+    'A CSS-owned flex row whose class token is links is not claimed as navigation.'
+);
 
 $pages = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',

@@ -31,6 +31,17 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
 
+    public function claimsBeforeAuthorOwnedLayout(DOMElement $element): bool
+    {
+        $tag = strtolower($element->tagName);
+        $role = strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '');
+        if ( 'nav' === $tag || 'navigation' === $role ) {
+            return true;
+        }
+
+        return $this->hasHeaderLinkCluster($element) || $this->hasRepeatedLinkItems($element);
+    }
+
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $presentationAttributes = $context->presentationAttributes(...);
