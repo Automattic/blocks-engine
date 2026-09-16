@@ -24,7 +24,6 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
@@ -50,6 +49,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementCo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkLeftovers;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormCompositionPlanner;
@@ -118,7 +118,6 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatte
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\NavigationPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ParameterTablePattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognitionResult;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternTreeConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PlaceholderMediaPattern;
@@ -168,7 +167,7 @@ use DOMElement;
 use DOMNode;
 
 /** Run-scoped compiler for one HTML document. */
-final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy, PatternTreeConverter
+final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy, PatternTreeConverter, ButtonLinkLeftovers
 {
     private const GENERATED_COMPONENT_MIN_SOURCE_DEPTH = 14;
 
@@ -1098,24 +1097,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return new ButtonLinkDispatchContext(
             $this->sourceElementClassifier,
-            fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
-            function (DOMElement $element): void {
-                $this->formRuntimeIslandRecorder->recordControl($element);
-            },
-            fn (DOMElement $element): array => $this->htmlPreservationBlock($element),
-            function (DOMElement $element, array &$fallbacks, array $patterns): ?array {
-                return $this->recognizePatterns($element, $fallbacks, $patterns);
-            },
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->linkedSvgLogoBlockFromAnchor($element, $fallbacks);
-            },
-            fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element),
-            function (DOMElement $element, array &$fallbacks): ?array {
-                return $this->convertLinkWrapperGroup($element, $fallbacks);
-            },
             $this->styleResolver,
             $this,
-            fn (string $href): string => $this->safeLinkUrl($href)
+            $this->patternRecognizers,
+            $this->patternContext,
+            $this->runtimeIslands,
+            $this->formRuntimeIslandRecorder,
+            $this,
+            $this->runtime
         );
     }
 
@@ -2540,13 +2529,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->runtime
             ),
             new ButtonPatternContext(
-                fn (DOMElement $anchor): ?array => $this->fileBlockFromAnchor($anchor),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->specificityResolvedPresentationStyle($sourceElement), $sourceElement),
+                $this->styleResolver,
                 $this->richTextMaterializer,
-                fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
-                fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
-                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content),
-                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->controlSurfaceResolvedStyle($sourceElement), $sourceElement)
+                $this,
+                $this->session,
+                $this->runtimeIslands
             ),
             new QuotePatternContext(
                 $this->sourceElementClassifier,
@@ -2571,48 +2558,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 || $this->sourceElementStartsHidden($sourceElement),
             fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
         );
-    }
-
-    private function accessibleLinkCompanion(DOMElement $anchor, string $content): PatternRecognitionResult
-    {
-        $generator = new AccessibleLinkBlockGenerator();
-        $namespace = $this->generatedBlocks()->namespace();
-        $this->generatedBlocks()->register(AccessibleLinkBlockGenerator::class, $generator->definition($namespace));
-        $attrs = array_filter(array(
-            'href' => $this->attr($anchor, 'href'),
-            'accessibleLabel' => $this->attr($anchor, 'aria-label'),
-            'content' => $content,
-            'contentMode' => 0 < $anchor->getElementsByTagName('button')->length ? 'raw-source' : 'rich-text',
-            'className' => $this->attr($anchor, 'class'),
-            'style' => $this->attr($anchor, 'style'),
-            'id' => $this->attr($anchor, 'id'),
-            'linkTarget' => $this->attr($anchor, 'target'),
-            'rel' => $this->attr($anchor, 'rel'),
-            'sourceAttributes' => $this->accessibleLinkSourceAttributes($anchor),
-        ), static fn (mixed $value): bool => '' !== $value);
-        $markup = $generator->markup($attrs);
-
-        return new PatternRecognitionResult(array(
-            'blockName' => $namespace . '/' . AccessibleLinkBlockGenerator::LOCAL_NAME,
-            'attrs' => $attrs,
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        ));
-    }
-
-    /** @return array<string, string> */
-    private function accessibleLinkSourceAttributes(DOMElement $anchor): array
-    {
-        $attributes = array();
-        foreach ( $anchor->attributes ?? array() as $attribute ) {
-            $name = strtolower($attribute->name);
-            if ( 'role' === $name || str_starts_with($name, 'data-') || (str_starts_with($name, 'aria-') && 'aria-label' !== $name) ) {
-                $attributes[$name] = $attribute->value;
-            }
-        }
-        ksort($attributes);
-        return $attributes;
     }
 
     /**
@@ -5759,39 +5704,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function linkedSvgLogoBlockFromAnchor(DOMElement $anchor, array &$fallbacks): ?array
-    {
-        if ( ! $this->isLinkedSvgLogoAnchor($anchor) ) {
-            return null;
-        }
-
-        return $this->convertLinkWrapperGroup($anchor, $fallbacks);
-    }
-
-    private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
-    {
-        if ( 0 === $anchor->getElementsByTagName('svg')->length
-            || '' !== trim($this->runtime->stripAllTags($this->innerHtmlWithoutTags($anchor, array( 'svg' )))) ) {
-            return false;
-        }
-
-        if ( $this->sourceElementClassifier->hasLogoBrandSignal($anchor) ) {
-            return true;
-        }
-
-        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->sourceElementClassifier->hasLogoBrandSignal($descendant) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * @return array<string, mixed>|null
      */
     private function textFlowBlockFromElement(DOMElement $element): ?array
@@ -8381,35 +8293,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $url;
     }
 
-    private function fileBlockFromAnchor(DOMElement $anchor): ?array
-    {
-        $href = $this->safeFileUrl($this->attr($anchor, 'href'));
-        if ( '' === $href ) {
-            return null;
-        }
-
-        $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($anchor), array(
-            'href'               => $href,
-            'fileName'           => $this->richTextMaterializer->content($anchor),
-            'textLinkHref'       => $href,
-            'showDownloadButton' => $anchor->hasAttribute('download'),
-        )), static fn (mixed $value): bool => is_bool($value) ? true : '' !== $value);
-
-        return $this->createBlock('core/file', $attrs, array(), $anchor);
-    }
-
-    private function safeFileUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ) {
-            return '';
-        }
-
-        $path = (string) parse_url($url, PHP_URL_PATH);
-        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
-        return in_array($extension, array( 'doc', 'docx', 'odp', 'ods', 'odt', 'pdf', 'ppt', 'pptx', 'rtf', 'txt', 'xls', 'xlsx', 'zip' ), true) ? $url : '';
-    }
-
     private function convertPictureElement(DOMElement $picture, ?DOMElement $figure = null, ?DOMElement $link = null): ?array
     {
         $image = $this->firstChildElement($picture, 'img');
@@ -8425,7 +8308,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $this->convertImageElement($image, $figure ?? $picture, $picture, $link);
     }
 
-    private function imageBlockFromAnchor(DOMElement $anchor): ?array
+    public function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
         $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
         if ( ! $this->isImageOnlyAnchor($anchor) ) {
@@ -9816,7 +9699,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
      */
-    private function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
+    public function convertLinkWrapperGroup(DOMElement $anchor, array &$fallbacks): ?array
     {
         $children = $this->convertChildren($anchor, $fallbacks, true);
         if ( array() === $children ) {
