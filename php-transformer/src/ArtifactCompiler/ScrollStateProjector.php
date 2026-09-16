@@ -169,7 +169,11 @@ final class ScrollStateProjector
         }
         $normalized = array();
         foreach (array_slice($targets, 0, self::MAX_STYLE_TARGETS_PER_TOGGLE) as $target) {
-            if (! is_array($target) || ! is_string($target['selector'] ?? null) || '' === trim($target['selector'])) {
+            if (! is_array($target) || ! is_string($target['selector'] ?? null) ) {
+                continue;
+            }
+            $selector = trim($target['selector']);
+            if ( '' === $selector ) {
                 continue;
             }
             if (! is_array($target['properties'] ?? null)) {

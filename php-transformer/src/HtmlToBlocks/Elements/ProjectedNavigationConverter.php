@@ -165,7 +165,6 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( $always ) {
             $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
             $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
-            $extraRules .= $this->nativeNavigationTogglePinnedHeaderCss($toggle);
         }
         $rule = $always
             ? $hostRule . $openRule . $extraRules
@@ -273,27 +272,6 @@ final class ProjectedNavigationConverter implements ElementConverter
             . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
 
-    private function nativeNavigationTogglePinnedHeaderCss(DOMElement $toggle): string
-    {
-        $bar = $this->absolutelyPinnedHeaderBar($toggle);
-        if ( ! $bar instanceof DOMElement ) {
-            return '';
-        }
-        $selector = $this->cssSelectorForElement($bar);
-        if ( '' === $selector ) {
-            return '';
-        }
-        $rule = $selector . '{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:8!important;background-color:transparent!important}';
-        $fill = $this->scrolledHeaderFillColor($bar);
-        if ( '' === $fill ) {
-            return $rule;
-        }
-        $name = 'blocks-engine-header-fill-' . substr(hash('sha256', $selector . $fill), 0, 12);
-        return $rule
-            . '@keyframes ' . $name . '{to{background-color:' . $fill . '}}'
-            . '@supports (animation-timeline:scroll()){' . $selector . '{animation-name:' . $name . '!important;animation-duration:1s!important;animation-timing-function:linear!important;animation-fill-mode:both!important;animation-timeline:scroll()!important;animation-range:0px 80px!important}}';
-    }
-
     private function nativeNavigationToggleHeaderOffset(DOMElement $navigation): string
     {
         $toggle = $this->navigationToggleSuppressor->navigationToggleControl($navigation);
@@ -342,71 +320,6 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return null;
-    }
-
-    private function scrolledHeaderFillColor(DOMElement $bar): string
-    {
-        $tokens = array();
-        $id = trim(SourceDom::attr($bar, 'id'));
-        if ( '' !== $id ) {
-            $tokens[] = '#' . strtolower($id);
-        }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($bar, 'class'))) ?: array() as $className ) {
-            if ( '' !== $className ) {
-                $tokens[] = '.' . strtolower($className);
-            }
-        }
-        $css = $this->session->authorStyleAnalysis()->combinedCss();
-        if ( '' !== $css && array() !== $tokens && 1 === preg_match_all('/([^{}]*\b(?:affix|is-scrolling(?:-down)?|scrolled|stuck|fixed-header)\b[^{]*)\{([^}]*)\}/i', $css, $matches, PREG_SET_ORDER) ) {
-            foreach ( $matches as $match ) {
-                $selector = strtolower($match[1]);
-                $mentionsBar = false;
-                foreach ( $tokens as $token ) {
-                    if ( str_contains($selector, $token) ) {
-                        $mentionsBar = true;
-                        break;
-                    }
-                }
-                if ( ! $mentionsBar || 1 !== preg_match('/background(?:-color)?\s*:\s*([^;]+)/i', $match[2], $background) ) {
-                    continue;
-                }
-                $value = CssValueInspector::withoutImportant(trim($background[1]));
-                $comparable = strtolower($value);
-                if ( '' !== $value && ! in_array($comparable, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) && ! preg_match('/[{}<>]/', $value) ) {
-                    return $value;
-                }
-            }
-        }
-
-        $node = $bar->parentNode;
-        while ( $node instanceof DOMElement && ! in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
-            );
-            $value = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? '')));
-            $comparable = strtolower($value);
-            if ( '' !== $value && ! in_array($comparable, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) ) {
-                return $value;
-            }
-            $node = $node->parentNode;
-        }
-
-        return '';
-    }
-
-    private function cssSelectorForElement(DOMElement $element): string
-    {
-        $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id && 1 === preg_match('/^[A-Za-z][\w-]*$/', $id) ) {
-            return '#' . $id;
-        }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
-            if ( '' !== $className && 1 === preg_match('/^[A-Za-z][\w-]*$/', $className) ) {
-                return '.' . $className;
-            }
-        }
-
-        return '';
     }
 
     /**

@@ -49,7 +49,8 @@ JS;
         ( config.addClasses || [] ).forEach( function( name ) { element.classList.toggle( name, stuck ); } );
         ( config.removeClasses || [] ).forEach( function( name ) { element.classList.toggle( name, ! stuck ); } );
         ( config.styleTargets || [] ).forEach( function( target ) {
-            var node = element.querySelector( target.selector );
+            var selector = target.selector || '';
+            var node = ( ':scope' === selector || '' === selector ) ? element : element.querySelector( selector );
             if ( ! node ) return;
             Object.keys( target.properties || {} ).forEach( function( property ) {
                 var value = target.properties[ property ];

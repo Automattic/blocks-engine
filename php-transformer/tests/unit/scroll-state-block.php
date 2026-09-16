@@ -51,7 +51,7 @@ $view = (string) ($definition['view_js'] ?? '');
 $editor = (string) ($definition['assets']['index.js'] ?? '');
 $assert($blockName === ($definition['block_json']['name'] ?? null) && 'file:./view.js' === ($definition['block_json']['viewScript'] ?? null), 'the generated companion registers a plain view script asset (no Interactivity API dependency required)');
 $assert(str_contains($editor, "registerBlockType( '" . $blockName . "'"), 'the editor script registers the canonical block name');
-$assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_contains($view, 'window.scrollY > threshold') && str_contains($view, 'requestAnimationFrame') && str_contains($view, 'classList.toggle') && str_contains($view, 'style.setProperty'), 'the runtime is generic: it reads scrollY against a captured threshold and replays captured class/style diffs without any site-specific literal');
+$assert(str_contains($view, "data-blocks-engine-scroll-state=\"true\"") && str_contains($view, 'window.scrollY > threshold') && str_contains($view, 'requestAnimationFrame') && str_contains($view, 'classList.toggle') && str_contains($view, 'style.setProperty') && str_contains($view, "':scope'"), 'the runtime is generic: it reads scrollY against a captured threshold and replays captured class/style diffs, including :scope self-targets');
 
 // A plain container without the marker is unaffected.
 $plain = (new HtmlTransformer())->transform('<html><body><header id="ordinary" class="hdr"><img id="logo-2" src="logo.png" alt="logo"></header></body></html>', array())->toArray();
