@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
+
 /**
  * WordPress runtime compatibility CSS projected from authored stylesheets.
  */
@@ -292,7 +294,7 @@ final class WordPressCompatCss
         }
 
         $compound = (string) ($match[1][0] ?? '');
-        if ( ! preg_match('/(?:^|[.#_-])(?:nav|navbar|navigation|menu)(?:$|[.#_:-])/i', $compound)
+        if ( ! preg_match('/(?:^|[.#_-])(?:' . MenuVocabulary::unconditionalMenuTokenRegexFragment() . ')(?:$|[.#_:-])/i', $compound)
             || ! preg_match('/(?:^|[.#_-])(?:collapsed|mobile|drawer|overlay|offcanvas|responsive)(?:$|[.#_:-])/i', $compound) ) {
             return null;
         }

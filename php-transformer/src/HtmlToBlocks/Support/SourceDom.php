@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\Support\DeterministicRowDeduplicator;
 use DOMDocument;
 use DOMElement;
@@ -489,19 +490,11 @@ final class SourceDom
 
     public static function hasSourceNavigationSignal(DOMElement $element): bool
     {
-        if ( 'navigation' === strtolower(self::attr($element, 'role')) ) {
+        if ( MenuVocabulary::isMenuLandmark($element) ) {
             return true;
         }
 
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower(self::attr($element, $attribute))) ?: array() as $token ) {
-                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu', 'links' ), true) ) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
+        return MenuVocabulary::containsMenuToken(self::attr($element, 'class') . ' ' . self::attr($element, 'id'));
     }
 
     /**

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -266,9 +267,13 @@ final class NavigationPattern implements PatternRecognizerInterface
         if ( ! $heading instanceof DOMElement || array() === $anchors ) {
             return null;
         }
+        // Narrower than MenuVocabulary::containsMenuToken(): this speculative
+        // heading+anchors pattern only treats '.', '_', '-'-delimited tokens as
+        // a container signal, so incidental punctuation (e.g. class="nav.foo")
+        // does not pull unrelated sections into navigation lowering.
         $name = strtolower(trim(SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id')));
-        $hasContainerSignal = 'navigation' === strtolower(SourceDom::attr($element, 'role'))
-            || (bool) preg_match('/(?:^|[\s_-])(?:nav|navbar|navigation|menu|links)(?:$|[\s_-])/', $name);
+        $hasContainerSignal = MenuVocabulary::isMenuLandmark($element)
+            || (bool) preg_match('/(?:^|[\s_-])(?:' . MenuVocabulary::menuTokenRegexFragment() . ')(?:$|[\s_-])/', $name);
         if ( ! $hasContainerSignal && preg_match('/^h[1-6]$/i', $heading->tagName) ) {
             return null;
         }
@@ -2286,7 +2291,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasNavigationSignal(DOMElement $element): bool
     {
-        if ( 'navigation' === strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '') ) {
+        if ( MenuVocabulary::isMenuLandmark($element) ) {
             return true;
         }
 
@@ -2294,16 +2299,12 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
-        foreach ( array( 'class', 'id' ) as $attribute ) {
-            $value = $element->hasAttribute($attribute) ? $element->getAttribute($attribute) : '';
-            foreach ( preg_split('/[^a-z0-9]+/', strtolower($value)) ?: array() as $token ) {
-                if ( in_array($token, array( 'nav', 'navbar', 'navigation', 'menu' ), true) ) {
-                    return true;
-                }
-                if ( 'links' === $token && ! $this->isContactLinkCluster($element) ) {
-                    return true;
-                }
-            }
+        $attributes = SourceDom::attr($element, 'class') . ' ' . SourceDom::attr($element, 'id');
+        if ( MenuVocabulary::containsUnconditionalMenuToken($attributes) ) {
+            return true;
+        }
+        if ( MenuVocabulary::containsLinksToken($attributes) && ! $this->isContactLinkCluster($element) ) {
+            return true;
         }
 
         return false;
@@ -2348,9 +2349,7 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private function hasHeaderLinkCluster(DOMElement $element): bool
     {
-        $tag = strtolower($element->tagName);
-        $role = strtolower($element->hasAttribute('role') ? $element->getAttribute('role') : '');
-        if ( 'header' !== $tag && 'banner' !== $role ) {
+        if ( ! MenuVocabulary::isHeaderLandmark($element) ) {
             return false;
         }
 
