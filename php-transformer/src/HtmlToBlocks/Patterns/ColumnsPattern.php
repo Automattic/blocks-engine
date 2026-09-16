@@ -169,9 +169,11 @@ final class ColumnsPattern implements PatternRecognizerInterface
             return false;
         }
 
+        // Only a complete column class names a layout. A fragment in a theme
+        // option such as theme-single-column-width-full describes no geometry.
         // Split-layout names describe two-pane structures. Multi-child content
         // stacks such as hero copy must stay groups so source CSS controls flow.
-        return (bool) preg_match('/(?:^|[\s_-])columns?(?:$|[\s_-])/', $className)
+        return (bool) preg_match('/(?:^|\s)columns?(?:$|\s)/', $className)
             || ( $this->looksLikeSplitLayout($element) && 2 === SourceDom::directElementChildCount($element) )
             || ( $this->looksLikeDocumentationLayout($element) && $this->hasSidebarAndContentChildren($element) )
             || $this->hasSidebarAndContentChildren($element)

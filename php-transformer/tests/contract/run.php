@@ -1815,6 +1815,23 @@ $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*footer-wrap[^"]*"
 $assert(1 === preg_match('/<div class="[^"]*wp-block-group[^"]*container[^"]*"/', $styleOnlyVisualShellMarkup), 'visual shell containing only stylesheet metadata keeps its nested source wrapper');
 $assert(! str_contains($styleOnlyVisualShellMarkup, '<style') && ! str_contains($styleOnlyVisualShellMarkup, '<!-- wp:html'), 'stylesheet metadata does not materialize as visible block content');
 
+// Theme options can mention columns without making their wrapper a column layout.
+foreach ( array( 'theme-single-column-width-full', 'theme_single_columns_width_full' ) as $unrelatedColumnClass ) {
+    $ordinaryDocument = ( new HtmlTransformer() )->transform(
+        '<div class="document ' . $unrelatedColumnClass . '"><div class="page"><h1>About</h1><p>Story</p></div><div class="notice"><p>Notice</p></div><div class="widget"><p>Widget</p></div></div>'
+    )->toArray();
+    $assert('core/group' === ($ordinaryDocument['blocks'][0]['blockName'] ?? ''), 'an unrelated column fragment in ' . $unrelatedColumnClass . ' keeps normal document flow');
+    $assert(
+        array( 'core/group', 'core/group', 'core/group' ) === array_column($ordinaryDocument['blocks'][0]['innerBlocks'] ?? array(), 'blockName'),
+        'ordinary document children do not become equal-width columns for ' . $unrelatedColumnClass
+    );
+}
+
+$explicitColumnClass = ( new HtmlTransformer() )->transform(
+    '<div class="layout columns featured"><div><p>First</p></div><div><p>Second</p></div></div>'
+)->toArray();
+$assert('core/columns' === ($explicitColumnClass['blocks'][0]['blockName'] ?? ''), 'a complete columns class token retains semantic column recognition');
+
 $classOwnedGrid = ( new HtmlTransformer() )->transform('<style>.hero-inner{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(260px,.9fr);gap:4rem}</style><main><div class="hero-inner"><div>Text</div><div>Art</div></div></main>')->toArray();
 $classOwnedGridMarkup = (string) ($classOwnedGrid['serialized_blocks'] ?? '');
 $assert(str_contains($classOwnedGridMarkup, 'hero-inner'), 'class-owned CSS grid keeps the source class');
