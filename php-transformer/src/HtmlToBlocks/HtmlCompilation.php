@@ -94,6 +94,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConv
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TextLeafElementConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\CommerceFallbackReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\TypographyParityAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DiagnosticsCollector;
@@ -103,6 +104,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\AccordionPatter
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CodeWindowPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ColumnsPatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\CommerceStructureRecognizer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPattern;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\GalleryPatternContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\LogoPatternContext;
@@ -351,6 +353,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly NavigationUnderlineColorResolver $navigationUnderlineColorResolver;
 
     private readonly SourceElementClassifier $sourceElementClassifier;
+    private readonly CommerceStructureRecognizer $commercePattern;
+    private readonly CommerceFallbackReporter $commerceReporter;
     private readonly NavigationBlockNormalizer $navigationBlockNormalizer;
 
     private readonly DiagnosticsCollector $diagnosticsCollector;
@@ -565,6 +569,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->pseudoFormAnalyzer = new PseudoFormAnalyzer($this->formControlMetadataBuilder, fn (DOMElement $element): string => $this->elementSelector($element));
         $this->runtimeIslands = new RuntimeIslandAnalyzer($this->createRuntimeIslandContext(), $this->pseudoFormAnalyzer);
+        $this->commercePattern = new CommerceStructureRecognizer($this->sourceElementClassifier);
+        $this->commerceReporter = new CommerceFallbackReporter(
+            $this->commercePattern,
+            $this->runtime,
+            $this->session->transformationProvenanceState(),
+            $this->runtimeIslands
+        );
         $this->blockMaterializer = new BlockMaterializer($this->blockFactory, $this->runtimeIslands);
         $this->runtimeResourceConverter = new RuntimeResourceElementConverter(
             $this->session,
@@ -1322,8 +1333,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $this->runtimeIslands->recordRuntimeIslandsForPreservedHtmlBlocks($blocks);
         $this->appendInteractiveControlBehaviorLossFallbacks($body, $fallbacks);
-        $this->appendProductGridFallbacks($body, $fallbacks, $blocks);
-        $this->appendCommerceControlsFallbacks($body, $fallbacks);
+        $this->commerceReporter->appendProductGridFallbacks($body, $fallbacks, $blocks);
+        $this->commerceReporter->appendCommerceControlsFallbacks($body, $fallbacks);
         $serializedBlocks = $this->runtime->serializeBlocks($blocks);
         $this->finalizeFallbackBindings($fallbacks, $blocks, $serializedBlocks);
         $reusableComponentRecognition = $this->reusableComponents()->report($this->materializedAssets()->assets());
@@ -7263,7 +7274,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $signals['featured_badge_like'] = true;
         }
         $priceText = 'div' === strtolower($element->tagName) ? $this->directTextContent($element) : ($element->textContent ?? '');
-        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->looksLikePriceText($priceText) ) {
+        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'pricing', 'amount', 'cost' )) || $this->commercePattern->looksLikePriceText($priceText) ) {
             $signals['price_like'] = true;
         }
         if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'product', 'menu', 'dish', 'plan', 'tier', 'name', 'title' )) ) {
@@ -7291,11 +7302,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $itemCount;
-    }
-
-    private function looksLikePriceText(string $text): bool
-    {
-        return (bool) preg_match('/(?:\p{Sc}\s?\d|\d+(?:[.,]\d{2})?\s?(?:usd|eur|gbp|cad|aud)\b)/iu', trim($text));
     }
 
     private function directTextContent(DOMElement $element): string
@@ -7477,187 +7483,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * Surface a generic product-grid finding so a downstream consumer can
-     * materialize the recognized products (e.g. as commerce products) without the
-     * transformer carrying any provider or plugin knowledge.
-     *
-     * This is purely ADDITIVE: the layout block output (grid -> group/columns) is
-     * unchanged; this only appends an `html_product_grid_fallback` diagnostic that
-     * a consumer may act on or ignore.
-     *
-     * Detection composes the existing commerce-recognition primitives
-     * (grid_like / repeated card children / price + name tokens) with schema.org
-     * microdata (`itemtype` Product / `itemprop` name|price|Offer). A product card
-     * is a repeated sibling (>= 2 under a grid_like or list container) that either
-     * declares schema.org Product/Offer structure OR carries the full structural
-     * triad: a name (heading or name token), a currency-formatted price, and an
-     * add-to-cart/buy control. Detection reads only structural/semantic signals
-     * and schema.org vocabulary — never fixture names or specific class strings.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @param array<int, array<string, mixed>> $blocks
-     */
-    private function appendProductGridFallbacks(DOMElement $body, array &$fallbacks, array $blocks): void
-    {
-        $emitted = 0;
-        $coveredPaths = array();
-        foreach ( $body->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
-                return;
-            }
-
-            if ( ! $this->isProductGridContainer($element) ) {
-                continue;
-            }
-
-            // Prefer the innermost qualifying container: skip a grid whose products
-            // were already attributed to a nested grid emitted earlier in the walk.
-            $path = $element->getNodePath() ?? '';
-            foreach ( $coveredPaths as $coveredPath ) {
-                if ( '' !== $path && '' !== $coveredPath && str_starts_with($coveredPath, $path . '/') ) {
-                    continue 2;
-                }
-            }
-
-            $products = $this->productCardsForContainer($element, $blocks);
-            if ( count($products) < 2 ) {
-                continue;
-            }
-
-            $coveredPaths[] = $path;
-
-            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
-                'type'              => 'html',
-                'reason'            => 'commerce_product_grid_detected',
-                'diagnostic_code'   => 'html_product_grid_fallback',
-                'kind'              => 'html_product_grid_fallback',
-                'message'           => 'A product grid was detected; per-card commerce structure was extracted so a shop provider can materialize the products.',
-                'source_format'     => 'html',
-                'tag'               => strtolower($element->tagName),
-                'selector'          => $this->elementSelector($element),
-                'container_selector' => $this->elementSelector($element),
-                'context'           => $this->sourceContext($element),
-                'products'          => $products,
-                'product_count'     => count($products),
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->transformationProvenance()->fallback());
-            ++$emitted;
-        }
-    }
-
-    /**
-     * Surface commerce-specific runtime controls separately from the surrounding
-     * product-grid structure. The transformer can emit editable layout/product
-     * metadata, but quantity and add-to-cart controls require a commerce runtime.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function appendCommerceControlsFallbacks(DOMElement $body, array &$fallbacks): void
-    {
-        $emitted = 0;
-        foreach ( $body->getElementsByTagName('*') as $element ) {
-            if ( ! $element instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( $emitted >= self::MAX_INTERACTION_CANDIDATES ) {
-                return;
-            }
-
-            if ( ! $this->isProductGridContainer($element) ) {
-                continue;
-            }
-
-            $controlGroups = $this->commerceControlGroupsForContainer($element);
-            if ( array() === $controlGroups ) {
-                continue;
-            }
-
-            $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
-                'type'              => 'html',
-                'reason'            => 'commerce_controls_require_runtime',
-                'diagnostic_code'   => 'html_commerce_controls_fallback',
-                'kind'              => 'html_commerce_controls_fallback',
-                'message'           => 'Commerce quantity and add-to-cart controls were detected; product data can be seeded by a shop provider, but these controls need cart runtime binding rather than a static core block approximation.',
-                'source_format'     => 'html',
-                'tag'               => strtolower($element->tagName),
-                'selector'          => $this->elementSelector($element),
-                'container_selector' => $this->elementSelector($element),
-                'context'           => $this->sourceContext($element),
-                'controls'          => $controlGroups,
-                'control_count'     => count($controlGroups),
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value && array() !== $value), $this->transformationProvenance()->fallback());
-            ++$emitted;
-        }
-    }
-
-    /**
-     * Whether an element is a plausible product-grid container: a list (ul/ol) or
-     * an element the structure classifier already flags as grid_like.
-     */
-    private function isProductGridContainer(DOMElement $element): bool
-    {
-        $tagName = strtolower($element->tagName);
-        if ( in_array($tagName, array( 'ul', 'ol' ), true) ) {
-            return true;
-        }
-
-        $signals = $this->structureSignals($element, array());
-        return true === ($signals['grid_like'] ?? false);
-    }
-
-    /**
-     * Extract the qualifying product cards directly under a grid container. A card
-     * is a direct child element that declares schema.org Product/Offer structure or
-     * carries the full structural commerce triad (name + price + cart control).
-     *
-     * @return array<int, array<string, mixed>>
-     */
-    private function productCardsForContainer(DOMElement $container, array $blocks = array()): array
-    {
-        $products = array();
-        foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $product = $this->productCardData($child);
-            if ( null !== $product ) {
-                $binding = $this->commerceBindingForCard($child, $blocks);
-                if ( array() !== $binding ) {
-                    $product['binding'] = $binding;
-                }
-                $products[] = $product;
-            }
-        }
-
-        return $products;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $blocks
-     * @return array<string, mixed>
-     */
-    private function commerceBindingForCard(DOMElement $card, array $blocks): array
-    {
-        if ( array() === $blocks ) {
-            return array();
-        }
-        $control = $this->cartControlElement($card);
-        if ( null === $control ) {
-            return array();
-        }
-        $block = $this->blockForSourceSelector($blocks, $this->elementSelector($control));
-        if ( null === $block ) {
-            return array();
-        }
-        return $this->blockBinding($block, 'commerce_controls', $this->runtimeIslands->runtimeDomSelectorsForElement($control));
-    }
-
-    /**
      * @param array<int, array<string, mixed>> $blocks
      * @return array<string, mixed>|null
      */
@@ -7771,397 +7596,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $occurrence = 0; $cursor = 0;
         while (false !== ($found = strpos($markup, $search, $cursor))) { ++$occurrence; if ($found === $offset) return $occurrence; $cursor = $found + strlen($search); }
         return 0;
-    }
-
-    /**
-     * @return array<int, array<string, mixed>>
-     */
-    private function commerceControlGroupsForContainer(DOMElement $container): array
-    {
-        $groups = array();
-        foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            $product = $this->productCardData($child);
-            if ( null === $product || empty($product['has_cart_control']) ) {
-                continue;
-            }
-
-            $hasQuantity = $this->hasQuantityControl($child);
-            $groups[] = array_filter(array(
-                'product_name'         => $product['name'] ?? '',
-                'source_selector'      => $this->elementSelector($child),
-                'has_quantity_control' => $hasQuantity,
-                'has_cart_control'     => true,
-                'runtime_requirement'  => 'commerce_cart_runtime',
-            ), static fn (mixed $value): bool => null !== $value && '' !== $value);
-        }
-
-        return $groups;
-    }
-
-    /**
-     * Build the per-card product payload when a card qualifies, else null.
-     *
-     * A card qualifies when it declares schema.org Product/Offer structure
-     * (microdata `itemtype` Product or both `itemprop` name and price), OR carries
-     * the structural triad: a name, a currency-formatted price, and an
-     * add-to-cart/buy control.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function productCardData(DOMElement $card): ?array
-    {
-        $name = $this->productNameText($card);
-        $prices = $this->productPriceTexts($card);
-        $hasCart = $this->hasCartControl($card);
-        $isSchemaProduct = $this->isSchemaProductCard($card);
-
-        if ( '' === $name || array() === $prices ) {
-            return null;
-        }
-
-        // schema.org Product/Offer is an authoritative commerce signal, so it
-        // qualifies a card on its own. Otherwise require the full structural triad
-        // (name + price + cart control) to avoid flagging generic content grids.
-        if ( ! $isSchemaProduct && ! $hasCart ) {
-            return null;
-        }
-
-        return array_filter(array(
-            'name'             => $name,
-            'price'            => $prices['price'],
-            'sale_price'       => $prices['sale_price'] ?? null,
-            'description'      => $this->productDescriptionText($card, $name),
-            'image'            => $this->productImage($card),
-            'has_cart_control' => $hasCart,
-            'source_selector'  => $this->elementSelector($card),
-        ), static fn (mixed $value, string $key): bool => in_array($key, array( 'sale_price', 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
-    }
-
-    /**
-     * Whether the card declares schema.org Product/Offer structure via microdata.
-     */
-    private function isSchemaProductCard(DOMElement $card): bool
-    {
-        $itemtype = strtolower($this->attr($card, 'itemtype'));
-        if ( str_contains($itemtype, 'schema.org/product') ) {
-            return true;
-        }
-
-        $hasName = null !== $this->firstDescendantWithItemprop($card, array( 'name' ));
-        $hasPrice = null !== $this->firstDescendantWithItemprop($card, array( 'price' ));
-        if ( $hasName && $hasPrice ) {
-            return true;
-        }
-
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && str_contains(strtolower($this->attr($descendant, 'itemtype')), 'schema.org/offer') ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * The product name text: schema.org `itemprop="name"`, else the first heading,
-     * else the first element carrying a name token.
-     */
-    private function productNameText(DOMElement $card): string
-    {
-        $schemaName = $this->firstDescendantWithItemprop($card, array( 'name' ));
-        if ( null !== $schemaName ) {
-            $text = $this->collapsedText($schemaName);
-            if ( '' !== $text ) {
-                return $text;
-            }
-        }
-
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && preg_match('/^h[1-6]$/', strtolower($descendant->tagName)) ) {
-                $text = $this->collapsedText($descendant);
-                if ( '' !== $text ) {
-                    return $text;
-                }
-            }
-        }
-
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && $this->sourceElementClassifier->hasCommerceToken($descendant, array( 'name', 'title', 'product' )) ) {
-                $text = $this->collapsedText($descendant);
-                if ( '' !== $text ) {
-                    return $text;
-                }
-            }
-        }
-
-        return '';
-    }
-
-    /**
-     * Currency-formatted price text for the card, returning the regular price and
-     * an optional sale price. schema.org `itemprop="price"` is preferred; otherwise
-     * elements whose text is currency-formatted or carry a price token are used.
-     * A price element marked with a sale/discount token is treated as the sale
-     * price and the other as the regular price.
-     *
-     * @return array{price: string, sale_price?: string}
-     */
-    private function productPriceTexts(DOMElement $card): array
-    {
-        $regular = '';
-        $sale = '';
-        $fallback = '';
-
-        $schemaPrice = $this->firstDescendantWithItemprop($card, array( 'price' ));
-        if ( null !== $schemaPrice ) {
-            $content = trim($this->attr($schemaPrice, 'content'));
-            $regular = $this->currencyFormattedText('' !== $content ? $content : ($schemaPrice->textContent ?? ''), $schemaPrice);
-        }
-
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-
-            $text = $this->collapsedText($descendant);
-            if ( '' === $text || ! $this->isPriceElement($descendant) ) {
-                continue;
-            }
-            // Only consider leaf-ish price elements so a wrapper's concatenated
-            // text does not shadow the individual regular/sale amounts.
-            if ( $this->childElementCount($descendant) > 0 ) {
-                continue;
-            }
-
-            $formatted = $this->currencyFormattedText($text, $descendant);
-            if ( '' === $formatted ) {
-                continue;
-            }
-
-            if ( $this->sourceElementClassifier->hasCommerceToken($descendant, array( 'sale', 'discount', 'special', 'reduced', 'now' )) ) {
-                $sale = '' === $sale ? $formatted : $sale;
-                continue;
-            }
-
-            if ( '' === $regular ) {
-                $regular = $formatted;
-            } elseif ( '' === $fallback ) {
-                $fallback = $formatted;
-            }
-        }
-
-        if ( '' === $regular ) {
-            $regular = '' !== $fallback ? $fallback : $sale;
-            $sale = '' !== $fallback ? $sale : '';
-        }
-
-        if ( '' === $regular ) {
-            return array();
-        }
-
-        $result = array( 'price' => $regular );
-        if ( '' !== $sale && $sale !== $regular ) {
-            $result['sale_price'] = $sale;
-        }
-
-        return $result;
-    }
-
-    /**
-     * Reduce raw text to its currency-formatted price token (e.g. "$24"), keeping
-     * the trimmed source when no currency token is present but the element is a
-     * declared price (schema.org / price token).
-     */
-    private function currencyFormattedText(string $text, DOMElement $element): string
-    {
-        $text = trim(preg_replace('/\s+/', ' ', $text) ?? '');
-        if ( '' === $text ) {
-            return '';
-        }
-
-        if ( preg_match('/\p{Sc}\s?\d[\d.,]*|\d[\d.,]*\s?(?:usd|eur|gbp|cad|aud)\b/iu', $text, $matches) ) {
-            return trim($matches[0]);
-        }
-
-        // A schema.org price content attribute is bare numeric (e.g. "24.00");
-        // keep it as-is when the element is a declared price.
-        if ( $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) && preg_match('/\d/', $text) ) {
-            return $text;
-        }
-
-        return '';
-    }
-
-    /**
-     * Whether the card contains an add-to-cart / buy / purchase control. Detection
-     * is semantic: a button/link/input whose text, class, id, name, aria-label, or
-     * data-* carries cart/buy/add/purchase/checkout/order semantics.
-     */
-    private function hasCartControl(DOMElement $card): bool
-    {
-        return null !== $this->cartControlElement($card);
-    }
-
-    private function cartControlElement(DOMElement $card): ?DOMElement
-    {
-        $tokens = array( 'cart', 'buy', 'purchase', 'checkout', 'order', 'addtocart', 'add-to-cart' );
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($descendant->tagName);
-            $role = strtolower($this->attr($descendant, 'role'));
-            $isControl = in_array($tagName, array( 'button', 'a', 'input' ), true) || 'button' === $role;
-            if ( ! $isControl ) {
-                continue;
-            }
-
-            $haystack = strtolower(implode(' ', array(
-                $this->attr($descendant, 'class'),
-                $this->attr($descendant, 'id'),
-                $this->attr($descendant, 'name'),
-                $this->attr($descendant, 'aria-label'),
-                $this->attr($descendant, 'value'),
-                implode(' ', $this->safeDataAttributes($descendant)),
-                $this->collapsedText($descendant),
-            )));
-
-            foreach ( $tokens as $token ) {
-                if ( str_contains($haystack, $token) ) {
-                    return $descendant;
-                }
-            }
-
-            // "add" alone is ambiguous, so require it to co-occur with a commerce
-            // context word ("cart"/"bag"/"basket") to count as a cart control.
-            if ( preg_match('/\badd\b/', $haystack) && preg_match('/\b(?:cart|bag|basket)\b/', $haystack) ) {
-                return $descendant;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Whether the card contains quantity UI: number input, spinbutton, +/- controls,
-     * or explicit quantity labels/classes/ARIA. This is diagnostic only.
-     */
-    private function hasQuantityControl(DOMElement $card): bool
-    {
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement ) {
-                continue;
-            }
-
-            $tagName = strtolower($descendant->tagName);
-            $role = strtolower($this->attr($descendant, 'role'));
-            if ( 'input' === $tagName && 'number' === strtolower($this->attr($descendant, 'type')) ) {
-                return true;
-            }
-            if ( 'spinbutton' === $role ) {
-                return true;
-            }
-
-            $haystack = strtolower(implode(' ', array(
-                $this->attr($descendant, 'class'),
-                $this->attr($descendant, 'id'),
-                $this->attr($descendant, 'name'),
-                $this->attr($descendant, 'aria-label'),
-                implode(' ', $this->safeDataAttributes($descendant)),
-                $this->collapsedText($descendant),
-            )));
-
-            if ( preg_match('/\b(?:qty|quantity|decrease|increase)\b/', $haystack) ) {
-                return true;
-            }
-            if ( in_array($tagName, array( 'button', 'a' ), true) && preg_match('/^[+\x{2212}-]$/u', trim($this->collapsedText($descendant))) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * An optional short product description: the first paragraph in the card whose
-     * text is neither the name nor a price. Returns null when none is present.
-     */
-    private function productDescriptionText(DOMElement $card, string $name): ?string
-    {
-        foreach ( $card->getElementsByTagName('p') as $paragraph ) {
-            if ( ! $paragraph instanceof DOMElement ) {
-                continue;
-            }
-
-            $text = $this->collapsedText($paragraph);
-            if ( '' === $text || $text === $name || $this->looksLikePriceText($text) ) {
-                continue;
-            }
-
-            return mb_strlen($text) > 280 ? mb_substr($text, 0, 277) . '...' : $text;
-        }
-
-        return null;
-    }
-
-    /**
-     * The card's primary image as a generic { src, alt } pair, or null.
-     *
-     * @return array<string, string>|null
-     */
-    private function productImage(DOMElement $card): ?array
-    {
-        foreach ( $card->getElementsByTagName('img') as $image ) {
-            if ( ! $image instanceof DOMElement ) {
-                continue;
-            }
-
-            $src = trim($this->attr($image, 'src'));
-            if ( '' === $src && '' !== trim($this->attr($image, 'data-src')) ) {
-                $src = trim($this->attr($image, 'data-src'));
-            }
-            if ( '' === $src || preg_match('/^\s*javascript\s*:/i', $src) ) {
-                continue;
-            }
-
-            return array_filter(array(
-                'src' => $src,
-                'alt' => trim($this->attr($image, 'alt')),
-            ), static fn (mixed $value): bool => '' !== $value);
-        }
-
-        return null;
-    }
-
-    /**
-     * Find the nearest descendant (or the element itself) declaring one of the
-     * given schema.org `itemprop` values.
-     *
-     * @param array<int, string> $itemprops
-     */
-    private function firstDescendantWithItemprop(DOMElement $element, array $itemprops): ?DOMElement
-    {
-        if ( in_array(strtolower($this->attr($element, 'itemprop')), $itemprops, true) ) {
-            return $element;
-        }
-
-        foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && in_array(strtolower($this->attr($descendant, 'itemprop')), $itemprops, true) ) {
-                return $descendant;
-            }
-        }
-
-        return null;
-    }
-
-    private function collapsedText(DOMElement $element): string
-    {
-        return trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
     }
 
     /**
@@ -9957,7 +9391,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function isPriceElement(DOMElement $element): bool
     {
-        return $this->sourceElementClassifier->hasCommerceToken($element, array( 'price', 'amount', 'cost' )) || $this->looksLikePriceText($element->textContent ?? '');
+        return $this->commercePattern->isPriceElement($element);
     }
 
     private function looksLikeHoursRow(DOMElement $row, DOMElement $first, DOMElement $second): bool
