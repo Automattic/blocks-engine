@@ -13,11 +13,18 @@ use DOMElement;
 /** Lowers static native GET forms without assigning them a provider contract. */
 final class NativeGetFormBlockBuilder
 {
+    private int $depth = 0;
+
     /** @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren */
     /** @param Closure(DOMElement): array<string, mixed> $presentationAttributes */
     /** @param Closure(string, array<string, mixed>): void $registerGeneratedBlock */
     public function __construct(private readonly Closure $convertChildren, private readonly Closure $presentationAttributes, private readonly SourceBlockCreator $createBlock, private readonly Closure $registerGeneratedBlock)
     {
+    }
+
+    public function isInside(): bool
+    {
+        return 0 < $this->depth;
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks @return array<string, mixed>|null */
@@ -26,7 +33,13 @@ final class NativeGetFormBlockBuilder
         if ( ! $this->isSafeNativeGetForm($form) ) {
             return null;
         }
-        $children = ($this->convertChildren)($form, $fallbacks);
+        $children = array();
+        ++$this->depth;
+        try {
+            $children = ($this->convertChildren)($form, $fallbacks);
+        } finally {
+            --$this->depth;
+        }
         if ( array() === $children ) {
             return null;
         }
