@@ -1561,6 +1561,11 @@ $broadPseudoForm = ( new HtmlTransformer() )->transform(
     '<div id="content-wrapper"><nav aria-label="Blog"><a href="/posts">Posts</a></nav><article><h1>Post title</h1><div class="search"><input class="search-input" type="text" placeholder="Search"></div><button aria-label="Share via Facebook">Share</button><p>Long article copy.</p></article></div>'
 )->toArray();
 $assert(array() === array_values(array_filter($broadPseudoForm['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? ''))), 'search fields and unrelated buttons never promote a content wrapper to a pseudo-form');
+
+$quantityCartControls = ( new HtmlTransformer() )->transform(
+    '<main><div class="product-purchase-controls-wrapper"><div aria-label="Quantity"><button type="button" aria-label="Decrease quantity by 1">-</button><input name="quantity-input" type="number" value="1" min="1"><button type="button" aria-label="Increase quantity by 1">+</button></div><button class="sqs-add-to-cart-button">Get My Bagels</button></div></main>'
+)->toArray();
+$assert(array() === array_values(array_filter($quantityCartControls['fallbacks'] ?? array(), static fn (array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? ''))), 'product quantity steppers with a typeless cart button are not contact-form fallbacks');
 $assert(str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Post title') && str_contains((string) ($broadPseudoForm['serialized_blocks'] ?? ''), 'Long article copy.'), 'rejected broad pseudo-form candidates remain ordinary native content');
 
 $commerceControls = ( new HtmlTransformer() )->transform(

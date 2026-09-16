@@ -39,6 +39,9 @@ $assert($analyzer->isPseudoForm($local), 'labeled-entry-and-submit-is-pseudo-for
 $plainButton = $elementFrom('<div><label>Email<input name="email"></label><button type="button">Join</button></div>');
 $assert(! $analyzer->isPseudoForm($plainButton), 'explicit-button-has-no-submit-ownership');
 
+$quantityCart = $elementFrom('<div class="product-purchase-controls-wrapper"><div aria-label="Quantity"><button type="button" aria-label="Decrease quantity by 1">-</button><input name="quantity-input" type="number" value="1"><button type="button" aria-label="Increase quantity by 1">+</button></div><button class="add-to-cart">Get My Bagels</button></div>');
+$assert(! $analyzer->isPseudoForm($quantityCart), 'quantity-stepper-and-typeless-cart-button-are-not-a-pseudo-form');
+
 $containerAction = $elementFrom('<div data-action="subscribe"><label>Email<input name="email"></label><button type="button">Join</button></div>');
 $assert($analyzer->isPseudoForm($containerAction), 'container-action-owns-plain-button');
 
