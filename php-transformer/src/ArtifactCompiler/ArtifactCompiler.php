@@ -3805,6 +3805,13 @@ final class ArtifactCompiler
             }
         }
         foreach ($xpath->query('//*[@aria-current]') ?: array() as $node) if ($node instanceof \DOMElement) $node->removeAttribute('aria-current');
+        foreach ($xpath->query('//*[@style]') ?: array() as $node) {
+            if (!$node instanceof \DOMElement) continue;
+            $style = strtolower(preg_replace('/\s+/', '', $node->getAttribute('style')) ?? '');
+            $style = rtrim($style, ';');
+            if ('' === $style) $node->removeAttribute('style');
+            else $node->setAttribute('style', $style);
+        }
         $body = $dom->getElementsByTagName('body')->item(0);
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
         return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;

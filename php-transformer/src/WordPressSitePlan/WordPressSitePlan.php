@@ -554,7 +554,9 @@ final class WordPressSitePlan
             $templatePartMarkup = is_string($candidate['template_part_block_markup'] ?? null) ? $this->routeLinks($references->content($candidate['template_part_block_markup'], self::value($document, 'source_path')), self::value($document, 'source_path'), $routes) : $innerMarkup;
             $candidates[] = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'classes' => $classes, 'source_path' => self::value($document, 'source_path'), 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
         }
-        return array_merge($candidates, $this->nestedChromeCandidates($canonical, self::value($document, 'source_path')));
+        $nestedChrome = $this->nestedChromeCandidates($canonical, self::value($document, 'source_path'));
+        if (array() !== $nestedChrome) return array_merge($candidates, $nestedChrome);
+        return array_merge($candidates, $this->nestedLandmarkShellCandidates($canonical, self::value($document, 'source_path'), array_column($candidates, 'area')));
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -587,6 +589,23 @@ final class WordPressSitePlan
         return array();
     }
 
+    /** @param array<int,string> $occupiedAreas @return array<int,array<string,mixed>> */
+    private function nestedLandmarkShellCandidates(string $markup, string $sourcePath, array $occupiedAreas): array
+    {
+        $candidates = array();
+        foreach (array('header', 'footer') as $area) {
+            if (in_array($area, $occupiedAreas, true)) continue;
+            $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area);
+            if (1 !== count($rows)) continue;
+            $row = $rows[0];
+            $identity = $row['identity_markup'];
+            if ('' === $identity) continue;
+            $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($row['markup']));
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true);
+        }
+        return $candidates;
+    }
+
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
     private function inlineSharedShells(array $pages, array $reservedSlugs, array $runtimeDeclarations, array $canonicalArtifacts = array()): array
     {
@@ -604,7 +623,7 @@ final class WordPressSitePlan
                 $variantCount = count($rows); $candidates[$index] = $rows;
                 foreach ($rows as $candidate) if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
             }
-            if ($rejected || null === $variantCount) continue;
+            if ($rejected || null === $variantCount || 1 === $variantCount) continue;
             $expectedSources = $sourcePaths; sort($expectedSources, SORT_STRING);
             $canonical = count($areaArtifacts) === $variantCount;
             foreach ($areaArtifacts as $artifact) {
@@ -743,7 +762,9 @@ final class WordPressSitePlan
                 $candidate = $candidates[$index][0];
                 $withoutShell = isset($candidate['legacy_content_markup'])
                     ? (($candidate['legacy_page_markup'] ?? null) === $page['canonical_block_markup'] ? $candidate['legacy_content_markup'] : null)
-                    : $this->withoutTopLevelShell($page['canonical_block_markup'], $area, $candidate['markup']);
+                    : (!empty($candidate['nested_shell'])
+                        ? $this->withoutNestedShell($page['canonical_block_markup'], $candidate['markup'])
+                        : $this->withoutTopLevelShell($page['canonical_block_markup'], $area, $candidate['markup']));
                 if (null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
                     continue 2;
@@ -758,7 +779,9 @@ final class WordPressSitePlan
                 $page = $pages[$index];
                 $candidate = $candidates[$index][0];
                 $legacyContentRange = $candidate['legacy_content_range'] ?? null;
-                $range = $this->topLevelShellRange($page['canonical_block_markup'], $area, $candidate['markup']);
+                $range = !empty($candidate['nested_shell'])
+                    ? $this->nestedShellRange($page['canonical_block_markup'], $candidate['markup'])
+                    : $this->topLevelShellRange($page['canonical_block_markup'], $area, $candidate['markup']);
                 $containsBinding = is_array($legacyContentRange)
                     ? $this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length'])
                     : (is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']));
@@ -866,6 +889,22 @@ final class WordPressSitePlan
         return $this->replaceTopLevelShell($markup, $area, '', $candidateMarkup);
     }
 
+    private function withoutNestedShell(string $markup, string $candidateMarkup): ?string
+    {
+        $range = $this->nestedShellRange($markup, $candidateMarkup);
+        return is_array($range) ? substr($markup, 0, $range['offset']) . substr($markup, $range['offset'] + $range['length']) : null;
+    }
+
+    /** @return array{offset:int,length:int}|null */
+    private function nestedShellRange(string $markup, string $candidateMarkup): ?array
+    {
+        if ('' === $candidateMarkup) return null;
+        $offset = strpos($markup, $candidateMarkup);
+        if (false === $offset) return null;
+        if (false !== strpos($markup, $candidateMarkup, $offset + 1)) return null;
+        return array('offset' => $offset, 'length' => strlen($candidateMarkup));
+    }
+
     private function replaceTopLevelShell(string $markup, string $area, string $replacement, string $candidateMarkup = ''): ?string
     {
         $range = $this->topLevelShellRange($markup, $area, $candidateMarkup);
@@ -957,7 +996,23 @@ final class WordPressSitePlan
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
-        return preg_replace('/\s*blocks-engine-source-[a-z0-9_-]+-[a-f0-9]{6,}-[0-9]+/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
+        return preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
+    }
+
+    private static function withoutLandmarkTagName(string $markup): string
+    {
+        if (!preg_match('/^<!--\s*wp:group\s+(\{[^>]*\})\s*-->/', $markup, $match)) return $markup;
+        $attrs = json_decode($match[1], true);
+        $tag = is_array($attrs) ? ($attrs['tagName'] ?? null) : null;
+        if (!in_array($tag, array('header', 'footer'), true)) return $markup;
+        unset($attrs['tagName']);
+        $encoded = json_encode($attrs, JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded)) return $markup;
+        $rest = substr($markup, strlen($match[0]));
+        $rest = preg_replace('/^<' . preg_quote($tag, '/') . '\b/', '<div', $rest, 1) ?? $rest;
+        $rest = preg_replace('/<\/' . preg_quote($tag, '/') . '>(\s*<!--\s*\/wp:group\s*-->)\s*$/', '</div>$1', $rest, 1) ?? $rest;
+        return '<!-- wp:group ' . $encoded . ' -->' . $rest;
     }
 
     private static function withoutCurrentNavigationState(string $markup, bool $semanticIdentity = false): string
