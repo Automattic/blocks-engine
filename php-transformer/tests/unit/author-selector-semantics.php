@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 $failures = 0;
 $passes = 0;
@@ -29,6 +30,43 @@ $css = static function (array $result): string {
     }
     return implode("\n", $parts);
 };
+
+$nestedMargins = $transform('<style>@layer components{.shell{max-width:1280px;margin-inline:auto;padding-inline:24px;@media (width >=768px){padding-inline:48px;margin-inline:32px;@supports (display:grid){margin-inline:40px}}margin-inline:12px}.row{display:flex;justify-content:center;gap:24px}.label{padding-inline:16px}}</style><div class="shell"><div class="row"><p class="label">One</p><p class="label">Two</p></div></div>');
+$nestedMarginRules = array();
+(new CssStylesheetTransformer())->visitStyleRules($css($nestedMargins), static function (string $selector, string $body, array $conditions) use (&$nestedMarginRules): void {
+    $nestedMarginRules[] = array('selector' => trim($selector), 'body' => trim($body), 'conditions' => $conditions);
+});
+$nestedMarginRows = array_values(array_filter($nestedMarginRules, static fn (array $rule): bool => '.row' === $rule['selector']));
+$assert(
+    1 === count($nestedMarginRows)
+        && array('@layer components') === $nestedMarginRows[0]['conditions']
+        && str_contains($nestedMarginRows[0]['body'], 'display:flex'),
+    'margin projection keeps later sibling rules outside nested style-rule bodies'
+);
+$nestedMarginDeclarations = array_values(array_filter($nestedMarginRules, static fn (array $rule): bool => str_starts_with($rule['selector'], '.shell:not(') && str_starts_with($rule['body'], 'margin-inline:')));
+$assert(
+    array('margin-inline:auto', 'margin-inline:32px', 'margin-inline:40px', 'margin-inline:12px') === array_column($nestedMarginDeclarations, 'body')
+        && array(
+            array('@layer components'),
+            array('@layer components', '@media (width >=768px)'),
+            array('@layer components', '@media (width >=768px)', '@supports (display:grid)'),
+            array('@layer components'),
+        ) === array_column($nestedMarginDeclarations, 'conditions'),
+    'margin declarations before, inside, and after nested conditions retain source order, scope, and wrapper priority'
+);
+$trailingNestedMargin = $transform('<style>.shell{margin-inline:auto;padding-inline:24px;@media (width >=768px){padding-inline:48px;}@media (width >=1280px){padding-inline:24px;}}.after{display:flex;gap:12px}</style><div class="shell"><p>Before</p></div><div class="after"><p>One</p><p>Two</p></div>');
+$trailingNestedSibling = false;
+(new CssStylesheetTransformer())->visitStyleRules($css($trailingNestedMargin), static function (string $selector, string $body, array $conditions) use (&$trailingNestedSibling): void {
+    if ( '.after' === trim($selector) && array() === $conditions && str_contains($body, 'display:flex') ) {
+        $trailingNestedSibling = true;
+    }
+});
+$assert($trailingNestedSibling, 'a trailing nested media rule cannot consume the closing brace and later sibling selector');
+$relativeNestedMargin = $transform('<style>.shell{margin-left:0;&:not(.missing){margin-left:24px}margin-left:12px}</style><div class="shell"><p>Label</p></div>');
+$assert(
+    (bool) preg_match('/\.shell\{&:not\(\.missing\):not\(\.blocks-engine-specificity-class-[^)]+\)\{margin-left:24px\}\}/', $css($relativeNestedMargin)),
+    'relative nested selectors retain their host and receive the same margin priority as later parent declarations'
+);
 
 $candidateDom = new DOMDocument();
 $candidateDom->loadHTML('<!doctype html><body><div data-color="1"></div><p data-color="1"></p><p></p><p></p><span></span></body>');

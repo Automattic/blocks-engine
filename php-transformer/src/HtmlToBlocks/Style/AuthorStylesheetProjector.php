@@ -24,43 +24,73 @@ final class AuthorStylesheetProjector
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            function (string $prelude, string $body) use ($context): string {
-                $projection = $this->ruleBodyProjector->projectWithDeclarations(
-                    $prelude,
-                    $body,
-                    $context->authorStyles,
-                    $context->sourceStyles,
-                    $context->evidence
-                );
-                $body = $projection['body'];
-                $declarations = $projection['declarations'];
-                $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
-                $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context);
-                $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
-                $imageRule = '' === $imagePrelude
-                    ? ''
-                    : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
-                $svgImageRule = '' === $svgImagePrelude
-                    ? ''
-                    : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
-                $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
-                if ( array() === $margins ) {
-                    $css = $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
-                    return $css . $this->editorPositionRules($css);
-                }
-
-                $inner = array_diff_key($declarations, $margins);
-                $rules = '' === $this->styleResolver->cssDeclarationString($inner)
-                    ? ''
-                    : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context);
-                $css = $rules
-                    . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
-                    . $imageRule
-                    . $svgImageRule
-                    . $editorDocumentRootRule;
-                return $css . $this->editorPositionRules($css);
-            }
+            fn (string $prelude, string $body): string => $this->projectStyleRule($prelude, $body, $context)
         );
+    }
+
+    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
+        $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
+        $hasMargins = $hasNestedRules && array_filter(
+            $this->styleResolver->cssDeclarations($body),
+            static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'),
+            ARRAY_FILTER_USE_KEY
+        );
+        if ( $hasMargins ) {
+            $css = '';
+            foreach ( $parts as $part ) {
+                if ( isset($part['declarations']) ) {
+                    // Splitting only contiguous runs retains declarations after
+                    // a nested condition at their original cascade position.
+                    $css .= $this->projectStyleRule($prelude, $part['declarations'], $context);
+                } elseif ( in_array($part['at_rule'], array('media', 'supports'), true) ) {
+                    $css .= $part['prelude'] . '{' . $this->projectStyleRule($prelude, $part['body'], $context) . '}';
+                } else {
+                    // Relative selectors and scoped/layer rules retain their
+                    // original host. Only media/supports conditions can lift.
+                    $nested = '' === $part['at_rule']
+                        ? $this->projectStyleRule($part['prelude'], $part['body'], $context)
+                        : $part['prelude'] . '{' . $part['body'] . '}';
+                    $css .= $this->rewriteSelectorPrelude($prelude, $context) . '{' . $nested . '}';
+                }
+            }
+            return $css;
+        }
+        $projection = $this->ruleBodyProjector->projectWithDeclarations(
+            $prelude,
+            $body,
+            $context->authorStyles,
+            $context->sourceStyles,
+            $context->evidence
+        );
+        $body = $projection['body'];
+        $declarations = $projection['declarations'];
+        $margins = array_filter($declarations, static fn (string $name): bool => 'margin' === $name || str_starts_with($name, 'margin-'), ARRAY_FILTER_USE_KEY);
+        $imagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context);
+        $svgImagePrelude = $this->projectAuthorImageSelectorPrelude($prelude, $context, 'svg', $declarations);
+        $imageRule = '' === $imagePrelude
+            ? ''
+            : $imagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations) . '}';
+        $svgImageRule = '' === $svgImagePrelude
+            ? ''
+            : $svgImagePrelude . '{' . $this->imageProjectionBridgeDeclarations($declarations, true) . '}';
+        $editorDocumentRootRule = $this->editorDocumentRootRule($prelude, $body);
+        if ( array() === $margins ) {
+            $css = $this->rewriteStyleRule($prelude, $body, $context) . $imageRule . $svgImageRule . $editorDocumentRootRule;
+            return $css . $this->editorPositionRules($css);
+        }
+
+        $inner = array_diff_key($declarations, $margins);
+        $rules = '' === $this->styleResolver->cssDeclarationString($inner)
+            ? ''
+            : $this->rewriteStyleRule($prelude, $this->styleResolver->cssDeclarationString($inner), $context);
+        $css = $rules
+            . $this->marginSelectorPrelude($prelude, $context) . '{' . $this->styleResolver->cssDeclarationString($margins) . '}'
+            . $imageRule
+            . $svgImageRule
+            . $editorDocumentRootRule;
+        return $css . $this->editorPositionRules($css);
     }
 
     private function editorPositionRules(string $css): string

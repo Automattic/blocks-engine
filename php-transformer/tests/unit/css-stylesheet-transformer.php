@@ -117,6 +117,17 @@ foreach ( $identityCases as $identityCase ) {
     $assert($identityCase === $transformer->transform($identityCase, static fn (string $prelude): string => $prelude), 'no-op is byte-identical across scanner edge cases');
 }
 
+$mixedBody = 'margin:0;content:";}";--data:{token:";}";};/* media */@media (min-width:700px){margin:12px;@supports (display:grid){padding:4px}}margin:20px;&:hover{color:red}';
+$mixedParts = $transformer->splitStyleRuleBody($mixedBody);
+$assert(array(
+    array('declarations' => 'margin:0;content:";}";--data:{token:";}";};'),
+    array('prelude' => '/* media */@media (min-width:700px)', 'body' => 'margin:12px;@supports (display:grid){padding:4px}', 'at_rule' => 'media'),
+    array('declarations' => 'margin:20px;'),
+    array('prelude' => '&:hover', 'body' => 'color:red', 'at_rule' => ''),
+) === $mixedParts, 'style-rule bodies retain ordered declaration runs, nested conditions, relative selectors, and custom-property blocks');
+$assert(array(array('declarations' => 'content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0')) === $transformer->splitStyleRuleBody('content:"{";background:url("data:image/svg+xml,<svg>{}</svg>");margin:0'), 'braces inside strings and URLs are not nested style rules');
+$assert(array(array('declarations' => 'margin:0;@media (min-width:700px){color:red')) === $transformer->splitStyleRuleBody('margin:0;@media (min-width:700px){color:red'), 'incomplete mixed bodies remain opaque');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssStylesheetTransformer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
