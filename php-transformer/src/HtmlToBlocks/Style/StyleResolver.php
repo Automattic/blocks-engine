@@ -38,6 +38,8 @@ final class StyleResolver implements ElementPresentationResolver
 
     private ?ClosedStateNormalizer $closedStateNormalizer = null;
 
+    private ?InlineGeometry $inlineGeometry = null;
+
     /**
      * Resolved presentation attributes for the active transform, keyed by the
      * DOMElement wrapper object id plus node path. PHP may reuse wrapper object
@@ -79,34 +81,6 @@ final class StyleResolver implements ElementPresentationResolver
      */
 
     /**
-     * @return list<string>
-     */
-    private function inlineLayoutCarrierProperties(): array
-    {
-        return array(
-            'display',
-            'flex-direction',
-            'flex-wrap',
-            'align-items',
-            'justify-content',
-            'gap',
-        );
-    }
-
-    /**
-     * The alignment half of the layout carrier list. `display` is excluded on
-     * purpose: in the author-resolved branch the author stylesheet owns the
-     * formatting context, and carrying `display` is exactly what that branch
-     * exists to guard against.
-     *
-     * @return list<string>
-     */
-    private function inlineFlexAlignmentCarrierProperties(): array
-    {
-        return array_values(array_diff($this->inlineLayoutCarrierProperties(), array( 'display' )));
-    }
-
-    /**
      * Properties carried when NO author rule declares them at all.
      *
      * Deliberately NOT general. Decorative paint is safe to preserve without
@@ -143,180 +117,9 @@ final class StyleResolver implements ElementPresentationResolver
     /**
      * @return list<string>
      */
-    private function inlineListMarkerCarrierProperties(): array
-    {
-        return array(
-            'list-style',
-            'list-style-type',
-            'list-style-position',
-            'list-style-image',
-        );
-    }
-
-    /**
-     * @return list<string>
-     */
     public function inlineGeometryProperties(): array
     {
-        return array_merge($this->inlineLayoutCarrierProperties(), $this->inlineListMarkerCarrierProperties(), array(
-            'width',
-            'height',
-            'min-width',
-            'min-height',
-            'max-width',
-            'max-height',
-            'aspect-ratio',
-            'box-sizing',
-            'flex',
-            'flex-basis',
-            'flex-grow',
-            'flex-shrink',
-            'object-fit',
-            'object-position',
-        ));
-    }
-
-    /**
-     * The declarations that place a box out of, or beside, normal flow.
-     *
-     * Carried as one group because they only mean anything together. A source
-     * that reserves space with one declaration and fills it with another —
-     * a percentage-padding aspect-ratio box holding an absolutely positioned
-     * child, or a float row whose cells are sized in percent — is not partially
-     * representable. Keeping the reserving half while dropping the placing half
-     * paints the reserved space as an empty gap and returns the child to flow
-     * below it, which is worse than carrying neither.
-     *
-     * @return list<string>
-     */
-    private function inlinePositioningCarrierProperties(): array
-    {
-        return array(
-            'float',
-            'clear',
-            'position',
-            'top',
-            'right',
-            'bottom',
-            'left',
-            'inset',
-            'overflow',
-            'overflow-x',
-            'overflow-y',
-            'z-index',
-        );
-    }
-
-    /**
-     * Whether the element's own inline style takes it out of, or beside, normal
-     * flow. Positioning is never synthesized for an element the source left in
-     * flow; it is only preserved where the source already declared it.
-     *
-     * `fixed` is deliberately absent. It resolves against the viewport rather
-     * than any ancestor, so in a block canvas it pins to the editor viewport and
-     * floats over the editing surface instead of the page. Unlike the relative/
-     * absolute pairing this method exists to keep intact, a dropped `fixed`
-     * decorative layer degrades to an inert empty box rather than to a gap with
-     * displaced content, so it is left to its existing handling.
-     *
-     * `absolute` additionally requires a containing block that is itself carried
-     * inline. Absolute positioning is only meaningful against the box it
-     * resolves to, and conversion restructures ancestry; carrying the offsets
-     * without a provable containing block can hand a decorative layer to the
-     * document instead of its section, which moves it further from the source
-     * than leaving it in flow does.
-     *
-     * @param array<string, string> $declarations
-     */
-    private function inlineDeclaresPositioning(DOMElement $element, array $declarations): bool
-    {
-        $float = CssValueInspector::comparable((string) ($declarations['float'] ?? ''));
-        if ( '' !== $float && 'none' !== $float ) {
-            return true;
-        }
-
-        $position = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
-        if ( in_array($position, array( 'relative', 'sticky' ), true) ) {
-            return true;
-        }
-
-        return 'absolute' === $position && $this->hasInlinePositionedAncestor($element);
-    }
-
-    /**
-     * Whether an ancestor's own inline style establishes a containing block that
-     * survives conversion alongside the positioned descendant.
-     */
-    private function hasInlinePositionedAncestor(DOMElement $element): bool
-    {
-        for ( $parent = $element->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
-            if ( in_array(strtolower($parent->tagName), array( 'body', 'html' ), true) ) {
-                return false;
-            }
-            $position = CssValueInspector::comparable(
-                (string) ($this->cssDeclarations(SourceDom::attr($parent, 'style'))['position'] ?? '')
-            );
-            if ( in_array($position, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Positioning that makes an empty named anchor a scroll target rather than
-     * a zero-size in-flow box.
-     *
-     * @return list<string>
-     */
-    private function namedFragmentTargetProperties(): array
-    {
-        return array(
-            'position',
-            'top',
-            'right',
-            'bottom',
-            'left',
-            'inset',
-            'overflow',
-            'pointer-events',
-        );
-    }
-
-    /**
-     * An empty element whose inline style already places it for hash navigation.
-     */
-    private function isNamedFragmentTarget(DOMElement $element): bool
-    {
-        if ( '' === trim(SourceDom::attr($element, 'id')) ) {
-            return false;
-        }
-        if ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) ) {
-            return false;
-        }
-
-        $position = strtolower(trim((string) ($this->cssDeclarations(SourceDom::attr($element, 'style'))['position'] ?? '')));
-
-        return in_array($position, array( 'absolute', 'fixed' ), true);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function inlineBackgroundCarrierProperties(): array
-    {
-        return array(
-            'background',
-            'background-image',
-            'background-position',
-            'background-size',
-            'background-repeat',
-            'background-attachment',
-            'background-origin',
-            'background-clip',
-            'background-blend-mode',
-        );
+        return $this->inlineGeometry()->geometryProperties();
     }
 
     public function styleAttributeMapper(): StyleAttributeMapper
@@ -327,6 +130,25 @@ final class StyleResolver implements ElementPresentationResolver
     private function highValueStyleBoundaryPolicy(): HighValueStyleBoundaryPolicy
     {
         return $this->highValueStyleBoundaryPolicy ??= new HighValueStyleBoundaryPolicy();
+    }
+
+    private function inlineGeometry(): InlineGeometry
+    {
+        return $this->inlineGeometry ??= new InlineGeometry(
+            $this->context,
+            $this->cssDeclarations(...),
+            $this->stripFrozenHiddenState(...),
+            $this->mediaTextInlineDeclarationEntries(...),
+            $this->inlineDisplayOverridesAuthorLayout(...),
+            $this->authorResolvedDisplayEstablishesFlexOrGrid(...),
+            $this->inlineAuthorOverrideDeclarations(...),
+            $this->inlineInheritedTextAlignDeclaration(...),
+            $this->inlineCustomPropertyDeclarations(...),
+            $this->geometryStructuralPath(...),
+            $this->structuralPresentationDeclarations(...),
+            $this->hasConditionalStyleFamily(...),
+            $this->responsivePropertyFamily(...)
+        );
     }
 
     /**
@@ -406,7 +228,7 @@ final class StyleResolver implements ElementPresentationResolver
             ),
             'inlineGeometryStyle' => $this->inlineGeometryStyle($element, $excludedGeometryProperties, $forcedGeometryProperties),
             'style'     => $mapped['style'],
-            'layout'    => $this->layoutAttribute($element, $this->cssDeclarationString($declarations)),
+            'layout'    => $this->inlineGeometry()->layoutAttribute($element, $this->cssDeclarationString($declarations)),
         )), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
 
         $cache->attributes[$cacheKey] = $attrs;
@@ -771,239 +593,14 @@ final class StyleResolver implements ElementPresentationResolver
         array $forcedProperties = array(),
         array $forcedDeclarations = array(),
         bool $carrierOwnsInlineGeometry = false
-    ): string
-    {
-        $declarations = $carrierOwnsInlineGeometry
-            ? $this->mediaTextInlineCascadeDeclarations(SourceDom::attr($element, 'style'))
-            : $this->cssDeclarations(SourceDom::attr($element, 'style'));
-        $declarations = $this->stripFrozenHiddenState($element, $declarations);
-        $geometry = array();
-        $properties = $this->inlineGeometryProperties();
-        if ( $this->isNamedFragmentTarget($element) ) {
-            $properties = array_merge($properties, $this->namedFragmentTargetProperties());
-        }
-        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
-            $properties = array_merge($properties, $this->inlinePositioningCarrierProperties());
-        }
-        if ( $this->inlineDisplayOverridesAuthorLayout($element, $declarations) ) {
-            $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
-            if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {
-                $properties = array_values(array_diff(
-                    $properties,
-                    array( 'flex-direction', 'flex-wrap', 'align-items', 'justify-content', 'gap' )
-                ));
-            }
-        } else {
-            $properties = array_values(array_diff($properties, $this->inlineLayoutCarrierProperties()));
-            // The author stylesheet, not the inline style, establishes this
-            // element's flex/grid formatting context, so its inline alignment
-            // declarations are still the source's own and still need carrying.
-            // A <div> reaches the same rescue through cssOwnedFlexAttributes();
-            // a <p> or <ul> never can, because that path is gated on
-            // ShellLandmarkPolicy::isFlowContainerTag(). Gate on the inline
-            // intersection so no `gap` or `align-items` the author's media
-            // queries own can be synthesized here.
-            if ( $this->authorResolvedDisplayEstablishesFlexOrGrid($element) ) {
-                $properties = array_merge($properties, array_values(array_intersect(
-                    $this->inlineFlexAlignmentCarrierProperties(),
-                    array_keys($declarations)
-                )));
-            }
-        }
-        if ('hidden' === CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''))) {
-            $properties[] = 'visibility';
-        }
-        $collapsedHeight = CssValueInspector::comparable((string) ($declarations['height'] ?? $declarations['max-height'] ?? ''));
-        if (
-            1 === preg_match('/^0(?:px|em|rem|%|vh|vw)?$/', $collapsedHeight)
-            && in_array(CssValueInspector::comparable((string) ($declarations['overflow'] ?? '')), array('hidden', 'clip'), true)
-        ) {
-            $properties[] = 'overflow';
-        }
-        $inlineBackground = (string) ($declarations['background'] ?? $declarations['background-image'] ?? '');
-        if ( preg_match('/\burl\s*\(/i', $inlineBackground)
-            && ( 0 < SourceDom::directElementChildCount($element) || '' !== trim((string) $element->textContent) )
-        ) {
-            $properties = array_merge($properties, $this->inlineBackgroundCarrierProperties());
-        }
-        foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
-            if (in_array($property, $excludedProperties, true)) {
-                continue;
-            }
-            $rawValue = trim((string) ($declarations[$property] ?? ($forcedDeclarations[$property] ?? '')));
-            $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', $rawValue) ?? $rawValue);
-            if (in_array($property, array( 'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height' ), true)
-                && preg_match('/^(?:\d+|\d*\.\d+)$/', $value)
-            ) {
-                $value .= 'px';
-            }
-            if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
-                $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
-            }
-            if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
-                $geometry[$property] = $value;
-            }
-        }
-
-        // Inline declarations that exist in order to OVERRIDE author CSS. The
-        // "drop it and rely on the preserved className plus the carried author
-        // CSS" premise inverts for these: dropping them does not fall back to
-        // the same styling, it falls back to the OPPOSITE styling.
-        $overrideDeclarations = $this->inlineAuthorOverrideDeclarations(
+    ): string {
+        return $this->inlineGeometry()->className(
             $element,
-            $declarations,
-            $geometry,
-            array_merge($excludedProperties, $forcedProperties)
+            $excludedProperties,
+            $forcedProperties,
+            $forcedDeclarations,
+            $carrierOwnsInlineGeometry
         );
-        foreach ($overrideDeclarations as $property => $value) {
-            $geometry[$property] = $value;
-        }
-
-        if ( $this->isNormalFlowViewportWidthGeometry($element, $geometry)
-            || $this->isCapturedViewportWidthBreakout($element, $geometry, $declarations)
-        ) {
-            // A WordPress flow container is commonly inset from the viewport.
-            // Re-anchor a carried 100vw box to that viewport and clip oversized
-            // cover descendants within the source's full-bleed carrier.
-            $geometry['position'] = 'relative';
-            $geometry['left'] = '50%';
-            $geometry['margin-left'] = '-50vw';
-            $geometry['margin-right'] = '-50vw';
-            $geometry['overflow-x'] = 'clip';
-        }
-
-        // `text-align` rides an EXISTING container carrier and never mints one on
-        // its own. A carrier class is what promotes an otherwise attribute-less
-        // wrapper into a core/group, so minting one here would add block-tree
-        // structure to every wrapper whose only inline declaration is an
-        // alignment — a topology change, not a styling fix.
-        if ( array() !== $geometry ) {
-            foreach ($this->inlineInheritedTextAlignDeclaration($element, $declarations, $excludedProperties) as $property => $value) {
-                $geometry[$property] = $value;
-                $overrideDeclarations[$property] = $value;
-            }
-        }
-
-        // Core block supports drop arbitrary custom properties when parsing a
-        // saved style attribute. Carry them in the generated stylesheet instead.
-        foreach ($this->inlineCustomPropertyDeclarations($element, $declarations, array_values($geometry)) as $property => $value) {
-            $geometry[$property] = $value;
-        }
-
-        if (array() === $geometry) {
-            return '';
-        }
-
-        // Emit carried declarations in source order. For declarations sharing
-        // a priority tier, last-write-wins is decided by rule order, and an
-        // alphabetical sort silently flips shorthand/longhand winners (grid vs
-        // grid-template-columns, gap vs column-gap). Values not present inline
-        // (forced/custom-property fallbacks) sort last.
-        $sourceOrder = array_flip(array_keys($declarations));
-        uksort($geometry, static fn (string $a, string $b): int => (($sourceOrder[$a] ?? PHP_INT_MAX) <=> ($sourceOrder[$b] ?? PHP_INT_MAX)) ?: strcmp($a, $b));
-        $normalPriorityDeclarations = array();
-        $importantDeclarations = array();
-        $forcedPropertyLookup = array_fill_keys($forcedProperties, true);
-        $inlineLayoutPropertyLookup = array_fill_keys($this->inlineLayoutCarrierProperties(), true);
-        $inlineListMarkerPropertyLookup = array_fill_keys($this->inlineListMarkerCarrierProperties(), true);
-        // Author-override carriers stay in the non-important tier. At (0,2,0)
-        // the `:root .x` selector already outranks the plain single-class rule
-        // being overridden, at every viewport, because a media query adds no
-        // specificity. The !important tier would additionally beat authored
-        // non-important `:hover`/`:focus` rules and delete the interactive
-        // states the source still wants.
-        // Background-image heroes pin a definite box through :root .carrier
-        // (0,2,0). Other height carriers still need !important to beat IDs.
-        if ( isset($geometry['height']) && preg_match('/\burl\s*\(/i', $inlineBackground) ) {
-            $overrideDeclarations['height'] = $geometry['height'];
-        }
-        $overridePropertyLookup = array_fill_keys(array_keys($overrideDeclarations), true);
-        foreach ($geometry as $property => $value) {
-            if ( isset($inlineListMarkerPropertyLookup[$property])
-                || isset($overridePropertyLookup[$property])
-                || ( isset($inlineLayoutPropertyLookup[$property]) && ! isset($forcedPropertyLookup[$property]) )
-            ) {
-                // Preserve source inline layout and list markers over a later
-                // plain author class without introducing !important.
-                $normalPriorityDeclarations[] = $property . ':' . $value;
-                continue;
-            }
-
-            // A converted inline declaration must continue to outrank authored
-            // normal selectors, including ID selectors. Authored !important
-            // rules retain their normal cascade priority through specificity.
-            $importantDeclarations[] = $property . ':' . $value . ' !important';
-        }
-        $signature = implode(';', array_merge($normalPriorityDeclarations, $importantDeclarations));
-        $className = $this->context->layoutGeometry()->allocateCarrier($this->geometryStructuralPath($element) . "\n" . $signature);
-        $rules = array();
-        if ( array() !== $normalPriorityDeclarations ) {
-            $rules[] = ':root .' . $className . '{' . implode(';', $normalPriorityDeclarations) . '}';
-        }
-        if ( array() !== $importantDeclarations ) {
-            $rules[] = '.' . $className . '{' . implode(';', $importantDeclarations) . '}';
-        }
-        $float = strtolower(CssValueInspector::comparable((string) ($geometry['float'] ?? '')));
-        if ( in_array($float, array( 'left', 'right' ), true) ) {
-            // WordPress flow groups are flex containers. Float is ignored on a
-            // flex item, so the parent that owns the floated box has to be a
-            // block formatting context for the source wrapping to survive.
-            $rules[] = '.wp-block-group:has(> .' . $className . '){display:block !important}';
-        }
-        $this->context->layoutGeometry()->registerRule($className, implode("\n", $rules));
-
-        return $className;
-    }
-
-    /** @param array<string, string> $geometry */
-    /**
-     * A viewport-wide box the source pulled back to the viewport edge itself.
-     *
-     * Sites that break a section out of an inset container commonly measure the
-     * offset while rendering and write it onto the element, so the captured
-     * document carries a pixel offset that is only true at the width it was
-     * captured at. The same breakout expressed against the viewport resolves at
-     * every width, so the measured offset is replaced rather than carried.
-     *
-     * @param array<string, string> $geometry
-     * @param array<string, string> $declarations
-     */
-    private function isCapturedViewportWidthBreakout(DOMElement $element, array $geometry, array $declarations): bool
-    {
-        if ( '100vw' !== strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? '')))) ) {
-            return false;
-        }
-        $offset = strtolower(trim((string) preg_replace(
-            '/\s*!\s*important\s*$/i',
-            '',
-            (string) ($declarations['left'] ?? '')
-        )));
-        if ( 1 !== preg_match('/^-\s*(?:\d+|\d*\.\d+)(?:px|rem|em|%)$/', $offset) ) {
-            return false;
-        }
-        $position = strtolower(trim((string) preg_replace(
-            '/\s*!\s*important\s*$/i',
-            '',
-            (string) ($this->structuralPresentationDeclarations($element)['position'] ?? 'static')
-        )));
-
-        return in_array($position, array( '', 'static', 'relative' ), true);
-    }
-
-    private function isNormalFlowViewportWidthGeometry(DOMElement $element, array $geometry): bool
-    {
-        $width = strtolower(trim((string) preg_replace('/\s+/', '', (string) ($geometry['width'] ?? ''))));
-        if ( '100vw' !== $width ) {
-            return false;
-        }
-
-        $position = strtolower(trim((string) preg_replace(
-            '/\s*!\s*important\s*$/i',
-            '',
-            (string) ($this->structuralPresentationDeclarations($element)['position'] ?? 'static')
-        )));
-
-        return '' === $position || 'static' === $position;
     }
 
     /**
@@ -1605,12 +1202,13 @@ final class StyleResolver implements ElementPresentationResolver
         $declarations = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         $style = array();
         $geometryValues = array();
-        $properties = $this->inlineGeometryProperties();
-        if ( $this->isNamedFragmentTarget($element) ) {
-            $properties = array_merge($properties, $this->namedFragmentTargetProperties());
+        $geometry = $this->inlineGeometry();
+        $properties = $geometry->geometryProperties();
+        if ( $geometry->isNamedFragmentTarget($element) ) {
+            $properties = array_merge($properties, $geometry->namedFragmentTargetProperties());
         }
-        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
-            $properties = array_merge($properties, $this->inlinePositioningCarrierProperties());
+        if ( $geometry->inlineDeclaresPositioning($element, $declarations) ) {
+            $properties = array_merge($properties, $geometry->positioningCarrierProperties());
         }
         foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
@@ -2091,34 +1689,6 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return true;
-    }
-
-    /**
-     * Preserve case-sensitive custom-property names while resolving duplicate
-     * inline declarations by CSS importance and source order.
-     *
-     * @return array<string, string>
-     */
-    private function mediaTextInlineCascadeDeclarations(string $style): array
-    {
-        $cascade = array();
-        foreach ($this->mediaTextInlineDeclarationEntries($style) as $entry) {
-            $current = $cascade[$entry['property']] ?? null;
-            if (is_array($current) && $current['important'] && ! $entry['important']) {
-                continue;
-            }
-            $cascade[$entry['property']] = array(
-                'value' => $entry['value'],
-                'important' => $entry['important'],
-            );
-        }
-
-        $declarations = array();
-        foreach ($cascade as $property => $entry) {
-            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
-        }
-
-        return $declarations;
     }
 
     /**
@@ -3416,185 +2986,6 @@ final class StyleResolver implements ElementPresentationResolver
     private static function isGeneratedCoreClassName(string $className): bool
     {
         return GeneratedGutenbergClassPolicy::isGeneratedClassName($className);
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function layoutAttribute(DOMElement $element, string $mergedStyle = ''): array
-    {
-        $declared = trim(SourceDom::attr($element, 'data-layout'));
-        if ( '' === $declared ) {
-            $declared = trim(SourceDom::attr($element, 'data-wp-layout'));
-        }
-
-        if ( '' !== $declared ) {
-            $decoded = json_decode($declared, true);
-            $type = is_array($decoded) ? (string) ($decoded['type'] ?? '') : $declared;
-            if ( in_array($type, array( 'constrained', 'flex', 'flow', 'grid' ), true) ) {
-                return array( 'type' => $type );
-            }
-        }
-
-        $inlineStyle = strtolower(SourceDom::attr($element, 'style'));
-        $mergedDeclarations = $this->cssDeclarations($mergedStyle);
-        $inlineDeclarations = $this->cssDeclarations($inlineStyle);
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) ) {
-            $layout = array( 'type' => 'flex' );
-            // flex-direction: column / column-reverse is a vertical main axis. A
-            // core/group flex layout defaults to a horizontal Row, so the
-            // orientation must be made explicit or the children render
-            // side-by-side instead of stacked. Row / row-reverse / default flex
-            // keeps the implicit horizontal orientation.
-            if ( preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $inlineStyle) ) {
-                $layout['orientation'] = 'vertical';
-            }
-            $justifyContent = $this->layoutJustifyContent((string) ($inlineDeclarations['justify-content'] ?? $mergedDeclarations['justify-content'] ?? ''));
-            if ( '' !== $justifyContent ) {
-                $layout['justifyContent'] = $justifyContent;
-            }
-            $flexWrap = $this->layoutFlexWrap((string) ($inlineDeclarations['flex-wrap'] ?? $mergedDeclarations['flex-wrap'] ?? ''));
-            if ( '' !== $flexWrap ) {
-                $layout['flexWrap'] = $flexWrap;
-            }
-
-            return $layout;
-        }
-        $style = strtolower('' !== trim($mergedStyle) ? $mergedStyle : SourceDom::attr($element, 'style'));
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $style)
-            && ! preg_match('/(?:^|;)\s*flex-direction\s*:\s*column(?:-reverse)?\b/', $style)
-        ) {
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?flex\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
-                return array();
-            }
-
-            return array( 'type' => 'flex' );
-        }
-        if ( preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $style) ) {
-            $minimumColumnWidth = $this->autoRepeatMinimumColumnWidth(
-                (string) ($mergedDeclarations['grid-template-columns'] ?? $inlineDeclarations['grid-template-columns'] ?? '')
-            );
-            if ( '' !== $minimumColumnWidth ) {
-                return array( 'type' => 'grid', 'minimumColumnWidth' => $minimumColumnWidth );
-            }
-            if ( ! preg_match('/(?:^|;)\s*display\s*:\s*(inline-)?grid\b/', $inlineStyle) && $this->hasOwnStyleHook($element) ) {
-                return array();
-            }
-
-            return array( 'type' => 'grid' );
-        }
-
-        $inlineOwnsLayout = false;
-        foreach (array_keys($inlineDeclarations) as $property) {
-            if ('layout' === $this->responsivePropertyFamily($property)) {
-                $inlineOwnsLayout = true;
-                break;
-            }
-        }
-        if (! $inlineOwnsLayout && $this->hasConditionalStyleFamily($element, 'layout')) {
-            return array();
-        }
-
-        // An explicit grid class token (`grid`, `grid-3`, `footer-grid`,
-        // `card-grid`, …) is a deterministic CSS-grid signal on its own. When the
-        // container holds more than one element child, emit grid layout so the
-        // multi-column arrangement survives even when the children are plain
-        // wrappers rather than recognized card markup. Without this the grid
-        // collapses to a vertical stack and loses visual parity.
-        if ( $this->hasExplicitGridClass($element) && 1 < SourceDom::directElementChildCount($element) ) {
-            return array( 'type' => 'grid' );
-        }
-
-        if ( $this->hasGridLikeClass($element) && 1 < $this->context->cardLikeChildCount($element) ) {
-            return array( 'type' => 'grid' );
-        }
-
-        return array();
-    }
-
-    private function hasOwnStyleHook(DOMElement $element): bool
-    {
-        return '' !== trim(SourceDom::attr($element, 'class')) || '' !== trim(SourceDom::attr($element, 'id'));
-    }
-
-    private function layoutJustifyContent(string $value): string
-    {
-        $value = strtolower(trim($value));
-        $map = array(
-            'flex-start'    => 'left',
-            'start'         => 'left',
-            'left'          => 'left',
-            'center'        => 'center',
-            'flex-end'      => 'right',
-            'end'           => 'right',
-            'right'         => 'right',
-            'space-between' => 'space-between',
-        );
-
-        return $map[ $value ] ?? '';
-    }
-
-    private function layoutFlexWrap(string $value): string
-    {
-        $value = strtolower(trim($value));
-        return in_array($value, array( 'wrap', 'nowrap' ), true) ? $value : '';
-    }
-
-    /**
-     * A track list of exactly repeat(auto-fill, minmax(<width>, 1fr)) is
-     * natively expressible as WordPress grid layout: core renders
-     * minimumColumnWidth as repeat(auto-fill, minmax(min(<width>, 100%), 1fr)).
-     *
-     * auto-fit is deliberately excluded. wp-includes/block-supports/layout.php
-     * hardcodes auto-fill in every branch that renders minimumColumnWidth, so
-     * the attribute cannot express auto-fit at all. The two keywords differ in
-     * rendered geometry — auto-fit collapses tracks left empty, auto-fill
-     * retains them — so converting auto-fit would keep the empty tracks and
-     * squeeze the real content into part of the measure. Like every other track
-     * list WordPress cannot express (fixed counts, asymmetric tracks, nested
-     * functions), auto-fit returns '' and stays under author CSS ownership.
-     */
-    private function autoRepeatMinimumColumnWidth(string $tracks): string
-    {
-        if ( 1 === preg_match('/^repeat\(\s*auto-fill\s*,\s*minmax\(\s*([0-9]*\.?[0-9]+(?:px|rem|em|ch|ex|vw|vh|vmin|vmax|%))\s*,\s*1fr\s*\)\s*\)$/i', trim($tracks), $matches)
-            && 0.0 < (float) $matches[1]
-        ) {
-            return strtolower($matches[1]);
-        }
-
-        return '';
-    }
-
-    /**
-     * Unambiguous grid class tokens: a bare `grid`, a numbered `grid-N`, or any
-     * `*-grid` / `*_grid` suffix (footer-grid, card-grid, mission-grid, …) plus
-     * the common `grid-cols` / `grid-columns` utility names. These map directly to
-     * `display:grid` containers, so they are safe to treat as grids regardless of
-     * child semantics. Ambiguous semantic names (cards, features, …) stay gated on
-     * card-like children via hasGridLikeClass().
-     */
-    private function hasExplicitGridClass(DOMElement $element): bool
-    {
-        $className = $this->authorClassTokens($element);
-        return (bool) preg_match('/(?:^|[\s_-])(?:grid|grid-[0-9]+|grid-cols(?:-[0-9]+)?|grid-columns|[a-z0-9]+[-_]grid)(?:$|[\s_-])/', $className);
-    }
-
-    private function hasGridLikeClass(DOMElement $element): bool
-    {
-        $className = $this->authorClassTokens($element);
-        return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|collection|gallery)(?:$|[\s_-])/', $className);
-    }
-
-    /**
-     * Class tokens with generated markers filtered out, so transformer-emitted
-     * classes (blocks-engine-css-owned-grid, …) re-ingested from prior output
-     * never trip the author grid-class heuristics.
-     */
-    private function authorClassTokens(DOMElement $element): string
-    {
-        $tokens = preg_split('/\s+/', strtolower(trim(SourceDom::attr($element, 'class')))) ?: array();
-
-        return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! self::isTransformerMarkerClassName($token)));
     }
 
     /**
