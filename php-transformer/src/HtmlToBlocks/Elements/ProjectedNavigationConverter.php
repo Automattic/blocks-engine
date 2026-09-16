@@ -187,17 +187,16 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $topOffset = $this->nativeNavigationToggleHeaderOffset($navigation);
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
-        return $open . '{position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:hidden!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+        return $open . '{position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
             . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0 15px!important}'
             . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
             . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
-            . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:0!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:8!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
             . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
             . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}'
-            . 'body:has(' . $open . '){overflow:visible!important}'
-            . 'body.admin-bar ' . $open . ' .wp-block-navigation__responsive-container-close{top:var(--wp-admin--admin-bar--height,32px)!important}';
+            . 'body:has(' . $open . '){overflow:visible!important}';
     }
 
     private function nativeNavigationTogglePinnedHeaderCss(DOMElement $toggle): string
