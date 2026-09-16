@@ -3036,7 +3036,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
             . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
-            . $open . ' .wp-block-navigation__responsive-container-close{display:none!important}';
+            . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:0!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:8!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
+            . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
+            . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}'
+            . 'body:has(' . $open . '){overflow:visible!important}'
+            . 'body.admin-bar ' . $open . ' .wp-block-navigation__responsive-container-close{top:var(--wp-admin--admin-bar--height,32px)!important}';
     }
 
     /**

@@ -90,6 +90,16 @@ $assert(
     'the open overlay is a horizontal dropdown bar, not a left drawer',
     $weeblyAssets
 );
+$assert(
+    str_contains($weeblyAssets, 'html.has-modal-open') && str_contains($weeblyAssets, 'overflow:visible'),
+    'opening the dropdown does not lock document scroll the way a modal overlay does',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, 'responsive-container-close{display:flex') && str_contains($weeblyAssets, 'opacity:0'),
+    'a second click on MENU hits an invisible close control in the same box',
+    $weeblyAssets
+);
 
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
