@@ -203,6 +203,28 @@ final class CompanionPluginPayload
     }
 
     /**
+     * Canonical, transport-independent site identity resolved from the raw
+     * artifact envelope.
+     *
+     * Inline compilation and staged receipt composition present different raw
+     * envelopes for the same artifact, but they resolve the same identity, so
+     * this projection is what derived records (e.g. provenance) hash instead
+     * of the envelope itself.
+     *
+     * @param array<string, mixed> $artifact Raw artifact envelope.
+     * @return array<string, mixed> Always carries all four identity facts.
+     */
+    public function siteIdentity(array $artifact): array
+    {
+        return array(
+            'block_namespace' => $this->blockNamespace($artifact),
+            'site_slug'       => $this->siteSlug($artifact),
+            'site_name'       => $this->siteName($artifact),
+            'mu_plugin'       => $this->muPlugin($artifact),
+        );
+    }
+
+    /**
      * Normalize a generated-block entry to scaffold()'s per-block contract.
      * Generated blocks already declare a sanitizable name, a block_json object,
      * and static render HTML or an audited renderer identifier. Producer-only

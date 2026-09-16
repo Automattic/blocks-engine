@@ -29,9 +29,12 @@ final class GeneratedArtifactProvenance
      * Build the provenance record for one artifact compilation.
      *
      * The inputs are the same normalized inputs the companion payload is built
-     * from, so the record describes exactly what was compiled. Two runs over
-     * the same input produce the same record; any input change changes the
-     * hash.
+     * from, so the record describes exactly what was compiled. The raw
+     * artifact envelope is reduced to its resolved site identity first:
+     * inline compilation and staged receipt composition present different
+     * envelopes for the same artifact, and two runs over the same input must
+     * produce the same record whichever path compiled it. Any input change
+     * changes the hash.
      *
      * @param array<int, array<string, mixed>> $blockTypes      Block-type artifacts from detectBlockTypes().
      * @param array<int, array<string, mixed>> $files           Normalized artifact files (carry content).
@@ -51,7 +54,7 @@ final class GeneratedArtifactProvenance
             'artifact_hash' => $this->artifactHash(array(
                 'block_types' => $blockTypes,
                 'files' => $files,
-                'artifact' => $artifact,
+                'artifact_identity' => (new CompanionPluginPayload())->siteIdentity($artifact),
                 'generated_blocks' => $generatedBlocks,
                 'runtime_island_package' => $runtimeIslandPackage,
                 'editor_scripts' => $editorScripts,
