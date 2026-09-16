@@ -285,16 +285,16 @@ final class AuthorStylesheetProjector
     /**
      * core/button defaults and support styles are emitted after carried author CSS.
      * Keep source button declarations authoritative after their selector is lowered
-     * to a generated marker, including media-query overrides.
+     * to a generated marker, including media-query overrides. ID-themed padding
+     * already beats Gutenberg `:where` defaults, so promoting it to `!important`
+     * would invert a later stretched `padding:0!important` rule.
      */
     private function buttonLinkCompatDeclarations(string $prelude, string $projectedPrelude, string $body, AuthorStylesheetProjectionContext $context): string
     {
         if ( ! str_contains($projectedPrelude, '.wp-block-button__link') || ! $this->projectsAnchorButtonControl($prelude, $context) ) {
             return $body;
         }
-        if ( $this->preludeHasIdSpecificity($prelude, $context) ) {
-            return $body;
-        }
+        $preserveSourcePaddingImportance = $this->preludeHasIdSpecificity($prelude, $context);
 
         $declarations = array();
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
@@ -306,6 +306,10 @@ final class AuthorStylesheetProjector
             $name = trim(substr($declaration, 0, $colon));
             $value = trim(substr($declaration, $colon + 1));
             if ( '' === $name || '' === $value || ! $this->isButtonLinkLayoutProperty($name) || preg_match('/\s*!important\s*$/i', $value) ) {
+                $declarations[] = $declaration;
+                continue;
+            }
+            if ( $preserveSourcePaddingImportance && ( 'padding' === $name || str_starts_with($name, 'padding-') ) ) {
                 $declarations[] = $declaration;
                 continue;
             }
