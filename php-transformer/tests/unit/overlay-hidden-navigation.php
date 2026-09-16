@@ -34,6 +34,13 @@ $assert(str_contains($serialized, '"overlayMenu":"mobile"'), 'hidden overlay nav
 $assert(! str_contains($serialized, '<!-- wp:button'), 'dead hamburger toggle is not emitted as a core/button');
 $assert(str_contains($serialized, 'HOME') && str_contains($serialized, 'About') && str_contains($serialized, 'Contact'), 'hidden overlay nav keeps the link list');
 
+$runtime = ( new HtmlTransformer() )->transform($html, array(
+    'runtime_dom_selectors' => array( '.fullScreenOverlay' ),
+))->toArray();
+$runtimeMarkup = (string) ($runtime['serialized_blocks'] ?? '');
+$assert(str_contains($runtimeMarkup, '<!-- wp:navigation'), 'a runtime-targeted empty overlay pane does not abort list-backed navigation');
+$assert(str_contains($runtimeMarkup, '"overlayMenu":"mobile"'), 'runtime-targeted overlay chrome still yields a native mobile overlay menu');
+
 if ( 0 !== $failures ) {
     exit(1);
 }
