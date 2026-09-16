@@ -828,6 +828,38 @@ $customPropertyCards = $transform('<style>.tour-card{background:linear-gradient(
 $customPropertyCardsMarkup = (string) ($customPropertyCards['serialized_blocks'] ?? '');
 $assert(! str_contains($customPropertyCardsMarkup, '--tone:') && ! str_contains($customPropertyCardsMarkup, '--unused:discard') && str_contains($css($customPropertyCards), '--tone:#f06 !important') && str_contains($css($customPropertyCards), '--tone:#0af !important') && str_contains($css($customPropertyCards), 'background:linear-gradient(135deg,var(--tone),#fff)'), 'author-CSS-consumed card custom properties retain distinct gradient values in generated carrier CSS without unused-property or cross-card leakage');
 
+$customPropertyBackground = (new HtmlTransformer())->transform(
+    '<style>.scene{background-image:var(--scene-image);background-size:cover;min-height:280px}@media(max-width:600px){.scene{background-image:var(--mobile-image)}}</style>'
+    . '<section class="scene" style="--scene-image:url(/media/hero.jpg?variant=wide#crop);--mobile-image:url(/media/mobile.jpg);--unused:url(/media/unused.jpg)"><h2>Welcome</h2></section>',
+    array('asset_metadata' => array(
+        '/media/hero.jpg' => array('url' => '/theme/assets/hero.jpg'),
+        '/media/mobile.jpg' => array('url' => '/theme/assets/mobile.jpg'),
+    ))
+)->toArray();
+$customPropertyBackgroundCss = $css($customPropertyBackground);
+$assert(
+    str_contains($customPropertyBackgroundCss, '--scene-image:url(/theme/assets/hero.jpg?variant=wide#crop) !important')
+    && str_contains($customPropertyBackgroundCss, '--mobile-image:url(/theme/assets/mobile.jpg) !important')
+    && str_contains($customPropertyBackgroundCss, 'background-image:var(--scene-image)')
+    && str_contains($customPropertyBackgroundCss, 'background-image:var(--mobile-image)')
+    && ! str_contains($customPropertyBackgroundCss, 'unused.jpg'),
+    'consumed inline background-image custom properties retain localized URLs and conditional image selection without carrying unused URLs'
+);
+$assert(
+    'core/group' === ($customPropertyBackground['blocks'][0]['blockName'] ?? '')
+    && ! str_contains((string) $customPropertyBackground['serialized_blocks'], '--scene-image:')
+    && 'pass' === ($customPropertyBackground['source_reports']['wp_block_validity']['status'] ?? ''),
+    'custom-property backgrounds retain native Group serialization with CSS-owned responsive paint'
+);
+
+foreach (array('url(javascript:alert(1))', 'expression(alert(1))') as $unsafeValue) {
+    $unsafeCustomPropertyBackground = $transform('<style>.scene{background-image:var(--scene-image)}</style><section class="scene" style="--scene-image:' . $unsafeValue . '"><h2>Welcome</h2></section>');
+    $assert(
+        ! str_contains($css($unsafeCustomPropertyBackground), $unsafeValue),
+        'URL custom-property carriers retain the existing unsafe-value rejection'
+    );
+}
+
 $pseudoCustomProperty = $transform('<style>.tour-card::before{content:"";background:var(--accent)}</style><div class="tour-card" style="width:344px;height:430px;--accent:#fc0;--unused:discard">Card</div>');
 $pseudoCustomPropertyMarkup = (string) ($pseudoCustomProperty['serialized_blocks'] ?? '');
 $assert(! str_contains($pseudoCustomPropertyMarkup, '--accent:') && ! str_contains($pseudoCustomPropertyMarkup, '--unused:discard') && str_contains($css($pseudoCustomProperty), '--accent:#fc0 !important') && str_contains($css($pseudoCustomProperty), '::before{content:"";background:var(--accent)}'), 'pseudo-element author rules retain only their consumed custom properties in generated carrier CSS');
