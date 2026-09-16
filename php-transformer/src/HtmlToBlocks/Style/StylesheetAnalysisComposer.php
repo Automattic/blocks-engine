@@ -336,13 +336,21 @@ final class StylesheetAnalysisComposer
     private function cssCustomPropertyAnalysis(string $css): array
     {
         $root = array();
-        (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body) use (&$root): string {
+        (new CssStylesheetTransformer())->transform($css, static function (string $prelude, string $body, array $conditions = array()) use (&$root): string {
             $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
             if ( null === $selectors || ! array_filter($selectors, static function (string $selector): bool {
                 $selector = preg_replace('/\/\*.*?\*\//s', '', $selector) ?? $selector;
                 return in_array(strtolower(trim($selector)), array(':root', 'html'), true);
             }) ) {
                 return $prelude;
+            }
+            // A token redefined for another output medium is not the value the
+            // rendered page resolves. Screen conversion must not adopt a print
+            // palette just because its `:root` block appears later.
+            foreach ( $conditions as $condition ) {
+                if ( preg_match('/@media\b[^{]*\b(?:print|speech)\b/i', (string) $condition) ) {
+                    return $prelude;
+                }
             }
             if ( preg_match_all('/(--[A-Za-z0-9_-]+)\s*:\s*([^;{}]+)/', $body, $matches, PREG_SET_ORDER) ) {
                 foreach ( $matches as $match ) {
