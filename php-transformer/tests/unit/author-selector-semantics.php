@@ -296,6 +296,13 @@ $assert(
         && str_contains($heroLayersCss, ':root .editor-styles-wrapper .hero-copy{position:relative}'),
     'editor canvas keeps authored absolute layers above Core block-root positioning without collapsing their source parent'
 );
+$stickyHeader = $transform('<style>.site-header{position:fixed;top:0;left:0;right:0;z-index:50}.hero-image,.hero-overlay{position:absolute;inset:0}</style><header class="site-header">Brand</header><section class="hero"><img class="hero-image" src="hero.jpg" alt="Hero"><div class="hero-overlay"></div></section>');
+$stickyHeaderCss = $css($stickyHeader);
+$assert(
+    ! str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .site-header{position:fixed')
+        && str_contains($stickyHeaderCss, ':root .editor-styles-wrapper .hero-image,:root .editor-styles-wrapper .hero-overlay{position:absolute!important}'),
+    'editor canvas does not re-force position:fixed site chrome over the document while absolute hero layers still beat Core positioning'
+);
 
 $wrapper = $transform('<style>.wrap a.cta:hover{padding:1rem}.wrap a.cta:focus{color:red}</style><div class="wrap" role="button"><a class="cta" href="/go">Go</a></div>');
 $wrapperCss = $css($wrapper);
