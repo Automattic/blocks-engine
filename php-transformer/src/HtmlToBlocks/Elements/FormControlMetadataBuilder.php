@@ -108,7 +108,7 @@ final class FormControlMetadataBuilder
             'max'              => SourceDom::attr($control, 'max'),
             'step'             => SourceDom::attr($control, 'step'),
             'maxlength'        => SourceDom::attr($control, 'maxlength'),
-            'rows'             => SourceDom::attr($control, 'rows'),
+            'rows'             => $this->effectiveRows($control),
         ), static fn (string $value): bool => '' !== $value);
 
         if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
@@ -229,6 +229,24 @@ final class FormControlMetadataBuilder
         }
 
         return trim(implode(' ', $parts));
+    }
+
+    /**
+     * A textarea without an authored `rows` still has an intrinsic height: HTML
+     * defaults it to two rows. Report that source fact so a provider reproduces
+     * the authored control height instead of imposing its own default.
+     */
+    private function effectiveRows(DOMElement $control): string
+    {
+        $rows = trim(SourceDom::attr($control, 'rows'));
+        if ( 'textarea' !== strtolower($control->tagName) ) {
+            return $rows;
+        }
+        if ( 1 === preg_match('/^[1-9][0-9]{0,3}$/D', $rows) ) {
+            return $rows;
+        }
+
+        return '2';
     }
 
     private function authoredInputType(DOMElement $control, string $type): string
