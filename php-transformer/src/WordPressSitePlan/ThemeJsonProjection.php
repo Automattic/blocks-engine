@@ -75,6 +75,13 @@ final class ThemeJsonProjection
                 }
                 foreach ($this->declarations($body) as $name => $value) {
                     if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true)) $value = $this->resolveVariableReferences($value, $variables);
+                    // A CSS-wide keyword inside a cascade layer defers to whatever
+                    // else the cascade supplies; a reset layer states `inherit` so
+                    // a later layer can win. Global Styles is unlayered, so
+                    // projecting that deferral would outrank every author layer and
+                    // invert the source cascade — turning "defer" into "override".
+                    // The deferral stays source-owned.
+                    if (array() !== $layer && in_array(strtolower($value), self::CSS_WIDE_KEYWORDS, true)) continue;
                     foreach ($targets as $target) {
                         if ($this->representable($target, $name, $value)) $candidates[] = array('asset' => $assetIndex, 'path' => $path, 'hash' => $hash, 'selector' => strtolower(trim($prelude)), 'target' => $target, 'property' => $name, 'value' => $value, 'layer' => implode('>', $layer));
                     }
