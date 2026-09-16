@@ -8,6 +8,17 @@ namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
  */
 final class WordPressCompatCss
 {
+    /**
+     * Template classes WordPress adds to `<body>` via `body_class()`. A source
+     * stylesheet that styles an element of the same name collides with them.
+     *
+     * @var array<int, string>
+     */
+    private const WORDPRESS_BODY_CLASSES = array(
+        'archive', 'attachment', 'author', 'blog', 'category', 'date', 'error404',
+        'home', 'page', 'paged', 'privacy-policy', 'search', 'single', 'tag',
+    );
+
     /** @var array<string, string> */
     private array $cssCache = array();
 
@@ -26,7 +37,66 @@ final class WordPressCompatCss
             . $this->navigationAnchorCompatCss($authoredCss)
             . $this->rootStartupClassCompatCss($authoredCss, $scriptContents)
             . $this->responsiveRootCompatCss($authoredCss)
+            . $this->bodyClassCollisionCompatCss($authoredCss)
             . $this->coreRuntimeCompatCss($authoredCss, $files);
+    }
+
+    /**
+     * WordPress stamps template classes such as `page`, `home`, and `search`
+     * onto `<body>`. A source class rule of the same name then applies to the
+     * document body as well as its own element, so a centered page frame pays
+     * its max-width and gutters twice and every line box narrows.
+     *
+     * Neutralize only the frame properties, only on `body`, and only for the
+     * reserved names WordPress owns.
+     */
+    private function bodyClassCollisionCompatCss(string $css): string
+    {
+        $classes = array();
+        foreach ( $this->bodyClassCollisionRules($css) as $class ) {
+            $classes[$class] = true;
+        }
+        if ( array() === $classes ) {
+            return '';
+        }
+
+        $selectors = array();
+        foreach ( array_keys($classes) as $class ) {
+            $selectors[] = 'body.' . $class;
+        }
+
+        return "\n\n/* wp-compat: WordPress body template classes must not inherit source frame rules. */\n"
+            . implode(",\n", $selectors)
+            . ' { max-width:none!important;width:auto!important;padding-inline:0!important;margin-inline:0!important }';
+    }
+
+    /** @return array<int, string> */
+    private function bodyClassCollisionRules(string $css): array
+    {
+        $classes = array();
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            if ( str_starts_with(trim($rule['selector']), '@') ) {
+                foreach ( $this->bodyClassCollisionRules($rule['body']) as $nested ) {
+                    $classes[$nested] = true;
+                }
+                continue;
+            }
+            if ( ! preg_match('/(?:^|;)\s*(?:max-width|width|padding|padding-inline|padding-left|padding-right|margin|margin-inline)\s*:/i', $rule['body']) ) {
+                continue;
+            }
+            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
+                // The rule scanner keeps preceding comments on the selector.
+                $selector = trim(preg_replace('#/\*.*?\*/#s', '', $selector) ?? $selector);
+                if ( ! preg_match('/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match) ) {
+                    continue;
+                }
+                if ( in_array(strtolower($match[1]), self::WORDPRESS_BODY_CLASSES, true) ) {
+                    $classes[$match[1]] = true;
+                }
+            }
+        }
+
+        return array_keys($classes);
     }
 
     /**
