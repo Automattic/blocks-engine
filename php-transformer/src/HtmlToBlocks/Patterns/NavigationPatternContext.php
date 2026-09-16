@@ -270,9 +270,9 @@ final class NavigationPatternContext
      * WordPress copies a navigation block's classes onto both the `nav` and its
      * responsive container, so a source rule that styles the menu through one
      * of those classes matches twice. Paint renders stacked on itself; a frame
-     * — the menu's own padding and rules — is charged twice and doubles the
-     * menu's height. Where the source states either, neutralise it on the
-     * inner container so the `nav` keeps the single source declaration.
+     * — the menu's own margin, padding, and rules — is charged twice and
+     * doubles the menu's height. Where the source states either, neutralise it
+     * on the inner container so the `nav` keeps the single source declaration.
      *
      * @param array<int, string> $authorClasses
      */
@@ -291,6 +291,12 @@ final class NavigationPatternContext
         if ( $this->navigationDeclaresAny($navigation, array( 'padding', 'padding-top', 'padding-bottom', 'padding-block', 'border-top', 'border-bottom', 'border-block', 'border-width', 'border-top-width', 'border-bottom-width' )) ) {
             $resets[] = 'padding:0!important';
             $resets[] = 'border:0!important';
+        }
+        // Core already zeroes the container's margin, but a source rule keyed on
+        // the menu class outranks that reset and offsets the list inside its own
+        // nav. The `nav` keeps the source spacing.
+        if ( $this->navigationDeclaresAny($navigation, array( 'margin', 'margin-top', 'margin-bottom', 'margin-block' )) ) {
+            $resets[] = 'margin:0!important';
         }
         if ( array() === $resets ) {
             return;

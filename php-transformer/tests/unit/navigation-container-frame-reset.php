@@ -65,6 +65,16 @@ $assert(str_contains($framedRule, 'padding:0!important'), 'the container reset d
 $assert(str_contains($framedRule, 'border:0!important'), 'the container reset drops the duplicated menu rules');
 $assert(! str_contains($framedRule, 'background:none!important'), 'an unpainted menu records no paint reset');
 
+// A menu that spaces itself from the content above it must not push its own
+// list down by the same amount.
+$spaced = $compile(
+    $document('spaced-nav'),
+    '.spaced-nav{display:flex;margin-top:2.5rem}.spaced-nav a{padding:0.35rem 0.85rem;text-decoration:none}'
+);
+$spacedRule = $containerRule($spaced, 'spaced-nav');
+$assert(str_contains($spacedRule, 'margin:0!important'), 'a source menu margin is neutralized on the container');
+$assert(! str_contains($spacedRule, 'padding:0!important'), 'a margin-only menu records no padding reset');
+
 // Paint-only menus keep the original behavior.
 $painted = $compile(
     $document('painted-nav'),
@@ -93,15 +103,20 @@ $assert('' === $containerRule($plain, 'plain-nav'), 'a menu that states no paint
 // Zero-valued declarations are not a frame.
 $reset = $compile(
     $document('reset-nav'),
-    '.reset-nav{display:flex;padding:0;border:0}.reset-nav a{color:#333;text-decoration:none}'
+    '.reset-nav{display:flex;margin:0;padding:0;border:0}.reset-nav a{color:#333;text-decoration:none}'
 );
-$assert('' === $containerRule($reset, 'reset-nav'), 'zero padding and border are not treated as a duplicated frame');
+$assert('' === $containerRule($reset, 'reset-nav'), 'zero margin, padding, and border are not treated as a duplicated frame');
 
 // The observed academic CV corpus case.
 $cvDirectory = dirname(__DIR__, 3) . '/fixtures/websites/31-personal-cv-academic';
 $cv = $compile((string) file_get_contents($cvDirectory . '/index.html'), (string) file_get_contents($cvDirectory . '/styles.css'));
 $cvRule = $containerRule($cv, 'jumpnav');
-$assert(str_contains($cvRule, 'padding:0!important') && str_contains($cvRule, 'border:0!important'), 'academic CV jump nav neutralizes its duplicated frame on the container');
+$assert(
+    str_contains($cvRule, 'padding:0!important')
+        && str_contains($cvRule, 'border:0!important')
+        && str_contains($cvRule, 'margin:0!important'),
+    'academic CV jump nav neutralizes its duplicated frame on the container'
+);
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation container frame reset tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
