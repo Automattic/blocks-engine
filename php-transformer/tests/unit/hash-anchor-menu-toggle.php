@@ -106,6 +106,12 @@ $assert(
     $weeblyAssets
 );
 $assert(
+    str_contains($weeblyAssets, 'height:60px!important;line-height:60px!important')
+        && str_contains($weeblyAssets, 'vertical-align:middle!important;height:auto!important;line-height:normal!important'),
+    'the bar line box spans the bar so inline items center against it instead of a short strut',
+    $weeblyAssets
+);
+$assert(
     str_contains($weeblyAssets, 'html.has-modal-open') && str_contains($weeblyAssets, 'overflow:visible'),
     'opening the dropdown does not lock document scroll the way a modal overlay does',
     $weeblyAssets
