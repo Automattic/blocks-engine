@@ -188,6 +188,21 @@ $assert(
     $clippedAssets
 );
 
+$visibleTwin = $transform(
+    '<style>.mobile-nav{display:none}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><div class="nav desktop-nav"><ul>' . $links . '</ul></div></div>'
+    . '<div class="mobile-nav"><ul>' . $links . '</ul></div>'
+);
+$visibleTwinMarkup = $markup($visibleTwin);
+$assert(
+    str_contains($visibleTwinMarkup, '"overlayMenu":"always"')
+        && ! str_contains($visibleTwinMarkup, '"overlayMenu":"never"')
+        && 1 === substr_count($visibleTwinMarkup, '<!-- wp:navigation '),
+    'a visible desktop twin of the overlay menu is not left as a second always-on bar',
+    $visibleTwinMarkup
+);
+
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
 );
