@@ -91,6 +91,13 @@ $assert(
     $weeblyAssets
 );
 $assert(
+    str_contains($weeblyAssets, 'wp-block-navigation-item.wp-block-navigation-link{display:flex')
+        && str_contains($weeblyAssets, 'height:60px')
+        && str_contains($weeblyAssets, 'align-items:center'),
+    'overlay items are vertically centered in the 60px bar',
+    $weeblyAssets
+);
+$assert(
     str_contains($weeblyAssets, 'html.has-modal-open') && str_contains($weeblyAssets, 'overflow:visible'),
     'opening the dropdown does not lock document scroll the way a modal overlay does',
     $weeblyAssets
