@@ -18,7 +18,7 @@ $form = $result['blocks'][0] ?? array();
 $markup = (string) ($result['serialized_blocks'] ?? '');
 $generated = $result['source_reports']['generated_blocks'] ?? array();
 
-$assert('blocks-engine/authored-native-form' === ($form['blockName'] ?? ''), 'static endpoint GET form is owned by the native form companion');
+$assert('custom/authored-native-form' === ($form['blockName'] ?? ''), 'static endpoint GET form is owned by the native form companion');
 $assert('/inventory' === ($form['attrs']['action'] ?? ''), 'declared action is editable form state');
 $assert('get' === ($form['attrs']['method'] ?? ''), 'absent method retains the native GET default');
 $assert(false === ($form['attrs']['methodDeclared'] ?? true), 'absent method is not invented in saved markup');
@@ -33,7 +33,7 @@ $assert(3 === count($generated), 'form and reusable input/select companions are 
 
 parse_str(http_build_query(array( 'location' => 'north', 'type' => 'house' )), $query);
 $unspecified = (new HtmlTransformer())->transform('<form><label for="email">Email</label><input id="email" name="email"><button>Send</button></form>')->toArray();
-$assert(!str_contains($unspecified['serialized_blocks'] ?? '', 'wp:blocks-engine/authored-native-form') && !empty($unspecified['fallbacks']), 'unspecified submission remains provider-materializable instead of inventing a GET workflow');
+$assert(!str_contains($unspecified['serialized_blocks'] ?? '', 'wp:custom/authored-native-form') && !empty($unspecified['fallbacks']), 'unspecified submission remains provider-materializable instead of inventing a GET workflow');
 $assert(array( 'location' => 'north', 'type' => 'house' ) === $query, 'named successful controls produce the GET query parameters');
 
 if ( array() !== $failures ) {

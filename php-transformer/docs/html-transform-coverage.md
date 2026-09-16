@@ -10,7 +10,7 @@ Run the coverage fixtures with `composer parity` or as part of `composer test`.
 | --- | --- | --- |
 | Heading and paragraph | `simple-html.json`, `html-core-text-structure.json` | `core/heading`, `core/paragraph` |
 | Lists | `html-core-text-structure.json` | `core/list`, `core/list-item` |
-| Grouped description lists | `fixtures/websites/37-art-gallery-exhibition/current-exhibition.html`, `fixtures/websites/33-sports-team-league/team-roxbury-roar.html` | Observed corpus sources preserve valid `dl > div > dt/dd` row topology through `blocks-engine/description-list`; the synthetic `tests/fixtures/description-list-grouped-schedule.html` covers the closed wrapper-attribute policy. |
+| Grouped description lists | `fixtures/websites/37-art-gallery-exhibition/current-exhibition.html`, `fixtures/websites/33-sports-team-league/team-roxbury-roar.html` | Observed corpus sources preserve valid `dl > div > dt/dd` row topology through the consumer-namespaced `description-list` companion; the synthetic `tests/fixtures/description-list-grouped-schedule.html` covers the closed wrapper-attribute policy. |
 | Tabs | `html-tabs.json` | ARIA tab lists/panels and bounded CSS radio-label tabs emit the WordPress 7.1 Core Tabs family |
 | Quotes | `html-core-text-structure.json`, `html-figure-quote-media.json` | `core/quote`, `core/pullquote`, figure-wrapped testimonial quotes with `figcaption` citation |
 | Code | `html-core-text-structure.json` | `core/code`, `core/preformatted` |

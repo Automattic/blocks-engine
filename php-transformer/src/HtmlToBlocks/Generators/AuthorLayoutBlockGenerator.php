@@ -6,14 +6,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
 /** Builds the editable companion block for source CSS-owned layout islands. */
 final class AuthorLayoutBlockGenerator
 {
-    public const NAME = 'blocks-engine/author-layout';
+    public const LOCAL_NAME = 'author-layout';
 
     /** @return array<string, mixed> */
-    public function blockJson(): array
+    public function blockJson(string $namespace): array
     {
         return array(
             'apiVersion' => 3,
-            'name' => self::NAME,
+            'name' => $namespace . '/' . self::LOCAL_NAME,
             'title' => 'Author Layout',
             'category' => 'design',
             'description' => 'An editable semantic container whose layout remains owned by author CSS.',
@@ -36,7 +36,7 @@ final class AuthorLayoutBlockGenerator
     }
 
     /** @return array<string, string> */
-    public function assets(): array
+    public function assets(string $namespace): array
     {
         $script = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -66,18 +66,18 @@ final class AuthorLayoutBlockGenerator
         }
         return createElement( tagName( props.attributes ), useBlockProps.save( wrapperProps( props.attributes ) ), createElement( InnerBlocks.Content ) );
     }
-    blocks.registerBlockType( 'blocks-engine/author-layout', { attributes: attributes, supports: { html: false, layout: false, spacing: { blockGap: false } }, edit: edit, save: save } );
+    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false, layout: false, spacing: { blockGap: false } }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
 
         return array(
-            'index.js' => str_replace('__BLOCK_ATTRIBUTES__', json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $script),
+            'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $script),
         );
     }
 
     /** @return array<string, mixed> */
-    public function definition(): array
+    public function definition(string $namespace): array
     {
-        return array( 'name' => 'author-layout', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ), 'assets' => $this->assets() );
+        return array( 'name' => self::LOCAL_NAME, 'block_json' => $this->blockJson($namespace), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ), 'assets' => $this->assets($namespace) );
     }
 }

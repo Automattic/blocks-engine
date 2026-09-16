@@ -20,7 +20,7 @@
     }
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/authored-input" }
+    { "path": "blocks.0", "name": "custom/authored-input" }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -28,7 +28,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "source_reports.html.runtime_islands", "assert": "count", "count": 1 },
     { "path": "source_reports.html.runtime_islands.0.selector", "assert": "equals", "value": "main:nth-of-type(1) > label:nth-of-type(1) > input:nth-of-type(1)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine/authored-input" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "custom/authored-input" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<label class=\"search\">Search docs<input type=\"search\" placeholder=\"Search components\" data-search=\"\"></label>" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }

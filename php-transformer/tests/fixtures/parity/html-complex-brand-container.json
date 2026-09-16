@@ -20,7 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "footer-brand" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "className": "site-logo blocks-engine-synthetic-paragraph" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "tagline", "content": "Dinner plans for busy families." } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "blocks-engine/authored-native-form", "attrs": { "className": "newsletter-form", "method": "get", "methodDeclared": false } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.2", "name": "custom/authored-native-form", "attrs": { "className": "newsletter-form", "method": "get", "methodDeclared": false } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.3", "name": "core/paragraph", "attrs": { "className": "success", "content": "You are in." } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/paragraph", "attrs": { "className": "brand", "content": "Simple Mark" } }
   ],
@@ -31,7 +31,7 @@
     { "path": "blocks.0.innerBlocks.0.innerBlocks", "assert": "count", "count": 4 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"className\":\"footer-brand\"} -->" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Dinner plans for busy families." },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/authored-native-form" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/authored-native-form" },
     { "path": "serialized_blocks", "assert": "contains", "value": "placeholder=\"you@example.com\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
     { "path": "fallbacks", "assert": "count", "count": 0 }

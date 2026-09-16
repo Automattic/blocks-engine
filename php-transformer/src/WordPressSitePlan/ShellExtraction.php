@@ -467,7 +467,7 @@ final class ShellExtraction
 
     private static function isGroupBlock(string $markup): bool { return preg_match('/^<!--\s*wp:group(?:\s|\{)/', $markup) === 1; }
 
-    private static function isCheckboxBlock(string $markup): bool { return preg_match('/^<!--\s*wp:blocks-engine\/authored-input\s+\{[^}]*"type":"checkbox"/', $markup) === 1; }
+    private static function isCheckboxBlock(string $markup): bool { return preg_match('/^<!--\s*wp:[a-z][a-z0-9-]*\/authored-input\s+\{[^}]*"type":"checkbox"/', $markup) === 1; }
 
     private static function blockOpeningMarkup(string $markup): ?string
     {

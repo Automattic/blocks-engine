@@ -83,6 +83,8 @@
       "php tests/unit/authored-carousel-block.php",
       "php tests/unit/authored-marquee-block.php",
       "php tests/unit/theme-toggle-block.php",
+      "php tests/unit/companion-plugin-namespace.php",
+      "php tests/unit/generated-artifact-provenance.php",
       "php tests/unit/scroll-state-block.php",
       "php tests/unit/responsive-document-variants.php",
       "php tests/unit/responsive-counterpart-contracts.php",

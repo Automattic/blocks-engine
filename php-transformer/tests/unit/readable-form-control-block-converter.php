@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
@@ -47,13 +48,13 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): array => array()
 );
+$authoredRegistry = new GeneratedBlockRegistry('ssi-fixture');
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
     $presentationAttributes,
     $createBlock,
-    static function (string $identity, array $definition): void {
-    },
+    static fn (): GeneratedBlockRegistry => $authoredRegistry,
     static function (string $text) use (&$echoes): void {
         $echoes[] = $text;
     },
@@ -99,7 +100,7 @@ $assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'runtime-wrappe
 
 $recorded = array();
 $styledRuntimeLabel = $converter->convert($elementFrom('<label class="search">Search docs<input data-styled data-runtime data-search type="search"></label>', 'label'));
-$assert(AuthoredInputBlockGenerator::NAME === ($styledRuntimeLabel['blockName'] ?? ''), 'styled-runtime-wrapped-control-uses-authored-input');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledRuntimeLabel['blockName'] ?? ''), 'styled-runtime-wrapped-control-uses-authored-input');
 $assert('Search docs' === ($styledRuntimeLabel['attrs']['label'] ?? ''), 'styled-runtime-wrapped-control-retains-label');
 $assert(array( 'data-runtime' => '', 'data-search' => '', 'data-styled' => '' ) === ($styledRuntimeLabel['attrs']['dataAttributes'] ?? array()), 'styled-runtime-wrapped-control-retains-data-selectors');
 $assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'styled-runtime-wrapped-control-records-island');
@@ -114,7 +115,7 @@ $assert('core/html' === ($runtimeInput['blockName'] ?? ''), 'runtime-input-is-pr
 $assert('runtime_dom_target' === ($recorded[0]['reason'] ?? ''), 'runtime-input-records-island');
 
 $styledInput = $converter->convert($elementFrom('<input data-styled type="range" value="5">', 'input'));
-$assert(AuthoredInputBlockGenerator::NAME === ($styledInput['blockName'] ?? ''), 'styled-input-delegates-to-authored-converter');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledInput['blockName'] ?? ''), 'styled-input-delegates-to-authored-converter');
 
 $echoes = array();
 $range = $converter->convert($elementFrom('<input type="range" aria-label="Volume" value="5" min="0" max="10" step="1" required>', 'input'));

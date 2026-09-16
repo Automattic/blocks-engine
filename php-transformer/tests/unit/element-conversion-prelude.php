@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormControlConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
@@ -58,7 +59,7 @@ $builder = new NativeGetFormBlockBuilder(
     },
     static fn (DOMElement $element): array => array(),
     $createBlock,
-    static function (string $identity, array $definition): void {}
+    static fn (): GeneratedBlockRegistry => new GeneratedBlockRegistry('ssi-fixture')
 );
 $assert(! $builder->isInside(), 'native-get-form-depth-starts-idle');
 
@@ -75,7 +76,7 @@ $authored = new AuthoredFormControlBlockConverter(
     static fn (DOMElement $element): array => array(),
     static fn (DOMElement $element): array => array(),
     $createBlock,
-    static function (string $identity, array $definition): void {},
+    static fn (): GeneratedBlockRegistry => new GeneratedBlockRegistry('ssi-fixture'),
     static function (string $text): void {},
     $runtime,
     static fn (string $id): string => $id

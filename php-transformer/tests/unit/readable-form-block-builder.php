@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMeta
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
@@ -50,13 +51,13 @@ $runtimeRecorder = new FormRuntimeIslandRecorder(
     $eventMetadata,
     static fn (DOMElement $element): array => array()
 );
+$authoredRegistry = new GeneratedBlockRegistry('ssi-fixture');
 $authoredConverter = new AuthoredFormControlBlockConverter(
     $metadataBuilder,
     static fn (DOMElement $element): array => $element->hasAttribute('data-styled') ? array( 'display' => 'block' ) : array(),
     $presentationAttributes,
     $createBlock,
-    static function (string $identity, array $definition): void {
-    },
+    static fn (): GeneratedBlockRegistry => $authoredRegistry,
     static function (string $text) use (&$echoes): void {
         $echoes[] = $text;
     },
@@ -85,7 +86,8 @@ $builder = new ReadableFormBlockBuilder(
     $eventMetadata,
     $isRuntimeDomTarget,
     $presentationAttributes,
-    $createBlock
+    $createBlock,
+    static fn (string $localName): string => $authoredRegistry->blockName($localName)
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
@@ -119,7 +121,7 @@ $styled = $builder->build($formFrom('<form><label for="email">Email</label><inpu
 $fieldGroup = $styled['innerBlocks'][0] ?? array();
 $assert('core/group' === ($fieldGroup['blockName'] ?? ''), 'authored-input-builds-field-group');
 $assert('core/paragraph' === ($fieldGroup['innerBlocks'][0]['blockName'] ?? ''), 'associated-label-precedes-authored-input');
-$assert(AuthoredInputBlockGenerator::NAME === ($fieldGroup['innerBlocks'][1]['blockName'] ?? ''), 'authored-input-follows-associated-label');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($fieldGroup['innerBlocks'][1]['blockName'] ?? ''), 'authored-input-follows-associated-label');
 
 $recorded = array();
 $runtimeForm = $builder->build($formFrom('<form><input data-runtime name="email"></form>'));

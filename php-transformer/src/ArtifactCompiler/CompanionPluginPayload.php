@@ -85,6 +85,15 @@ final class CompanionPluginPayload
 
         $payload = array(
             'schema' => self::SCHEMA,
+            'provenance' => (new GeneratedArtifactProvenance())->fromArtifactInputs(
+                $blockTypes,
+                $files,
+                $artifact,
+                $generatedBlocks,
+                $runtimeIslandPackage,
+                $editorScripts,
+                $themeOwnedRequiredScripts
+            ),
             'blocks' => $blocks,
             'preserved_js' => $preservedJs,
         );
@@ -162,18 +171,57 @@ final class CompanionPluginPayload
     }
 
     /**
-     * Per-site companion-plugin block namespace (`ssi-<site_slug>`), or '' when
-     * the artifact carries no resolvable site identity. The producer emits
-     * generated-block references under this namespace so they match the blocks
-     * the SSI scaffold registers.
+     * Consumer-supplied generated-block namespace (`block_namespace`), or the
+     * per-site fallback.
+     *
+     * A declared `block_namespace` wins when it is a valid WordPress block
+     * namespace (`^[a-z][a-z0-9-]*$`, not the reserved `core`), so the consumer
+     * owns every generated block name in one place. When absent or invalid the
+     * derivation falls back to `ssi-<site_slug>` (or '' with no resolvable site
+     * identity) exactly as before, so existing callers keep their output.
      *
      * @param array<string, mixed> $artifact Raw artifact envelope.
      */
     public function blockNamespace(array $artifact): string
     {
+        $namespace = is_scalar($artifact['block_namespace'] ?? null) ? trim((string) $artifact['block_namespace']) : '';
+        if ( '' !== $namespace && $this->isValidBlockNamespace($namespace) ) {
+            return $namespace;
+        }
+
         $slug = $this->siteSlug($artifact);
 
         return '' === $slug ? '' : 'ssi-' . $slug;
+    }
+
+    /**
+     * Whether a namespace is one WordPress accepts for a block name prefix.
+     */
+    private function isValidBlockNamespace(string $namespace): bool
+    {
+        return 'core' !== $namespace && 1 === preg_match('/^[a-z][a-z0-9-]*$/', $namespace);
+    }
+
+    /**
+     * Canonical, transport-independent site identity resolved from the raw
+     * artifact envelope.
+     *
+     * Inline compilation and staged receipt composition present different raw
+     * envelopes for the same artifact, but they resolve the same identity, so
+     * this projection is what derived records (e.g. provenance) hash instead
+     * of the envelope itself.
+     *
+     * @param array<string, mixed> $artifact Raw artifact envelope.
+     * @return array<string, mixed> Always carries all four identity facts.
+     */
+    public function siteIdentity(array $artifact): array
+    {
+        return array(
+            'block_namespace' => $this->blockNamespace($artifact),
+            'site_slug'       => $this->siteSlug($artifact),
+            'site_name'       => $this->siteName($artifact),
+            'mu_plugin'       => $this->muPlugin($artifact),
+        );
     }
 
     /**

@@ -511,7 +511,7 @@ $themeToggleSource = '<html class="dark"><body><button class="theme-toggle-btn" 
 $themeToggleResult = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}:root:not(.dark) .theme-toggle-btn{color:black}'))->toArray();
 $themeToggleDefinition = $themeToggleResult['source_reports']['generated_blocks'][0] ?? array();
 $assert(
-    'blocks-engine/theme-toggle' === ($themeToggleResult['blocks'][0]['blockName'] ?? null)
+    'custom/theme-toggle' === ($themeToggleResult['blocks'][0]['blockName'] ?? null)
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), 'theme-toggle-btn')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<svg')
         && str_contains((string) ($themeToggleResult['serialized_blocks'] ?? ''), '<path d="M12 1v2"></path>')
@@ -522,7 +522,7 @@ $assert(
 );
 $themeToggleWithoutLightState = (new HtmlTransformer())->transform($themeToggleSource, array('static_css' => '.dark .theme-toggle-btn{color:white}'))->toArray();
 $assert(
-    'blocks-engine/theme-toggle' !== ($themeToggleWithoutLightState['blocks'][0]['blockName'] ?? null),
+    'custom/theme-toggle' !== ($themeToggleWithoutLightState['blocks'][0]['blockName'] ?? null),
     'theme-looking buttons without both root CSS states remain ordinary buttons'
 );
 
@@ -844,7 +844,7 @@ $metadataDefinitionList = ( new HtmlTransformer() )->transform(
 )->toArray();
 $metadataDefinitionListMarkup = (string) ($metadataDefinitionList['serialized_blocks'] ?? '');
 $metadataDefinitionListBlock = $metadataDefinitionList['blocks'][0] ?? array();
-$assert('blocks-engine/description-list' === ($metadataDefinitionListBlock['blockName'] ?? null), 'direct definition lists use the semantic companion block');
+$assert('custom/description-list' === ($metadataDefinitionListBlock['blockName'] ?? null), 'direct definition lists use the semantic companion block');
 $assert(str_contains($metadataDefinitionListMarkup, '<dl class="facts"><dt>Office</dt><dd>North Hall</dd>'), 'definition-list markup retains source dl, dt, and dd semantics');
 $assert('pass' === ($metadataDefinitionList['source_reports']['wp_block_validity']['status'] ?? ''), 'description-list block emits editor-valid static markup');
 
@@ -856,14 +856,14 @@ $assert(str_contains($repeatedMetadataMarkup, 'record') && ! str_contains($repea
 $assert(! str_contains($repeatedMetadataMarkup, '<strong>Role</strong> Coordinator'), 'repeated metadata rows do not flatten labels and values into prose');
 
 $ordinaryDefinitionList = ( new HtmlTransformer() )->transform('<dl><dt>First topic</dt><dd>A full explanatory paragraph.</dd><dt>Second topic</dt><dd>Another explanatory paragraph.</dd></dl>')->toArray();
-$assert('blocks-engine/description-list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary direct definition lists retain semantic markup');
+$assert('custom/description-list' === ($ordinaryDefinitionList['blocks'][0]['blockName'] ?? null), 'ordinary direct definition lists retain semantic markup');
 $ordinaryProseRows = ( new HtmlTransformer() )->transform('<section><div style="display:grid;grid-template-columns:1fr 1fr"><p>First paragraph.</p><p>Second paragraph.</p></div><div style="display:grid;grid-template-columns:1fr 1fr"><p>Third paragraph.</p><p>Fourth paragraph.</p></div></section>')->toArray();
 $assert(0 === substr_count((string) ($ordinaryProseRows['serialized_blocks'] ?? ''), 'margin-top:0;margin-bottom:0'), 'ordinary grid prose is not misclassified as metadata rows');
 $horizontalFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-direction:row;gap:1rem}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
-$assert('blocks-engine/description-list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'direct flex definition lists retain semantic markup');
+$assert('custom/description-list' === ($horizontalFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'direct flex definition lists retain semantic markup');
 $wrappingFlexDefinitionList = ( new HtmlTransformer() )->transform('<style>.terms{display:flex;flex-wrap:wrap;column-gap:18px;row-gap:8px}</style><dl class="terms"><dt>One</dt><dd>First</dd><dt>Two</dt><dd>Second</dd></dl>')->toArray();
 $wrappingFlexMarkup = (string) ($wrappingFlexDefinitionList['serialized_blocks'] ?? '');
-$assert('blocks-engine/description-list' === ($wrappingFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'wrapping direct definition lists retain semantic markup');
+$assert('custom/description-list' === ($wrappingFlexDefinitionList['blocks'][0]['blockName'] ?? null), 'wrapping direct definition lists retain semantic markup');
 $assert(str_contains($wrappingFlexMarkup, '<dl class="terms">') && ! str_contains($wrappingFlexMarkup, 'is-layout-flex'), 'wrapping definition lists preserve stylesheet classes without Gutenberg layout classes');
 
 $navigationResult = ( new HtmlTransformer() )->transform('<nav class="primary"><a href="/about">About</a><a href="/contact">Contact</a></nav>')->toArray();
@@ -1281,7 +1281,7 @@ $assert('server_or_client_form_handler' === ($formRuntimeIslands[0]['runtime_req
 $nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form method="post" action="#"><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
 $capturedFormPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form data-ux="Form"><input name="email" type="email"><textarea name="message"></textarea><button type="submit">Send</button></form></main>')))->toArray();
 $capturedFormDeclaration = current(array_filter($capturedFormPlan['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
-$assert('html_form_fallback' === ($capturedFormPlan['fallbacks'][0]['diagnostic_code'] ?? '') && 3 === count($capturedFormDeclaration['payload']['entities'][0]['controls'] ?? array()) && ! str_contains((string) ($capturedFormPlan['serialized_blocks'] ?? ''), 'wp:blocks-engine/authored-native-form'), 'capture metadata on an unspecified native form preserves its provider-materializable fallback and declaration rather than inventing GET submission');
+$assert('html_form_fallback' === ($capturedFormPlan['fallbacks'][0]['diagnostic_code'] ?? '') && 3 === count($capturedFormDeclaration['payload']['entities'][0]['controls'] ?? array()) && ! str_contains((string) ($capturedFormPlan['serialized_blocks'] ?? ''), 'wp:custom/authored-native-form'), 'capture metadata on an unspecified native form preserves its provider-materializable fallback and declaration rather than inventing GET submission');
 $nestedControlSlot = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<form method="post" action="#"><div class="controls"><div><input name="email" type="email"><iframe src="https://example.com/form-help" width="80" height="60"></iframe></div><div><select name="region"><option>Global</option></select></div></div><button type="submit">Send</button></form>')))->toArray();
 $nestedFormDeclaration = current(array_filter($nestedControlSlot['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
 $nestedFormBinding = $nestedFormDeclaration['payload']['entities'][0]['bindings'][0]['search_block_markup'] ?? '';
@@ -2259,7 +2259,7 @@ $assert(array() === ($standaloneControls['fallbacks'] ?? array()), 'standalone r
 $assert('core/paragraph' === ($standaloneControlBlocks[0]['blockName'] ?? ''), 'standalone non-runtime input converts to readable paragraph');
 $assert('core/paragraph' === ($standaloneControlBlocks[1]['blockName'] ?? ''), 'source select label remains a sibling editable block');
 $assert('core/group' === ($standaloneControlBlocks[2]['blockName'] ?? ''), 'standalone static select retains the legacy structural group boundary');
-$assert('blocks-engine/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
+$assert('custom/authored-select' === ($standaloneControlBlocks[2]['innerBlocks'][0]['blockName'] ?? ''), 'standalone non-runtime select uses an authored-select editable native-control block inside its compatibility wrapper');
 $authoredSelectBlocks = array_values(array_filter($standaloneControls['source_reports']['generated_blocks'] ?? array(), static fn (array $block): bool => 'authored-select' === ($block['name'] ?? '')));
 $authoredSelectCss = (string) ($authoredSelectBlocks[0]['assets']['style.css'] ?? '');
 $assert(str_contains($authoredSelectCss, '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}') && ! str_contains($authoredSelectCss, '!important'), 'authored-select companion wrapper CSS preserves display contents without important declarations');
@@ -2283,7 +2283,7 @@ $styledInputs = ( new HtmlTransformer() )->transform(
 )->toArray();
 $styledInputBlocks = $styledInputs['blocks'][0]['innerBlocks'] ?? array();
 $styledInputMarkup = (string) ($styledInputs['serialized_blocks'] ?? '');
-$assert('blocks-engine/authored-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses an authored-input editable native-control block');
+$assert('custom/authored-input' === ($styledInputBlocks[0]['blockName'] ?? ''), 'static input with authored presentation uses an authored-input editable native-control block');
 $assert('core/paragraph' === ($styledInputBlocks[1]['blockName'] ?? ''), 'unstyled static input retains the readable-summary representation');
 $assert('core/html' === ($styledInputBlocks[2]['blockName'] ?? ''), 'runtime-targeted input retains native runtime-island behavior');
 $assert(str_contains($styledInputMarkup, '<input type="email" id="newsletter" name="email" value="member@example.com" placeholder="Trail updates + new kits" aria-label="Email for newsletter" class="footer-newsletter__input" required disabled readonly>'), 'compact input preserves authored type, identity, value, accessibility, state, and CSS selector attributes');
@@ -2302,7 +2302,7 @@ $unstyledSelect = ( new HtmlTransformer() )->transform(
 )->toArray();
 $unstyledSelectBlock = $unstyledSelect['blocks'][0] ?? array();
 $assert('core/group' === ($unstyledSelectBlock['blockName'] ?? '') && 'core/list' === ($unstyledSelectBlock['innerBlocks'][1]['blockName'] ?? ''), 'static select without authored presentation evidence retains the readable-list representation');
-$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-select'), 'unstyled static select does not generate an authored-select native-control block from class identity alone');
+$assert(! str_contains((string) ($unstyledSelect['serialized_blocks'] ?? ''), '<!-- wp:custom/authored-select'), 'unstyled static select does not generate an authored-select native-control block from class identity alone');
 
 $gridSelect = ( new HtmlTransformer() )->transform(
     '<main><div class="control-grid"><select id="grid-sort" class="catalog-sort"><option>Featured</option></select></div></main>',
@@ -2310,7 +2310,7 @@ $gridSelect = ( new HtmlTransformer() )->transform(
 )->toArray();
 $gridSelectBlock = $gridSelect['blocks'][0]['innerBlocks'][0] ?? array();
 $gridSelectDefinition = $gridSelect['source_reports']['generated_blocks'][0] ?? array();
-$assert('custom/layout-shell' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 2 === count($gridSelect['blocks'][0]['attrs']['wrappers'] ?? array()) && 'blocks-engine/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'styled select retains its direct native control through structural wrapper normalization');
+$assert('custom/layout-shell' === ($gridSelect['blocks'][0]['blockName'] ?? '') && 2 === count($gridSelect['blocks'][0]['attrs']['wrappers'] ?? array()) && 'custom/authored-select' === ($gridSelectBlock['blockName'] ?? ''), 'styled select retains its direct native control through structural wrapper normalization');
 $assert(str_contains((string) ($gridSelectDefinition['assets']['style.css'] ?? ''), 'display:contents'), 'compact select wrapper stylesheet flattens the compatibility group for authored grid and flex item sizing');
 
 $standaloneSearch = ( new HtmlTransformer() )->transform(
@@ -5436,14 +5436,14 @@ $authoredControlBlocks = $authoredControlsPayload['blocks'] ?? array();
 $assert(array( 'authored-select', 'authored-input' ) === array_column($authoredControlBlocks, 'name'), 'styled authored controls compile into companion entries using only their canonical short slugs');
 $authoredSelectCompanion = $authoredControlBlocks[0] ?? array();
 $authoredInputCompanion = $authoredControlBlocks[1] ?? array();
-$assert('blocks-engine/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
-$assert('blocks-engine/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
+$assert('custom/authored-select' === ($authoredSelectCompanion['block_json']['name'] ?? null), 'authored-select companion metadata uses its canonical block name');
+$assert('custom/authored-input' === ($authoredInputCompanion['block_json']['name'] ?? null), 'authored-input companion metadata uses its canonical block name');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredSelectCompanion['script_dependencies'] ?? null), 'authored-select companion dependency metadata survives payload compilation');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ) === ($authoredInputCompanion['script_dependencies'] ?? null), 'authored-input companion dependency metadata survives payload compilation');
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredSelectCompanion['assets']['index.js'] ?? ''), $authoredSelectRegistrations);
 preg_match_all("/registerBlockType\\(\\s*'([^']+)'/", (string) ($authoredInputCompanion['assets']['index.js'] ?? ''), $authoredInputRegistrations);
-$assert(array( 'blocks-engine/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
-$assert(array( 'blocks-engine/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
+$assert(array( 'custom/authored-select' ) === ($authoredSelectRegistrations[1] ?? array()), 'authored-select companion editor script registers only its canonical block name');
+$assert(array( 'custom/authored-input' ) === ($authoredInputRegistrations[1] ?? array()), 'authored-input companion editor script registers only its canonical block name');
 
 $scriptCompanion = $compiler->compile(
     array(
@@ -5533,7 +5533,7 @@ $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-
 $assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<dialog') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'data-blocks-engine-triggers='), 'captured dialog block preserves native dialog and trigger linkage');
 $assert(1 === preg_match('/<!-- wp:navigation-link [^>]*"anchor":"blocks-engine-dialog-trigger-[a-f0-9]{16}-1"/', (string) ($capturedDialog['serialized_blocks'] ?? '')), 'captured dialog trigger identity survives navigation-link conversion', (string) ($capturedDialog['serialized_blocks'] ?? ''));
 $assert(! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'provider.example') && ! str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'window.provider'), 'captured dialogs remove provider endpoints and executable source code');
-$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:blocks-engine/authored-native-form') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'action="/directory"'), 'ordinary static GET siblings retain the native form owner');
+$assert(str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), '<!-- wp:ssi-captured-dialog-site/authored-native-form') && str_contains((string) ($capturedDialog['serialized_blocks'] ?? ''), 'action="/directory"'), 'ordinary static GET siblings retain the native form owner');
 $capturedDialogBlocks = $capturedDialog['source_reports']['companion_plugin_payload']['blocks'] ?? array();
 $capturedDialogBlock = current(array_filter($capturedDialogBlocks, static fn(array $block): bool => 'captured-dialog' === ($block['name'] ?? ''))) ?: array();
 $assert('ssi-captured-dialog-site/captured-dialog' === ($capturedDialogBlock['block_json']['name'] ?? null), 'captured dialog companion metadata matches the serialized block namespace');
@@ -6283,7 +6283,7 @@ $descriptionListArtifact = ( new ArtifactCompiler() )->compile(array(
 $descriptionListPayload = $descriptionListArtifact['source_reports']['companion_plugin_payload'] ?? array();
 $descriptionListBlocks = $descriptionListPayload['blocks'] ?? array();
 $assert(1 === count($descriptionListBlocks), 'multi-page description lists project one deduplicated companion definition');
-$assert('blocks-engine/description-list' === ($descriptionListBlocks[0]['block_json']['name'] ?? null), 'companion payload projects the generated description-list block metadata');
+$assert('ssi-description-lists/description-list' === ($descriptionListBlocks[0]['block_json']['name'] ?? null), 'companion payload projects the generated description-list block metadata under the site-derived namespace');
 $assert(str_contains((string) ($descriptionListBlocks[0]['assets']['index.js'] ?? ''), 'registerBlockType'), 'companion payload projects the installable editor asset');
 $assert(array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ) === ($descriptionListBlocks[0]['script_dependencies'] ?? null), 'description-list companion dependency metadata survives payload compilation');
 $assert('semantic-description-list' === ($descriptionListArtifact['source_reports']['gutenberg_gaps'][0]['id'] ?? null), 'multi-page artifacts aggregate the Gutenberg gap once');

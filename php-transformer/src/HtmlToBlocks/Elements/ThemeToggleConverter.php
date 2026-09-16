@@ -98,7 +98,8 @@ final class ThemeToggleConverter implements ElementConverter
         $generator = new ThemeToggleBlockGenerator();
         $registry = $this->session->generatedBlockRegistry()
             ?? throw new LogicException('Generated block registry has not been prepared for this transform.');
-        $registry->register(ThemeToggleBlockGenerator::class, $generator->definition());
+        $blockName = $registry->blockName(ThemeToggleBlockGenerator::LOCAL_NAME);
+        $registry->register(ThemeToggleBlockGenerator::class, $generator->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')),
             'className' => trim(SourceDom::attr($element, 'class')),
@@ -112,7 +113,7 @@ final class ThemeToggleConverter implements ElementConverter
             'defaultTheme' => $capturedRootTheme,
             'storageKey' => 'theme',
         );
-        $markup = $generator->markup($attributes);
-        return array('blockName' => ThemeToggleBlockGenerator::NAME, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
+        $markup = $generator->markup($attributes, $blockName);
+        return array('blockName' => $blockName, 'attrs' => $attributes, 'innerBlocks' => array(), 'innerHTML' => $markup, 'innerContent' => array($markup));
     }
 }

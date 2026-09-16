@@ -52,10 +52,11 @@ $descriptionList = new DescriptionListBlockGenerator(
     new SourceElementClassifier(),
     function (string $identity, array $definition) use (&$registered): void {
         $registered[$identity] = $definition;
-    }
+    },
+    static fn (): string => 'custom'
 );
 $block = $descriptionList->convert($elementFrom('<dl class="facts"><dt>Office</dt><dd>North Hall</dd></dl>', 'dl'));
-$assert(DescriptionListBlockGenerator::NAME === ($block['blockName'] ?? null), 'description-list-convert-without-htmlcompilation');
+$assert('custom/description-list' === ($block['blockName'] ?? null), 'description-list-convert-without-htmlcompilation');
 $assert(isset($registered[DescriptionListBlockGenerator::class]), 'description-list-registers-companion-definition');
 $assert('Office' === ($block['attrs']['groups'][0]['terms'][0]['content'] ?? null), 'description-list-preserves-term-content');
 $assert(null === $descriptionList->convert($elementFrom('<dl><dd>Description before term</dd></dl>', 'dl')), 'description-list-rejects-malformed-list');
