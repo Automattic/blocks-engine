@@ -2673,15 +2673,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function accordionToggleMarker(DOMElement $control): string
     {
-        $css = $this->disclosureControlCarriedCss($control);
-        if ( '' === $css ) {
-            return '';
-        }
-
-        $marker = 'blocks-engine-accordion-toggle-' . substr(hash('sha256', $css), 0, 12);
-        $this->generatedSupportStyles()->registerAccordionTogglePresentation($marker, $css);
-
-        return $marker;
+        return $this->disclosureControlMarker($control, 'blocks-engine-accordion-toggle-');
     }
 
     /**
@@ -2698,13 +2690,37 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function disclosureSummaryMarker(DOMElement $summary): string
     {
-        $css = $this->disclosureControlCarriedCss($summary);
-        if ( '' === $css ) {
+        return $this->disclosureControlMarker($summary, 'blocks-engine-disclosure-summary-');
+    }
+
+    /**
+     * Register a core-owned control's presentation and return its marker.
+     *
+     * The unconditional box is resolved once. `display` is additionally stated
+     * per viewport whenever the source conditions it, because a control hidden
+     * by a responsive utility states its visibility only inside a media
+     * condition — flattening that to the reference viewport's value would show
+     * a small-screen control on every screen.
+     */
+    private function disclosureControlMarker(DOMElement $control, string $prefix): string
+    {
+        $conditionalDisplay = $this->styleResolver->conditionalDisplayRules($control);
+        $css = $this->disclosureControlCarriedCss($control, array() !== $conditionalDisplay);
+        if ( '' === $css && array() === $conditionalDisplay ) {
             return '';
         }
 
-        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
-        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+        $marker = $prefix . substr(hash('sha256', $css . '|' . serialize($conditionalDisplay)), 0, 12);
+        if ( '' !== $css ) {
+            if ( str_starts_with($prefix, 'blocks-engine-accordion-toggle-') ) {
+                $this->generatedSupportStyles()->registerAccordionTogglePresentation($marker, $css);
+            } else {
+                $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+            }
+        }
+        if ( array() !== $conditionalDisplay ) {
+            $this->generatedSupportStyles()->registerDisclosureControlConditionalDisplay($marker, $conditionalDisplay);
+        }
 
         return $marker;
     }
@@ -2715,7 +2731,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * Both core/details and core/accordion-heading save a bare trigger element,
      * so the source control's own presentation has to be restated as CSS.
      */
-    private function disclosureControlCarriedCss(DOMElement $control): string
+    private function disclosureControlCarriedCss(DOMElement $control, bool $displayIsConditional = false): string
     {
         $summary = $control;
         $declarations = $this->styleResolver->safeVisualDeclarations(
@@ -2742,6 +2758,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // restating it on the summary reaches the label again, and any rule the
         // label still owns keeps winning over it.
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
+        // A `display` the source states per viewport is carried with its
+        // conditions instead. Restating the reference viewport's value here
+        // unconditionally would outrank the author's own responsive rule, which
+        // is layered, and show a small-screen control on every screen.
+        if ( $displayIsConditional ) {
+            unset($carried['display']);
+        }
 
         return $this->styleResolver->cssDeclarationString($carried);
     }

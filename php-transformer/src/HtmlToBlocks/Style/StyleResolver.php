@@ -330,6 +330,42 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Viewport-scoped `display` values the source states for an element.
+     *
+     * A control that a responsive utility hides (`md:hidden`) states `display`
+     * only inside a media condition. Resolving that element's box at one
+     * reference viewport flattens the set to whichever value happened to apply
+     * there, so the conditions have to travel with the values.
+     *
+     * Keyed by condition text, so a condition restated later keeps the value
+     * that wins in source order.
+     *
+     * @return array<string, string>
+     */
+    public function conditionalDisplayRules(DOMElement $element): array
+    {
+        $rules = array();
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            $declared = trim((string) ( $rule['declarations']['display'] ?? '' ));
+            if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            // `@layer` scopes a declaration without conditioning it on the
+            // viewport, so it carries no condition to preserve.
+            $media = array_values(array_filter(
+                array_map('trim', $rule['conditions'] ?? array()),
+                static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
+            ));
+            if ( array() === $media ) {
+                continue;
+            }
+            $rules[implode('{', $media)] = $declared;
+        }
+
+        return $rules;
+    }
+
+    /**
      * The authored `font-size` that must be serialized inline on a text block
      * for the authored size to win at the WordPress runtime, or '' when nothing
      * needs baking.
