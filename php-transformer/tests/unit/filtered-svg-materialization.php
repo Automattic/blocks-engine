@@ -70,4 +70,18 @@ $assert(
     'Rendering hints survive into the materialized SVG asset so rasterization intent is preserved.'
 );
 
+$layerIdIcon = (new HtmlTransformer())->transform(
+    '<main><div class="elementor-icon"><svg id="Layer_1" viewBox="0 0 10 10"><style>.st0{fill:red}</style><g><path class="st0" d="M0 0h10v10z"></path></g></svg></div></main>'
+)->toArray();
+$layerIdIconMarkup = (string) ($layerIdIcon['serialized_blocks'] ?? '');
+$layerIdIconAssets = array_values(array_filter($layerIdIcon['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));
+$assert(
+    str_contains($layerIdIconMarkup, '<!-- wp:image') && !str_contains($layerIdIconMarkup, '<!-- wp:group {"anchor":"Layer_1"}'),
+    'Drawable icon SVGs with generic layer identifiers materialize instead of becoming empty groups.'
+);
+$assert(
+    1 === count($layerIdIconAssets) && str_contains((string) ($layerIdIconAssets[0]['content'] ?? ''), '<path'),
+    'Drawable icon SVGs with generic layer identifiers retain their artwork in a portable asset.'
+);
+
 fwrite(STDOUT, 'Filtered SVG materialization tests: ' . $assertions . " passed\n");

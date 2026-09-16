@@ -434,14 +434,15 @@ final class SourceElementClassifier
 
     public function isVisualLayerElement(DOMElement $element): bool
     {
-        $context = strtolower(trim(implode(' ', array(
+        $semanticContext = strtolower(trim(implode(' ', array(
             SourceDom::attr($element, 'class'),
-            SourceDom::attr($element, 'id'),
             SourceDom::attr($element, 'aria-label'),
         ))));
+        $identifier = strtolower(trim(SourceDom::attr($element, 'id')));
         $style = strtolower(SourceDom::attr($element, 'style'));
 
-        if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $context) ) {
+        if ( preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|layer|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $semanticContext)
+            || preg_match('/(?:^|[\s_-])(?:hero|decor|decorative|overlay|grain|noise|texture|glow|atmosphere|ambient|aura|orb|blob|backdrop|background|bg)(?:$|[\s_-])/', $identifier) ) {
             return true;
         }
 
