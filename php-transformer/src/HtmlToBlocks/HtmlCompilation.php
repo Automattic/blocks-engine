@@ -3784,6 +3784,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function sourceElementStartsHidden(DOMElement $element): bool
     {
+        if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return false;
+        }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
         $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
