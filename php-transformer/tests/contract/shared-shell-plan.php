@@ -250,4 +250,34 @@ $variantPlan = $variantResult['source_reports']['wordpress_site_plan'];
 $variantDiagnostic = current(array_filter($variantPlan['diagnostics'], static fn(array $diagnostic): bool => 'wordpress_site_plan_shell_retained_ambiguous' === ($diagnostic['code'] ?? null) && 'header' === ($diagnostic['area'] ?? null)));
 $assert(array() === array_values(array_filter($variantPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))) && 'non_equivalent' === ($variantDiagnostic['provenance']['reason'] ?? null), 'A non-current navigation presentation difference prevents false shared-header equivalence.');
 
+// Shared preparation must see the same linked stylesheet occurrences as page
+// workers, including repeated links with distinct media conditions.
+$linkedShellDocument = static fn(string $title): string => '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"><link rel="stylesheet" href="assets/site.css" media="print"></head><body><div class="site"><main><h1>' . $title . '</h1></main><footer class="site-footer"><div class="grid"><div><p>Contact</p></div><div><p>Social links</p></div></div></footer></div></body></html>';
+$linkedShellArtifact = array('entrypoint' => 'index.html', 'files' => array(
+    array('path' => 'index.html', 'content' => $linkedShellDocument('Home')),
+    array('path' => 'about.html', 'content' => $linkedShellDocument('About')),
+    array('path' => 'assets/site.css', 'content' => '.grid{display:grid;gap:12px}', 'metadata' => array('compilation' => array('scope' => 'shared'))),
+));
+$nestedLinkedShellFiles = array_map(static function (array $file): array {
+    $file['path'] = 'site/' . $file['path'];
+    return $file;
+}, $linkedShellArtifact['files']);
+foreach (array(
+    $linkedShellArtifact,
+    array('files' => $nestedLinkedShellFiles),
+    array('entrypoint' => 'missing.html', 'files' => $nestedLinkedShellFiles),
+) as $linkedVariant) {
+    $linkedShellCompiler = new ArtifactCompiler();
+    $linkedShellWhole = $linkedShellCompiler->compile($linkedVariant)->toArray()['source_reports']['compiled_site'];
+    $linkedShellShared = $linkedShellCompiler->prepareShared($linkedVariant);
+    $linkedShellPages = $linkedShellCompiler->preparePages($linkedVariant, $linkedShellShared);
+    $linkedShellReceipts = $linkedShellCompiler->compilePreparedPages($linkedShellShared, $linkedShellPages);
+    $linkedShellStaged = $linkedShellCompiler->compose($linkedShellShared, $linkedShellReceipts)->toArray()['source_reports']['compiled_site'];
+    $linkedShellFooter = static fn(array $compiled): string => (string) ((array_values(array_filter($compiled['inline_shell_artifacts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)))[0] ?? array())['block_markup'] ?? '');
+    $linkedWholeFooter = $linkedShellFooter($linkedShellWhole);
+    $linkedStagedFooter = $linkedShellFooter($linkedShellStaged);
+    $assert(str_contains($linkedWholeFooter, 'blocks-engine-css-owned-grid') && !str_contains($linkedWholeFooter, '"layout":{"type":"grid"}'), 'A linked one-column source grid stays CSS-owned instead of acquiring WordPress automatic columns.');
+    $assert($linkedWholeFooter === $linkedStagedFooter, 'Staged shared-shell compilation must resolve linked stylesheets before classifying footer layout, matching whole compilation.');
+}
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

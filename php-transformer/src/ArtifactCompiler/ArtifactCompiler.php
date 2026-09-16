@@ -3770,7 +3770,12 @@ final class ArtifactCompiler
     {
         $files = array_merge($partition['shared'], ...array_values($partition['pages']));
         $files = self::sortedBySourcePaths($files, $partition['source_paths']);
-        $entryPath = (string) ($partition['entrypoints'][0] ?? '');
+        // Match whole compilation's linked-stylesheet preparation before
+        // shared shell layout and presentation are classified, including its
+        // selected fallback HTML when no requested entrypoint exists.
+        $entry = $this->entryFile($files, $partition['entrypoints']);
+        $entryPath = (string) ($entry['path'] ?? '');
+        $files = $this->withStylesheetOccurrenceAssets((string) ($entry['content'] ?? ''), $entryPath, $files);
         $this->generatedAssetRoot = '.' === dirname($entryPath) ? '' : trim(dirname($entryPath), '/');
         $this->indexFiles($files);
         return $this->compileSharedInlineShells($files, $entryPath, (new CompanionPluginPayload())->blockNamespace($artifact));
