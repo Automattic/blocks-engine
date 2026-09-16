@@ -1166,8 +1166,22 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             foreach ( $rule['declarations'] as $property => $value ) {
-                if ( isset($wanted[ strtolower((string) $property) ]) ) {
-                    $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
+                $property = strtolower((string) $property);
+                if ( isset($wanted[ $property ]) ) {
+                    $declared[ $property ][] = $this->context->cssComparableValue((string) $value);
+                }
+                // The `background` shorthand resets every longhand it does not
+                // set, `background-image` included, so a rule that declares it
+                // is also the rule's stated `background-image` value even
+                // though the parser never sees that literal property name.
+                // Without this, an author rule painting an image through the
+                // shorthand is invisible here, an inline `background-image`
+                // override can never find the conflicting value it exists to
+                // beat, and the override is wrongly dropped.
+                if ( 'background' === $property && isset($wanted['background-image']) ) {
+                    $declared['background-image'][] = $this->context->cssComparableValue(
+                        $this->backgroundShorthandImageValue((string) $value)
+                    );
                 }
             }
         }
@@ -1175,6 +1189,19 @@ final class StyleResolver implements ElementPresentationResolver
         $cache->authorDeclaredPropertyValues[ $cacheKey ] = $declared;
 
         return $declared;
+    }
+
+    /**
+     * The `background-image` longhand a `background` shorthand implies.
+     * Mirrors `StyleAttributeMapper::backgroundColor()`'s treatment of the
+     * shorthand's color token: a shorthand without an image function paints
+     * the same "no image" state as an explicit `background-image: none`.
+     */
+    private function backgroundShorthandImageValue(string $shorthand): string
+    {
+        return preg_match('/\b(?:url\s*\(|[a-z-]*gradient\s*\()/i', $shorthand)
+            ? trim($shorthand)
+            : 'none';
     }
 
     /**
