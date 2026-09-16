@@ -2929,6 +2929,20 @@ $assert('core/image' === ($exportedSvgFilter['blocks'][0]['blockName'] ?? '') &&
 $exportedSvgBoxVariables = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" width="24" height="24" style="height:1em;min-height:calc(var(--nav-icon-width)*1px);min-width:calc(var(--nav-icon-width)*1px);width:1em"><path fill-rule="evenodd" d="M15 5 L16 6 L9 12 L16 18 L15 19 L8 12 Z"></path></svg></div>')->toArray();
 $assert('core/image' === ($exportedSvgBoxVariables['blocks'][0]['blockName'] ?? '') && array() === ($exportedSvgBoxVariables['fallbacks'] ?? array()), 'passive SVG root box variables transfer to native image geometry without raw HTML fallback');
 
+$unhyphenatedSvgPresentation = ( new HtmlTransformer() )->transform('<div class="variant-select-icon"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="12" style="display:block"><path fillrule="evenodd" cliprule="evenodd" d="M0.439453 1.49825L1.56057 0.501709L9.00001 8.87108L16.4395 0.501709L17.5606 1.49825L9.00001 11.1289L0.439453 1.49825Z"></path></svg></div>')->toArray();
+$unhyphenatedSvgHtmlCount = 0;
+$walkUnhyphenatedSvg = static function (array $blocks) use (&$walkUnhyphenatedSvg, &$unhyphenatedSvgHtmlCount): void {
+    foreach ( $blocks as $block ) {
+        if ( 'core/html' === ($block['blockName'] ?? null) ) {
+            $unhyphenatedSvgHtmlCount++;
+        }
+        $walkUnhyphenatedSvg($block['innerBlocks'] ?? array());
+    }
+};
+$walkUnhyphenatedSvg($unhyphenatedSvgPresentation['blocks'] ?? array());
+$assert(0 === $unhyphenatedSvgHtmlCount, 'HTML-serialized SVG fillrule/cliprule stay native instead of core/html');
+$assert(array() === ($unhyphenatedSvgPresentation['fallbacks'] ?? array()), 'HTML-serialized SVG fillrule/cliprule emit no fallback diagnostic');
+
 $exportedSvgPaintVariable = ( new HtmlTransformer() )->transform('<div><svg viewBox="0 0 24 24" style="fill:var(--icon-color)"><path d="M0 0h24v24H0z"></path></svg></div>')->toArray();
 $assert('core/html' === ($exportedSvgPaintVariable['blocks'][0]['blockName'] ?? ''), 'SVG paint variables remain inline because an image document cannot inherit the source custom property');
 

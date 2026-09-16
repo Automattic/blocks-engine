@@ -1122,11 +1122,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         ));
         $allowedAttributes = array_flip(array(
             'amplitude', 'aria-hidden', 'aria-label', 'azimuth', 'basefrequency', 'bias',
-            'class', 'clip-path', 'clip-rule', 'color-interpolation', 'color-interpolation-filters',
+            'class', 'clip-path', 'clip-rule', 'cliprule', 'color-interpolation', 'color-interpolation-filters',
             'color-rendering', 'cx', 'cy', 'd',
             'data-bbox', 'data-color', 'data-testid', 'data-type',
             'diffuseconstant', 'divisor', 'dominant-baseline', 'dx', 'dy', 'edgemode',
-            'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'flood-color',
+            'elevation', 'enable-background', 'exponent', 'fill', 'fill-opacity', 'fill-rule', 'fillrule', 'flood-color',
             'flood-opacity', 'font-family',
             'filter', 'filterunits', 'focusable', 'font-size', 'font-style', 'font-weight', 'gradienttransform', 'gradientunits',
             'height', 'id', 'image-rendering', 'letter-spacing', 'marker-end', 'marker-mid', 'marker-start',
