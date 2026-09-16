@@ -28,6 +28,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutB
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AccessibleLinkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\CustomBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionListBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
@@ -345,6 +346,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly FlowContainerElementConverter $flowContainerConverter;
 
     private readonly MediaDispatchElementConverter $mediaDispatchConverter;
+
+    private readonly AuthoredCarouselBlockGenerator $authoredCarouselGenerator;
+
+    private readonly DescriptionListBlockGenerator $descriptionListGenerator;
+
+    private readonly VisualIframeBlockGenerator $visualIframeGenerator;
+
+    private readonly CustomBlockGenerator $customBlockGenerator;
 
     private readonly UnsupportedElementRecorder $unsupportedRecorder;
 
@@ -765,9 +774,51 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver,
             $this
         ));
+        $this->descriptionListGenerator = new DescriptionListBlockGenerator(
+            $this->sourceElementClassifier,
+            function (string $identity, array $definition): void {
+                $this->generatedBlocks()->register($identity, $definition);
+            }
+        );
+        $this->authoredCarouselGenerator = new AuthoredCarouselBlockGenerator(
+            $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this,
+            $this->blockFactory,
+            $this->runtime,
+            $this->session,
+            fn (DOMElement $element): ?array => $this->convertImageElement($element),
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->convertChildren($element, $fallbacks, true);
+            }
+        );
+        $this->visualIframeGenerator = new VisualIframeBlockGenerator(
+            $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this,
+            $this->runtimeIslands,
+            $this->session,
+            fn (DOMElement $element): bool => $this->isInertRuntimeMediaPlaceholder($element),
+            fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
+            fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+            fn (DOMElement $element): array => $this->sourceContext($element)
+        );
+        $this->customBlockGenerator = new CustomBlockGenerator(
+            $this->sourceElementClassifier,
+            $this->styleResolver,
+            $this,
+            fn (DOMElement $element): bool => $this->isSafeTransparentCustomElement($element),
+            function (DOMElement $element, array &$fallbacks): array {
+                return $this->convertChildren($element, $fallbacks, true);
+            },
+            fn (DOMElement $element): bool => $this->hasAuthorSemanticMarker($element),
+            function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
+                return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
+            }
+        );
         $descriptionListConverter = new DescriptionListElementConverter(new DescriptionListElementContext(
             $this->sourceElementClassifier,
-            fn (DOMElement $element): ?array => $this->descriptionListBlockFromElement($element),
+            fn (DOMElement $element): ?array => $this->descriptionListGenerator->convert($element),
             fn (DOMElement $element): ?array => $this->metadataGridBlockFromElement($element),
             fn (DOMElement $element): array => $this->definitionListItems($element),
             fn (DOMElement $element): bool => $this->isCssOwnedGridElement($element),
@@ -844,7 +895,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             standaloneSearchBlock: fn (DOMElement $element): ?array => $this->searchBlockConverter->searchBlockFromStandaloneControl($element),
             readableFormControlBlock: fn (DOMElement $element): ?array => $this->readableFormControlBlockConverter->convert($element),
             cssAuthoredMarqueeBlock: fn (DOMElement $element): ?array => $this->cssAuthoredMarqueeBlock($element),
-            authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselBlock($element),
+            authoredCarouselBlock: fn (DOMElement $element): ?array => $this->authoredCarouselGenerator->convert($element),
             generatedComponentBlock: function (DOMElement $element): ?array {
                 $generated = $this->fallbackEmitter()->maybeGenerateCustomBlock($element, $this->generatedBlocks(), true, true);
                 return null !== $generated ? $this->generatedComponentBlock($generated, $element) : null;
@@ -863,7 +914,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): ?array => $this->convertImageElement($element),
             fn (DOMElement $element): ?array => $this->convertPictureElement($element),
-            fn (DOMElement $element, array &$fallbacks): ?array => $this->convertIframeElement($element, $fallbacks),
+            fn (DOMElement $element, array &$fallbacks): ?array => $this->visualIframeGenerator->convert($element, $fallbacks),
             fn (DOMElement $element): ?array => $this->convertMediaElement($element),
             fn (DOMElement $element): ?array => $this->imageBlockFromAnchor($element)
         ));
@@ -3208,7 +3259,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $flowContainerDispatch->block;
         }
 
-        $carousel = $this->authoredCarouselBlock($element);
+        $carousel = $this->authoredCarouselGenerator->convert($element);
         if ( null !== $carousel ) {
             return $carousel;
         }
@@ -3234,7 +3285,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $linkBearingElement;
         }
 
-        $transparentCustomElement = $this->transparentCustomElementBlock($element, $fallbacks);
+        $transparentCustomElement = $this->customBlockGenerator->convert($element, $fallbacks);
         if ( null !== $transparentCustomElement ) {
             return $transparentCustomElement;
         }
@@ -3295,92 +3346,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             array( $this->createBlock('core/button', $attrs, array(), $element) ),
             $element
         );
-    }
-
-    /**
-     * Custom elements and static legacy content containers are presentation-only
-     * only when their host exposes no component API and every child can stand on
-     * its own as a native block.
-     * Explicit ARIA list topology is retained with semantic Group wrappers.
-     *
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function transparentCustomElementBlock(DOMElement $element, array &$fallbacks): ?array
-    {
-        $tagName = strtolower($element->tagName);
-        // A legacy content element can also wrap an ordinary static subtree.
-        // Its select attribute denotes Shadow DOM distribution, which must not
-        // be reinterpreted as a presentation-only container.
-        $isStaticContentContainer = 'content' === $tagName && ! $element->hasAttribute('select');
-        if ( (! str_contains($tagName, '-') && ! $isStaticContentContainer) || ! $this->isSafeTransparentCustomElement($element) ) {
-            return null;
-        }
-
-        $children = array();
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( XML_COMMENT_NODE === $child->nodeType ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-            $children[] = $child;
-        }
-        if ( array() === $children ) {
-            return null;
-        }
-
-        $isList = 'list' === strtolower($this->attr($element, 'role'));
-        if ( $isList && ! array_reduce($children, fn (bool $valid, DOMElement $child): bool => $valid && 'listitem' === strtolower($this->attr($child, 'role')), true) ) {
-            return null;
-        }
-        // A non-semantic custom element is transparent only as a single
-        // structural wrapper. Larger arbitrary subtrees remain eligible for
-        // the custom-block generator rather than being prematurely flattened.
-        if ( ! $isList && (1 !== count($children) || ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($children[0])) ) {
-            return null;
-        }
-
-        $converted = array();
-        $childFallbacks = array();
-        foreach ( $children as $child ) {
-            if ( $isList && ! $this->isSafeTransparentCustomElement($child) ) {
-                return null;
-            }
-            $childBlocks = $this->convertChildren($child, $childFallbacks, true);
-            if ( array() === $childBlocks ) {
-                return null;
-            }
-            if ( $isList ) {
-                $converted[] = $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($child), array( 'tagName' => 'li' )), $childBlocks, $child);
-            } else {
-                array_push($converted, ...$childBlocks);
-            }
-        }
-        if ( array() !== $childFallbacks ) {
-            return null;
-        }
-
-        if ( $isList ) {
-            return $this->createBlock('core/group', array_merge($this->styleResolver->presentationAttributes($element), array( 'tagName' => 'ul' )), $converted, $element);
-        }
-
-        if ( $this->hasAuthorSemanticMarker($element)
-            || $this->hasAuthorSemanticMarker($children[0])
-            || array() !== $this->styleResolver->presentationAttributes($children[0])
-        ) {
-            return $this->layoutShellBlockForElements(array( $element, $children[0] ), $converted, $element);
-        }
-
-        if ( 1 === count($converted) && array() === $this->styleResolver->presentationAttributes($element) ) {
-            return $converted[0];
-        }
-
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $converted, $element);
     }
 
     /**
@@ -7762,232 +7727,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * Preserve valid direct and div-grouped description lists as a static
-     * companion block while retaining the existing direct-list group schema.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function descriptionListBlockFromElement(DOMElement $list): ?array
-    {
-        $groups = array();
-        $group = null;
-
-        foreach ( $list->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                return null;
-            }
-
-            $tag = strtolower($child->tagName);
-            if ( 'div' === $tag ) {
-                if ( null !== $group ) {
-                    $groups[] = $group;
-                    $group = null;
-                }
-                $wrappedGroup = $this->descriptionListWrappedGroup($child);
-                if ( null === $wrappedGroup ) {
-                    return null;
-                }
-                $groups[] = $wrappedGroup;
-                continue;
-            }
-            if ( ! in_array($tag, array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
-                return null;
-            }
-            if ( 'dt' === $tag ) {
-                if ( null === $group || array() !== $group['descriptions'] ) {
-                    if ( null !== $group ) {
-                        $groups[] = $group;
-                    }
-                    $group = array( 'terms' => array(), 'descriptions' => array() );
-                }
-                $group['terms'][] = $this->descriptionListItem($child);
-                continue;
-            }
-            if ( 'dd' !== $tag || null === $group || array() === $group['terms'] ) {
-                return null;
-            }
-            $group['descriptions'][] = $this->descriptionListItem($child);
-        }
-
-        if ( null !== $group ) {
-            if ( array() === $group['descriptions'] ) {
-                return null;
-            }
-            $groups[] = $group;
-        }
-        if ( array() === $groups ) {
-            return null;
-        }
-
-        $this->generatedBlocks()->register(DescriptionListBlockGenerator::class, ( new DescriptionListBlockGenerator() )->definition());
-
-        $markup = $this->descriptionListMarkup($list, $groups);
-        return array(
-            'blockName' => DescriptionListBlockGenerator::NAME,
-            'attrs' => array_filter(array(
-                'className' => $list->getAttribute('class'),
-                'style' => $list->getAttribute('style'),
-                'groups' => $groups,
-            ), static fn (mixed $value): bool => '' !== $value),
-            'innerBlocks' => array(),
-            'innerHTML' => $markup,
-            'innerContent' => array( $markup ),
-        );
-    }
-
-    private function descriptionListItemSupportsRichText(DOMElement $element): bool
-    {
-        foreach ( $element->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement ) {
-                return false;
-            }
-
-            $tag = strtolower($child->tagName);
-            if ( 'a' !== $tag && 'br' !== $tag && ! $this->sourceElementClassifier->isInlineContentElement($tag) ) {
-                return false;
-            }
-            foreach ( $child->attributes as $attribute ) {
-                $attributeName = strtolower($attribute->name);
-                if ( ! ( 'a' === $tag && in_array($attributeName, array( 'href', 'target', 'rel' ), true) ) && ! ( 'time' === $tag && 'datetime' === $attributeName ) ) {
-                    return false;
-                }
-            }
-            if ( ! $this->descriptionListItemSupportsRichText($child) ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /** @return array<string, mixed>|null */
-    private function descriptionListWrappedGroup(DOMElement $wrapper): ?array
-    {
-        $items = array();
-        $hasTerm = false;
-        $hasDescription = false;
-        foreach ( $wrapper->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) || ! $this->descriptionListItemSupportsRichText($child) ) {
-                return null;
-            }
-            $tag = strtolower($child->tagName);
-            if ( 'dt' === $tag ) {
-                if ( $hasTerm && ! $hasDescription ) {
-                    // Multiple terms may describe the same following definition.
-                } elseif ( $hasDescription ) {
-                    $hasDescription = false;
-                }
-                $hasTerm = true;
-            } elseif ( ! $hasTerm ) {
-                return null;
-            } else {
-                $hasDescription = true;
-            }
-            $items[] = array_merge(array( 'tagName' => $tag ), $this->descriptionListItem($child));
-        }
-
-        if ( ! $hasDescription ) {
-            return null;
-        }
-
-        return array(
-            'wrapper' => $this->descriptionListWrapper($wrapper),
-            'items' => $items,
-        );
-    }
-
-    /** @return array<string, string> */
-    private function descriptionListItem(DOMElement $element): array
-    {
-        return array_filter(array(
-            'content' => $this->innerHtml($element),
-            'className' => $element->getAttribute('class'),
-            'style' => $element->getAttribute('style'),
-        ), static fn (mixed $value): bool => '' !== $value);
-    }
-
-    /** @return array<string, mixed> */
-    private function descriptionListWrapper(DOMElement $element): array
-    {
-        $wrapper = array_filter(array(
-            'className' => $element->getAttribute('class'),
-            'style' => $element->getAttribute('style'),
-        ), static fn (mixed $value): bool => '' !== $value);
-        $attributes = array();
-        foreach ( $element->attributes as $attribute ) {
-            $name = strtolower($attribute->name);
-            if ( $this->descriptionListWrapperAttributeIsSafe($name) ) {
-                $attributes[$name] = $attribute->value;
-            }
-        }
-        if ( array() !== $attributes ) {
-            $wrapper['attributes'] = $attributes;
-        }
-        return $wrapper;
-    }
-
-    private function descriptionListWrapperAttributeIsSafe(string $name): bool
-    {
-        if ( in_array($name, array( 'id', 'role' ), true) || str_starts_with($name, 'aria-') ) {
-            return true;
-        }
-
-        // Keep passive data hooks but exclude WordPress Interactivity API directives.
-        return str_starts_with($name, 'data-') && ! str_starts_with($name, 'data-wp-');
-    }
-
-    /** @param array<int, array<string, mixed>> $groups */
-    private function descriptionListMarkup(DOMElement $list, array $groups): string
-    {
-        $markup = '<dl' . $this->descriptionListMarkupAttributes(array(
-            'className' => $list->getAttribute('class'),
-            'style' => $list->getAttribute('style'),
-        )) . '>';
-        foreach ( $groups as $group ) {
-            if ( isset($group['wrapper']) && is_array($group['wrapper']) ) {
-                $markup .= '<div' . $this->descriptionListMarkupAttributes($group['wrapper']) . '>';
-                foreach ( $group['items'] ?? array() as $item ) {
-                    $tag = $item['tagName'] ?? '';
-                    $markup .= '<' . $tag . $this->descriptionListMarkupAttributes($item) . '>' . ($item['content'] ?? '') . '</' . $tag . '>';
-                }
-                $markup .= '</div>';
-                continue;
-            }
-            foreach ( $group['terms'] as $term ) {
-                $markup .= '<dt' . $this->descriptionListMarkupAttributes($term) . '>' . ($term['content'] ?? '') . '</dt>';
-            }
-            foreach ( $group['descriptions'] as $description ) {
-                $markup .= '<dd' . $this->descriptionListMarkupAttributes($description) . '>' . ($description['content'] ?? '') . '</dd>';
-            }
-        }
-        return $markup . '</dl>';
-    }
-
-    /** @param array<string, mixed> $attributes */
-    private function descriptionListMarkupAttributes(array $attributes): string
-    {
-        $markup = '';
-        foreach ( array( 'className' => 'class', 'style' => 'style' ) as $key => $name ) {
-            if ( '' !== (string) ($attributes[$key] ?? '') ) {
-                $markup .= ' ' . $name . '="' . htmlspecialchars((string) $attributes[$key], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-            }
-        }
-        foreach ( $attributes['attributes'] ?? array() as $name => $value ) {
-            $markup .= ' ' . $name . '="' . htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '"';
-        }
-        return $markup;
-    }
-
-    /**
      * Convert compact label/value grids into native blocks without letting the
      * paragraph block's default margins turn each record into prose flow.
      *
@@ -10180,351 +9919,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    /** @return array<string, mixed>|null */
-    private function authoredCarouselBlock(DOMElement $element): ?array
-    {
-        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($element) ) {
-            return null;
-        }
-
-        $hasPrevious = false;
-        $hasNext = false;
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
-                continue;
-            }
-            $metadataIdentity = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), implode(' ', array(
-                $this->attr($candidate, 'aria-label'),
-                $this->attr($candidate, 'title'),
-                $this->attr($candidate, 'class'),
-                $this->attr($candidate, 'data-hook'),
-                $this->attr($candidate, 'data-testid'),
-            ))));
-            $text = strtolower(trim($candidate->textContent ?? ''));
-            if ( 1 !== preg_match('/(?:^|[^a-z0-9])(?:slide|item|carousel|gallery|prev|previous|next|nav[^a-z0-9]*arrow|arrow[^a-z0-9]*nav)(?:[^a-z0-9]|$)/', $metadataIdentity)
-                && 1 !== preg_match('/^(?:prev|previous|next)$/', $text)
-            ) {
-                continue;
-            }
-            $identity = $metadataIdentity . ' ' . $text;
-            $hasPrevious = $hasPrevious || 1 === preg_match('/(?:^|[^a-z])(?:prev|previous)(?:[^a-z]|$)/', $identity);
-            $hasNext = $hasNext || 1 === preg_match('/(?:^|[^a-z])next(?:[^a-z]|$)/', $identity);
-        }
-        [$list, $items] = $this->richestCarouselList($element);
-        $localList = $list;
-        if ( count($items) < 2 ) {
-            foreach ( $element->ownerDocument?->getElementsByTagName('*') ?? array() as $counterpart ) {
-                if ( ! $counterpart instanceof DOMElement || $counterpart === $element || ! $this->sharesCarouselIdentity($element, $counterpart) ) {
-                    continue;
-                }
-                [$candidateList, $candidateItems] = $this->richestCarouselList($counterpart);
-                if ( count($candidateItems) > count($items) ) {
-                    $list = $candidateList;
-                    $items = $candidateItems;
-                }
-            }
-        }
-        $paginationCount = $this->carouselPaginationCount($element);
-        // Boundary-state carousels commonly omit one direction, while compact
-        // variants can expose only indexed pagination for the same interaction.
-        if ( (! $hasPrevious && ! $hasNext && $paginationCount < 2) || ! $list instanceof DOMElement || count($items) < 2 ) {
-            return null;
-        }
-
-        $slides = array();
-        foreach ( $items as $sourceItem ) {
-            [$item, $temporary] = $this->carouselItemInRoot($sourceItem, $element, $localList);
-            $image = $item->getElementsByTagName('img')->item(0);
-            if ( $image instanceof DOMElement ) {
-                $slide = $this->convertImageElement($image);
-                if ( null === $slide || 'core/image' !== ($slide['blockName'] ?? null) ) {
-                    if ( $temporary ) {
-                        $item->parentNode?->removeChild($item);
-                    }
-                    return null;
-                }
-                $caption = $this->carouselItemCaption($item);
-                if ( '' !== $caption ) {
-                    $slide['attrs']['caption'] = $caption;
-                    $slide = $this->blockFactory->create('core/image', $slide['attrs'], array());
-                }
-            } else {
-                $slideFallbacks = array();
-                $children = $this->convertChildren($item, $slideFallbacks, true);
-                if ( array() === $children || array() !== $slideFallbacks ) {
-                    if ( $temporary ) {
-                        $item->parentNode?->removeChild($item);
-                    }
-                    return null;
-                }
-                $slide = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $children, $item);
-            }
-            $slides[] = $slide;
-            if ( $temporary ) {
-                $item->parentNode?->removeChild($item);
-            }
-        }
-
-        $listIdentity = strtolower(implode(' ', array($list->tagName, $this->attr($list, 'class'), $this->attr($list, 'role'), $this->attr($list, 'data-hook'))));
-        $rootIdentity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array($element->tagName, $this->attr($element, 'id'), $this->attr($element, 'class'), $this->attr($element, 'data-testid')))));
-        $isTrackList = 1 === preg_match('/(?:^|[^a-z0-9])(?:track|rail|scroll(?:er)?)(?:[^a-z0-9]|$)/', $listIdentity);
-        $presentation = 1 === preg_match('/(?:^|[^a-z0-9])slideshow(?:[^a-z0-9]|$)/', $listIdentity . ' ' . $rootIdentity) ? 'slideshow' : 'track';
-        $initialSlide = 0;
-        foreach ( $items as $index => $item ) {
-            if ( '' !== $this->attr($item, 'data-slideshow-slide') || (! $isTrackList && '' !== $this->attr($item, 'aria-hidden')) ) {
-                $presentation = 'slideshow';
-            }
-            if ( ('slideshow' === $presentation && 'false' === strtolower(trim($this->attr($item, 'aria-hidden')))) || str_contains(' ' . strtolower($this->attr($item, 'class')) . ' ', ' active ') ) {
-                $initialSlide = $index;
-            }
-        }
-
-        $showDots = $paginationCount >= 2;
-        foreach ( $element->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
-                if ( ctype_digit(trim($this->attr($candidate, $attribute))) ) {
-                    $showDots = true;
-                    break 2;
-                }
-            }
-        }
-
-        $durationMilliseconds = static function (string $value): int {
-            if ( 1 !== preg_match('/^([0-9]+(?:\.[0-9]+)?)(ms|s)$/', strtolower(trim($value)), $matches) ) {
-                return 0;
-            }
-            $milliseconds = (float) $matches[1] * ('s' === $matches[2] ? 1000 : 1);
-            return (int) round($milliseconds);
-        };
-        $transitionDuration = 0;
-        $autoplayInterval = 0;
-        foreach ( $items as $item ) {
-            $transitionDuration = max($transitionDuration, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($item, 'style'))['animation-duration'] ?? '')));
-            foreach ( $item->getElementsByTagName('*') as $descendant ) {
-                if ( ! $descendant instanceof DOMElement ) {
-                    continue;
-                }
-                $autoplayInterval = max($autoplayInterval, $durationMilliseconds((string) ($this->styleResolver->cssDeclarations($this->attr($descendant, 'style'))['animation-duration'] ?? '')));
-            }
-        }
-        if ( $autoplayInterval <= $transitionDuration ) {
-            $autoplayInterval = 0;
-        }
-        if ( 0 === $transitionDuration ) {
-            $transitionDuration = 300;
-        }
-
-        $geometryList = $localList instanceof DOMElement ? $localList : $list;
-        $listHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($geometryList)['height'] ?? '');
-        $rootHeight = (string) ($this->styleResolver->structuralPresentationDeclarations($element)['height'] ?? '');
-        $height = 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', trim($listHeight)) ? $listHeight : $rootHeight;
-        $viewportHeight = 1 === preg_match('/^([0-9]+(?:\.[0-9]+)?)px$/', trim($height), $heightMatch) ? (int) round((float) $heightMatch[1]) : 0;
-        $rootDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
-        $rootWidth = strtolower((string) preg_replace('/\s+/', '', (string) ($rootDeclarations['width'] ?? '')));
-        $fullBleed = ('100vw' === $rootWidth || 1 === preg_match('/^[0-9]+(?:\.[0-9]+)?px$/', $rootWidth))
-            && 1 === preg_match('/^-\s*(?:[0-9]+|[0-9]*\.[0-9]+)(?:px|rem|em|%)$/', strtolower(trim((string) ($rootDeclarations['left'] ?? ''))));
-
-        $generator = new AuthoredCarouselBlockGenerator();
-        $this->generatedBlocks()->register(AuthoredCarouselBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
-        $attributes = array(
-            'ariaLabel' => trim($this->attr($element, 'aria-label')) ?: 'Carousel',
-            'itemsPerView' => 'slideshow' === $presentation ? 1 : min(4, count($slides)),
-            'wrap' => $hasPrevious && $hasNext,
-            'presentation' => $presentation,
-            'slideCount' => count($slides),
-            'initialSlide' => $initialSlide,
-            'viewportHeight' => 'slideshow' === $presentation ? $viewportHeight : 0,
-            'transitionDuration' => 'slideshow' === $presentation ? $transitionDuration : 300,
-            'autoplayInterval' => 'slideshow' === $presentation ? $autoplayInterval : 0,
-            'showDots' => 'slideshow' === $presentation && $showDots,
-            'fullBleed' => 'slideshow' === $presentation && $fullBleed,
-        );
-        $shell = $generator->shell($attributes);
-        $innerContent = array($shell['opening']);
-        foreach ( $slides as $_ ) {
-            $innerContent[] = null;
-        }
-        $innerContent[] = $shell['closing'];
-
-        return array(
-            'blockName' => $this->generatedBlocks()->blockName(AuthoredCarouselBlockGenerator::LOCAL_NAME),
-            'attrs' => $attributes,
-            'innerBlocks' => $slides,
-            'innerHTML' => $shell['opening'] . $shell['closing'],
-            'innerContent' => $innerContent,
-        );
-    }
-
-    /** @return array{0: DOMElement|null, 1: array<int, DOMElement>} */
-    private function richestCarouselList(DOMElement $root): array
-    {
-        $list = null;
-        $items = array();
-        foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! $this->sourceElementClassifier->isCarouselList($candidate) || $this->sourceElementClassifier->isExpandedCarouselState($candidate, $root) ) {
-                continue;
-            }
-            $candidateItems = $this->carouselListItems($candidate);
-            if ( count($candidateItems) > count($items) && $this->carouselItemsHaveContent($candidateItems) ) {
-                $list = $candidate;
-                $items = $candidateItems;
-            }
-        }
-        return array($list, $items);
-    }
-
-    /** @param array<int, DOMElement> $items */
-    private function carouselItemsHaveContent(array $items): bool
-    {
-        foreach ( $items as $item ) {
-            if ( 0 === $item->getElementsByTagName('img')->length
-                && '' === trim(str_replace("\xc2\xa0", ' ', $item->textContent ?? ''))
-            ) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private function carouselPaginationCount(DOMElement $root): int
-    {
-        $count = 0;
-        foreach ( $root->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement || ! in_array(strtolower($candidate->tagName), array('a', 'button'), true) ) {
-                continue;
-            }
-            $identity = strtolower((string) preg_replace('/([a-z0-9])([A-Z])/', '$1 $2', implode(' ', array(
-                $this->attr($candidate, 'aria-label'),
-                $this->attr($candidate, 'class'),
-                $this->attr($candidate, 'data-testid'),
-            ))));
-            $indexed = false;
-            foreach ( array('data-slide', 'data-slide-index', 'data-carousel-index', 'data-slideshow-item', 'data-uk-slideshow-item') as $attribute ) {
-                $indexed = $indexed || ctype_digit(trim($this->attr($candidate, $attribute)));
-            }
-            if ( $indexed || 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item)[^a-z0-9]*[0-9]+(?:[^a-z0-9]|$)/', $identity) ) {
-                ++$count;
-            }
-        }
-        return $count;
-    }
-
-    /** @return array{0: DOMElement, 1: bool} */
-    private function carouselItemInRoot(DOMElement $item, DOMElement $root, ?DOMElement $localList): array
-    {
-        for ( $ancestor = $item; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            if ( $ancestor === $root ) {
-                return array($item, false);
-            }
-        }
-        if ( $localList instanceof DOMElement ) {
-            $itemId = trim($this->attr($item, 'id'));
-            if ( '' !== $itemId ) {
-                foreach ( $this->carouselListItems($localList) as $localItem ) {
-                    if ( $itemId === trim($this->attr($localItem, 'id')) ) {
-                        return array($localItem, false);
-                    }
-                }
-            }
-        }
-
-        $clone = $item->cloneNode(true);
-        if ( ! $clone instanceof DOMElement ) {
-            return array($item, false);
-        }
-        ($localList ?? $root)->appendChild($clone);
-        return array($clone, true);
-    }
-
-    private function sharesCarouselIdentity(DOMElement $left, DOMElement $right): bool
-    {
-        if ( ! $this->sourceElementClassifier->hasCarouselIdentity($right) ) {
-            return false;
-        }
-        $leftId = trim($this->attr($left, 'id'));
-        if ( '' !== $leftId && $leftId === trim($this->attr($right, 'id')) ) {
-            return true;
-        }
-
-        $identityClasses = static function (string $classes): array {
-            $matches = array();
-            foreach ( preg_split('/\s+/', trim($classes)) ?: array() as $class ) {
-                $words = strtolower((string) preg_replace(array('/([a-z0-9])([A-Z])/', '/([A-Z]+)([A-Z][a-z])/'), array('$1 $2', '$1 $2'), $class));
-                if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:carousel|gallery|slider|slideshow)(?:[^a-z0-9]|$)/', $words) ) {
-                    $matches[] = $class;
-                }
-            }
-            return $matches;
-        };
-        return array() !== array_intersect($identityClasses($this->attr($left, 'class')), $identityClasses($this->attr($right, 'class')));
-    }
-
-    /** @return array<int, DOMElement> */
-    private function carouselListItems(DOMElement $list): array
-    {
-        $items = array();
-        foreach ( $list->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-            if ( 'listitem' === strtolower(trim($this->attr($child, 'role'))) || 'li' === strtolower($child->tagName) ) {
-                $items[] = $child;
-                continue;
-            }
-
-            $identity = strtolower(implode(' ', array(
-                $child->tagName,
-                $this->attr($child, 'class'),
-                $this->attr($child, 'data-hook'),
-                $this->attr($child, 'data-testid'),
-            )));
-            if ( 1 === preg_match('/(?:^|[^a-z0-9])(?:slide|item|group)(?:[^a-z0-9]|$)/', $identity)
-                && 0 < $child->getElementsByTagName('img')->length
-            ) {
-                $items[] = $child;
-                continue;
-            }
-            if ( '' !== trim(str_replace("\xc2\xa0", ' ', $child->textContent ?? ''))
-                && ! in_array(strtolower($child->tagName), array('a', 'button', 'nav'), true)
-            ) {
-                $items[] = $child;
-            }
-        }
-
-        return $items;
-    }
-
-    private function carouselItemCaption(DOMElement $item): string
-    {
-        $title = '';
-        $description = '';
-        foreach ( $item->getElementsByTagName('*') as $candidate ) {
-            if ( ! $candidate instanceof DOMElement ) {
-                continue;
-            }
-            $identity = strtolower($this->attr($candidate, 'class') . ' ' . $this->attr($candidate, 'data-hook'));
-            if ( '' === $title && 1 === preg_match('/(?:^|[^a-z0-9])title(?:[^a-z0-9]|$)/', $identity) ) {
-                $title = trim($candidate->textContent ?? '');
-            }
-            if ( '' === $description && 1 === preg_match('/(?:^|[^a-z0-9])description(?:[^a-z0-9]|$)/', $identity) ) {
-                $description = trim($candidate->textContent ?? '');
-            }
-        }
-        if ( '' === $title ) {
-            $title = trim($this->attr($item, 'aria-label'));
-        }
-        if ( '' === $title && '' === $description ) {
-            $description = trim($item->textContent ?? '');
-        }
-
-        $title = '' === $title ? '' : '<strong>' . $this->runtime->escapeHtml($title) . '</strong>';
-        $description = $this->runtime->escapeHtml($description);
-        return trim($title . ('' !== $title && '' !== $description ? '<br>' : '') . $description);
-    }
-
     /**
      * Preserve responsive sources as valid raw HTML rather than placing
      * unsupported attributes in a core/image save shape.
@@ -11015,458 +10409,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $rebuilt;
-    }
-
-    private function safeEmbedUrl(string $url): string
-    {
-        $url = trim($url);
-        if ( '' === $url || ! preg_match('#^https?://#i', $url) ) {
-            return '';
-        }
-
-        return preg_match('/[\x00-\x1f\x7f]|javascript\s*:/i', $url) ? '' : $url;
-    }
-
-    private function canonicalEmbedUrl(string $url): string
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        $path = (string) parse_url($url, PHP_URL_PATH);
-
-        $facebookVideoUrl = $this->facebookPluginVideoUrl($url);
-        if ( '' !== $facebookVideoUrl ) {
-            return $facebookVideoUrl;
-        }
-
-        if ( ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') ) && preg_match('~^/embed/([^/?#]+)~', $path, $matches) ) {
-            return 'https://www.youtube.com/watch?v=' . $matches[1];
-        }
-
-        if ( 'youtu.be' === $host && '' !== trim($path, '/') ) {
-            return 'https://www.youtube.com/watch?v=' . trim($path, '/');
-        }
-
-        if ( str_ends_with($host, 'vimeo.com') && preg_match('#/(?:video/)?(\d+)#', $path, $matches) ) {
-            return 'https://vimeo.com/' . $matches[1];
-        }
-
-        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/([^/?#]+)~', $path, $matches) ) {
-            return 'https://www.dailymotion.com/video/' . $matches[1];
-        }
-
-        if ( 'open.spotify.com' === $host && preg_match('~^/embed/((?:track|album|playlist|episode|show|artist)/[^/?#]+)~', $path, $matches) ) {
-            return 'https://open.spotify.com/' . $matches[1];
-        }
-
-        return $url;
-    }
-
-    private function facebookPluginVideoUrl(string $url): string
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        $path = (string) parse_url($url, PHP_URL_PATH);
-        if ( ! str_ends_with($host, 'facebook.com') || '/plugins/video.php' !== $path ) {
-            return '';
-        }
-
-        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
-        $videoUrl = $this->safeEmbedUrl(is_string($query['href'] ?? null) ? $query['href'] : '');
-        $videoHost = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
-
-        return str_ends_with($videoHost, 'facebook.com') ? $videoUrl : '';
-    }
-
-    private function embedProviderSlug(string $url): string
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-        $path = (string) parse_url($url, PHP_URL_PATH);
-        if ( str_ends_with($host, 'youtube.com') || str_ends_with($host, 'youtube-nocookie.com') || 'youtu.be' === $host ) {
-            return 'youtube';
-        }
-        if ( str_ends_with($host, 'vimeo.com') ) {
-            return 'vimeo';
-        }
-        if ( str_ends_with($host, 'dailymotion.com') && preg_match('~^/embed/video/[^/?#]+~', $path) ) {
-            return 'dailymotion';
-        }
-        if ( 'open.spotify.com' === $host && preg_match('~^/embed/(?:track|album|playlist|episode|show|artist)/[^/?#]+~', $path) ) {
-            return 'spotify';
-        }
-        if ( '' !== $this->facebookPluginVideoUrl($url) ) {
-            return 'facebook';
-        }
-
-        return '';
-    }
-
-    private function embedTypeForSlug(string $slug): string
-    {
-        return 'spotify' === $slug ? 'rich' : 'video';
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    private function safeEmbedAttributes(DOMElement $element): array
-    {
-        $safe = array();
-        $allowed = array_flip(array( 'allow', 'allowfullscreen', 'class', 'height', 'loading', 'referrerpolicy', 'sandbox', 'src', 'title', 'width' ));
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
-            if ( isset($allowed[$name]) && ! preg_match('/javascript\s*:/i', $value) ) {
-                $safe[$name] = strlen($value) > 300 ? substr($value, 0, 300) . '...' : $value;
-            }
-        }
-
-        return $safe;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $fallbacks
-     * @return array<string, mixed>|null
-     */
-    private function convertIframeElement(DOMElement $iframe, array &$fallbacks): ?array
-    {
-        $customHost = 'iframe' !== strtolower($iframe->tagName) ? $iframe : null;
-        $surface = $iframe;
-        $url = '';
-        if ( $customHost instanceof DOMElement ) {
-            $classification = $this->classifyCustomIframeSurface($customHost);
-            if ( 'inert' === $classification['disposition'] ) {
-                return null;
-            }
-            if ( 'accepted' !== $classification['disposition'] || ! $classification['surface'] instanceof DOMElement || '' === $classification['url'] ) {
-                $this->recordIframeSurfaceCapabilityGap($customHost, $classification, $fallbacks);
-                return null;
-            }
-            $surface = $classification['surface'];
-            $url = $classification['url'];
-        } else {
-            $url = $this->customVisualIframeUrl($iframe, $surface);
-        }
-        $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
-        if ( '' !== $providerNameSlug ) {
-            $block = $this->createBlock('core/embed', array_filter(array_merge($this->styleResolver->presentationAttributes($surface), array(
-                'url'              => $this->canonicalEmbedUrl($url),
-                'type'             => $this->embedTypeForSlug($providerNameSlug),
-                'providerNameSlug' => $providerNameSlug,
-            )), static fn ($value): bool => '' !== $value), array(), $surface);
-            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
-        }
-
-        $visualIframeAttributes = $this->boundedVisualIframeAttributes($surface, $url);
-        if ( null !== $visualIframeAttributes ) {
-            $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
-                'preservation_strategy' => 'typed_visual_iframe_companion',
-                'attributes' => array_merge($this->safeEmbedAttributes($surface), array( 'src' => $url )),
-            ));
-            $generator = new VisualIframeBlockGenerator();
-            $this->generatedBlocks()->register(VisualIframeBlockGenerator::class, $generator->definition($this->generatedBlocks()->namespace()));
-            $block = $this->createBlock(
-                $this->generatedBlocks()->blockName(VisualIframeBlockGenerator::LOCAL_NAME),
-                $visualIframeAttributes,
-                array(),
-                $surface
-            );
-            $block['innerHTML'] = $generator->markup($visualIframeAttributes);
-            $block['innerContent'] = array( $block['innerHTML'] );
-            return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block) : $block;
-        }
-
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($iframe));
-        $this->runtimeIslands->recordRuntimeIsland($iframe, 'iframe', 'iframe_requires_embed_runtime', 'third_party_embed_runtime', array(
-            'preservation_strategy' => 'sanitized_embed_markup',
-            'attributes'            => $this->safeEmbedAttributes($iframe),
-        ));
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'html',
-            'reason'          => 'iframe_embed_fallback',
-            'diagnostic_code' => 'html_iframe_embed_fallback',
-            'message'         => 'Iframe embed HTML was preserved as sanitized bounded fallback metadata.',
-            'source_format'   => 'html',
-            'tag'             => 'iframe',
-            'selector'        => $this->elementSelector($iframe),
-            'attributes'      => $this->safeEmbedAttributes($iframe),
-            'context'         => $this->sourceContext($iframe),
-            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($iframe),
-            'events'          => $this->eventMetadata($iframe),
-            'html'            => $boundedHtml['html'],
-            'html_bytes'      => $boundedHtml['bytes'],
-            'html_truncated'  => $boundedHtml['truncated'],
-        ), $this->transformationProvenance()->fallback());
-
-        return null;
-    }
-
-    /**
-     * @return array{disposition: string, reason: string, url: string, surface: DOMElement|null}
-     */
-    private function classifyCustomIframeSurface(DOMElement $host): array
-    {
-        $rejected = static fn (string $reason): array => array(
-            'disposition' => 'rejected',
-            'reason' => $reason,
-            'url' => '',
-            'surface' => null,
-        );
-        $rawValues = array();
-        $unsafe = false;
-        $srcdoc = false;
-        foreach ( array_merge(array( $host ), iterator_to_array($host->getElementsByTagName('*'))) as $element ) {
-            if ( ! $element instanceof DOMElement ) {
-                continue;
-            }
-            if ( '' !== trim($this->attr($element, 'srcdoc')) ) {
-                $srcdoc = true;
-            }
-            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
-                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $destination ) {
-                    $rawValues[] = $destination;
-                }
-            }
-        }
-
-        $urls = array();
-        $credentials = false;
-        foreach ( $rawValues as $value ) {
-            if ( $this->sourceElementClassifier->isUnsafeIframeDestination($value) ) {
-                $unsafe = true;
-                continue;
-            }
-            if ( $this->iframeUrlHasCredentials($value) ) {
-                $credentials = true;
-                continue;
-            }
-            $safe = $this->safeEmbedUrl($value);
-            if ( '' !== $safe ) {
-                $urls[$safe] = true;
-            }
-        }
-
-        if ( $srcdoc || $unsafe ) {
-            return $rejected('unsafe_iframe_destination');
-        }
-        if ( $credentials ) {
-            return $rejected('credential_bound_iframe');
-        }
-        if ( 1 < count($urls) ) {
-            return $rejected('ambiguous_iframe_destination');
-        }
-        if ( $this->runtimeIslands->isRuntimeDomTarget($host)
-            || array() !== $this->eventMetadata($host)
-            || $this->sourceElementClassifier->hasMotionStructureToken($host)
-        ) {
-            return $rejected('source_runtime_only_iframe');
-        }
-
-        $url = 1 === count($urls) ? (string) array_key_first($urls) : '';
-        $surface = $this->customVisualIframeSurface($host);
-        if ( '' !== $url && $surface instanceof DOMElement ) {
-            return array(
-                'disposition' => 'accepted',
-                'reason' => 'portable_iframe_destination',
-                'url' => $url,
-                'surface' => $surface,
-            );
-        }
-        if ( $this->isInertRuntimeMediaPlaceholder($host) ) {
-            return array(
-                'disposition' => 'inert',
-                'reason' => 'inert_iframe_placeholder',
-                'url' => '',
-                'surface' => null,
-            );
-        }
-
-        return $rejected('source_runtime_only_iframe');
-    }
-
-    /**
-     * @param array{disposition: string, reason: string, url: string, surface: DOMElement|null} $classification
-     * @param array<int, array<string, mixed>> $fallbacks
-     */
-    private function recordIframeSurfaceCapabilityGap(DOMElement $host, array $classification, array &$fallbacks): void
-    {
-        $fallbacks[] = FallbackDiagnostic::build(array(
-            'type'            => 'capability_gap',
-            'reason'          => $classification['reason'],
-            'diagnostic_code' => 'html_iframe_surface_capability_gap',
-            'message'         => 'Custom iframe media was classified as an explicit capability gap instead of raw HTML.',
-            'source_format'   => 'html',
-            'tag'             => strtolower($host->tagName),
-            'selector'        => $this->elementSelector($host),
-            'context'         => $this->sourceContext($host),
-            'classification'  => $this->fallbackEmitter()->classifyFallbackSubtree($host),
-            'events'          => $this->eventMetadata($host),
-        ), $this->transformationProvenance()->fallback());
-    }
-
-    private function customVisualIframeSurface(DOMElement $host): ?DOMElement
-    {
-        $iframes = array();
-        foreach ( $host->getElementsByTagName('iframe') as $iframe ) {
-            if ( $iframe instanceof DOMElement ) {
-                $iframes[] = $iframe;
-            }
-        }
-        if ( 1 < count($iframes) ) {
-            return null;
-        }
-        $iframe = $iframes[0] ?? null;
-        foreach ( $host->getElementsByTagName('*') as $descendant ) {
-            if ( ! $descendant instanceof DOMElement || $descendant === $iframe ) {
-                continue;
-            }
-            if ( ! $this->sourceElementClassifier->isStructuralTransparentCustomWrapperChild($descendant)
-                || $this->runtimeIslands->isRuntimeDomTarget($descendant)
-                || array() !== $this->eventMetadata($descendant)
-                || ( ! $iframe instanceof DOMElement && '' !== trim($descendant->textContent ?? '') )
-            ) {
-                return null;
-            }
-        }
-
-        return $iframe ?? $host;
-    }
-
-    private function customVisualIframeUrl(DOMElement $host, DOMElement $surface): string
-    {
-        $urls = array();
-        foreach ( array( $host, $surface ) as $element ) {
-            foreach ( array( 'src', 'data-src', 'data-url', 'data-embed-url', 'data-iframe-src' ) as $attribute ) {
-                foreach ( $this->iframeDestinationValues(trim($this->attr($element, $attribute))) as $candidate ) {
-                    if ( $this->sourceElementClassifier->isUnsafeIframeDestination($candidate) || $this->iframeUrlHasCredentials($candidate) ) {
-                        return '';
-                    }
-                    $url = $this->safeEmbedUrl($candidate);
-                    if ( '' !== $url ) {
-                        $urls[$url] = true;
-                    }
-                }
-            }
-        }
-
-        return 1 === count($urls) ? (string) array_key_first($urls) : '';
-    }
-
-    /** @return array<int, string> */
-    private function iframeDestinationValues(string $value): array
-    {
-        if ( '' === $value ) {
-            return array();
-        }
-        if ( str_starts_with($value, '{') || str_starts_with($value, '[') ) {
-            $decoded = json_decode($value, true);
-            return is_array($decoded) ? $this->iframeDestinationsFromJson($decoded) : array();
-        }
-
-        return array( $value );
-    }
-
-    /** @param array<mixed> $data @return array<int, string> */
-    private function iframeDestinationsFromJson(array $data): array
-    {
-        $found = array();
-        $stack = array( $data );
-        $depth = 0;
-        while ( array() !== $stack && $depth < 8 && 8 > count($found) ) {
-            $node = array_pop($stack);
-            ++$depth;
-            if ( ! is_array($node) ) {
-                continue;
-            }
-            foreach ( $node as $key => $item ) {
-                if ( is_string($item) && is_string($key) && 1 === preg_match('/(?:url|src)$/i', $key) ) {
-                    $found[] = $item;
-                } elseif ( is_array($item) ) {
-                    $stack[] = $item;
-                }
-            }
-        }
-
-        return $found;
-    }
-
-    private function iframeUrlHasCredentials(string $url): bool
-    {
-        $parts = parse_url($url);
-
-        return is_array($parts) && ( isset($parts['user']) || isset($parts['pass']) );
-    }
-
-    /** @param array<string, mixed> $mediaBlock @return array<string, mixed> */
-    private function customVisualIframeHostBlock(DOMElement $host, DOMElement $surface, array $mediaBlock): array
-    {
-        for ( $wrapper = $surface === $host ? null : $surface->parentNode; $wrapper instanceof DOMElement && $wrapper !== $host; $wrapper = $wrapper->parentNode ) {
-            $mediaBlock = $this->createBlock('core/group', $this->styleResolver->presentationAttributes($wrapper), array( $mediaBlock ), $wrapper);
-        }
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($host), array( $mediaBlock ), $host);
-    }
-
-    /**
-     * Unknown iframe providers can only be retained when source presentation
-     * proves they occupy a visible, finite surface. The emitted markup is built
-     * from an iframe-specific allowlist rather than carrying source HTML.
-     */
-    /** @return array<string, mixed>|null */
-    private function boundedVisualIframeAttributes(DOMElement $iframe, string $url): ?array
-    {
-        if ( ! $this->sourceElementClassifier->isSafeVisualIframeUrl($url) || $this->sourceElementStartsHidden($iframe) ) {
-            return null;
-        }
-
-        $attributes = $this->safeEmbedAttributes($iframe);
-        $width = $this->boundedVisualIframeDimension($iframe, 'width');
-        $height = $this->boundedVisualIframeDimension($iframe, 'height');
-        if ( null === $width || null === $height ) {
-            return null;
-        }
-
-        return array_filter(array(
-            'src' => $url,
-            'title' => $attributes['title'] ?? '',
-            'width' => $this->attr($iframe, 'width') ?: $width,
-            'height' => $this->attr($iframe, 'height') ?: $height,
-            'className' => $attributes['class'] ?? '',
-            'allow' => $attributes['allow'] ?? '',
-            'loading' => $attributes['loading'] ?? '',
-            'sandbox' => $attributes['sandbox'] ?? '',
-            'referrerPolicy' => $attributes['referrerpolicy'] ?? '',
-            'allowFullScreen' => array_key_exists('allowfullscreen', $attributes),
-        ), static fn (mixed $value): bool => '' !== $value && false !== $value);
-    }
-
-    private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension): ?string
-    {
-        $attribute = trim($this->attr($iframe, $dimension));
-        if ( $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ) {
-            return $attribute;
-        }
-
-        if ( $this->sourceElementClassifier->isRelativeIframeDimension($attribute) && $this->iframeHasBoundedAncestor($iframe) ) {
-            return $attribute;
-        }
-
-        $declaration = trim((string) ($this->styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
-        if ( $this->sourceElementClassifier->isPositiveIframeDimension($declaration) ) {
-            return $declaration;
-        }
-
-        return $this->sourceElementClassifier->isRelativeIframeDimension($declaration) && $this->iframeHasBoundedAncestor($iframe)
-            ? $declaration
-            : null;
-    }
-
-    private function iframeHasBoundedAncestor(DOMElement $iframe): bool
-    {
-        for ( $ancestor = $iframe->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
-            $width = trim($this->attr($ancestor, 'width')) ?: trim((string) ($declarations['width'] ?? ''));
-            $height = trim($this->attr($ancestor, 'height')) ?: trim((string) ($declarations['height'] ?? ''));
-            if ( $this->sourceElementClassifier->isPositiveIframeDimension($width) && $this->sourceElementClassifier->isPositiveIframeDimension($height) ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private function safeImageUrl(string $url): string
