@@ -5393,7 +5393,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
         if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
-        $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
+        if ( 2 <= count($terminalBlocks) ) {
+            $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
+        }
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
