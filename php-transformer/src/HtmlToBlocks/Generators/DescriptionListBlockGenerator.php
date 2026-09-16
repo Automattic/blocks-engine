@@ -255,6 +255,33 @@ JS;
         return true;
     }
 
+    private function itemSupportsFlowContent(DOMElement $element): bool
+    {
+        $hasParagraph = false;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'p' !== strtolower($child->tagName) ) {
+                return false;
+            }
+            foreach ( $child->attributes as $attribute ) {
+                if ( ! in_array(strtolower($attribute->name), array( 'class', 'style' ), true) ) {
+                    return false;
+                }
+            }
+            if ( ! $this->itemSupportsRichText($child) ) {
+                return false;
+            }
+            $hasParagraph = true;
+        }
+
+        return $hasParagraph;
+    }
+
     /** @return array<string, mixed>|null */
     private function wrappedGroup(DOMElement $wrapper): ?array
     {
@@ -265,10 +292,16 @@ JS;
             if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
                 continue;
             }
-            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) || ! $this->itemSupportsRichText($child) ) {
+            if ( ! $child instanceof DOMElement || ! in_array(strtolower($child->tagName), array( 'dt', 'dd' ), true) ) {
                 return null;
             }
             $tag = strtolower($child->tagName);
+            if ( 'dt' === $tag && ! $this->itemSupportsRichText($child) ) {
+                return null;
+            }
+            if ( 'dd' === $tag && ! $this->itemSupportsRichText($child) && ! $this->itemSupportsFlowContent($child) ) {
+                return null;
+            }
             if ( 'dt' === $tag ) {
                 if ( $hasTerm && ! $hasDescription ) {
                     // Multiple terms may describe the same following definition.

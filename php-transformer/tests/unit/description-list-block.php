@@ -178,7 +178,33 @@ $assert(DescriptionListBlockGenerator::NAME === ($scheduleBlock['blockName'] ?? 
 $assert(array('dt', 'dt', 'dd', 'dd') === array_column($scheduleBlock['attrs']['groups'][0]['items'] ?? array(), 'tagName'), 'independent grouped schedule fixture preserves multiple-term source order');
 $assert('arrival-row' === ($scheduleWrapper['className'] ?? null) && 'arrival' === ($scheduleWrapper['attributes']['id'] ?? null) && 'group' === ($scheduleWrapper['attributes']['role'] ?? null) && 'Arrival details' === ($scheduleWrapper['attributes']['aria-label'] ?? null) && 'morning' === ($scheduleWrapper['attributes']['data-slot'] ?? null), 'wrapper safe-attribute policy retains id, role, aria, and ordinary data attributes');
 $assert(! isset($scheduleWrapper['attributes']['data-wp-interactive'], $scheduleWrapper['attributes']['data-wp-bind--hidden'], $scheduleWrapper['attributes']['onclick'], $scheduleWrapper['attributes']['title']) && ! str_contains($scheduleMarkup, 'data-wp-') && ! str_contains($scheduleMarkup, 'onclick=') && ! str_contains($scheduleMarkup, 'title="Behavioral title"'), 'wrapper safe-attribute policy excludes WordPress directives and behavior-bearing attributes');
-$assert(str_contains($scheduleMarkup, '<div class="arrival-row" id="arrival" role="group" aria-label="Arrival details" data-slot="morning"><dt>Doors</dt><dt>Registration</dt><dd>09:00</dd><dd>Foyer</dd></div>'), 'independent grouped schedule fixture retains wrapper topology and ordered records');
+    $assert(str_contains($scheduleMarkup, '<div class="arrival-row" id="arrival" role="group" aria-label="Arrival details" data-slot="morning"><dt>Doors</dt><dt>Registration</dt><dd>09:00</dd><dd>Foyer</dd></div>'), 'independent grouped schedule fixture retains wrapper topology and ordered records');
+
+$flowWrapped = ( new HtmlTransformer() )->transform(
+    '<dl class="entries"><div class="entry"><dt class="entry__date">2017-2022</dt><dd class="entry__body"><p class="entry__title">Ph.D., Neuroscience</p><p class="entry__org">Stanford University</p></dd></div><div class="entry"><dt class="entry__date">2012-2016</dt><dd class="entry__body"><p class="entry__title">B.S., Brain and Cognitive Sciences</p></dd></div></dl>'
+)->toArray();
+$flowBlock = $flowWrapped['blocks'][0] ?? array();
+$flowGroups = $flowBlock['attrs']['groups'] ?? array();
+$assert(DescriptionListBlockGenerator::NAME === ($flowBlock['blockName'] ?? null), 'wrapped records with paragraph descriptions map to one companion block');
+$assert(2 === count($flowGroups) && 'entry' === ($flowGroups[0]['wrapper']['className'] ?? null) && array( 'dt', 'dd' ) === array_column($flowGroups[0]['items'] ?? array(), 'tagName'), 'each presentational record stays one wrapped group');
+$assert(str_contains((string) ($flowGroups[0]['items'][1]['content'] ?? ''), '<p class="entry__title">Ph.D., Neuroscience</p>') && str_contains((string) ($flowWrapped['serialized_blocks'] ?? ''), '<div class="entry"><dt class="entry__date">2017-2022</dt><dd class="entry__body"><p class="entry__title">Ph.D., Neuroscience</p><p class="entry__org">Stanford University</p></dd></div>'), 'paragraph descriptions keep their source markup inside the description cell');
+$assert(0 === substr_count((string) ($flowWrapped['serialized_blocks'] ?? ''), '<!-- wp:group'), 'wrapped flow descriptions do not explode into core/group records');
+
+$cvFixture = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/31-personal-cv-academic/index.html');
+$cv = ( new HtmlTransformer() )->transform($cvFixture)->toArray();
+$cvLists = 0;
+$cvWalk = static function (array $blocks) use (&$cvWalk, &$cvLists): void {
+    foreach ( $blocks as $candidate ) {
+        if ( DescriptionListBlockGenerator::NAME === ($candidate['blockName'] ?? null) ) {
+            ++$cvLists;
+        }
+        $cvWalk($candidate['innerBlocks'] ?? array());
+    }
+};
+$cvWalk($cv['blocks'] ?? array());
+$cvMarkup = (string) ($cv['serialized_blocks'] ?? '');
+$assert(4 === $cvLists, 'academic CV description lists become companion blocks instead of grouped records');
+$assert(! str_contains($cvMarkup, '<!-- wp:group {"className":"entry') && ! str_contains($cvMarkup, '<!-- wp:group {"className":"entry__body'), 'academic CV record wrappers stay inside the description-list companion');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Description-list block unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
