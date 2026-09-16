@@ -237,7 +237,9 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'box-sizing:border-box';
                 $declarations[] = 'width:100%';
                 $declarations[] = 'max-width:100%';
-                if ( '100%' === $height ) {
+                $absoluteFill = 'absolute' === CssValueInspector::comparable((string) ($sourceDeclarations['position'] ?? ''))
+                    && '100%' === CssValueInspector::comparable((string) ($sourceDeclarations['min-width'] ?? ''));
+                if ( '100%' === $height && ! $absoluteFill ) {
                     $wrapperDeclarations[] = 'height:100%';
                     $declarations[] = 'height:100%!important';
                 }
