@@ -97,7 +97,7 @@ final class FormControlMetadataBuilder
             'label_id'         => $labelElement instanceof DOMElement ? SourceDom::attr($labelElement, 'id') : '',
             'label_class'      => $labelElement instanceof DOMElement ? $this->classNames($labelElement) : '',
             'name'             => SourceDom::attr($control, 'name'),
-            'type'             => $type,
+            'type'             => $this->authoredInputType($control, $type),
             'label'            => $this->label($control),
             'aria_haspopup'    => SourceDom::attr($control, 'aria-haspopup'),
             'aria_describedby' => SourceDom::attr($control, 'aria-describedby'),
@@ -144,11 +144,12 @@ final class FormControlMetadataBuilder
                 // Required validation and a visible required marker are separate source facts.
                 $metadata['required_indicator'] = false;
             }
-            if ( isset($metadata['label']) && is_string($metadata['label']) && 1 === preg_match('/^(.*?)(?:\s*\(\s*required\s*\))\s*$/iu', $metadata['label'], $requiredLabel) ) {
-                $metadata['label'] = trim($requiredLabel[1]);
-                if ( '' === ($metadata['required_text'] ?? '') ) {
-                    $metadata['required_text'] = '(required)';
-                }
+        }
+        if ( isset($metadata['label']) && is_string($metadata['label']) && 1 === preg_match('/^(.*?)(?:\s*\(\s*required\s*\))\s*$/iu', $metadata['label'], $requiredLabel) ) {
+            $metadata['label'] = trim($requiredLabel[1]);
+            $metadata['required'] = true;
+            if ( '' === ($metadata['required_text'] ?? '') ) {
+                $metadata['required_text'] = '(required)';
             }
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
@@ -194,10 +195,50 @@ final class FormControlMetadataBuilder
         }
 
         if ( $label instanceof DOMElement ) {
-            return $this->labelText($label);
+            $text = $this->labelText($label);
+            if ( '' !== $text ) {
+                return $text;
+            }
         }
 
-        return '';
+        return $this->labelledByText($control);
+    }
+
+    private function labelledByText(DOMElement $control): string
+    {
+        $ids = preg_split('/\s+/', trim(SourceDom::attr($control, 'aria-labelledby'))) ?: array();
+        $document = $control->ownerDocument;
+        if ( ! $document instanceof \DOMDocument ) {
+            return '';
+        }
+        $parts = array();
+        foreach ( $ids as $id ) {
+            if ( '' === $id ) {
+                continue;
+            }
+            $target = $document->getElementById($id);
+            if ( $target instanceof DOMElement ) {
+                $part = $this->labelText($target);
+                if ( '' !== $part ) {
+                    $parts[] = $part;
+                }
+            }
+        }
+
+        return trim(implode(' ', $parts));
+    }
+
+    private function authoredInputType(DOMElement $control, string $type): string
+    {
+        if ( 'text' !== $type ) {
+            return $type;
+        }
+        $autocomplete = strtolower(trim(SourceDom::attr($control, 'autocomplete')));
+        if ( str_starts_with($autocomplete, 'tel') ) {
+            return 'tel';
+        }
+
+        return $type;
     }
 
     public function readableLabel(DOMElement $control): string
