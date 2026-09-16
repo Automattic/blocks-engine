@@ -15,6 +15,7 @@ final class SourceBlockAttributeProjector
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
+    public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
 
@@ -42,6 +43,12 @@ final class SourceBlockAttributeProjector
         $sourceTagName = strtolower($sourceElement->tagName);
         if ( 'core/image' === $name && 'figure' !== $sourceTagName ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_IMAGE_FIGURE_CLASS);
+            // The source image was inline content that its parent aligned. A
+            // synthesized figure is a block box that fills the line instead,
+            // so the alignment has nothing left to move.
+            if ( $facts->syntheticImageFigureFollowsInlineFlow ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS);
+            }
         }
         if ( 'core/paragraph' === $name && $facts->isInlineSourceElement ) {
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);

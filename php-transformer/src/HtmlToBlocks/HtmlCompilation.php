@@ -3275,7 +3275,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                     $hasAuthorControlProjection,
                     'core/button' === $name && '' !== $logicalControlPath && $hasAuthorControlProjection
                         && $this->isDirectChildOfAuthorFlexLayout($logicalControl),
-                    $preserveGeneratedStyle
+                    $preserveGeneratedStyle,
+                    'core/image' === $name
+                        && 'figure' !== $sourceTagName
+                        && $this->syntheticImageFigureFollowsInlineFlow($sourceElement)
                 ),
                 $this->sourceBlockAttributeProjectionContext()
             );
@@ -10060,6 +10063,43 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * @param array<string, mixed> $attrs
      * @return array<string, mixed>
      */
+    /**
+     * Whether a synthesized image figure stands in for inline content that the
+     * parent aligns. Only an alignment that acts on inline content matters: a
+     * block image is already positioned by its own box, and shrink-wrapping it
+     * would strip the width its margins resolve against.
+     */
+    private function syntheticImageFigureFollowsInlineFlow(DOMElement $element): bool
+    {
+        $display = $this->resolvedDeclaration($element, 'display');
+        if ( '' !== $display && ! in_array($display, array( 'inline', 'inline-block' ), true) ) {
+            return false;
+        }
+
+        // text-align inherits, so the alignment that governs this image can be
+        // declared on any ancestor above the inline wrappers it sits in.
+        $node = $element->parentNode;
+        for ( $depth = 0; $depth < 8 && $node instanceof DOMElement; ++$depth ) {
+            $align = $this->resolvedDeclaration($node, 'text-align');
+            if ( '' !== $align ) {
+                return in_array($align, array( 'right', 'center', 'end' ), true);
+            }
+            $node = $node->parentNode;
+        }
+
+        return false;
+    }
+
+    private function resolvedDeclaration(DOMElement $element, string $property): string
+    {
+        $resolved = $this->styleResolver->resolveCssVariablesInValue(
+            $this->styleResolver->specificityResolvedPresentationStyle($element)
+        );
+        $declarations = $this->styleResolver->cssDeclarations($resolved);
+
+        return strtolower(trim($this->cssValueWithoutImportant((string) ($declarations[ $property ] ?? ''))));
+    }
+
     private function rebuildBlock(array $block, array $attrs): array
     {
         $name = (string) ($block['blockName'] ?? '');
