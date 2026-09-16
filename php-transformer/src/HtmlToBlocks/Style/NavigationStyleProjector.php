@@ -502,6 +502,7 @@ final class NavigationStyleProjector
             $class = '';
             $pseudo = '';
             $bareAnchorClassRule = false;
+            $scopedAnchorClassRule = false;
             if ( 1 === preg_match('/^(.*?)(?:^|\s)a\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
                 $ancestor = trim($match[1]);
                 $class = $match[2];
@@ -510,6 +511,12 @@ final class NavigationStyleProjector
                 $class = $match[1];
                 $pseudo = $match[2];
                 $bareAnchorClassRule = true;
+            } elseif ( 1 === preg_match('/^(.*?)\s+\.([A-Za-z_][A-Za-z0-9_-]*)((?::[a-z-]+)*)$/', $selector, $match) ) {
+                $ancestor = trim($match[1]);
+                $class = $match[2];
+                $pseudo = $match[3];
+                $bareAnchorClassRule = true;
+                $scopedAnchorClassRule = true;
             } else {
                 continue;
             }
@@ -521,8 +528,24 @@ final class NavigationStyleProjector
             if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
                 continue;
             }
+            if ( $scopedAnchorClassRule && (
+                1 !== preg_match('/(?:^|[\s>+~])([^\s>+~]+)$/', $ancestor, $ancestorMatch)
+                || ! $this->namesNavigationHost($ancestorMatch[1], $hostClasses)
+            ) ) {
+                // Core replaces the list structure below the promoted host.
+                // Do not retain an intermediary source li/ul as an ancestor.
+                continue;
+            }
 
             $sourceAnchors = $this->navigationSourceAnchorsForClass($class, $sourceProvenance);
+            if ( $scopedAnchorClassRule ) {
+                // The projected selector retains this ancestor context, so
+                // same-class links in another menu cannot affect its winners.
+                $sourceAnchors = array_values(array_filter(
+                    $sourceAnchors,
+                    fn (DOMElement $anchor): bool => $this->styleResolver->matchesCssSelector($anchor, $selector)
+                ));
+            }
             if ( array() === $sourceAnchors ) {
                 continue;
             }
@@ -574,9 +597,14 @@ final class NavigationStyleProjector
             $emitted[$emissionKey] = true;
 
             $conditions = is_array($rule['conditions'] ?? null) ? $rule['conditions'] : array();
+            // Keep a descendant class rule's authored context in both targets.
+            // Its class moves from the source anchor onto core's item wrapper,
+            // so both the anchor projection and item reset need that context.
+            $itemSelector = $scopedAnchorClassRule
+                ? $ancestor . ' .wp-block-navigation-item.' . $class
+                : '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.' . $class;
             if ( array() !== $declarations ) {
-                $selectorText = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-                    . $class . '>.wp-block-navigation-item__content' . $pseudo;
+                $selectorText = $itemSelector . '>.wp-block-navigation-item__content' . $pseudo;
                 $mappedRule = $selectorText . '{' . implode(';', $declarations) . '}';
                 foreach ( array_reverse($conditions) as $condition ) {
                     $mappedRule = $condition . '{' . $mappedRule . '}';
@@ -585,8 +613,7 @@ final class NavigationStyleProjector
             }
 
             if ( array() !== $itemNeutralizers ) {
-                $itemRule = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.'
-                    . $class . '{' . implode(';', array_values(array_unique($itemNeutralizers))) . '}';
+                $itemRule = $itemSelector . '{' . implode(';', array_values(array_unique($itemNeutralizers))) . '}';
                 foreach ( array_reverse($conditions) as $condition ) {
                     $itemRule = $condition . '{' . $itemRule . '}';
                 }
