@@ -130,6 +130,21 @@ $assert(
     'an unrelated class is not card-like'
 );
 
+// --- identity: visual layers ------------------------------------------------
+
+$assert(
+    $classifier->isVisualLayerElement($element('<svg class="decorative-wave-layer"></svg>')),
+    'a semantic visual-layer class is recognized'
+);
+$assert(
+    ! $classifier->isVisualLayerElement($element('<svg id="Layer_1"></svg>')),
+    'a generic authoring-tool layer identifier is not visual-layer evidence by itself'
+);
+$assert(
+    $classifier->isVisualLayerElement($element('<svg id="hero-layer"></svg>')),
+    'a descriptive visual-layer identifier is recognized'
+);
+
 // --- values: positive CSS length -------------------------------------------
 
 $assert($classifier->isPositiveCssLength('12px'), '12px is a positive length');

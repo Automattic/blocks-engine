@@ -113,6 +113,9 @@ $state->mode = 'drawable-block';
 $drawable = $converter->convert($svg, 'svg', $fallbacks)->block;
 $assert('core/image' === ($drawable['blockName'] ?? ''), 'decorative-drawable-block');
 
+$drawableVisualLayer = $converter->convert($elementFrom('<svg id="Layer_1"><path d="M0 0"></path></svg>'), 'svg', $fallbacks)->block;
+$assert('core/image' === ($drawableVisualLayer['blockName'] ?? ''), 'decorative-drawable-visual-layer');
+
 $state->mode = 'visual';
 $visual = $converter->convert($elementFrom('<svg class="decorative"><path d="M0 0"></path></svg>'), 'svg', $fallbacks)->block;
 $assert('core/group' === ($visual['blockName'] ?? '') && 'visual-svg' === ($visual['attrs']['className'] ?? ''), 'visual-layer-carrier');
