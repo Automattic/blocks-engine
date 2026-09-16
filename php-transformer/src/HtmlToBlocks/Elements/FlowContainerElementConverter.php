@@ -97,6 +97,10 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
         if ( $this->context->isDirectChildOfAuthorOwnedLayout($element) && '' !== SourceDom::attr($element, 'role') ) {
+            $claim = $this->semanticPatternClaim($element, $fallbacks);
+            if ( null !== $claim ) {
+                return $claim;
+            }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
         if ( in_array($tagName, array( 'div', 'section', 'article' ), true) && ! $this->context->hasResponsiveImageSources($element) ) {
@@ -127,6 +131,15 @@ final class FlowContainerElementConverter implements ElementConverter
         ) {
             if ( 0 === SourceDom::childElementCount($element) && '' === trim($element->textContent) && $this->context->shouldPreserveEmptyVisualElement($element) ) {
                 return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
+            }
+            // A parent's CSS-authored layout must not hide a semantic widget
+            // from its recognizer. These patterns decline structurally (item
+            // floors, runtime-heavy descendants, disclosure wiring), so racing
+            // them first costs plain layout children nothing; unclaimed
+            // elements still lower to the CSS-owned layout block below.
+            $claim = $this->semanticPatternClaim($element, $fallbacks);
+            if ( null !== $claim ) {
+                return $claim;
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -246,6 +259,31 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($this->context->emptyVisualSpacerBlock($element));
         }
         return ConversionOutcome::handled(null);
+    }
+
+    /**
+     * Races the semantic/interactive recognizers that own an element outright
+     * when they match, mirroring the bookkeeping of their late race below.
+     *
+     * Returns null when no recognizer claims the element, so the caller can
+     * fall through to its own lowering (the CSS-owned layout block).
+     *
+     * @param array<int, array<string, mixed>> $fallbacks
+     */
+    private function semanticPatternClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
+    {
+        if ( ! $this->context->shouldDeferNavigationPatternToChildren($element) ) {
+            $block = $this->context->recognizePatterns($element, $fallbacks, array( AccordionPattern::class ));
+            if ( null !== $block ) {
+                return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
+            }
+        }
+        $block = $this->context->recognizePatterns($element, $fallbacks, array( DetailsPattern::class ));
+        if ( null !== $block ) {
+            $this->context->rememberNativeDisclosureRoot($element);
+            return ConversionOutcome::handled($block);
+        }
+        return null;
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
