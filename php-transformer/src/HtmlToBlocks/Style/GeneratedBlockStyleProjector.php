@@ -205,7 +205,7 @@ final class GeneratedBlockStyleProjector
             if ( isset($responsiveAuthoredProperties[$property]) || ('border-radius' === $property && $hasLogicalCorners) ) {
                 continue;
             }
-            $value = trim((string) $value);
+            $value = CssValueInspector::withoutImportant(trim((string) $value));
             if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
                 $declarations[] = $property . ':' . $value . '!important';
             }
@@ -227,6 +227,7 @@ final class GeneratedBlockStyleProjector
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
             $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
             $stretchingFlex = $this->sourceControlStretchesFlex($sourceDeclarations);
+            $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
             if ( '' !== $definiteAncestorWidth ) {
                 $outerWrapperDeclarations[] = 'width:' . $definiteAncestorWidth;
                 $outerWrapperDeclarations[] = 'max-width:100%';
@@ -236,6 +237,10 @@ final class GeneratedBlockStyleProjector
                 $declarations[] = 'box-sizing:border-box';
                 $declarations[] = 'width:100%';
                 $declarations[] = 'max-width:100%';
+                if ( '100%' === $height ) {
+                    $wrapperDeclarations[] = 'height:100%';
+                    $declarations[] = 'height:100%!important';
+                }
             } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
                 $outerWrapperDeclarations[] = 'width:max-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
@@ -257,7 +262,6 @@ final class GeneratedBlockStyleProjector
                     $declarations[] = 'border-width:0!important';
                 }
             }
-            $height = CssValueInspector::comparable((string) ($sourceDeclarations['height'] ?? ''));
             if ( preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|vh|vw)$/', $height) ) {
                 $wrapperDeclarations[] = 'height:100%';
                 $declarations[] = 'height:100%!important';
