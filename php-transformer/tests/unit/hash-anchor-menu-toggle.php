@@ -80,6 +80,16 @@ $assert(
     'a viewport-forced overlay does not confine toggle presentation to the mobile breakpoint',
     $weeblyAssets
 );
+$assert(
+    1 !== preg_match('/wp:navigation \{[^}]*\bhamburger\b/', $weeblyMarkup),
+    'toggle class hamburger is not copied onto the navigation host',
+    $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyAssets, 'is-menu-open') && str_contains($weeblyAssets, 'flex-direction:row'),
+    'the open overlay is a horizontal dropdown bar, not a left drawer',
+    $weeblyAssets
+);
 
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
