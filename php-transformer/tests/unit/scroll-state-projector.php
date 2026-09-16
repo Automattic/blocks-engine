@@ -163,6 +163,28 @@ $scopeResult = $project($files(array('https://example.test/scope' => $scopeHtml)
 $assert(1 === ($scopeResult['projected_count'] ?? 0), 'a :scope computed-style target still projects onto the header bar');
 $assert(str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), '":scope"') && str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), 'background-color'), 'the projected config keeps the :scope computed rest/scrolled styles');
 
+$prefixed = $files(array('https://example.test/prefixed' => $scopeHtml), array('https://example.test/prefixed' => array(
+    $toggle(array('selector' => '#topBar', 'tag' => 'div', 'id' => 'topBar'), array(
+        'classes' => array('add' => array(), 'remove' => array()),
+        'styleTargets' => array(array(
+            'selector' => ':scope',
+            'tag' => 'div',
+            'id' => 'topBar',
+            'properties' => array('background-color' => array('rest' => 'rgba(0, 0, 0, 0)', 'scrolled' => 'rgb(43, 43, 43)')),
+        )),
+    )),
+)));
+foreach ($prefixed as $index => $file) {
+    if ('scroll-states.json' === ($file['path'] ?? '')) {
+        $prefixed[$index]['path'] = 'website/scroll-states.json';
+    }
+    if ('capture-receipt.json' === ($file['path'] ?? '')) {
+        $prefixed[$index]['path'] = 'website/capture-receipt.json';
+    }
+}
+$prefixedResult = $project($prefixed);
+$assert(1 === ($prefixedResult['projected_count'] ?? 0), 'scroll-states.json still projects when the sidecar is nested under website/');
+
 if (0 !== $failures) {
     fwrite(STDERR, "scroll-state-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);

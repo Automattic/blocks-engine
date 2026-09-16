@@ -393,7 +393,11 @@ final class ScrollStateProjector
     private function jsonFile(array $files, string $path): ?array
     {
         foreach ($files as $file) {
-            if ($path !== ($file['path'] ?? null) || ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024) {
+            $filePath = (string) ($file['path'] ?? '');
+            if ( $path !== $filePath && basename($filePath) !== $path ) {
+                continue;
+            }
+            if ( ! is_string($file['content'] ?? null) || strlen($file['content']) > 2 * 1024 * 1024 ) {
                 continue;
             }
             $decoded = json_decode($file['content'], true);
