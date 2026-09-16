@@ -4641,7 +4641,48 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->styleResolver->geometryStructuralPath($element)
             );
         }
+        return $this->hoistSoleGroupUnderAuthoredGrid($element, $block);
+    }
+
+    /**
+     * Child-combinator grid placements only apply to direct grid items.
+     * A sole nested group between an authored grid and those items is redundant.
+     *
+     * @param array<string, mixed> $block
+     * @return array<string, mixed>
+     */
+    private function hoistSoleGroupUnderAuthoredGrid(DOMElement $element, array $block): array
+    {
+        if ( ! in_array($this->authoredDisplay($element), array( 'grid', 'inline-grid' ), true) ) {
+            return $block;
+        }
+        $inner = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
+        if ( 1 !== count($inner) || 'core/group' !== ($inner[0]['blockName'] ?? null) ) {
+            return $block;
+        }
+        $grand = is_array($inner[0]['innerBlocks'] ?? null) ? $inner[0]['innerBlocks'] : array();
+        if ( count($grand) < 2 ) {
+            return $block;
+        }
+        $block['innerBlocks'] = $grand;
         return $block;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $wrappers
+     * @return array<int, array<string, mixed>>
+     */
+    private function truncateWrappersAfterAuthoredGrid(array $wrappers): array
+    {
+        $trimmed = array();
+        foreach ( $wrappers as $wrapper ) {
+            $trimmed[] = $wrapper;
+            $className = (string) (is_array($wrapper['attributes'] ?? null) ? ($wrapper['attributes']['class'] ?? '') : '');
+            if ( str_contains($className, 'blocks-engine-css-owned-grid') ) {
+                break;
+            }
+        }
+        return $trimmed;
     }
 
     /** @return array<string, mixed> */
@@ -5352,6 +5393,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
         $wrappers = array_column($chain, 'descriptor');
         if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
+        $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
         $opening = implode('', array_column($wrappers, 'opening'));
         $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
         $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
