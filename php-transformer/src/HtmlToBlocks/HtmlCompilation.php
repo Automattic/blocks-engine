@@ -2567,7 +2567,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
-            fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
+            fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary),
+            fn (DOMElement $control): string => $this->accordionToggleMarker($control)
         );
     }
 
@@ -2652,8 +2653,35 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             sourceElementStartsHidden: fn (DOMElement $sourceElement): bool => $sourceElement->hasAttribute('hidden')
                 || 'true' === strtolower(trim($this->attr($sourceElement, 'aria-hidden')))
                 || $this->sourceElementStartsHidden($sourceElement),
-            disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary)
+            disclosureSummaryMarker: fn (DOMElement $summary): string => $this->disclosureSummaryMarker($summary),
+            accordionToggleMarker: fn (DOMElement $control): string => $this->accordionToggleMarker($control)
         );
+    }
+
+    /**
+     * Marker for an accordion trigger whose box core/accordion cannot save.
+     *
+     * core/accordion-heading saves its own `<button>` with a fixed class and no
+     * others, so the source trigger's classes are dropped and every author rule
+     * addressing them is left with nothing to match. A trigger that stated its
+     * own vertical padding collapses onto the destination theme's defaults and
+     * every row in the accordion loses that height.
+     *
+     * Delivered as CSS keyed on a marker the heading carries, not as markup:
+     * adding attributes to the toggle would diverge from core's save shape and
+     * invalidate the block.
+     */
+    private function accordionToggleMarker(DOMElement $control): string
+    {
+        $css = $this->disclosureControlCarriedCss($control);
+        if ( '' === $css ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-accordion-toggle-' . substr(hash('sha256', $css), 0, 12);
+        $this->generatedSupportStyles()->registerAccordionTogglePresentation($marker, $css);
+
+        return $marker;
     }
 
     /**
@@ -2670,6 +2698,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function disclosureSummaryMarker(DOMElement $summary): string
     {
+        $css = $this->disclosureControlCarriedCss($summary);
+        if ( '' === $css ) {
+            return '';
+        }
+
+        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
+        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
+
+        return $marker;
+    }
+
+    /**
+     * The resolved box a core-owned disclosure control cannot carry as markup.
+     *
+     * Both core/details and core/accordion-heading save a bare trigger element,
+     * so the source control's own presentation has to be restated as CSS.
+     */
+    private function disclosureControlCarriedCss(DOMElement $control): string
+    {
+        $summary = $control;
         $declarations = $this->styleResolver->safeVisualDeclarations(
             $this->styleResolver->cssDeclarations(
                 $this->styleResolver->resolveCssVariablesInValue(
@@ -2695,15 +2743,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // label still owns keeps winning over it.
         $carried = array_merge($this->disclosureSummaryLabelTypography($summary), $carried);
 
-        $css = $this->styleResolver->cssDeclarationString($carried);
-        if ( '' === $css ) {
-            return '';
-        }
-
-        $marker = 'blocks-engine-disclosure-summary-' . substr(hash('sha256', $css), 0, 12);
-        $this->generatedSupportStyles()->registerDisclosureSummaryPresentation($marker, $css);
-
-        return $marker;
+        return $this->styleResolver->cssDeclarationString($carried);
     }
 
     /**

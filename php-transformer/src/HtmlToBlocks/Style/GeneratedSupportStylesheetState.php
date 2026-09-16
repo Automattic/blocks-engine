@@ -19,6 +19,9 @@ final class GeneratedSupportStylesheetState
     private array $disclosureSummaryPresentation = array();
 
     /** @var array<string, string> */
+    private array $accordionTogglePresentation = array();
+
+    /** @var array<string, string> */
     private array $syntheticHeaderAnchorRules = array();
 
     /** @var array<string, string> */
@@ -105,6 +108,11 @@ final class GeneratedSupportStylesheetState
         $this->disclosureSummaryPresentation[$className] = $declarations;
     }
 
+    public function registerAccordionTogglePresentation(string $className, string $declarations): void
+    {
+        $this->accordionTogglePresentation[$className] = $declarations;
+    }
+
     public function registerNavigationLinkIcon(string $className, string $declarations): void
     {
         $this->navigationLinkIcons[$className] = $declarations;
@@ -159,6 +167,14 @@ final class GeneratedSupportStylesheetState
                 // core/details owns the summary element, so the source toggle's box is
                 // restated on it from here rather than carried as markup.
                 $parts[] = '.wp-block-details.' . $className . '>summary{' . $declarations . '}';
+            }
+        }
+        foreach ($this->accordionTogglePresentation as $className => $declarations) {
+            if (str_contains($serializedBlocks, $className)) {
+                // core/accordion-heading saves its own bare toggle button, so the
+                // source trigger's box is restated on it from here rather than
+                // carried as markup.
+                $parts[] = '.wp-block-accordion-heading.' . $className . '>.wp-block-accordion-heading__toggle{' . $declarations . '}';
             }
         }
         foreach ($this->navigationSpacing as $className => $declarations) {
