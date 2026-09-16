@@ -11621,7 +11621,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
         $scale        = strtolower($this->cssValueWithoutImportant(
-            (string) ($declarations['object-fit']['value'] ?? '')
+            $this->styleResolver->resolveCssVariablesInValue(
+                (string) ($declarations['object-fit']['value'] ?? ''),
+                $image
+            )
         ));
 
         if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
