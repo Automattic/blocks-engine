@@ -26,14 +26,22 @@ $assert = static function (bool $ok, string $message, string $detail = '') use (
 $transform = static fn (string $html): array => ( new HtmlTransformer() )->transform($html, array())->toArray();
 $markup = static fn (array $r): string => (string) ($r['serialized_blocks'] ?? '');
 
+$weeblyCss = '.hamburger{display:none;padding:0 20px;width:100px;border-right:1px solid rgba(255,255,255,0.15);box-sizing:border-box}'
+    . '.hamburger span{display:block;color:#fff;text-align:center}'
+    . '.hamburger span:after{display:block;color:#fff;font-weight:bold;font-size:14px;content:"MENU"}';
 $weebly = $transform(
-    '<header><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    '<style>' . $weeblyCss . '</style>'
+    . '<header><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
     . '<div class="nav-wrap" style="display:none"><nav><ul>'
     . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
     . '<li><a href="/research">Research</a></li>'
     . '</ul></nav></div></header>'
 );
 $weeblyMarkup = $markup($weebly);
+$weeblyAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($weebly['assets'] ?? null) ? $weebly['assets'] : array()
+));
 
 $assert(
     str_contains($weeblyMarkup, '"overlayMenu":"always"'),
@@ -51,6 +59,26 @@ $assert(
     str_contains($weeblyMarkup, 'blocks-engine-native-responsive-navigation'),
     'the promoted navigation is the native responsive overlay host',
     $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyMarkup, 'blocks-engine-native-navigation-toggle-'),
+    'source toggle geometry is marked on the native overlay host',
+    $weeblyMarkup
+);
+$assert(
+    str_contains($weeblyAssets, 'content:"MENU"') || str_contains($weeblyAssets, 'content:MENU'),
+    'the source MENU generated-content label is projected onto the open control',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, 'width:100px') && str_contains($weeblyAssets, 'responsive-container-open'),
+    'the source 100px toggle width is projected onto the open control at every viewport',
+    $weeblyAssets
+);
+$assert(
+    ! str_contains($weeblyAssets, '@media(max-width:599px){.wp-block-navigation.blocks-engine-native-responsive-navigation.blocks-engine-native-navigation-toggle-'),
+    'a viewport-forced overlay does not confine toggle presentation to the mobile breakpoint',
+    $weeblyAssets
 );
 
 $realLink = $transform(

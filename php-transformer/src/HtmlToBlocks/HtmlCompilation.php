@@ -2963,12 +2963,89 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return '';
         }
 
-        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $declarations)), 0, 12);
+        $always = $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle);
+        $extra = '';
+        $openDeclarations = $declarations;
+        if ( $always ) {
+            $display = strtolower(CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['display'] ?? ''))));
+            if ( 'table-cell' === $display && ! $hasUsableHeight ) {
+                $openDeclarations[] = 'min-height:60px!important';
+            }
+            foreach ( array( 'border', 'border-right', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-align' ) as $property ) {
+                $value = trim((string) ($sourceDeclarations[$property] ?? ''));
+                if ( '' !== $value && ! preg_match('/[{}<>;]/', $value) ) {
+                    $openDeclarations[] = $property . ':' . CssValueInspector::withoutImportant($value) . '!important';
+                }
+            }
+            $openDeclarations[] = 'display:flex!important';
+            $openDeclarations[] = 'align-items:center!important';
+            $openDeclarations[] = 'justify-content:center!important';
+            $pseudo = $this->nativeNavigationToggleGeneratedContent($toggle);
+            if ( array() !== $pseudo ) {
+                $afterParts = array();
+                foreach ( $pseudo as $property => $value ) {
+                    $afterParts[] = $property . ':' . $value;
+                }
+                $extra .= '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
+                $extra .= '>.wp-block-navigation__responsive-container-open::after{' . implode(';', $afterParts) . '}';
+            }
+        }
+
+        $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
         $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $rule = '@media(max-width:599px){' . $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important}'
-            . $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $declarations) . '}}';
+        $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:' . ( $always ? '100%' : 'fit-content' ) . '!important;min-width:0!important;min-height:0!important;padding:0!important}';
+        $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
+        $extraRules = '' === $extra ? '' : $host . $extra;
+        $rule = $always
+            ? $hostRule . $openRule . $extraRules
+            : '@media(max-width:599px){' . $hostRule . $openRule . '}';
         $this->generatedSupportStyles()->registerNativeNavigationToggle($marker, $rule);
         return $marker;
+    }
+
+    /**
+     * Generated content that paints the source toggle's visible label
+     * (e.g. `.hamburger span:after { content:"MENU" }`).
+     *
+     * @return array<string, string>
+     */
+    private function nativeNavigationToggleGeneratedContent(DOMElement $toggle): array
+    {
+        $targets = array($toggle);
+        foreach ( $toggle->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                $targets[] = $child;
+            }
+        }
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
+            if ( 'after' !== ($rule['pseudo'] ?? '') && ':after' !== ($rule['pseudo'] ?? '') ) {
+                continue;
+            }
+            $selector = (string) ($rule['selector'] ?? '');
+            $matched = false;
+            foreach ( $targets as $target ) {
+                if ( $this->styleResolver->matchesCssSelector($target, $selector) ) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if ( ! $matched ) {
+                continue;
+            }
+            $picked = array();
+            foreach ( array( 'content', 'color', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'line-height', 'display', 'text-align' ) as $property ) {
+                $value = trim((string) (($rule['declarations'][$property] ?? '')));
+                if ( '' === $value || preg_match('/[{}<>]/', $value) ) {
+                    continue;
+                }
+                $picked[$property] = CssValueInspector::withoutImportant($value);
+            }
+            if ( isset($picked['content']) && ! in_array(strtolower($picked['content']), array( 'none', 'normal', '""', "''" ), true) ) {
+                return $picked;
+            }
+        }
+
+        return array();
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
