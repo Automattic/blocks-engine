@@ -1519,7 +1519,7 @@ final class StyleResolver implements ElementPresentationResolver
         $customProperties = array();
         foreach ($declarations as $property => $value) {
             if (str_starts_with($property, '--') && isset($required[$property])) {
-                $customProperties[$property] = $value;
+                $customProperties[$property] = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
             }
         }
         ksort($customProperties, SORT_STRING);
@@ -2958,7 +2958,9 @@ final class StyleResolver implements ElementPresentationResolver
             [$name, $value] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            $allowsImageUrl = in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
+            // A consumed custom property can supply the URL to an authored
+            // background rule. Keep it for the same sanitized carrier path.
+            $allowsImageUrl = (str_starts_with($name, '--') || in_array($name, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true)) && ! preg_match('/(?:expression\s*\(|javascript\s*:)/i', $value);
             if ( '' !== $name && '' !== $value && ( $allowsImageUrl || ! preg_match('/(?:expression\s*\(|javascript\s*:|url\s*\()/i', $value) ) ) {
                 // Importance precedes source order even within one declaration
                 // list. Reducing to a property map must retain that winner.
