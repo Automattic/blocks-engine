@@ -274,6 +274,19 @@ $assert(
     $alternateLayerAfterAuthor
 );
 
+$projectedLayerCss = '.card{position:relative}.layer{position:absolute;inset:0}'
+    . '.back{opacity:0;transform:scale(.7)}.card:hover .back{opacity:1;transform:none}';
+$projectedLayerHtml = '<div class="card"><div class="layer front"><p>Service heading</p></div>'
+    . '<div class="layer back"><a href="/services">View service</a></div></div>';
+$projectedLayerResult = ( new HtmlTransformer() )->transform($projectedLayerHtml, array(
+    'skip_author_stylesheet_materialization' => true,
+    'author_stylesheet_assets' => array(array('path' => 'assets/css/card.css', 'content' => $projectedLayerCss)),
+))->toArray();
+$assert(
+    ! str_contains($cssContent($projectedLayerResult, 'after-author'), '.layer.back{opacity:1'),
+    'a positioned layer stays inactive when its author CSS arrives as a projected asset'
+);
+
 $responsiveDocument = <<<'HTML'
 <style>
 .mobile-document { display: none !important; }

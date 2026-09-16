@@ -2299,7 +2299,9 @@ final class StyleResolver implements ElementPresentationResolver
                 if (array() !== $conditions) {
                     return;
                 }
-                $declarations = array_intersect_key($this->cssDeclarations($body), $this->closedStateNormalizer()->hiddenStateProperties());
+                // Projected stylesheets may not be in the static rule analysis.
+                // Keep positioning alongside visibility for the overlay guard.
+                $declarations = array_intersect_key($this->cssDeclarations($body), $this->closedStateNormalizer()->hiddenStateProperties() + array('position' => true));
                 foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector) {
                     $selector = trim($selector);
                     if (array() !== $declarations && '' !== $selector && ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector)) {
