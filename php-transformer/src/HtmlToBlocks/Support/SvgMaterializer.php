@@ -1017,6 +1017,11 @@ final class SvgMaterializer implements SvgElementMaterializer
         return '' === $formatted ? '' : $formatted;
     }
 
+    public function sanitizeInlineSvgMarkup(DOMElement $element): string
+    {
+        return $this->context->sanitizeInlineSvgMarkup($element);
+    }
+
     /**
      * Restore the canonical camelCase casing of SVG element and attribute names
      * that the HTML parser lowercases (e.g. `viewbox` -> `viewBox`,
