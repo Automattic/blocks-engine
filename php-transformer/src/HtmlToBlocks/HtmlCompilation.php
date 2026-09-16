@@ -142,6 +142,7 @@ use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatchCache;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\AdminBarAccommodation;
+use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
@@ -2099,6 +2100,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
         array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
+        // Engine support CSS may join an author cascade layer, and naming a
+        // layer registers it. The editor injects author CSS after the enqueued
+        // editor styles, so that registration would otherwise arrive first and
+        // invert the author's layer order — letting an author reset layer beat
+        // the author utilities that centre and pad every section. Stating the
+        // author's own order ahead of any engine CSS pins it in both contexts.
+        $authorLayerOrder = ( new AuthorCascadeLayerOrder() )->statement($settleableAuthorCss);
+        if ( '' !== $authorLayerOrder ) {
+            array_unshift($beforeAuthorCssParts, $authorLayerOrder);
+        }
         $this->materializeStylesheetAsset($beforeAuthorCssParts, 'engine-support', 'before-author', 'engine-support-before-author');
         if ( $includeAuthorStyles && array() !== $this->authorStyles()->stylesheetAssets() ) {
             foreach ( $authorStylesheetProjections as $projection ) {
