@@ -52,9 +52,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
-                $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->isHashAnchorMenuProjection($element)
-                    ? 'always'
-                    : 'mobile';
+                $block['attrs']['overlayMenu'] = $this->navigationToggleSuppressor->projectedOverlayMenu($element);
                 return ConversionOutcome::handled($block);
             }
         }
@@ -122,7 +120,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
-        $always = $this->navigationToggleSuppressor->isHashAnchorMenuProjection($toggle);
+        $always = 'always' === $this->navigationToggleSuppressor->projectedOverlayMenu($toggle);
         $extra = '';
         $openDeclarations = $declarations;
         if ( $always ) {

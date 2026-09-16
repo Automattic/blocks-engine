@@ -210,6 +210,24 @@ $assert(
     $visibleTwinMarkup
 );
 
+$desktopVisible = $transform(
+    '<style>.hamburger{display:none}.mobile-nav{display:none}'
+    . '@media(max-width:992px){.hamburger{display:block}.desktop-nav{display:none}.mobile-nav{display:block}}</style>'
+    . '<header><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    . '<nav class="desktop-nav"><ul>' . $links . '</ul></nav></header>'
+    . '<div id="navMobile" class="mobile-nav"><ul>' . $links . '</ul></div>'
+);
+$desktopVisibleMarkup = $markup($desktopVisible);
+$assert(
+    1 === substr_count($desktopVisibleMarkup, '<!-- wp:navigation ')
+        && str_contains($desktopVisibleMarkup, '"overlayMenu":"mobile"')
+        && ! str_contains($desktopVisibleMarkup, '"overlayMenu":"always"')
+        && str_contains($desktopVisibleMarkup, '"label":"Home"')
+        && str_contains($desktopVisibleMarkup, '"label":"About"'),
+    'a CSS-hidden hamburger with a default-visible desktop list uses overlayMenu mobile',
+    $desktopVisibleMarkup
+);
+
 $realLink = $transform(
     '<header><a href="/about" aria-label="Menu">About</a><nav><ul><li><a href="/">Home</a></li></ul></nav></header>'
 );
