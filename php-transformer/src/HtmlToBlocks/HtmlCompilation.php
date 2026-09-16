@@ -4653,7 +4653,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function hoistSoleGroupUnderAuthoredGrid(DOMElement $element, array $block): array
     {
-        if ( ! in_array($this->authoredDisplay($element), array( 'grid', 'inline-grid' ), true) ) {
+        $className = (string) ($block['attrs']['className'] ?? '');
+        if ( ! str_contains($className, 'blocks-engine-css-owned-grid') ) {
             return $block;
         }
         $inner = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
