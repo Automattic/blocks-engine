@@ -11,7 +11,8 @@ use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
  * Staged prepare/compilePage/compose transport extracted from ArtifactCompiler.
  *
  * ArtifactCompiler remains the public facade and owns canonical compile()
- * plus site-plan finalize. No Context bag: trait methods use the compiler
+ * plus envelope finalize. Site-plan production is derived by
+ * WordPressSitePlanComposer. No Context bag: trait methods use the compiler
  * host `$this` for document compilation.
  */
 trait StagedTransport

@@ -77,7 +77,7 @@ final class WordPressSitePlan
     /**
      * Projects compiler-owned result data before its terminal conversion report exists.
      *
-     * @internal ArtifactCompiler builds this data and retains public canonical-envelope validation in fromResult().
+     * @internal Pre-report projection. Canonical compile derives plans via fromResult() on the transformer envelope.
      * @param array<string,mixed> $data
      * @return array<string,mixed>
      */
@@ -87,7 +87,7 @@ final class WordPressSitePlan
     }
 
     /**
-     * @internal ArtifactCompiler owns this explicit compiler-to-plan boundary.
+     * @internal Explicit compiler-to-plan boundary used by fromResult() and fromCompilerResult().
      * @param array<string,mixed> $data
      * @return array<string,mixed>
      */
