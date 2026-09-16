@@ -165,6 +165,11 @@ $assert(
     'the side rail is a bounded scrollable column that collapses to a strip on small screens'
 );
 $assert(
+    str_contains($railStyle, '--stage-aspect.blocks-engine-authored-carousel--thumbnails-right{align-items:stretch}')
+        && str_contains($railStyle, '--stage-aspect.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{height:0;min-height:100%;max-height:none}'),
+    'a rail beside a ratio-sized stage scrolls inside that stage instead of running past it'
+);
+$assert(
     str_contains($railView, "[ 'dot', 'thumbnail' ]") && str_contains($railView, 'scrollIntoView'),
     'the active slide is reflected on both pager shapes and keeps the selected thumbnail in view'
 );
