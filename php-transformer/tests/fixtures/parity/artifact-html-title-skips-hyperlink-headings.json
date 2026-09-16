@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "artifact-html-title-skips-hyperlink-headings",
+  "description": "Names pages from a non-linked content heading, or the document title when every h1 is a logo or navigation hyperlink.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/artifact-html-title-skips-hyperlink-headings.json",
+    "notes": "Product-neutral fixture for generic static-site page title extraction."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This artifact metadata fixture has no downstream legacy comparison."
+  },
+  "operation": "artifact_compiler.compile",
+  "input": {
+    "artifact": {
+      "entrypoint": "index.html",
+      "files": [
+        {
+          "path": "index.html",
+          "content": "<!doctype html><html><head><title>Northline Studio</title></head><body><header><h1><span><a href=\"/\">Northline</a></span></h1><nav><h1><a href=\"/work/\">Work</a></h1></nav></header><main><p>Portfolio home.</p></main></body></html>",
+          "mime_type": "text/html",
+          "role": "entry"
+        },
+        {
+          "path": "about.html",
+          "content": "<!doctype html><html><head><title>About Northline</title></head><body><header><h1><span><a href=\"/\">Northline</a></span></h1><nav><h1><a href=\"/about/\">About</a></h1></nav></header><main><p>About the studio.</p></main></body></html>",
+          "mime_type": "text/html"
+        },
+        {
+          "path": "project.html",
+          "content": "<!doctype html><html><head><title>Harbor Way</title></head><body><header><h1><span><a href=\"/\">Northline</a></span></h1><nav><h1><a href=\"/work/\">Work</a></h1></nav></header><main><h1>Harbor Way</h1><p>Case study.</p></main></body></html>",
+          "mime_type": "text/html"
+        }
+      ]
+    }
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success_with_warnings" },
+    { "path": "source_reports.materialization_plan.pages", "assert": "count", "count": 3 },
+    { "path": "source_reports.materialization_plan.pages.0.title", "assert": "equals", "value": "Northline Studio" },
+    { "path": "source_reports.materialization_plan.pages.1.title", "assert": "equals", "value": "About Northline" },
+    { "path": "source_reports.materialization_plan.pages.2.title", "assert": "equals", "value": "Harbor Way" },
+    { "path": "source_reports.conversion_report.source_summary.page_count", "assert": "equals", "value": 3 }
+  ]
+}
