@@ -360,6 +360,35 @@ $multiPageWordPressAssets = $multiPage['source_reports']['wordpress_site_plan'][
 $assert(1 === preg_match('#^assets/css/engine-support-before-author-[a-f0-9]{16}\.css$#', $multiPageAssetPaths[0] ?? '') && 'shared.css' === ($multiPageAssetPaths[1] ?? '') && 'shared' === ($multiPageSupportAssets[0]['compilation']['scope'] ?? '') && 'global' === ($multiPageWordPressAssets[0]['scopes'][0]['kind'] ?? ''), 'identical multi-page support is ordered before author CSS and promoted to global scope');
 $assert('blocks-engine/wordpress-site-plan/v2' === ($multiPage['source_reports']['wordpress_site_plan']['schema'] ?? null), 'deduplicated multi-route assets produce a canonical WordPress site plan');
 
+$pageSubsetArtifact = array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<main><p>Home</p></main>' ),
+        array( 'path' => 'services.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="section.css"><link rel="stylesheet" href="explicit-shared.css"><main><div class="section"><p>Services</p></div></main>' ),
+        array( 'path' => 'portfolio.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="section.css"><link rel="stylesheet" href="explicit-shared.css"><main><div class="section"><p>Portfolio</p></div></main>' ),
+        array( 'path' => 'section.css', 'kind' => 'css', 'content' => '.section p{display:grid}' ),
+        array( 'path' => 'explicit-shared.css', 'kind' => 'css', 'content' => '.shared{color:green}', 'metadata' => array('compilation' => array('scope' => 'shared')) ),
+        array( 'path' => 'unreferenced.css', 'kind' => 'css', 'content' => '.orphan{color:gray}' ),
+    ),
+);
+$pageSubsetCompiler = new ArtifactCompiler();
+$pageSubsetStylesheet = $pageSubsetCompiler->compile($pageSubsetArtifact)->toArray();
+$pageSubsetAssets = array_column($pageSubsetStylesheet['source_reports']['wordpress_site_plan']['assets'] ?? array(), null, 'source_path');
+$pageSubsetScopes = array_column($pageSubsetAssets['section.css']['scopes'] ?? array(), 'source_path');
+$assert(array('services.html', 'portfolio.html') === $pageSubsetScopes, 'a stylesheet linked by a subset of pages retains every owning page scope without becoming global');
+$pageSubsetWrites = array_column($pageSubsetStylesheet['source_reports']['wordpress_site_plan']['writes'] ?? array(), null, 'target_path');
+$pageSubsetBootstrap = (string) ($pageSubsetWrites['functions.php']['payload']['data'] ?? '');
+$assert(str_contains($pageSubsetBootstrap, "'services' === trim( get_page_uri( get_queried_object_id() ), '/' )") && str_contains($pageSubsetBootstrap, "'portfolio' === trim( get_page_uri( get_queried_object_id() ), '/' )"), 'a subset-scoped stylesheet bootstrap matches every owning WordPress route');
+$assert(array(array('kind' => 'global')) === ($pageSubsetAssets['explicit-shared.css']['scopes'] ?? null) && array(array('kind' => 'global')) === ($pageSubsetAssets['unreferenced.css']['scopes'] ?? null), 'explicitly shared and unreferenced stylesheets retain global scope');
+$pageSubsetCompiledAssets = array_column($pageSubsetStylesheet['source_reports']['compiled_site']['assets'] ?? array(), null, 'path');
+$assert(!isset($pageSubsetCompiledAssets['section.css']['compilation']) && array('services.html', 'portfolio.html') === array_values(array_unique(array_column($pageSubsetCompiledAssets['section.css']['references'] ?? array(), 'source_path'))), 'linked-page scope reuses existing asset references without extending compiled ownership metadata');
+$pageSubsetShared = $pageSubsetCompiler->prepareShared($pageSubsetArtifact);
+$pageSubsetReceipts = array();
+foreach ($pageSubsetShared['analysis']['page_ids'] as $pageId) $pageSubsetReceipts[] = $pageSubsetCompiler->compilePage($pageSubsetArtifact, $pageSubsetShared, $pageId);
+$pageSubsetStaged = $pageSubsetCompiler->compose($pageSubsetShared, array_reverse($pageSubsetReceipts))->toArray();
+$pageSubsetStagedAssets = array_column($pageSubsetStaged['source_reports']['wordpress_site_plan']['assets'] ?? array(), null, 'source_path');
+$assert(array('services.html', 'portfolio.html') === array_column($pageSubsetStagedAssets['section.css']['scopes'] ?? array(), 'source_path'), 'staged compilation retains the same subset page scopes as monolithic compilation');
+
 $siblingSupport = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(

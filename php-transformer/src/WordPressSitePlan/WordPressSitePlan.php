@@ -1033,8 +1033,21 @@ final class WordPressSitePlan
             $compilation = $asset['compilation'] ?? null;
             unset($asset['compilation']);
             if ('css' !== $asset['kind']) continue;
-            if (null === $compilation || 'shared' === ($compilation['scope'] ?? null)) {
+            if ('shared' === ($compilation['scope'] ?? null)) {
                 $asset['scopes'] = array(array('kind' => 'global'));
+                continue;
+            }
+            if (null === $compilation) {
+                $referencedPages = array();
+                foreach (is_array($asset['references'] ?? null) ? $asset['references'] : array() as $reference) {
+                    $sourcePath = is_array($reference) && 'link' === ($reference['element'] ?? null) ? ($reference['source_path'] ?? null) : null;
+                    if (is_string($sourcePath) && is_array($pagesBySource[$sourcePath] ?? null)) $referencedPages[$sourcePath] = $pagesBySource[$sourcePath];
+                }
+                if (array() === $referencedPages) {
+                    $asset['scopes'] = array(array('kind' => 'global'));
+                    continue;
+                }
+                $asset['scopes'] = array_values(array_map(static fn(array $page): array => array('kind' => 'post' === $page['post_type'] ? 'post' : 'page', 'source_path' => $page['source_path'], 'route_path' => trim($page['route']['path'], '/'), 'reconciliation_identity' => $page['reconciliation_identity'], 'front_page' => '/' === $page['route']['path']), $referencedPages));
                 continue;
             }
             if (!is_array($compilation) || 'page' !== ($compilation['scope'] ?? null) || !is_string($compilation['id'] ?? null) || !is_array($pagesBySource[$compilation['id']] ?? null)) {
