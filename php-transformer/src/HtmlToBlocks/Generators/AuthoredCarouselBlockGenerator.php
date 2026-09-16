@@ -55,15 +55,19 @@ final class AuthoredCarouselBlockGenerator
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
             'stageAspectRatio' => array('type' => 'string', 'default' => ''),
             'stageMaxWidth' => array('type' => 'number', 'default' => 0),
+            'transitionStyle' => array('type' => 'string', 'default' => 'fade'),
+            'showPlayControl' => array('type' => 'boolean', 'default' => false),
         );
         $editor = <<<'JS'
-( function( blocks, blockEditor, element ) {
+( function( blocks, blockEditor, element, components ) {
     var createElement = element.createElement;
     var InnerBlocks = blockEditor.InnerBlocks;
+    var InspectorControls = blockEditor.InspectorControls;
     function normalizedItems( value ) { value = Math.round( Number( value ) || 4 ); return Math.min( 6, Math.max( 1, value ) ); }
     function normalizedCount( value ) { return Math.max( 0, Math.round( Number( value ) || 0 ) ); }
     function normalizedThumbnails( value ) { return Array.isArray( value ) ? value.filter( function( thumbnail ) { return thumbnail && thumbnail.url; } ) : []; }
     function normalizedPosition( value ) { return 'bottom' === value ? 'bottom' : 'right'; }
+    function normalizedTransition( value ) { return 'slide' === value ? 'slide' : 'fade'; }
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
     function rootProps( attributes ) {
         var items = normalizedItems( attributes.itemsPerView );
@@ -78,13 +82,47 @@ final class AuthoredCarouselBlockGenerator
             var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
             if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
         }
-        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
+        return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ) + ' blocks-engine-authored-carousel--transition-' + normalizedTransition( attributes.transitionStyle ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false, playing: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ) > 0 } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false },
         edit: function( props ) {
-            return createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) );
+            var set = function( key ) { return function( value ) { var update = {}; update[ key ] = value; props.setAttributes( update ); }; };
+            return createElement( element.Fragment, null,
+                createElement( InspectorControls, null,
+                    createElement( components.PanelBody, { title: 'Playback' },
+                        createElement( components.SelectControl, {
+                            label: 'Transition',
+                            value: normalizedTransition( props.attributes.transitionStyle ),
+                            options: [ { label: 'Fade', value: 'fade' }, { label: 'Slide', value: 'slide' } ],
+                            onChange: set( 'transitionStyle' ),
+                            __nextHasNoMarginBottom: true
+                        } ),
+                        createElement( components.RangeControl, {
+                            label: 'Transition duration (ms)',
+                            value: normalizedCount( props.attributes.transitionDuration ),
+                            min: 0, max: 2000, step: 50,
+                            onChange: set( 'transitionDuration' ),
+                            __nextHasNoMarginBottom: true
+                        } ),
+                        createElement( components.RangeControl, {
+                            label: 'Autoplay interval (ms, 0 to hold)',
+                            value: normalizedCount( props.attributes.autoplayInterval ),
+                            min: 0, max: 20000, step: 500,
+                            onChange: set( 'autoplayInterval' ),
+                            __nextHasNoMarginBottom: true
+                        } ),
+                        createElement( components.ToggleControl, {
+                            label: 'Show play control',
+                            checked: !! props.attributes.showPlayControl,
+                            onChange: set( 'showPlayControl' ),
+                            __nextHasNoMarginBottom: true
+                        } )
+                    )
+                ),
+                createElement( 'div', { className: 'blocks-engine-authored-carousel-editor' }, createElement( 'strong', null, props.attributes.ariaLabel || 'Carousel' ), createElement( InnerBlocks, { allowedBlocks: [ 'core/image', 'core/group' ], renderAppender: InnerBlocks.ButtonBlockAppender } ) )
+            );
         },
         save: function( props ) {
             var dotCount = props.attributes.showDots ? normalizedCount( props.attributes.slideCount ) : 0;
@@ -95,6 +133,7 @@ final class AuthoredCarouselBlockGenerator
                 createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ),
                 createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next', 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd' }, 'Next' ),
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
+                props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback', 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
                     return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__thumbnail', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' }, createElement( 'img', { src: thumbnail.url, alt: thumbnail.alt || '', loading: 'lazy', decoding: 'async' } ) );
                 } ) ) : null,
@@ -102,7 +141,7 @@ final class AuthoredCarouselBlockGenerator
             );
         }
     } );
-} )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
+} )( window.wp.blocks, window.wp.blockEditor, window.wp.element, window.wp.components );
 JS;
         // The Interactivity API is WordPress's own front-end runtime for blocks,
         // so the behavior is declared on the markup and the module carries only
@@ -125,6 +164,36 @@ const visibleCount = ( ref ) => {
 };
 
 const maximumIndex = ( context ) => Math.max( 0, context.count - context.visible );
+
+const DEFAULT_AUTOPLAY_INTERVAL = 5000;
+
+// A running timer is per-element runtime, not serialisable block state.
+const timers = new WeakMap();
+
+const stopAutoplay = ( root ) => {
+    const timer = timers.get( root );
+    if ( timer ) {
+        window.clearInterval( timer );
+        timers.delete( root );
+    }
+};
+
+const startAutoplay = ( root, context ) => {
+    stopAutoplay( root );
+    if ( context.count < 2 || window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
+        return;
+    }
+    const interval = context.autoplayInterval > 0 ? context.autoplayInterval : DEFAULT_AUTOPLAY_INTERVAL;
+    timers.set(
+        root,
+        window.setInterval(
+            withScope( () => {
+                if ( ! context.paused ) show( context.index + 1 );
+            } ),
+            interval
+        )
+    );
+};
 
 const syncSlideshow = ( root, context ) => {
     if ( 'slideshow' !== context.presentation ) {
@@ -160,9 +229,11 @@ const show = ( requested ) => {
         return;
     }
     const maximum = maximumIndex( context );
+    const previousIndex = context.index;
     context.index = context.wrap
         ? ( requested < 0 ? maximum : requested > maximum ? 0 : requested )
         : Math.max( 0, Math.min( maximum, requested ) );
+    root.dataset.direction = context.index < previousIndex ? 'backward' : 'forward';
     syncSlideshow( root, context );
     if ( 'slideshow' === context.presentation ) {
         return;
@@ -192,6 +263,12 @@ store( 'blocks-engine/carousel', {
             const context = getContext();
             return 'Slide ' + ( context.index + 1 ) + ' of ' + context.count;
         },
+        get playing() {
+            return true === getContext().playing;
+        },
+        get playbackLabel() {
+            return getContext().playing ? 'Pause' : 'Play';
+        },
     },
     callbacks: {
         init() {
@@ -201,16 +278,12 @@ store( 'blocks-engine/carousel', {
             context.visible = 'slideshow' === context.presentation ? 1 : visibleCount( ref );
             context.index = Math.min( context.index, maximumIndex( context ) );
             syncSlideshow( ref, context );
-            if ( 'slideshow' !== context.presentation || context.autoplayInterval <= 0 || context.count < 2 || window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches ) {
+            const root = rootOf( ref ) ?? ref;
+            if ( 'slideshow' !== context.presentation || ! context.playing ) {
                 return;
             }
-            const advance = withScope( () => {
-                if ( ! context.paused ) {
-                    show( context.index + 1 );
-                }
-            } );
-            const timer = window.setInterval( advance, context.autoplayInterval );
-            return () => window.clearInterval( timer );
+            startAutoplay( root, context );
+            return () => stopAutoplay( root );
         },
     },
     actions: {
@@ -222,6 +295,15 @@ store( 'blocks-engine/carousel', {
         },
         goTo( event ) {
             show( Number( event.currentTarget.dataset.carouselIndex ) || 0 );
+        },
+        toggleAutoplay() {
+            const context = getContext();
+            const root = rootOf( getElement().ref );
+            if ( ! root ) return;
+            context.playing = ! context.playing;
+            context.paused = false;
+            if ( context.playing ) startAutoplay( root, context );
+            else stopAutoplay( root );
         },
         pause() {
             getContext().paused = true;
@@ -242,6 +324,17 @@ JS;
         $style = '.blocks-engine-authored-carousel{--blocks-engine-carousel-gap:1rem;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--blocks-engine-carousel-gap);align-items:center;max-width:100%;min-width:0}.blocks-engine-authored-carousel__viewport{min-width:0;overflow:hidden;scroll-behavior:smooth}.blocks-engine-authored-carousel__track{display:grid;grid-auto-flow:column;grid-auto-columns:calc((100% - 3rem)/4);gap:var(--blocks-engine-carousel-gap)}.blocks-engine-authored-carousel--items-1 .blocks-engine-authored-carousel__track{grid-auto-columns:100%}.blocks-engine-authored-carousel--items-2 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}.blocks-engine-authored-carousel--items-3 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 2rem)/3)}.blocks-engine-authored-carousel--items-5 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 4rem)/5)}.blocks-engine-authored-carousel--items-6 .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 5rem)/6)}.blocks-engine-authored-carousel__track>*{box-sizing:border-box;min-width:0;margin:0}.blocks-engine-authored-carousel__track>.wp-block-image img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:inherit}.blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel__next{cursor:pointer}.blocks-engine-authored-carousel__previous:disabled,.blocks-engine-authored-carousel__next:disabled{cursor:default;opacity:.45}.blocks-engine-authored-carousel__status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:900px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:calc((100% - 1rem)/2)}}@media(max-width:600px){.blocks-engine-authored-carousel .blocks-engine-authored-carousel__track{grid-auto-columns:100%}}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel__viewport{scroll-behavior:auto}}';
         $style .= '.blocks-engine-authored-carousel--full-bleed{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:calc(50% - 50vw)}.blocks-engine-authored-carousel--slideshow{position:relative;display:block;gap:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{width:100%;height:var(--blocks-engine-carousel-height,auto)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track{position:relative;display:block}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;width:100%;opacity:0;visibility:hidden;transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{position:relative!important;inset:auto!important;height:auto!important;opacity:1;visibility:visible;z-index:1}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){position:absolute!important;inset:0!important;height:auto!important;opacity:0;visibility:hidden;z-index:0}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{position:absolute;top:50%;z-index:3;width:3rem;height:3rem;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.32);color:#fff;font-size:0;transform:translateY(-50%)}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous{left:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next{right:1rem}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous::before,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{display:block;font-size:2rem;line-height:1;content:"\\2039"}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next::before{content:"\\203a"}.blocks-engine-authored-carousel__dots{position:absolute;right:0;bottom:1.25rem;left:0;z-index:3;display:flex;justify-content:center;gap:.65rem}.blocks-engine-authored-carousel__dot{width:.75rem;height:.75rem;padding:0;border:1px solid currentColor;border-radius:50%;background:transparent;color:#fff;cursor:pointer}.blocks-engine-authored-carousel__dot--active{background:currentColor}@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{transition:none}}';
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
+
+        // A slideshow transition is a source characteristic, not a house style,
+        // so the shape is a parameter and each variant is expressed here rather
+        // than baked into the stacking rules above.
+        $style .= '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>*{transition:opacity var(--blocks-engine-carousel-transition,300ms) ease,visibility var(--blocks-engine-carousel-transition,300ms) ease,transform var(--blocks-engine-carousel-transition,300ms) ease}'
+            . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(100%)}'
+            . '.blocks-engine-authored-carousel--transition-slide[data-direction="backward"] .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(-100%)}'
+            . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{transform:translateX(0)}'
+            . '.blocks-engine-authored-carousel__playback{position:absolute;left:0;bottom:0;z-index:3;padding:.35rem .75rem;border:0;background:rgba(0,0,0,.32);color:#fff;font:inherit;cursor:pointer}'
+            . '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__playback{pointer-events:auto}'
+            . '@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>*{transition:none}}';
 
         // The source sized its stage with a runtime script the artifact cannot
         // carry, but every slide declares a centered layer scaled to fit that
@@ -297,7 +390,7 @@ JS;
             ),
             'view_js' => $view,
             'script_dependencies' => array(
-                'index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element'),
+                'index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element', 'wp-components'),
                 'view.js' => array('@wordpress/interactivity'),
             ),
         );
@@ -319,7 +412,9 @@ JS;
         $showDots = true === ($attributes['showDots'] ?? false) && 1 < $slideCount;
         $thumbnails = $this->normalizedThumbnails($attributes['thumbnails'] ?? array());
         $thumbnailPosition = 'bottom' === ($attributes['thumbnailPosition'] ?? 'right') ? 'bottom' : 'right';
-        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
+        $transitionStyle = 'slide' === ($attributes['transitionStyle'] ?? 'fade') ? 'slide' : 'fade';
+        $showPlayControl = true === ($attributes['showPlayControl'] ?? false);
+        $classes = 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' . $items . ' blocks-engine-authored-carousel--' . $presentation . ' blocks-engine-authored-carousel--transition-' . $transitionStyle . ($fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '')
             . (1 < count($thumbnails) ? ' blocks-engine-authored-carousel--thumbnails blocks-engine-authored-carousel--thumbnails-' . $thumbnailPosition : '');
         $stageAspect = 0 < $viewportHeight ? '' : $this->normalizedAspectRatio($attributes['stageAspectRatio'] ?? '');
         if ( '' !== $stageAspect ) {
@@ -336,7 +431,7 @@ JS;
         }
 
         $context = htmlspecialchars(
-            (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            (string) json_encode(array('index' => $initialSlide, 'wrap' => 'true' === $wrap, 'count' => 0, 'visible' => $items, 'presentation' => $presentation, 'autoplayInterval' => $autoplayInterval, 'paused' => false, 'playing' => 0 < $autoplayInterval), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             ENT_QUOTES | ENT_SUBSTITUTE,
             'UTF-8'
         );
@@ -350,6 +445,10 @@ JS;
             $dots .= '</div>';
         }
 
+        $playback = $showPlayControl
+            ? '<button type="button" class="blocks-engine-authored-carousel__playback" data-wp-on--click="actions.toggleAutoplay" data-wp-bind--aria-pressed="state.playing" data-wp-text="state.playbackLabel">'
+                . ( 0 < $autoplayInterval ? 'Pause' : 'Play' ) . '</button>'
+            : '';
         $rail = '';
         if ( 1 < count($thumbnails) ) {
             $rail = '<div class="blocks-engine-authored-carousel__thumbnails" role="group" aria-label="Choose slide">';
@@ -362,7 +461,7 @@ JS;
 
         return array(
             'opening' => '<div class="' . $classes . '"' . $styleAttribute . ' role="region" aria-label="' . $label . '" aria-roledescription="carousel" data-wrap="' . $wrap . '" data-wp-interactive="blocks-engine/carousel" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--mouseenter="actions.pause" data-wp-on--mouseleave="actions.resume" data-wp-on--focusin="actions.pause" data-wp-on--focusout="actions.resume"><button type="button" class="blocks-engine-authored-carousel__previous" data-carousel-previous="true" data-wp-on--click="actions.previous" data-wp-bind--disabled="state.atStart">Previous</button><div class="blocks-engine-authored-carousel__viewport" tabindex="0" data-wp-on--keydown="actions.keydown"><div class="blocks-engine-authored-carousel__track">',
-            'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
+            'closing' => '</div></div><button type="button" class="blocks-engine-authored-carousel__next" data-carousel-next="true" data-wp-on--click="actions.next" data-wp-bind--disabled="state.atEnd">Next</button>' . $dots . $playback . $rail . '<span class="blocks-engine-authored-carousel__status" aria-live="polite" aria-atomic="true" data-wp-text="state.statusText"></span></div>',
         );
     }
 
@@ -568,6 +667,8 @@ JS;
             'thumbnailPosition' => $thumbnailPosition,
             'stageAspectRatio' => $stageBox['ratio'],
             'stageMaxWidth' => $stageBox['width'],
+            'transitionStyle' => 'slideshow' === $presentation ? $this->sourceTransitionStyle($items, $styleResolver) : 'fade',
+            'showPlayControl' => 'slideshow' === $presentation && $this->hasPlaybackToggle($element),
         );
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
@@ -583,6 +684,54 @@ JS;
             'innerHTML' => $shell['opening'] . $shell['closing'],
             'innerContent' => $innerContent,
         );
+    }
+
+    /**
+     * Whether the source shipped its own playback affordance.
+     *
+     * A slideshow that can run on its own offers a way to start and stop it, and
+     * that pair is what distinguishes real playback from a decorative label. The
+     * accessible names carry the meaning, so no builder markup is named.
+     */
+    private function hasPlaybackToggle(DOMElement $root): bool
+    {
+        $found = array();
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement ) {
+                continue;
+            }
+            $label = strtolower(trim(str_replace("\xc2\xa0", ' ', $candidate->textContent ?? '')));
+            if ( '' === $label ) {
+                $label = strtolower(trim(SourceDom::attr($candidate, 'aria-label')));
+            }
+            if ( 'play' === $label || 'pause' === $label ) {
+                $found[$label] = true;
+            }
+        }
+
+        return isset($found['play'], $found['pause']);
+    }
+
+    /**
+     * How the source moved between slides. A transition the source declares on
+     * the moving axis is a slide; anything else reads as a cross-fade, which is
+     * what a script-driven swap leaves behind.
+     *
+     * @param array<int, DOMElement> $items
+     */
+    private function sourceTransitionStyle(array $items, StyleResolver $styleResolver): string
+    {
+        foreach ( $items as $item ) {
+            $declarations = $styleResolver->structuralPresentationDeclarations($item);
+            $transition = strtolower(
+                (string) ($declarations['transition'] ?? '') . ' ' . (string) ($declarations['transition-property'] ?? '')
+            );
+            if ( str_contains($transition, 'transform') ) {
+                return 'slide';
+            }
+        }
+
+        return 'fade';
     }
 
     /**
