@@ -9638,6 +9638,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || $this->runtimeIslands->isRuntimeDomTarget($element)
             || $this->hasRuntimeTargetInSubtree($element)
             || $this->hasLayoutGeometryProofInSubtree($element)
+            || $this->containsDocumentShellLandmarks($element)
             || $this->sourceElementNestingDepth($element) <= self::MAX_CAPTURED_LAYOUT_SOURCE_NESTING
             || ! $this->sourceElementClassifier->hasCapturedMediaContent($element)
             || ('main' !== strtolower($element->tagName) && '' === trim((string) $element->textContent))
@@ -9750,6 +9751,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return true;
             }
         }
+        return false;
+    }
+
+    /**
+     * Deep media layout capture is for a content region, not the site shell.
+     * An ancestor that also owns header/footer chrome must convert children
+     * so landmarks stay native blocks.
+     */
+    private function containsDocumentShellLandmarks(DOMElement $element): bool
+    {
+        if ( in_array(strtolower($element->tagName), array( 'main', 'article' ), true) ) {
+            return false;
+        }
+
+        if ( 0 < $element->getElementsByTagName('header')->length
+            || 0 < $element->getElementsByTagName('footer')->length ) {
+            return true;
+        }
+
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement ) {
+                continue;
+            }
+            if ( in_array(strtolower($this->attr($descendant, 'role')), array( 'banner', 'contentinfo' ), true) ) {
+                return true;
+            }
+        }
+
         return false;
     }
 
