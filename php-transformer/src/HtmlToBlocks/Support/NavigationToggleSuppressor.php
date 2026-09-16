@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use DOMDocument;
 use DOMElement;
@@ -86,6 +87,48 @@ final class NavigationToggleSuppressor
         $this->context->navigationProjection()->projectTarget($control, $navigation);
         $this->context->navigationProjection()->suppress($target);
         $this->context->navigationProjection()->suppress($navigation);
+        if ( $this->isProjectableHashAnchorMenuToggle($control) ) {
+            $this->suppressEquivalentNavigationDuplicates($control, $navigation);
+        }
+    }
+
+    private function suppressEquivalentNavigationDuplicates(DOMElement $control, DOMElement $navigation): void
+    {
+        $signature = $this->sourceNavigationSignature($navigation);
+        if ( '' === $signature ) {
+            return;
+        }
+
+        $root = $this->documentVariantRoot($control);
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($navigation)
+                || $this->context->navigationProjection()->isSuppressed($candidate)
+                || SourceDom::elementContains($candidate, $control)
+                || ! $this->isAssociatedNavigationTarget($candidate)
+                || $signature !== $this->sourceNavigationSignature($candidate) ) {
+                continue;
+            }
+            $this->context->navigationProjection()->suppress($candidate);
+        }
+    }
+
+    private function documentVariantRoot(DOMElement $element): DOMElement
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( 1 === preg_match('/(?:^|\s)data-liberation-(?:desktop|mobile)-document(?:\s|$)/', SourceDom::attr($node, 'class')) ) {
+                return $node;
+            }
+            if ( 'body' === strtolower($node->tagName) ) {
+                return $node;
+            }
+        }
+
+        $document = $element->ownerDocument;
+
+        return $document instanceof DOMDocument && $document->documentElement instanceof DOMElement
+            ? $document->documentElement
+            : $element;
     }
 
     private function hasDialogPopupSemantics(DOMElement $control): bool
@@ -267,10 +310,18 @@ final class NavigationToggleSuppressor
 
     private function sourceElementIsHidden(DOMElement $element): bool
     {
-        return $this->context->sourceElementStartsHidden($element)
+        if ( $this->context->sourceElementStartsHidden($element)
             || $element->hasAttribute('hidden')
             || 'true' === strtolower(SourceDom::attr($element, 'aria-hidden'))
-            || 'false' === strtolower(SourceDom::attr($element, 'data-visible'));
+            || 'false' === strtolower(SourceDom::attr($element, 'data-visible')) ) {
+            return true;
+        }
+
+        $maxHeight = CssValueInspector::comparable(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($element)['max-height'] ?? '')
+        );
+
+        return in_array($maxHeight, array( '0', '0px' ), true);
     }
 
     public function projectedNavigationTargetForControl(DOMElement $control): ?DOMElement

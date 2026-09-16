@@ -118,8 +118,8 @@ $stickyAssets = implode("\n", array_map(
     is_array($sticky['assets'] ?? null) ? $sticky['assets'] : array()
 ));
 $assert(
-    str_contains($stickyAssets, '#topBar{position:fixed') && ( str_contains($stickyAssets, 'background-color:#2B2B2B') || str_contains($stickyAssets, 'background-color:#2b2b2b') ),
-    'an absolutely pinned header bar is projected as a fixed opaque bar',
+    ! str_contains($stickyAssets, '#topBar{position:fixed'),
+    'header rest/scroll color is left to captured scroll-state evidence, not a forced overlay fill',
     $stickyAssets
 );
 
@@ -159,6 +159,48 @@ $assert(
     ! str_contains($dualDocMarkup, '<a class="hamburger"'),
     'duplicate-document hash-anchor hamburgers are not left covering the overlay toggle',
     $dualDocMarkup
+);
+
+$clipped = $transform(
+    '<style>.nav-wrap{display:block;max-height:0;overflow:hidden}.nav-wrap a{font-size:14px;font-weight:700;text-transform:uppercase;color:#444444}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><nav><ul>' . $links . '</ul></nav></div>'
+);
+$clippedMarkup = $markup($clipped);
+$clippedAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($clipped['assets'] ?? null) ? $clipped['assets'] : array()
+));
+$assert(
+    str_contains($clippedMarkup, '"overlayMenu":"always"')
+        && 1 === substr_count($clippedMarkup, '<!-- wp:navigation '),
+    'a max-height:0 nav-wrap is the overlay panel, not a second always-visible menu',
+    $clippedMarkup
+);
+$assert(
+    str_contains($clippedAssets, 'text-transform:uppercase') && str_contains($clippedAssets, 'font-size:14px'),
+    'overlay items keep the source uppercase 14px menu labels',
+    $clippedAssets
+);
+$assert(
+    str_contains($clippedAssets, ':has(.wp-block-navigation__responsive-container.is-menu-open)>') && str_contains($clippedAssets, 'background:#fff'),
+    'an open overlay paints the MENU control onto the white dropdown',
+    $clippedAssets
+);
+
+$visibleTwin = $transform(
+    '<style>.mobile-nav{display:none}.hamburger span:after{content:"MENU"}</style>'
+    . '<div class="header-wrap"><a class="hamburger" href="#" aria-label="Menu"><span></span></a></div>'
+    . '<div class="nav-wrap"><div class="nav desktop-nav"><ul>' . $links . '</ul></div></div>'
+    . '<div class="mobile-nav"><ul>' . $links . '</ul></div>'
+);
+$visibleTwinMarkup = $markup($visibleTwin);
+$assert(
+    str_contains($visibleTwinMarkup, '"overlayMenu":"always"')
+        && ! str_contains($visibleTwinMarkup, '"overlayMenu":"never"')
+        && 1 === substr_count($visibleTwinMarkup, '<!-- wp:navigation '),
+    'a visible desktop twin of the overlay menu is not left as a second always-on bar',
+    $visibleTwinMarkup
 );
 
 $realLink = $transform(

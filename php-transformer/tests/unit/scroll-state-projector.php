@@ -145,6 +145,24 @@ $malformedShape = $project(array(
 ));
 $assert(in_array('captured_scroll_states_invalid', $codes($malformedShape), true), 'a malformed pages shape is reported and ignored regardless of its schema value');
 
+$scopeHtml = '<html><body><div id="topBar" class="topbar"></div></body></html>';
+$scopeResult = $project($files(array('https://example.test/scope' => $scopeHtml), array('https://example.test/scope' => array(
+    $toggle(array('selector' => '#topBar', 'tag' => 'div', 'id' => 'topBar'), array(
+        'classes' => array('add' => array(), 'remove' => array()),
+        'styleTargets' => array(array(
+            'selector' => ':scope',
+            'tag' => 'div',
+            'id' => 'topBar',
+            'properties' => array(
+                'background-color' => array('rest' => 'rgba(0, 0, 0, 0)', 'scrolled' => 'rgb(43, 43, 43)'),
+                'position' => array('rest' => 'absolute', 'scrolled' => 'fixed'),
+            ),
+        )),
+    )),
+))));
+$assert(1 === ($scopeResult['projected_count'] ?? 0), 'a :scope computed-style target still projects onto the header bar');
+$assert(str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), '":scope"') && str_contains((string) ($scopeResult['files'][0]['content'] ?? ''), 'background-color'), 'the projected config keeps the :scope computed rest/scrolled styles');
+
 if (0 !== $failures) {
     fwrite(STDERR, "scroll-state-projector failed: {$failures} failure(s), {$passes} pass(es)\n");
     exit(1);

@@ -164,7 +164,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         if ( $always ) {
             $extraRules .= $this->nativeNavigationToggleDropdownCss($host, $navigation);
-            $extraRules .= $this->nativeNavigationTogglePinnedHeaderCss($toggle);
+            $extraRules .= $this->nativeNavigationToggleOpenControlCss($host);
         }
         $rule = $always
             ? $hostRule . $openRule . $extraRules
@@ -187,11 +187,11 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $topOffset = $this->nativeNavigationToggleHeaderOffset($navigation);
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
-        return $open . '{position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+        return $open . '{box-sizing:border-box!important;position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
-            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0 15px!important}'
-            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
-            . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0!important}'
+            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;width:auto!important;margin:0!important}'
+            . $this->nativeNavigationToggleItemCss($open, $navigation)
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
             . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
@@ -199,22 +199,77 @@ final class ProjectedNavigationConverter implements ElementConverter
             . 'body:has(' . $open . '){overflow:visible!important}';
     }
 
-    private function nativeNavigationTogglePinnedHeaderCss(DOMElement $toggle): string
+    private function nativeNavigationToggleOpenControlCss(string $host): string
     {
-        $bar = $this->absolutelyPinnedHeaderBar($toggle);
-        if ( ! $bar instanceof DOMElement ) {
-            return '';
+        $open = $host . '>.wp-block-navigation__responsive-container-open';
+        $whenOpen = $host . ':has(.wp-block-navigation__responsive-container.is-menu-open)>.wp-block-navigation__responsive-container-open';
+        return $whenOpen . '{background:#fff!important}'
+            . $whenOpen . '::after{color:#444!important}'
+            . $open . ':hover{background:#fff!important}'
+            . $open . ':hover::after{color:#444!important}';
+    }
+
+    private function nativeNavigationToggleItemCss(string $open, DOMElement $navigation): string
+    {
+        $anchor = null;
+        foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
+            if ( $candidate instanceof DOMElement && '' !== trim($candidate->textContent ?? '') ) {
+                $href = trim(SourceDom::attr($candidate, 'href'));
+                if ( '' !== $href && ! str_starts_with($href, '#') ) {
+                    $anchor = $candidate;
+                    break;
+                }
+            }
         }
-        $selector = $this->cssSelectorForElement($bar);
-        if ( '' === $selector ) {
-            return '';
+        $item = array(
+            'font-size' => '14px',
+            'font-weight' => '700',
+            'text-transform' => 'uppercase',
+            'letter-spacing' => '0.04em',
+            'color' => '#444',
+            'padding' => '15px 10px',
+            'line-height' => 'normal',
+        );
+        if ( $anchor instanceof DOMElement ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue(
+                $this->styleResolver->specificityResolvedPresentationStyle($anchor)
+            );
+            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            foreach ( array( 'font-size', 'font-weight', 'text-transform', 'letter-spacing', 'color', 'line-height' ) as $property ) {
+                $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
+                if ( '' !== $value && ! preg_match('/[{}<>]/', $value) ) {
+                    $item[$property] = $value;
+                }
+            }
+            $parent = $anchor->parentNode instanceof DOMElement ? $anchor->parentNode : null;
+            if ( $parent instanceof DOMElement ) {
+                $parentResolved = $this->styleResolver->resolveCssVariablesInValue(
+                    $this->styleResolver->specificityResolvedPresentationStyle($parent)
+                );
+                $padding = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['padding'] ?? '')));
+                if ( '' !== $padding && ! preg_match('/[{}<>]/', $padding) ) {
+                    $item['padding'] = $padding;
+                }
+            }
         }
-        $background = $this->opaqueBackgroundColor($bar);
-        $rule = $selector . '{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:8!important';
-        if ( '' !== $background ) {
-            $rule .= ';background-color:' . $background . '!important';
+        $content = array();
+        $padding = $item['padding'];
+        unset($item['padding']);
+        foreach ( $item as $property => $value ) {
+            $content[] = $property . ':' . $value . '!important';
         }
-        return $rule . '}';
+
+        $color = $item['color'] ?? '#444';
+        $withoutColor = array();
+        foreach ( $content as $declaration ) {
+            if ( ! str_starts_with($declaration, 'color:') ) {
+                $withoutColor[] = $declaration;
+            }
+        }
+
+        return $open . ' .wp-block-navigation-item{padding:' . $padding . '!important}'
+            . $open . ' .wp-block-navigation-item__content{' . implode(';', $withoutColor) . '}'
+            . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
 
     private function nativeNavigationToggleHeaderOffset(DOMElement $navigation): string
@@ -265,38 +320,6 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return null;
-    }
-
-    private function opaqueBackgroundColor(DOMElement $element): string
-    {
-        $node = $element;
-        while ( $node instanceof DOMElement ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
-            );
-            $value = strtolower(CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? ''))));
-            if ( '' !== $value && ! in_array($value, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) ) {
-                return CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? '')));
-            }
-            $node = $node->parentNode;
-        }
-
-        return '';
-    }
-
-    private function cssSelectorForElement(DOMElement $element): string
-    {
-        $id = trim(SourceDom::attr($element, 'id'));
-        if ( '' !== $id && 1 === preg_match('/^[A-Za-z][\w-]*$/', $id) ) {
-            return '#' . $id;
-        }
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
-            if ( '' !== $className && 1 === preg_match('/^[A-Za-z][\w-]*$/', $className) ) {
-                return '.' . $className;
-            }
-        }
-
-        return '';
     }
 
     /**
