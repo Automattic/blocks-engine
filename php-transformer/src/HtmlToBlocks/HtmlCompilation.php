@@ -3049,11 +3049,28 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $picked[$property] = CssValueInspector::withoutImportant($value);
             }
             if ( isset($picked['content']) && ! in_array(strtolower($picked['content']), array( 'none', 'normal', '""', "''" ), true) ) {
+                $picked['content'] = $this->nativeNavigationToggleContentValue($picked['content']);
                 return $picked;
             }
         }
 
         return array();
+    }
+
+    /**
+     * Builders sometimes emit `content: '\MENU'` (quoted backslash + letters).
+     * That is a hex escape in CSS strings and computes to none on a button.
+     * A plain quoted ident is the same visible label.
+     */
+    private function nativeNavigationToggleContentValue(string $value): string
+    {
+        $trimmed = trim($value);
+        $unquoted = ltrim(trim($trimmed, "\"'"), '\\');
+        if ( 1 === preg_match('/^[A-Za-z][A-Za-z0-9 -]*$/', $unquoted) ) {
+            return '"' . $unquoted . '"';
+        }
+
+        return $trimmed;
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool
