@@ -1571,6 +1571,21 @@ $authoredRowsForm = ( new HtmlTransformer() )->transform(
 $authoredRowsControl = array_values(array_filter($authoredRowsForm['fallbacks'][0]['controls'] ?? array(), static fn (array $control): bool => 'textarea' === ($control['tag'] ?? '')))[0] ?? array();
 $assert('6' === ($authoredRowsControl['rows'] ?? ''), 'authored textarea rows are reported unchanged');
 
+$honeypotGraphCss = '.contact{display:flex;flex-direction:column}.hp-trap-wrap{height:1px;width:1px}.hp-real{width:100%}.hp-send{width:auto}';
+$honeypotGraphForm = ( new HtmlTransformer() )->transform(
+    '<main><form class="contact"><label for="hp-email">Email</label><input id="hp-email" class="hp-real" name="email" type="email"><div class="hp-trap-wrap" aria-hidden="true"><input autocomplete="new-password" tabindex="-1" name="hp-trap" type="text"></div><button class="hp-send" type="submit">Send</button></form></main>',
+    array( 'static_css' => $honeypotGraphCss )
+)->toArray();
+$honeypotGraphFallback = $honeypotGraphForm['fallbacks'][0] ?? array();
+$honeypotGraphNodes = $honeypotGraphFallback['layout_graph']['nodes'] ?? array();
+$honeypotGraphControls = array_values(array_filter($honeypotGraphNodes, static fn (array $node): bool => 'control' === ($node['kind'] ?? '')));
+$honeypotGraphIds = array_map(static fn (array $node): string => (string) ($node['id'] ?? ''), $honeypotGraphControls);
+$honeypotReportedCount = count($honeypotGraphFallback['controls'] ?? array());
+$honeypotGraphGeometry = array_values(array_filter($honeypotGraphNodes, static fn (array $node): bool => '1px' === ($node['layout']['width'] ?? null)));
+$assert(count($honeypotGraphControls) === $honeypotReportedCount, 'layout graph enumerates exactly the reported authored controls');
+$assert(array( 'control-0', 'control-1' ) === $honeypotGraphIds, 'layout graph control ids stay aligned with reported control order');
+$assert(array() === $honeypotGraphGeometry, 'wrappers that exist only to hide a non-authored control contribute no layout');
+
 $placeholderEmail = ( new HtmlTransformer() )->transform(
     '<main><form class="newsletter-form"><label class="title" for="email"></label><input id="email" class="field-element" type="text" name="email" x-autocompletetype="email" placeholder="Email Address"><button type="submit">Claim My Reward</button></form></main>'
 )->toArray();

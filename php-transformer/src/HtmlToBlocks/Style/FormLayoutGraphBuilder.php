@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -330,13 +331,10 @@ final class FormLayoutGraphBuilder
     /** @return list<DOMElement> */
     private function controls(DOMElement $form): array
     {
-        $result = array();
-        foreach ( $form->getElementsByTagName('*') as $element ) {
-            if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) {
-                $result[] = $element;
-            }
-        }
-        return $result;
+        // One shared enumeration keeps `control-N` graph ids aligned with the
+        // reported controls, and keeps non-authored controls (and the wrappers
+        // that exist only to hide them) out of the projected layout.
+        return FormControlClassifier::controlElements($form);
     }
 
     /** @param list<array<string, mixed>> $rules @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} */
