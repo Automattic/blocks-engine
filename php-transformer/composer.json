@@ -205,6 +205,7 @@
             "php tests/unit/form-fallback-finding-builder.php",
              "php tests/unit/form-dispatcher.php",
              "php tests/unit/native-get-form-workflow.php",
+             "php tests/unit/element-conversion-prelude.php",
             "php tests/unit/figure-element-converter.php",
             "php tests/unit/list-element-converters.php",
             "php tests/unit/svg-element-converter.php",
