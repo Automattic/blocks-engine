@@ -124,6 +124,10 @@ final class FlowContainerElementConverter implements ElementConverter
             && ! $this->context->isGeneratedComponentCandidate($element)
             && $this->context->isAuthorOwnedLayout($element)
         ) {
+            $navigation = $this->navigationClaim($element, $fallbacks);
+            if ( null !== $navigation ) {
+                return $navigation;
+            }
             $block = $this->context->proofBackedWrapperCoalescing($element, $fallbacks);
             return ConversionOutcome::handled($block ?? $this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -143,6 +147,10 @@ final class FlowContainerElementConverter implements ElementConverter
             $claim = $this->semanticPatternClaim($element, $fallbacks);
             if ( null !== $claim ) {
                 return $claim;
+            }
+            $navigation = $this->navigationClaim($element, $fallbacks);
+            if ( null !== $navigation ) {
+                return $navigation;
             }
             return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
         }
@@ -287,6 +295,22 @@ final class FlowContainerElementConverter implements ElementConverter
             return ConversionOutcome::handled($block);
         }
         return null;
+    }
+
+    /** @param array<int, array<string, mixed>> $fallbacks */
+    private function navigationClaim(DOMElement $element, array &$fallbacks): ?ConversionOutcome
+    {
+        if ( $this->context->shouldDeferNavigationPatternToChildren($element)
+            || ! $this->navigationPattern->claimsBeforeAuthorOwnedLayout($element)
+        ) {
+            return null;
+        }
+        $block = $this->context->recognizePatterns($element, $fallbacks, array( NavigationPattern::class ));
+        if ( null === $block ) {
+            return null;
+        }
+
+        return ConversionOutcome::handled($this->context->rememberAccordionDisclosureRoot($block, $element));
     }
 
     /** @param array<int, array<string, mixed>> $children @return array<string, mixed> */
