@@ -564,9 +564,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): array => $this->styleResolver->structuralPresentationDeclarations($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
-            function (string $identity, array $definition): void {
-                $this->generatedBlocks()->register($identity, $definition);
-            },
+            fn (): GeneratedBlockRegistry => $this->generatedBlocks(),
             function (string $text): void {
                 $this->transformationEvidence()->recordFormControlEcho($text);
             },
@@ -626,7 +624,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): array => $this->eventMetadata($element),
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
-            $this
+            $this,
+            fn (string $localName): string => $this->generatedBlocks()->blockName($localName)
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {
@@ -634,9 +633,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             },
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
-            function (string $identity, array $definition): void {
-                $this->generatedBlocks()->register($identity, $definition);
-            }
+            fn (): GeneratedBlockRegistry => $this->generatedBlocks()
         );
         $this->formCompositionPlanner = new FormCompositionPlanner(
             $this->session,
@@ -779,7 +776,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->sourceElementClassifier,
             function (string $identity, array $definition): void {
                 $this->generatedBlocks()->register($identity, $definition);
-            }
+            },
+            fn (): string => $this->generatedBlocks()->namespace()
         );
         $this->authoredCarouselGenerator = new AuthoredCarouselBlockGenerator(
             $this->sourceElementClassifier,
@@ -1460,7 +1458,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             reusableComponents: $reusableComponentRecognition,
             runtimeIslands: $this->runtimeDom()->islands(),
             generatedBlocks: $this->generatedBlocks()->definitions(),
-            gutenbergGaps: $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => DescriptionListBlockGenerator::NAME, 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
+            gutenbergGaps: $this->generatedBlocks()->has(DescriptionListBlockGenerator::class) ? array(array('id' => 'semantic-description-list', 'block_name' => $this->generatedBlocks()->blockName(DescriptionListBlockGenerator::LOCAL_NAME), 'references' => array('https://github.com/WordPress/gutenberg/issues/4880', 'https://github.com/WordPress/gutenberg/pull/20760'))) : array(),
             interactionCandidates: $interactionCandidates,
             supersededSelectors: $this->runtimeSelectors()->supersededSelectors(),
             authorStylesheetProjections: $authorStylesheetProjections,
@@ -4171,7 +4169,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ($blocks as $block) {
             $name = $block['blockName'] ?? '';
             $attrs = $block['attrs'] ?? array();
-            $tags[] = AuthorLayoutBlockGenerator::NAME === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
+            $tags[] = $this->generatedBlocks()->blockName(AuthorLayoutBlockGenerator::LOCAL_NAME) === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
     }

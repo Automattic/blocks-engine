@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
@@ -18,7 +19,7 @@ final class AuthoredFormControlBlockConverter
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $structuralPresentationDeclarations
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
-     * @param Closure(class-string, array<string, mixed>): void                                             $registerGeneratedBlock
+     * @param Closure(): GeneratedBlockRegistry                                                             $generatedBlocks
      * @param Closure(string): void                                                                         $registerEcho
      * @param Closure(string): string                                                                       $safeAnchor
      */
@@ -27,7 +28,7 @@ final class AuthoredFormControlBlockConverter
         private readonly Closure $structuralPresentationDeclarations,
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $registerGeneratedBlock,
+        private readonly Closure $generatedBlocks,
         private readonly Closure $registerEcho,
         private readonly Runtime $runtime,
         private readonly Closure $safeAnchor
@@ -67,7 +68,8 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredSelectBlockGenerator();
-        ($this->registerGeneratedBlock)(AuthoredSelectBlockGenerator::class, $generator->definition());
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredSelectBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'id' => SourceDom::attr($select, 'id'),
             'name' => SourceDom::attr($select, 'name'),
@@ -85,7 +87,7 @@ final class AuthoredFormControlBlockConverter
         ), static fn (mixed $value): bool => is_array($value) ? array() !== $value : '' !== $value);
         $markup = $generator->markup($attrs);
         $controlBlock = array(
-            'blockName' => AuthoredSelectBlockGenerator::NAME,
+            'blockName' => $registry->blockName(AuthoredSelectBlockGenerator::LOCAL_NAME),
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,
@@ -113,7 +115,8 @@ final class AuthoredFormControlBlockConverter
         }
 
         $generator = new AuthoredInputBlockGenerator();
-        ($this->registerGeneratedBlock)(AuthoredInputBlockGenerator::class, $generator->definition());
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredInputBlockGenerator::class, $generator->definition($registry->namespace()));
         $attrs = array_filter(array(
             'type' => FormControlClassifier::controlType($input),
             'id' => SourceDom::attr($input, 'id'),
@@ -138,7 +141,7 @@ final class AuthoredFormControlBlockConverter
         $markup = $generator->markup($attrs);
 
         return array(
-            'blockName' => AuthoredInputBlockGenerator::NAME,
+            'blockName' => $registry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME),
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,

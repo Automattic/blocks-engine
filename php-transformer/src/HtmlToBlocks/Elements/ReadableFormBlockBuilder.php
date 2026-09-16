@@ -17,6 +17,7 @@ final class ReadableFormBlockBuilder
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
+     * @param Closure(string): string                                                                       $generatedBlockName Resolves a local name through the transform's registry.
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -26,7 +27,8 @@ final class ReadableFormBlockBuilder
         private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $presentationAttributes,
-        private readonly SourceBlockCreator $createBlock
+        private readonly SourceBlockCreator $createBlock,
+        private readonly Closure $generatedBlockName
     ) {
     }
 
@@ -41,6 +43,7 @@ final class ReadableFormBlockBuilder
 
         $contentBlocks = array();
         $buttonBlocks = array();
+        $authoredInputName = ($this->generatedBlockName)(AuthoredInputBlockGenerator::LOCAL_NAME);
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
@@ -64,14 +67,14 @@ final class ReadableFormBlockBuilder
 
             $fieldBlocks = array();
             $associatedLabel = $this->metadataBuilder->associatedLabel($control);
-            if ( $associatedLabel instanceof DOMElement && AuthoredInputBlockGenerator::NAME === ($readableControlBlock['blockName'] ?? '') ) {
+            if ( $associatedLabel instanceof DOMElement && $authoredInputName === ($readableControlBlock['blockName'] ?? '') ) {
                 $labelBlock = $this->controlBlockConverter->convert($associatedLabel);
                 if ( null !== $labelBlock ) {
                     $fieldBlocks[] = $labelBlock;
                 }
             }
             $fieldBlocks[] = $readableControlBlock;
-            $contentBlocks[] = ( 1 === count($fieldBlocks) && AuthoredInputBlockGenerator::NAME !== ($readableControlBlock['blockName'] ?? '') )
+            $contentBlocks[] = ( 1 === count($fieldBlocks) && $authoredInputName !== ($readableControlBlock['blockName'] ?? '') )
                 ? $fieldBlocks[0]
                 : $this->createBlock->createBlock('core/group', array(), $fieldBlocks, $control);
         }

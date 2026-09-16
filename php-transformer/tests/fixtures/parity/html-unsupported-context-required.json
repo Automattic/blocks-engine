@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group" },
     { "path": "blocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Supported sibling", "level": 2 } },
-    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/authored-native-form", "attrs": { "method": "get", "methodDeclared": false } }
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/authored-native-form", "attrs": { "method": "get", "methodDeclared": false } }
   ],
   "expected_fallbacks": [
     { "type": "unsupported_element", "reason": "unsupported_element", "tag": "custom-card", "selector": "main:nth-of-type(1) > custom-card:nth-of-type(1)", "child_count": 1 }

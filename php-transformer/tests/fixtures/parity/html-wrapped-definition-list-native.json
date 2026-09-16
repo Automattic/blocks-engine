@@ -17,12 +17,12 @@
   },
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "section" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "blocks-engine/description-list", "attrs": { "className": "entries" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/description-list", "attrs": { "className": "entries" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:blocks-engine/description-list" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:custom/description-list" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:group {\"className\":\"entry" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<dt class=\"entry__date mono\">2017-2022</dt>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"entry__title\">Ph.D., Neuroscience</p>" },

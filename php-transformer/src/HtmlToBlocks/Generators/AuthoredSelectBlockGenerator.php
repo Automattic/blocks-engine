@@ -8,14 +8,14 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators;
  */
 final class AuthoredSelectBlockGenerator
 {
-    public const NAME = 'blocks-engine/authored-select';
+    public const LOCAL_NAME = 'authored-select';
 
     /** @return array<string, mixed> */
-    public function blockJson(): array
+    public function blockJson(string $namespace): array
     {
         return array(
             'apiVersion' => 3,
-            'name' => self::NAME,
+            'name' => $namespace . '/' . self::LOCAL_NAME,
             'title' => 'Select Field',
             'category' => 'widgets',
             'description' => 'An editable native select field.',
@@ -43,7 +43,7 @@ final class AuthoredSelectBlockGenerator
     }
 
     /** @return array<string, string> */
-    public function assets(): array
+    public function assets(string $namespace): array
     {
         $script = <<<'JS'
 ( function( blocks, blockEditor, components, element ) {
@@ -61,12 +61,12 @@ final class AuthoredSelectBlockGenerator
     function parseOptions( value ) { return String( value || '' ).split( /\n/ ).map( function( line ) { var parts = line.split( '|' ); if ( !parts[ 1 ] ) return null; return { value: parts[ 0 ], label: parts[ 1 ], selected: 'selected' === parts[ 2 ] || 'selected' === parts[ 3 ], disabled: 'disabled' === parts[ 2 ] || 'disabled' === parts[ 3 ] }; } ).filter( Boolean ); }
     function edit( props ) { var attrs = props.attributes; var options = ( attrs.options || [] ).map( function( option ) { return createElement( 'option', { value: option.value || option.label, disabled: option.disabled, selected: option.selected, key: option.value || option.label }, option.label ); } ); var select = createElement( 'select', { id: attrs.id || undefined, name: attrs.name || undefined, className: attrs.className || undefined, style: attrs.style || undefined, onChange: function( event ) { props.setAttributes( { options: ( attrs.options || [] ).map( function( option ) { return Object.assign( {}, option, { selected: option.value === event.target.value } ); } ) } ); } }, options ); return createElement( element.Fragment, null, createElement( InspectorControls, null, createElement( PanelBody, { title: 'Select settings' }, createElement( TextControl, { label: 'Label', value: attrs.label || '', onChange: function( label ) { props.setAttributes( { label: label } ); } } ), createElement( TextControl, { label: 'Field name', value: attrs.name || '', onChange: function( name ) { props.setAttributes( { name: name } ); } } ), createElement( TextControl, { label: 'Placeholder', value: attrs.placeholder || '', onChange: function( placeholder ) { props.setAttributes( { placeholder: placeholder } ); } } ), createElement( TextareaControl, { label: 'Options', help: 'One per line: value|label|selected|disabled', value: optionText( attrs.options ), onChange: function( value ) { props.setAttributes( { options: parseOptions( value ) } ); } } ) ) ), attrs.label ? createElement( 'label', { className: attrs.labelClassName || undefined, style: attrs.labelStyle || undefined }, attrs.label, select ) : select ); }
     function save( props ) { return createElement( element.RawHTML, null, markup( props.attributes ) ); }
-    blocks.registerBlockType( 'blocks-engine/authored-select', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
+    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.components, window.wp.element );
 JS;
 
         return array(
-            'index.js' => str_replace('__BLOCK_ATTRIBUTES__', json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $script),
+            'index.js' => str_replace(array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__'), array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $script),
             // The legacy core/group boundary is retained for compatibility without
             // introducing a layout box around the authored native control.
             'style.css' => '.wp-block-group.blocks-engine-authored-select-wrapper{display:contents}',
@@ -107,8 +107,8 @@ JS;
     }
 
     /** @return array<string, mixed> */
-    public function definition(): array
+    public function definition(string $namespace): array
     {
-        return array( 'name' => 'authored-select', 'block_json' => $this->blockJson(), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ), 'assets' => $this->assets() );
+        return array( 'name' => self::LOCAL_NAME, 'block_json' => $this->blockJson($namespace), 'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) ), 'assets' => $this->assets($namespace) );
     }
 }

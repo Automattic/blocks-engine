@@ -17,21 +17,25 @@ use LogicException;
  */
 final class DescriptionListBlockGenerator
 {
-    public const NAME = 'blocks-engine/description-list';
+    public const LOCAL_NAME = 'description-list';
 
-    /** @param Closure(string, array<string, mixed>): void $registerGeneratedBlock */
+    /**
+     * @param Closure(string, array<string, mixed>): void $registerGeneratedBlock
+     * @param Closure(): string $generatedBlockNamespace Resolves the consumer-owned namespace the block is emitted under.
+     */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier = new SourceElementClassifier(),
-        private readonly ?Closure $registerGeneratedBlock = null
+        private readonly ?Closure $registerGeneratedBlock = null,
+        private readonly ?Closure $generatedBlockNamespace = null
     ) {
     }
 
     /** @return array<string, mixed> */
-    public function blockJson(): array
+    public function blockJson(string $namespace): array
     {
         return array(
             'apiVersion' => 3,
-            'name' => self::NAME,
+            'name' => $namespace . '/' . self::LOCAL_NAME,
             'title' => 'Description List',
             'category' => 'text',
             'description' => 'A semantic description list with terms and descriptions.',
@@ -46,7 +50,7 @@ final class DescriptionListBlockGenerator
     }
 
     /** @return array<string, string> */
-    public function assets(): array
+    public function assets(string $namespace): array
     {
         $script = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -124,27 +128,27 @@ final class DescriptionListBlockGenerator
         return createElement( 'dl', { className: [ props.attributes.className, scope ].filter( Boolean ).join( ' ' ) }, children );
     }
     function save( props ) { return createElement( RawHTML, null, markup( props.attributes ) ); }
-    blocks.registerBlockType( 'blocks-engine/description-list', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
+    blocks.registerBlockType( '__BLOCK_NAME__', { attributes: attributes, supports: { html: false }, edit: edit, save: save } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
 
         return array(
             'index.js' => str_replace(
-                '__BLOCK_ATTRIBUTES__',
-                json_encode($this->blockJson()['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                array('__BLOCK_NAME__', '__BLOCK_ATTRIBUTES__'),
+                array($namespace . '/' . self::LOCAL_NAME, json_encode($this->blockJson($namespace)['attributes'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)),
                 $script
             ),
         );
     }
 
     /** @return array<string, mixed> */
-    public function definition(): array
+    public function definition(string $namespace): array
     {
         return array(
-            'name' => 'description-list',
-            'block_json' => $this->blockJson(),
+            'name' => self::LOCAL_NAME,
+            'block_json' => $this->blockJson($namespace),
             'script_dependencies' => array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) ),
-            'assets' => $this->assets(),
+            'assets' => $this->assets($namespace),
         );
     }
 
@@ -211,11 +215,14 @@ JS;
 
         $register = $this->registerGeneratedBlock
             ?? throw new LogicException('DescriptionListBlockGenerator was not wired for conversion.');
-        $register(self::class, $this->definition());
+        $namespaceResolver = $this->generatedBlockNamespace
+            ?? throw new LogicException('DescriptionListBlockGenerator was not wired for conversion.');
+        $namespace = $namespaceResolver();
+        $register(self::class, $this->definition($namespace));
 
         $markup = $this->markup($list, $groups);
         return array(
-            'blockName' => self::NAME,
+            'blockName' => $namespace . '/' . self::LOCAL_NAME,
             'attrs' => array_filter(array(
                 'className' => $list->getAttribute('class'),
                 'style' => $list->getAttribute('style'),

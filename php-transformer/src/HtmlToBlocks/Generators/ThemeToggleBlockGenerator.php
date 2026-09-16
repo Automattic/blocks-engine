@@ -9,11 +9,11 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 final class ThemeToggleBlockGenerator
 {
     public const LOCAL_NAME = 'theme-toggle';
-    public const NAME = 'blocks-engine/theme-toggle';
 
     /** @return array<string, mixed> */
-    public function definition(): array
+    public function definition(string $namespace): array
     {
+        $blockName = $namespace . '/' . self::LOCAL_NAME;
         $attributes = array(
             'ariaLabel' => array('type' => 'string', 'default' => 'Toggle theme'),
             'className' => array('type' => 'string', 'default' => ''),
@@ -40,7 +40,7 @@ final class ThemeToggleBlockGenerator
         attributes: __ATTRIBUTES__,
         supports: { html: false, customClassName: false, interactivity: true },
         edit: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; var label = light ? attrs.darkLabel : attrs.lightLabel; return createElement( 'button', buttonProps( attrs ), icon( light ? attrs.darkIcon : attrs.lightIcon ), createElement( RichText, labelProps( attrs, label, function( value ) { props.setAttributes( light ? { darkLabel: value } : { lightLabel: value } ); } ) ) ); },
-        save: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; return createElement( 'button', Object.assign( buttonProps( attrs ), { 'data-wp-interactive': 'blocks-engine/theme-toggle', 'data-wp-context': JSON.stringify( { rootClass: attrs.rootClass || 'dark', defaultTheme: attrs.defaultTheme || 'dark', dark: ! light, lightLabel: attrs.lightLabel || 'Light Mode', darkLabel: attrs.darkLabel || 'Dark Mode', storageKey: attrs.storageKey || 'theme' } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--click': 'actions.toggle' } ), icon( attrs.lightIcon, 'state.hideLightIcon' ), icon( attrs.darkIcon, 'state.hideDarkIcon' ), createElement( RichText.Content, Object.assign( labelProps( attrs, light ? ( attrs.darkLabel || 'Dark Mode' ) : ( attrs.lightLabel || 'Light Mode' ) ), { 'data-wp-text': 'state.label' } ) ) ); }
+        save: function( props ) { var attrs = props.attributes; var light = 'light' === attrs.defaultTheme; return createElement( 'button', Object.assign( buttonProps( attrs ), { 'data-wp-interactive': '__BLOCK_NAME__', 'data-wp-context': JSON.stringify( { rootClass: attrs.rootClass || 'dark', defaultTheme: attrs.defaultTheme || 'dark', dark: ! light, lightLabel: attrs.lightLabel || 'Light Mode', darkLabel: attrs.darkLabel || 'Dark Mode', storageKey: attrs.storageKey || 'theme' } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--click': 'actions.toggle' } ), icon( attrs.lightIcon, 'state.hideLightIcon' ), icon( attrs.darkIcon, 'state.hideDarkIcon' ), createElement( RichText.Content, Object.assign( labelProps( attrs, light ? ( attrs.darkLabel || 'Dark Mode' ) : ( attrs.lightLabel || 'Light Mode' ) ), { 'data-wp-text': 'state.label' } ) ) ); }
     } );
 } )( window.wp.blocks, window.wp.blockEditor, window.wp.element );
 JS;
@@ -54,7 +54,7 @@ const applyTheme = ( rootClass, dark ) => {
         root.style.colorScheme = dark ? 'dark' : 'light';
 };
 
-store( 'blocks-engine/theme-toggle', {
+store( '__BLOCK_NAME__', {
     actions: {
         toggle() {
             const context = getContext();
@@ -95,7 +95,7 @@ JS;
             'name' => self::LOCAL_NAME,
             'block_json' => array(
                 'apiVersion' => 3,
-                'name' => self::NAME,
+                'name' => $blockName,
                 'title' => 'Theme Toggle',
                 'category' => 'widgets',
                 'description' => 'Editable control for a captured light and dark theme contract.',
@@ -104,14 +104,20 @@ JS;
                 'attributes' => $attributes,
                 'supports' => array('html' => false, 'customClassName' => false, 'interactivity' => true),
             ),
-            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array(self::NAME, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor)),
-            'view_js' => $view,
+            'assets' => array('index.js' => str_replace(array('__BLOCK_NAME__', '__ATTRIBUTES__'), array($blockName, json_encode($attributes, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)), $editor)),
+            // The Interactivity store namespace must match the save markup's
+            // data-wp-interactive value and the PHP-rendered markup below, or
+            // the runtime silently stops binding.
+            'view_js' => str_replace('__BLOCK_NAME__', $blockName, $view),
             'script_dependencies' => array('index.js' => array('wp-blocks', 'wp-block-editor', 'wp-element'), 'view.js' => array('@wordpress/interactivity')),
         );
     }
 
-    /** @param array<string, mixed> $attributes */
-    public function markup(array $attributes): string
+    /**
+     * @param array<string, mixed> $attributes
+     * @param string $blockName Fully-qualified block name; also the Interactivity store namespace.
+     */
+    public function markup(array $attributes, string $blockName): string
     {
         $escape = static fn (string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $defaultTheme = 'light' === ($attributes['defaultTheme'] ?? '') ? 'light' : 'dark';
@@ -122,7 +128,7 @@ JS;
         return '<button type="button"'
             . ('' !== ($attributes['className'] ?? '') ? ' class="' . $escape((string) $attributes['className']) . '"' : '')
             . ' aria-label="' . $escape((string) ($attributes['ariaLabel'] ?? 'Toggle theme')) . '"'
-            . ' data-wp-interactive="blocks-engine/theme-toggle" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--click="actions.toggle">'
+            . ' data-wp-interactive="' . $escape($blockName) . '" data-wp-context="' . $context . '" data-wp-init="callbacks.init" data-wp-on--click="actions.toggle">'
             . '<span data-wp-bind--hidden="state.hideLightIcon">' . $this->safeIcon((string) ($attributes['lightIcon'] ?? '')) . '</span>'
             . '<span data-wp-bind--hidden="state.hideDarkIcon">' . $this->safeIcon((string) ($attributes['darkIcon'] ?? '')) . '</span>'
             . '<span' . ('' !== ($attributes['labelClassName'] ?? '') ? ' class="' . $escape((string) $attributes['labelClassName']) . '"' : '') . ('' !== $marker ? ' data-blocks-engine-richtext-marker="' . $marker . '"' : '') . ' data-wp-text="state.label">' . $escape('dark' === $defaultTheme ? $lightLabel : $darkLabel) . '</span></button>';

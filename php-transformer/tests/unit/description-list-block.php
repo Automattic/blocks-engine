@@ -22,8 +22,11 @@ $assert = static function (bool $condition, string $message) use (&$failures, &$
 };
 
 $generator = new DescriptionListBlockGenerator();
-$definition = $generator->definition();
-$assert(DescriptionListBlockGenerator::NAME === ($definition['block_json']['name'] ?? null), 'block metadata uses the stable companion name');
+// The namespace of every generated block is consumer-owned; standalone
+// transforms resolve it to 'custom'.
+$descriptionListName = 'custom/description-list';
+$definition = $generator->definition('custom');
+$assert($descriptionListName === ($definition['block_json']['name'] ?? null), 'block metadata uses the stable companion name');
 $assert(3 === ($definition['block_json']['apiVersion'] ?? null), 'block metadata uses apiVersion 3');
 $assert(false === ($definition['block_json']['supports']['html'] ?? null), 'block metadata disables raw HTML editing');
 $assert('file:./index.js' === ($definition['block_json']['editorScript'] ?? null), 'block metadata uses a single editor asset reference');
@@ -53,7 +56,7 @@ $assert(array_reduce(array_keys($assets), static fn (bool $safe, string $path): 
 $editorAsset = $definition['block_json']['editorScript'] ?? '';
 $editorPath = is_string($editorAsset) && str_starts_with($editorAsset, 'file:./') ? substr($editorAsset, 7) : '';
 $assert('index.js' === $editorPath && array_key_exists($editorPath, $assets), 'description-list editor metadata resolves to a materializable package-relative asset');
-$authorLayout = ( new AuthorLayoutBlockGenerator() )->definition();
+$authorLayout = ( new AuthorLayoutBlockGenerator() )->definition('custom');
 $authorAssets = $authorLayout['assets'] ?? array();
 $assert(array( 'index.js' ) === array_keys($authorAssets), 'author-layout emits only its static editor asset');
 $assert(array_reduce(array_keys($authorAssets), static fn (bool $safe, string $path): bool => $safe && $isSafeCompanionAsset($path, $authorAssets[$path]), true), 'author-layout emitted assets satisfy SSI companion safe-path and static-content validation');
@@ -80,14 +83,14 @@ vm.runInNewContext( Buffer.from( process.argv[ 1 ], 'base64' ).toString(), conte
 process.stdout.write( JSON.stringify( registered ) );
 JS;
 foreach ( $companionGenerators as $companionGenerator ) {
-    $companionDefinition = $companionGenerator->definition();
+    $companionDefinition = $companionGenerator->definition('custom');
     $companionAssets = $companionDefinition['assets'];
     $expectedBlockName = $companionDefinition['block_json']['name'];
     $registered = shell_exec('node -e ' . escapeshellarg($nodeRegistrationRunner) . ' ' . escapeshellarg(base64_encode($companionAssets['index.js'])));
     $payload = ( new CompanionPluginPayload() )->fromBlockTypes(array(), array(), array(), array( $companionDefinition ));
 
     $assert('file:./index.js' === ($companionDefinition['block_json']['editorScript'] ?? null), $expectedBlockName . ' editorScript is a single WordPress file reference');
-    $expectedDependencies = in_array($expectedBlockName, array( 'blocks-engine/authored-input', 'blocks-engine/authored-select' ), true)
+    $expectedDependencies = in_array($expectedBlockName, array( 'custom/authored-input', 'custom/authored-select' ), true)
         ? array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-components', 'wp-element' ) )
         : array( 'index.js' => array( 'wp-blocks', 'wp-block-editor', 'wp-element' ) );
     $assert($expectedDependencies === ($companionDefinition['script_dependencies'] ?? null), $expectedBlockName . ' declares its editor dependencies for SSI without emitting server code');
@@ -119,7 +122,7 @@ $result = ( new HtmlTransformer() )->transform($html)->toArray();
 $block = $result['blocks'][0] ?? array();
 $groups = $block['attrs']['groups'] ?? array();
 $serialized = (string) ($result['serialized_blocks'] ?? '');
-$assert(DescriptionListBlockGenerator::NAME === ($block['blockName'] ?? null), 'direct valid list maps to the companion block');
+$assert($descriptionListName === ($block['blockName'] ?? null), 'direct valid list maps to the companion block');
 $assert(2 === count($groups) && 2 === count($groups[0]['terms'] ?? array()) && 2 === count($groups[0]['descriptions'] ?? array()), 'term and description ordering is grouped deterministically');
 $assert(! isset($groups[0]['wrapper'], $groups[0]['items']), 'direct definition lists retain the persisted terms/descriptions group schema');
 $assert('<strong>Office</strong> <em>location</em>' === ($groups[0]['terms'][0]['content'] ?? null) && 'North <a href="/hall">Hall</a>' === ($groups[0]['descriptions'][0]['content'] ?? null), 'nested inline markup is preserved in the payload');
@@ -137,22 +140,22 @@ foreach ( array(
     '<dl><dt><span class="unsupported-richtext-attribute">Term</span></dt><dd>Description</dd></dl>',
 ) as $malformed ) {
     $converted = ( new HtmlTransformer() )->transform($malformed)->toArray();
-    $assert(DescriptionListBlockGenerator::NAME !== ($converted['blocks'][0]['blockName'] ?? null), 'malformed or wrapped lists retain conservative fallback conversion');
+    $assert($descriptionListName !== ($converted['blocks'][0]['blockName'] ?? null), 'malformed or wrapped lists retain conservative fallback conversion');
     $assert(array() === ($converted['source_reports']['generated_blocks'] ?? null), 'malformed or wrapped lists do not generate a companion definition');
 }
 
 $grouped = ( new HtmlTransformer() )->transform('<dl class="facts"><div class="fact-row" style="display:grid;grid-template-columns:8rem 1fr" data-layout="grid" aria-label="Office details"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></div></dl>')->toArray();
 $groupedBlock = $grouped['blocks'][0] ?? array();
 $groupedItems = $groupedBlock['attrs']['groups'][0]['items'] ?? array();
-$assert(DescriptionListBlockGenerator::NAME === ($groupedBlock['blockName'] ?? null), 'valid div-grouped lists map to the companion block');
+$assert($descriptionListName === ($groupedBlock['blockName'] ?? null), 'valid div-grouped lists map to the companion block');
 $assert(array('dt', 'dd', 'dt', 'dd') === array_column($groupedItems, 'tagName'), 'grouped list payload preserves dt/dd source order');
 $assert('fact-row' === ($groupedBlock['attrs']['groups'][0]['wrapper']['className'] ?? null) && 'display:grid;grid-template-columns:8rem 1fr' === ($groupedBlock['attrs']['groups'][0]['wrapper']['style'] ?? null) && 'grid' === ($groupedBlock['attrs']['groups'][0]['wrapper']['attributes']['data-layout'] ?? null) && 'Office details' === ($groupedBlock['attrs']['groups'][0]['wrapper']['attributes']['aria-label'] ?? null), 'grouped list payload preserves wrapper classes, grid layout, and attributes');
 $assert(str_contains((string) ($grouped['serialized_blocks'] ?? ''), '<dl class="facts"><div class="fact-row" style="display:grid;grid-template-columns:8rem 1fr" data-layout="grid" aria-label="Office details"><dt>Office</dt><dd>North Hall</dd><dt>Hours</dt><dd>Weekdays</dd></div></dl>'), 'grouped list serialization preserves wrapper topology and source order');
 $assert('pass' === ($grouped['source_reports']['wp_block_validity']['status'] ?? null), 'grouped list serialization remains editor-valid');
 
-$findDescriptionList = static function (array $blocks, string $className) use (&$findDescriptionList): ?array {
+$findDescriptionList = static function (array $blocks, string $className) use (&$findDescriptionList, $descriptionListName): ?array {
     foreach ( $blocks as $candidate ) {
-        if ( DescriptionListBlockGenerator::NAME === ($candidate['blockName'] ?? null) && $className === ($candidate['attrs']['className'] ?? null) ) {
+        if ( $descriptionListName === ($candidate['blockName'] ?? null) && $className === ($candidate['attrs']['className'] ?? null) ) {
             return $candidate;
         }
         $match = $findDescriptionList($candidate['innerBlocks'] ?? array(), $className);
@@ -174,7 +177,7 @@ $schedule = ( new HtmlTransformer() )->transform($scheduleFixture)->toArray();
 $scheduleBlock = $schedule['blocks'][0] ?? array();
 $scheduleWrapper = $scheduleBlock['attrs']['groups'][0]['wrapper'] ?? array();
 $scheduleMarkup = (string) ($schedule['serialized_blocks'] ?? '');
-$assert(DescriptionListBlockGenerator::NAME === ($scheduleBlock['blockName'] ?? null), 'independent grouped schedule fixture maps to the companion block');
+$assert($descriptionListName === ($scheduleBlock['blockName'] ?? null), 'independent grouped schedule fixture maps to the companion block');
 $assert(array('dt', 'dt', 'dd', 'dd') === array_column($scheduleBlock['attrs']['groups'][0]['items'] ?? array(), 'tagName'), 'independent grouped schedule fixture preserves multiple-term source order');
 $assert('arrival-row' === ($scheduleWrapper['className'] ?? null) && 'arrival' === ($scheduleWrapper['attributes']['id'] ?? null) && 'group' === ($scheduleWrapper['attributes']['role'] ?? null) && 'Arrival details' === ($scheduleWrapper['attributes']['aria-label'] ?? null) && 'morning' === ($scheduleWrapper['attributes']['data-slot'] ?? null), 'wrapper safe-attribute policy retains id, role, aria, and ordinary data attributes');
 $assert(! isset($scheduleWrapper['attributes']['data-wp-interactive'], $scheduleWrapper['attributes']['data-wp-bind--hidden'], $scheduleWrapper['attributes']['onclick'], $scheduleWrapper['attributes']['title']) && ! str_contains($scheduleMarkup, 'data-wp-') && ! str_contains($scheduleMarkup, 'onclick=') && ! str_contains($scheduleMarkup, 'title="Behavioral title"'), 'wrapper safe-attribute policy excludes WordPress directives and behavior-bearing attributes');
@@ -185,7 +188,7 @@ $flowWrapped = ( new HtmlTransformer() )->transform(
 )->toArray();
 $flowBlock = $flowWrapped['blocks'][0] ?? array();
 $flowGroups = $flowBlock['attrs']['groups'] ?? array();
-$assert(DescriptionListBlockGenerator::NAME === ($flowBlock['blockName'] ?? null), 'wrapped records with paragraph descriptions map to one companion block');
+$assert($descriptionListName === ($flowBlock['blockName'] ?? null), 'wrapped records with paragraph descriptions map to one companion block');
 $assert(2 === count($flowGroups) && 'entry' === ($flowGroups[0]['wrapper']['className'] ?? null) && array( 'dt', 'dd' ) === array_column($flowGroups[0]['items'] ?? array(), 'tagName'), 'each presentational record stays one wrapped group');
 $assert(str_contains((string) ($flowGroups[0]['items'][1]['content'] ?? ''), '<p class="entry__title">Ph.D., Neuroscience</p>') && str_contains((string) ($flowWrapped['serialized_blocks'] ?? ''), '<div class="entry"><dt class="entry__date">2017-2022</dt><dd class="entry__body"><p class="entry__title">Ph.D., Neuroscience</p><p class="entry__org">Stanford University</p></dd></div>'), 'paragraph descriptions keep their source markup inside the description cell');
 $assert(0 === substr_count((string) ($flowWrapped['serialized_blocks'] ?? ''), '<!-- wp:group'), 'wrapped flow descriptions do not explode into core/group records');
@@ -193,9 +196,9 @@ $assert(0 === substr_count((string) ($flowWrapped['serialized_blocks'] ?? ''), '
 $cvFixture = (string) file_get_contents(dirname(__DIR__, 3) . '/fixtures/websites/31-personal-cv-academic/index.html');
 $cv = ( new HtmlTransformer() )->transform($cvFixture)->toArray();
 $cvLists = 0;
-$cvWalk = static function (array $blocks) use (&$cvWalk, &$cvLists): void {
+$cvWalk = static function (array $blocks) use (&$cvWalk, &$cvLists, $descriptionListName): void {
     foreach ( $blocks as $candidate ) {
-        if ( DescriptionListBlockGenerator::NAME === ($candidate['blockName'] ?? null) ) {
+        if ( $descriptionListName === ($candidate['blockName'] ?? null) ) {
             ++$cvLists;
         }
         $cvWalk($candidate['innerBlocks'] ?? array());

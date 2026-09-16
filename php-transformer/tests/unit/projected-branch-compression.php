@@ -99,7 +99,7 @@ $formResult = (new ArtifactCompiler())->compile(array(
 $formPlan = $formResult['source_reports']['wordpress_site_plan'] ?? array();
 $formMarkup = (string) ($formPlan['pages'][0]['canonical_block_markup'] ?? '');
 $formDeclaration = current(array_filter($formPlan['runtime_declarations'] ?? array(), static fn (array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
-$assert(2 === count($formDeclaration['payload']['entities'] ?? array()) && ! str_contains($formMarkup, '<!-- wp:blocks-engine/authored-native-form'), 'Both endpoint-free responsive form copies retain provider materialization declarations instead of invented GET owners.');
+$assert(2 === count($formDeclaration['payload']['entities'] ?? array()) && ! str_contains($formMarkup, '<!-- wp:custom/authored-native-form'), 'Both endpoint-free responsive form copies retain provider materialization declarations instead of invented GET owners.');
 $assert(! str_contains($formMarkup, '<!-- wp:html'), 'Endpoint-free responsive forms do not become raw HTML.');
 $assert(2 === count($formResult['fallbacks'] ?? array()), 'Endpoint-free responsive forms produce provider fallbacks.');
 

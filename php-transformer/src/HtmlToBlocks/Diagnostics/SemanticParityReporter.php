@@ -777,7 +777,10 @@ final class SemanticParityReporter
             return 'nav' === strtolower((string) ($block['attrs']['tagName'] ?? ''));
         }
 
-        if ( 'custom/layout-shell' !== ($block['blockName'] ?? '') || $this->containsBlockName(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), 'core/navigation') ) {
+        // The layout-shell namespace is consumer-owned, so match on the
+        // local-name suffix the way the editability report does rather than a
+        // hardcoded namespace literal.
+        if ( ! str_ends_with((string) ($block['blockName'] ?? ''), '/layout-shell') || $this->containsBlockName(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), 'core/navigation') ) {
             return false;
         }
 

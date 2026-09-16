@@ -16,7 +16,7 @@
     "content": "<form class=\"filter\" action=\"/inventory\"><div class=\"fields\"><label>Location <input name=\"location\" value=\"north\" placeholder=\"Choose location\" required></label><label>Type <select name=\"type\"><option value=\"\">All types</option><option value=\"house\" selected>House</option></select></label></div><button type=\"button\">Map</button><button type=\"submit\">Apply</button></form>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "blocks-engine/authored-native-form", "attrs": { "action": "/inventory", "method": "get", "methodDeclared": false } }
+    { "path": "blocks.0", "name": "custom/authored-native-form", "attrs": { "action": "/inventory", "method": "get", "methodDeclared": false } }
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
