@@ -252,7 +252,14 @@ JS;
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track{height:auto;aspect-ratio:var(--blocks-engine-carousel-stage-aspect)}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;height:auto!important}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image{display:flex}'
-            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:contain;object-position:center}';
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:contain;object-position:center}'
+            // A rail beside a stage whose height comes from a ratio has no
+            // length to measure against, so it would run past the stage instead
+            // of scrolling inside it. Contributing no height of its own leaves
+            // the stage to size the row, and filling that row gives the rail a
+            // definite length to scroll within.
+            . '.blocks-engine-authored-carousel--stage-aspect.blocks-engine-authored-carousel--thumbnails-right{align-items:stretch}'
+            . '.blocks-engine-authored-carousel--stage-aspect.blocks-engine-authored-carousel--thumbnails-right .blocks-engine-authored-carousel__thumbnails{height:0;min-height:100%;max-height:none}';
 
         // A thumbnail pager is the source's own slide selector, so the rail is a
         // scrollable column beside the stage rather than a second slide track.
