@@ -96,7 +96,7 @@ final class StylesheetAnalysisComposer
     /** @param list<string> $payloads @return array{static: array, conditional: array, navigation_state: array, reveal_state: array, image_shape: array, pseudo: array, cascaded_values: array, custom_properties: array} */
     public function composedStyleAnalysis(array $payloads): array
     {
-        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()));
+        $composed = array('static' => array(), 'conditional' => array(), 'navigation_state' => array(), 'reveal_state' => array(), 'image_shape' => array(), 'pseudo' => array(), 'cascaded_values' => array(), 'custom_properties' => array('root' => array(), 'fallback' => array()), 'layer_names' => array());
         $layers = array();
         foreach ( $payloads as $payload ) {
             $key = hash('sha256', $payload);
@@ -124,7 +124,10 @@ final class StylesheetAnalysisComposer
             foreach ( array('static', 'conditional', 'navigation_state', 'reveal_state', 'pseudo', 'cascaded_values') as $part ) {
                 $composed[$part] = array_merge($composed[$part], $analysis[$part]);
             }
-            foreach ($analysis['layer_names'] ?? array() as $layer) $layers[$layer] ??= count($layers);
+            foreach ($analysis['layer_names'] ?? array() as $layer) {
+                $layers[$layer] ??= count($layers);
+                $composed['layer_names'][$layer] = true;
+            }
             foreach ( $analysis['image_shape'] as $rule ) {
                 $rule['order'] = count($composed['image_shape']);
                 if (null !== ($rule['layer'] ?? null)) $rule['layer'] = $layers[$rule['layer']];
@@ -137,6 +140,8 @@ final class StylesheetAnalysisComposer
         $composed['custom_properties'] = array() !== $composed['custom_properties']['root']
             ? $composed['custom_properties']['root']
             : $composed['custom_properties']['fallback'];
+
+        $composed['layer_names'] = array_keys($composed['layer_names']);
 
         return $composed;
     }

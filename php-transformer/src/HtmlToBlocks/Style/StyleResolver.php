@@ -429,6 +429,34 @@ final class StyleResolver implements ElementPresentationResolver
             return $declarations;
         }
 
+        $conditionalFamilies = $this->conditionalFamiliesInPlay($element);
+
+        if (array() === $conditionalFamilies) {
+            return $declarations;
+        }
+
+        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+        foreach (array_keys($declarations) as $property) {
+            $family = $this->responsivePropertyFamily($property);
+            if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
+                continue;
+            }
+            unset($declarations[$property]);
+        }
+
+        return $declarations;
+    }
+
+    /**
+     * Property families a conditional (media-scoped) rule puts in play for
+     * this element: rules the matcher evaluates as matching, plus rules whose
+     * selectors the matcher cannot evaluate but which name the element by id
+     * or class.
+     *
+     * @return array<string, true>
+     */
+    private function conditionalFamiliesInPlay(DOMElement $element): array
+    {
         $conditionalFamilies = array();
         foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
             $selector = (string) ($rule['selector'] ?? '');
@@ -453,20 +481,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        if (array() === $conditionalFamilies) {
-            return $declarations;
-        }
-
-        $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
-        foreach (array_keys($declarations) as $property) {
-            $family = $this->responsivePropertyFamily($property);
-            if (! isset($conditionalFamilies[$family]) || $this->inlineOwnsResponsiveProperty($property, $family, $inline)) {
-                continue;
-            }
-            unset($declarations[$property]);
-        }
-
-        return $declarations;
+        return $conditionalFamilies;
     }
 
     /**
@@ -490,6 +505,105 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $value;
+    }
+
+    /**
+     * The authored `font-size` that must be serialized inline on a text block
+     * for the authored size to win at the WordPress runtime, or '' when nothing
+     * needs baking.
+     *
+     * `classOwnedResponsiveDeclarations()` strips a static `font-size` from
+     * presentation attributes whenever any conditional (media-scoped) rule
+     * touches the `font-size` family, so media queries keep winning the
+     * cascade through author-stylesheet ownership. On heading/paragraph text
+     * blocks that ownership can hand rendering to the UNLAYERED WordPress
+     * rules a projected theme ships — `h1{font-size:inherit}` and the
+     * `.wp-block-heading` defaults. The inline declaration a typography
+     * support serializes is the only authored value that beats them.
+     *
+     * Whether ownership actually fails is a cascade question, evaluated at the
+     * desktop reference viewport:
+     *  - An UNLAYERED class rule beats the element-scoped defaults on
+     *    specificity, so ownership works and nothing is baked — unless a
+     *    media-conditional rule the desktop capture RENDERS (a mobile-first
+     *    `min-width` breakpoint) restates the property for the element. That
+     *    conditional value is the desktop truth the static base was stripped
+     *    in favour of, and it is what gets baked (`@media (max-width:…)`
+     *    overrides do not apply at the capture width, so a desktop-first
+     *    cascade keeps stylesheet ownership unchanged).
+     *  - Declarations inside a cascade `@layer` (Tailwind v4 emits every
+     *    utility inside `@layer utilities`) lose to the unlayered WordPress
+     *    rules regardless of class specificity. When every matching
+     *    declaration is layered, the desktop-evaluated winner is baked — an
+     *    unlayered rule declaring the property keeps cascade ownership and is
+     *    never overridden.
+     *
+     * Callers merge this into block attributes only when
+     * `presentationAttributes()` did not already serialize a `fontSize`, and
+     * an element whose own inline style declares `font-size` keeps that
+     * normal priority.
+     */
+    public function bakedTypographyFontSize(DOMElement $element): string
+    {
+        if ( isset($this->cssDeclarations(SourceDom::attr($element, 'style'))['font-size']) ) {
+            return '';
+        }
+
+        // Both rescue paths only exist for stylesheets that carry conditional
+        // rules or cascade layers; stylesheets without either already resolve
+        // text-block font sizes through working author-stylesheet ownership.
+        if ( array() === $this->context->sourceStyles()->conditionalRules() && ! $this->context->sourceStyles()->hasLayeredRules() ) {
+            return '';
+        }
+
+        return $this->carriedDeclarationValue($this->cascadeFontSizeWinner($element));
+    }
+
+    /**
+     * The cascade-winning authored `font-size` for an element, evaluated at
+     * the desktop reference viewport and restricted to declarations that
+     * cannot win the WordPress runtime cascade through stylesheet ownership.
+     *
+     * @return string
+     */
+    private function cascadeFontSizeWinner(DOMElement $element): string
+    {
+        $unlayeredDeclares             = false;
+        $applyingUnlayeredConditional  = '';
+        $layeredWinner                 = '';
+        $matchedLayeredDeclaration     = false;
+        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
+            if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                continue;
+            }
+            $declared = trim((string) ( $rule['declarations']['font-size'] ?? '' ));
+            if ( '' === $declared ) {
+                continue;
+            }
+            $conditions = $rule['conditions'] ?? array();
+            $applies    = array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions);
+            if ( null !== ($rule['layer'] ?? null) ) {
+                $matchedLayeredDeclaration = true;
+                if ( $applies ) {
+                    $layeredWinner = $declared;
+                }
+                continue;
+            }
+            $unlayeredDeclares = true;
+            if ( array() !== $conditions && $applies ) {
+                $applyingUnlayeredConditional = $declared;
+            }
+        }
+
+        if ( '' !== $applyingUnlayeredConditional ) {
+            return $applyingUnlayeredConditional;
+        }
+
+        if ( $unlayeredDeclares || ! $matchedLayeredDeclaration ) {
+            return '';
+        }
+
+        return $layeredWinner;
     }
 
     /**
@@ -2761,6 +2875,7 @@ final class StyleResolver implements ElementPresentationResolver
                             'declarations' => $declarations,
                             'mediaTextDeclarations' => $mediaTextDeclarations,
                             'mediaTextSpecificity' => $this->mediaTextSelectorSpecificity($selector),
+                            'layer' => $layer,
                         );
                     }
                     if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && ! $isStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
@@ -2769,6 +2884,7 @@ final class StyleResolver implements ElementPresentationResolver
                             'declarations' => $declarations,
                             'cascadedDeclarations' => $cascadedValueDeclarations,
                             'conditions' => $conditions,
+                            'layer' => $layer,
                         );
                     }
                     if ($supportedRestingSelector) {

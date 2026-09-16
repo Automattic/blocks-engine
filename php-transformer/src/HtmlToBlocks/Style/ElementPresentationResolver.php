@@ -16,4 +16,13 @@ interface ElementPresentationResolver
 
     /** @return array<string, string> */
     public function structuralPresentationDeclarations(DOMElement $element): array;
+
+    /**
+     * The authored `font-size` that must be serialized inline on a text block
+     * for the authored size to win at the WordPress runtime, or '' when the
+     * mapped presentation attributes already carry it.
+     *
+     * @return string
+     */
+    public function bakedTypographyFontSize(DOMElement $element): string;
 }
