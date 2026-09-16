@@ -1129,6 +1129,67 @@ final class NavigationToggleSuppressor
         return $this->isProjectableHashAnchorMenuToggle($element);
     }
 
+    /**
+     * Overlay mode for a projected control. A hash-anchor hamburger whose
+     * associated menu is hidden at the default viewport stays `always`. When
+     * the default stylesheet hides that hamburger and leaves an equivalent
+     * inline list visible, Core's mobile overlay keeps the desktop links.
+     */
+    public function projectedOverlayMenu(DOMElement $control): string
+    {
+        if ( ! $this->isHashAnchorMenuProjection($control) ) {
+            return 'mobile';
+        }
+
+        return $this->isHiddenAtDefaultViewport($control) && $this->hasDefaultViewportVisibleNavigationTwin($control)
+            ? 'mobile'
+            : 'always';
+    }
+
+    private function hasDefaultViewportVisibleNavigationTwin(DOMElement $control): bool
+    {
+        $navigation = $this->projectedNavigationTargetForControl($control);
+        if ( ! $navigation instanceof DOMElement ) {
+            return false;
+        }
+
+        $signature = $this->sourceNavigationSignature($navigation);
+        if ( '' === $signature ) {
+            return false;
+        }
+
+        $root = $this->documentVariantRoot($control);
+        foreach ( $root->getElementsByTagName('*') as $candidate ) {
+            if ( ! $candidate instanceof DOMElement
+                || $candidate->isSameNode($navigation)
+                || SourceDom::elementContains($candidate, $control)
+                || SourceDom::elementContains($control, $candidate)
+                || ! $this->isAssociatedNavigationTarget($candidate)
+                || $signature !== $this->sourceNavigationSignature($candidate)
+                || $this->isHiddenAtDefaultViewport($candidate) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isHiddenAtDefaultViewport(DOMElement $element): bool
+    {
+        for ( $node = $element; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
+                break;
+            }
+            if ( $this->sourceElementIsHidden($node) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private function isProjectableHashAnchorMenuToggle(DOMElement $element): bool
     {
         if ( 'a' !== strtolower($element->tagName) || '' !== $this->visibleMenuToggleLabel($element) ) {
