@@ -17,6 +17,16 @@ final class ResponsiveDocumentVariants
     /** Class prefix marking a block as one side of a declared responsive correspondence pair. */
     public const CORRESPONDENCE_CLASS_PREFIX = 'be-responsive-counterpart-';
 
+    /**
+     * Class prefix marking a composed document as one side of a declared
+     * `document_variants` pair (e.g. `site-document-variant-default`,
+     * `site-document-variant-mobile`). This is the engine's own generic
+     * responsive-document-scope contract; other consumers that mark scope
+     * with their own tokens supply those separately rather than the engine
+     * recognizing them by name.
+     */
+    public const DOCUMENT_VARIANT_CLASS_PREFIX = 'site-document-variant-';
+
     /** Text/link leaf tags eligible for responsive correspondence pairing. */
     private const CORRESPONDENCE_TAGS = array('p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'button');
 
@@ -118,13 +128,13 @@ final class ResponsiveDocumentVariants
         foreach ($variants as $index => $variant) {
             $variants[$index]['html'] = $this->injectCorrespondenceClasses($variant['html'], $variant['id'], $pairings);
         }
-        $primaryHtml = $this->scopeDocumentStyles($primaryHtml, 'site-document-variant-default');
+        $primaryHtml = $this->scopeDocumentStyles($primaryHtml, self::DOCUMENT_VARIANT_CLASS_PREFIX . 'default');
         $primaryBody = $this->body($primaryHtml);
         if (null === $primaryBody) {
             throw new \InvalidArgumentException('Document variant primary source must contain a body element.');
         }
 
-        $allClasses = array('site-document-variant-default');
+        $allClasses = array(self::DOCUMENT_VARIANT_CLASS_PREFIX . 'default');
         foreach ($variants as $variant) {
             $allClasses[] = $this->variantClass($variant['id']);
         }
@@ -141,7 +151,7 @@ final class ResponsiveDocumentVariants
             // Hide a variant only when its condition does not match. The active
             // wrapper retains the body display and geometry authored by its source.
             $controlCss .= '@media not all and ' . $variant['media'] . '{.' . $variantClass . '{display:none!important}}';
-            $controlCss .= '@media ' . $variant['media'] . '{.site-document-variant-default{display:none!important}}';
+            $controlCss .= '@media ' . $variant['media'] . '{.' . self::DOCUMENT_VARIANT_CLASS_PREFIX . 'default{display:none!important}}';
 
             $bodyClasses = $this->attribute($body['opening'], 'class');
             $bodyStyle = $this->attribute($body['opening'], 'style');
@@ -157,7 +167,7 @@ final class ResponsiveDocumentVariants
             }
         }
 
-        $primaryClasses = trim('site-document-variant-default ' . $this->attribute($primaryBody['opening'], 'class'));
+        $primaryClasses = trim(self::DOCUMENT_VARIANT_CLASS_PREFIX . 'default ' . $this->attribute($primaryBody['opening'], 'class'));
         $primaryStyle = $this->attribute($primaryBody['opening'], 'style');
         $bodyMarkup = '<div class="' . htmlspecialchars($primaryClasses, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"'
             . ('' !== $primaryStyle ? ' style="' . htmlspecialchars($primaryStyle, ENT_QUOTES | ENT_HTML5, 'UTF-8') . '"' : '')
@@ -299,7 +309,7 @@ final class ResponsiveDocumentVariants
 
     private function variantClass(string $id): string
     {
-        return 'site-document-variant-' . $id;
+        return self::DOCUMENT_VARIANT_CLASS_PREFIX . $id;
     }
 
     /**

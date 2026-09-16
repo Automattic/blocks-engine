@@ -34,6 +34,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\DescriptionLi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\LayoutShellBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ResponsiveMediaBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ScrollStateBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\SvgArtworkBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\ThemeToggleBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\VisualIframeBlockGenerator;
@@ -3314,6 +3315,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->capturedDialogBlock($element, $fallbacks);
         }
 
+        if ('true' === $this->attr($element, 'data-blocks-engine-scroll-state')) {
+            return $this->scrollStateBlock($element, $fallbacks);
+        }
+
         if ( 'button' === $tagName ) {
             $themeToggle = $this->themeToggleBlock($element);
             if ( null !== $themeToggle ) {
@@ -3977,6 +3982,55 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'attrs' => $attrs,
             'innerBlocks' => $children,
             'innerHTML' => $opening . '</dialog>',
+            'innerContent' => $innerContent,
+        );
+    }
+
+    /**
+     * A captured scroll-driven class/style toggle (e.g. a shrinking sticky
+     * header) is preserved as its original tag, wrapped in a registered
+     * companion block so the toggle survives generic block conversion —
+     * which otherwise only carries `id`/`class` through a plain container.
+     */
+    private function scrollStateBlock(DOMElement $element, array &$fallbacks): array
+    {
+        $blockName = $this->generatedBlocks()->blockName(ScrollStateBlockGenerator::LOCAL_NAME);
+        $this->generatedBlocks()->register(ScrollStateBlockGenerator::class, (new ScrollStateBlockGenerator())->definition($blockName));
+
+        $tagName = strtolower(trim($element->tagName));
+        if (1 !== preg_match('/^[a-z][a-z0-9-]*$/', $tagName)) {
+            $tagName = 'div';
+        }
+        $anchor = trim($this->attr($element, 'id'));
+        $className = trim($this->attr($element, 'class'));
+        $config = trim($this->attr($element, 'data-blocks-engine-scroll-state-config'));
+        if ('' === $config || null === json_decode($config, true)) {
+            $config = '{}';
+        }
+
+        $attrs = array_filter(array(
+            'tagName' => 'div' === $tagName ? '' : $tagName,
+            'anchor' => $anchor,
+            'className' => $className,
+            'config' => '{}' === $config ? '' : $config,
+        ), static fn(mixed $value): bool => '' !== $value);
+
+        $children = $this->convertChildren($element, $fallbacks, true);
+        $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $opening = '<' . $tagName;
+        if ('' !== $anchor) $opening .= ' id="' . $escape($anchor) . '"';
+        if ('' !== $className) $opening .= ' class="' . $escape($className) . '"';
+        $opening .= ' data-blocks-engine-scroll-state="true" data-blocks-engine-scroll-state-config="' . $escape($config) . '">';
+        $closing = '</' . $tagName . '>';
+        $innerContent = array($opening);
+        foreach ($children as $_) $innerContent[] = null;
+        $innerContent[] = $closing;
+
+        return array(
+            'blockName' => $blockName,
+            'attrs' => $attrs,
+            'innerBlocks' => $children,
+            'innerHTML' => $opening . $closing,
             'innerContent' => $innerContent,
         );
     }
