@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\FormatBridge;
 use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionReportProjection;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformationOptions;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiagnostic;
 use InvalidArgumentException;
 use Throwable;
 
@@ -158,7 +159,7 @@ final class FormatBridge
                 'input_bytes'      => strlen($content),
                 'output_bytes'     => strlen($output),
                 'block_count'      => count($blocks),
-                'fallback_count'   => count($fallbacks),
+                'fallback_count'   => FallbackDiagnostic::countableFallbackCount($fallbacks),
                 'diagnostic_count' => 1,
             );
             $status = 'success';
@@ -168,7 +169,7 @@ final class FormatBridge
                     'input_bytes'      => strlen($content),
                     'output_bytes'     => strlen($output),
                     'block_count'      => $this->countBlocks($blocks),
-                    'fallback_count'   => count($fallbacks),
+                    'fallback_count'   => FallbackDiagnostic::countableFallbackCount($fallbacks),
                     'diagnostic_count' => count($diagnostics),
                 ));
             }

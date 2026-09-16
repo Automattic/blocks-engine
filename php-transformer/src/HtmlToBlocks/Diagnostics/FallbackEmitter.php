@@ -801,18 +801,15 @@ final class FallbackEmitter
 
     private function templateRequiresRuntimePreservation(DOMElement $element): bool
     {
-        foreach ( $this->htmlAttributes($element) as $name => $value ) {
+        foreach ( array_keys($this->htmlAttributes($element)) as $name ) {
             $normalizedName = strtolower($name);
             if ( 'id' === $normalizedName || str_starts_with($normalizedName, 'data-') || preg_match('/^(?:x-|v-|ng-|:|@)/', $normalizedName) ) {
-                return true;
-            }
-            if ( preg_match('/\b(?:template|runtime|component|partial|slot|content)\b/i', $value) ) {
                 return true;
             }
         }
 
         $body = $this->innerHtml($element);
-        return preg_match('/<\s*(?:script|canvas|iframe|form|input|select|textarea|button)\b/i', $body) === 1
+        return preg_match('/<\s*(?:script|canvas|iframe)\b/i', $body) === 1
             || preg_match('/\{\{|\$\{|<\s*slot\b/i', $body) === 1;
     }
 
