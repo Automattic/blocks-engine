@@ -197,6 +197,49 @@ $assert(
 );
 $assert(! str_contains($oklchCss, '#0000') && ! str_contains($oklchMarkup, '#0000'), 'visible oklch fill is not stored as transparent #0000', $oklchCss);
 
+$oklchPadding = (string) json_encode($oklchButtonBlock['attrs']['style']['spacing']['padding'] ?? array());
+$oklchLinkStyle = '';
+if ( preg_match('/<a[^>]*class="[^"]*wp-block-button__link[^"]*"[^>]*style="([^"]*)"/', $oklchMarkup, $oklchLinkMatches) ) {
+    $oklchLinkStyle = (string) $oklchLinkMatches[1];
+}
+$assert(
+    array( 'top' => '8px', 'right' => '24px', 'bottom' => '8px', 'left' => '24px' ) === ( $oklchButtonBlock['attrs']['style']['spacing']['padding'] ?? array() ),
+    'authored inline padding bakes onto core/button style.spacing.padding',
+    $oklchPadding
+);
+$assert(
+    str_contains($oklchLinkStyle, 'padding-top:8px') && str_contains($oklchLinkStyle, 'padding-right:24px') && str_contains($oklchLinkStyle, 'padding-left:24px'),
+    'baked padding serializes onto the native button link so it wins over Gutenberg default padding',
+    $oklchLinkStyle
+);
+
+$logicalPaddingButton = ( new HtmlTransformer() )->transform(
+    '<style>:root{--spacing:.25rem}.px-6{padding-inline:calc(var(--spacing) * 6)}.py-2{padding-block:calc(var(--spacing) * 2)}.cta{background:oklch(0.56 0.13 45);color:#fff}</style><a class="cta px-6 py-2" href="/start">Comecar</a>'
+)->toArray();
+$logicalPaddingBlock = $logicalPaddingButton['blocks'][0]['innerBlocks'][0] ?? array();
+$logicalPaddingMarkup = (string) ($logicalPaddingButton['serialized_blocks'] ?? '');
+$logicalPaddingSides = $logicalPaddingBlock['attrs']['style']['spacing']['padding'] ?? array();
+$assert(
+    array( 'top' => 'calc(.25rem * 2)', 'right' => 'calc(.25rem * 6)', 'bottom' => 'calc(.25rem * 2)', 'left' => 'calc(.25rem * 6)' ) === $logicalPaddingSides,
+    'logical padding-inline/padding-block resolve and bake onto core/button spacing',
+    (string) json_encode($logicalPaddingSides)
+);
+$assert(
+    str_contains($logicalPaddingMarkup, 'padding-top:calc(.25rem * 2)') && str_contains($logicalPaddingMarkup, 'padding-left:calc(.25rem * 6)'),
+    'logical padding serializes onto the native button link',
+    $logicalPaddingMarkup
+);
+
+$logicalSidePaddingButton = ( new HtmlTransformer() )->transform(
+    '<style>:root{--spacing:.25rem}.cta{padding-inline-start:calc(var(--spacing) * 4);padding-inline-end:calc(var(--spacing) * 8);padding-block-start:calc(var(--spacing) * 1);padding-block-end:calc(var(--spacing) * 3);background:#173b64;color:#fff}</style><a class="cta" href="/start">Lado</a>'
+)->toArray();
+$logicalSideSides = $logicalSidePaddingButton['blocks'][0]['innerBlocks'][0]['attrs']['style']['spacing']['padding'] ?? array();
+$assert(
+    array( 'top' => 'calc(.25rem * 1)', 'right' => 'calc(.25rem * 8)', 'bottom' => 'calc(.25rem * 3)', 'left' => 'calc(.25rem * 4)' ) === $logicalSideSides,
+    'logical padding side longhands map to their physical sides',
+    (string) json_encode($logicalSideSides)
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleAttributeMapper;
 
 /**
@@ -44,6 +46,27 @@ final class ButtonStyleResolver
      * longer wins the cascade.
      */
     private const BUTTON_TYPOGRAPHY = array( 'fontFamily', 'fontSize', 'fontWeight', 'letterSpacing', 'lineHeight', 'textTransform' );
+
+    /**
+     * Logical padding mapped to the physical sides the canonical spacing
+     * attribute stores. Builders author the box as logical properties
+     * (`padding-inline`, `padding-block`), and the cascade keeps those authored
+     * names, so the shared mapper's physical-side reading never sees them.
+     * Expansion assumes the desktop reference viewport's horizontal-tb,
+     * left-to-right writing mode — the same fixed assumption
+     * StyleResolver::physicalBoxDeclarations() makes.
+     */
+    private const LOGICAL_PADDING_AXES = array(
+        'padding-block' => array( 'padding-top', 'padding-bottom' ),
+        'padding-inline' => array( 'padding-left', 'padding-right' ),
+    );
+
+    private const LOGICAL_PADDING_SIDES = array(
+        'padding-block-start' => 'padding-top',
+        'padding-block-end' => 'padding-bottom',
+        'padding-inline-start' => 'padding-left',
+        'padding-inline-end' => 'padding-right',
+    );
 
     private readonly StyleAttributeMapper $mapper;
 
@@ -179,6 +202,8 @@ final class ButtonStyleResolver
 
     /**
      * Parse a resolved CSS string into a declaration map for the shared mapper.
+     * Logical padding is expanded to physical sides in declaration order, so a
+     * later physical winner still overwrites an expanded logical side.
      *
      * @return array<string, string>
      */
@@ -191,14 +216,51 @@ final class ButtonStyleResolver
             }
             [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
             $name = strtolower($name);
-            if ( '' !== $name && '' !== $value ) {
-                if ( 'background' === $name ) {
-                    unset($declarations['background-color']);
-                }
-                $declarations[ $name ] = preg_replace('/\s+/', ' ', $value) ?? $value;
+            if ( '' === $name || '' === $value ) {
+                continue;
+            }
+            if ( 'background' === $name ) {
+                unset($declarations['background-color']);
+            }
+            $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+            foreach ( $this->physicalPaddingDeclarations($name, $value) as $physicalName => $physicalValue ) {
+                $declarations[ $physicalName ] = $physicalValue;
             }
         }
 
         return $declarations;
+    }
+
+    /**
+     * Expand one declaration into the physical padding sides the spacing
+     * attribute stores. A physical property passes through unchanged; an
+     * axis shorthand (`padding-inline: 8px 24px`) expands to its two sides;
+     * an axis value that is not one or two lengths is dropped rather than
+     * guessed at.
+     *
+     * @return array<string, string>
+     */
+    private function physicalPaddingDeclarations(string $property, string $value): array
+    {
+        if ( isset(self::LOGICAL_PADDING_SIDES[ $property ]) ) {
+            return array( self::LOGICAL_PADDING_SIDES[ $property ] => $value );
+        }
+
+        $axes = self::LOGICAL_PADDING_AXES[ $property ] ?? null;
+        if ( null === $axes ) {
+            return array( $property => $value );
+        }
+
+        $important = CssValueInspector::isImportant($value) ? ' !important' : '';
+        $plain = CssValueInspector::withoutImportant($value);
+        $parts = CssValueSplitter::splitTopLevelWhitespace($plain);
+        if ( count($parts) < 1 || count($parts) > 2 ) {
+            return array();
+        }
+
+        return array(
+            $axes[0] => $parts[0] . $important,
+            $axes[1] => ( $parts[1] ?? $parts[0] ) . $important,
+        );
     }
 }
