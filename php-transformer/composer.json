@@ -203,6 +203,8 @@
       "php tests/unit/social-links-boundary.php",
       "php tests/unit/pattern-registry-staged-dispatch.php",
       "php tests/unit/navigation-pattern-context.php",
+      "php tests/unit/button-pattern-context.php",
+      "php tests/unit/button-link-dispatch-context.php",
             "php tests/unit/text-leaf-element-converter.php",
             "php tests/unit/rich-text-element-converter.php",
              "php tests/unit/table-element-converter.php",

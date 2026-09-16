@@ -12,6 +12,12 @@ final class ButtonPattern implements PatternRecognizerInterface
     public function recognize(DOMElement $element, PatternContext $context): ?PatternRecognitionResult
     {
         $buttonContext = $context->buttonContext();
-        return null === $buttonContext ? null : new PatternRecognitionResult($this->buttons->matchButton($element, $context, $buttonContext));
+        if ( null === $buttonContext ) {
+            return null;
+        }
+
+        $block = $this->buttons->matchButton($element, $context, $buttonContext);
+
+        return null === $block ? null : new PatternRecognitionResult($block);
     }
 }

@@ -6,8 +6,7 @@ declare(strict_types=1);
  *
  * The rule this pins down is the anchor class-identity split: source classes
  * belong to the saved link, and only generated geometry may ride the paragraph
- * host. While this was `ButtonLinkDispatchTrait` that rule could only be
- * observed by transforming a document and reading the serialized output.
+ * host. Button-shaped controls go through the pattern registry first.
  */
 
 require __DIR__ . '/../../vendor/autoload.php';
@@ -15,8 +14,19 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatchContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIslandRecorder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PseudoFormAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
+use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ButtonLinkLeftoversFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\ElementPresentationResolverFixture;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $assertions = 0;
 $failures   = array();
@@ -38,69 +48,82 @@ $elementFrom = static function (string $html): DOMElement {
     throw new RuntimeException('No element parsed');
 };
 
-$makeDispatcher = static function (array $overrides = array()): ButtonLinkDispatcher {
-    $defaults = array(
-        'isRuntimeTarget'  => static fn (DOMElement $e): bool => false,
-        'recordIsland'     => static function (DOMElement $e): void {},
-        'preserve'         => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
-        'recognize'        => static function (DOMElement $e, array &$f, array $p): ?array {
-            return null;
-        },
-        'linkedLogo'       => static function (DOMElement $e, array &$f): ?array {
-            return null;
-        },
-        'linkedImage'      => static fn (DOMElement $e): ?array => null,
-        'linkWrapper'      => static function (DOMElement $e, array &$f): ?array {
-            return null;
-        },
-        'presentation'     => static fn (DOMElement $e, array $p, array $g): array => array(),
-        'createBlock'      => new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a)),
-        'attr'             => static fn (DOMElement $e, string $n): string => $e->getAttribute($n),
-        'outerHtml'        => static fn (DOMElement $e): string => $e->ownerDocument->saveHTML($e),
-        'safeLinkUrl'      => static fn (string $h): string => str_starts_with($h, 'javascript:') ? '' : $h,
-        'mergeClassNames'  => static fn (string $a, string $b): string => trim($a . ' ' . $b),
-        'structural'       => static fn (DOMElement $e): array => array(),
-    );
-    $c = array_merge($defaults, $overrides);
+$makeRuntimeIslands = static function (array $domSelectors): RuntimeIslandAnalyzer {
+    $behavioral = array_fill_keys($domSelectors, true);
+    $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $element): array => array());
+    $session->installRuntimeSelectorState(new RuntimeSelectorState(
+        array_fill_keys($domSelectors, true),
+        $behavioral,
+        array()
+    ));
+    $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
+    $descendants = static function (DOMElement $element): array {
+        $out = array();
+        foreach ($element->getElementsByTagName('*') as $node) {
+            if ($node instanceof DOMElement) {
+                $out[] = $node;
+            }
+        }
+        return $out;
+    };
+
+    return new RuntimeIslandAnalyzer(new RuntimeIslandContext(
+        $session,
+        new SourceElementClassifier(),
+        $descendants,
+        static fn (DOMElement $e): array => array(),
+        static fn (string $h): ?DOMElement => null,
+        static fn (DOMElement $e): bool => false
+    ), new PseudoFormAnalyzer($metadataBuilder, static fn (DOMElement $e): string => strtolower($e->tagName)));
+};
+
+$makeDispatcher = static function (array $overrides = array()) use ($makeRuntimeIslands): ButtonLinkDispatcher {
+    $createBlock = $overrides['createBlock'] ?? new SourceBlockCreatorFixture(static fn (string $n, array $a, array $i, ?DOMElement $s): array => array('blockName' => $n, 'attrs' => $a));
+    $presentation = $overrides['presentation'] ?? static fn (DOMElement $e, array $p, array $g): array => array();
+    $structural = $overrides['structural'] ?? static fn (DOMElement $e): array => array();
 
     return new ButtonLinkDispatcher(new ButtonLinkDispatchContext(
         new SourceElementClassifier(),
-        $c['isRuntimeTarget'],
-        $c['recordIsland'],
-        $c['preserve'],
-        $c['recognize'],
-        $c['linkedLogo'],
-        $c['linkedImage'],
-        $c['linkWrapper'],
-        new ElementPresentationResolverFixture($c['presentation'], structuralPresentationDeclarations: $c['structural']),
-        $c['createBlock'],
-        $c['safeLinkUrl']
+        new ElementPresentationResolverFixture($presentation, structuralPresentationDeclarations: $structural),
+        $createBlock,
+        $overrides['patternRecognizers'] ?? PatternRecognizerRegistry::createDefault(),
+        $overrides['patternContext'] ?? new PatternContext(
+            static fn (DOMElement $e, array $g = array()): array => array(),
+            $createBlock
+        ),
+        $overrides['runtimeIslands'] ?? null,
+        $overrides['formRuntimeIslands'] ?? null,
+        $overrides['leftovers'] ?? null
     ));
 };
 
 $fallbacks = array();
 
-// A runtime-targeted anchor is preserved verbatim and never pattern-matched.
-$recognizeCalled = false;
-$runtimeAnchor   = $makeDispatcher(array(
-    'isRuntimeTarget' => static fn (DOMElement $e): bool => true,
-    'recognize'       => static function (DOMElement $e, array &$f, array $p) use (&$recognizeCalled): ?array {
-        $recognizeCalled = true;
-        return null;
-    },
+// A wrapped native button is preserved by ButtonsPattern via the registry,
+// not by a duplicate dispatcher predicate.
+$wrapped = $makeDispatcher()->convertAnchor($elementFrom('<a href="/x"><button type="submit" class="cta">Go</button></a>'), $fallbacks);
+$assert('core/html' === ($wrapped['blockName'] ?? ''), 'wrapped-button-preserved-by-buttons-pattern');
+
+// A runtime-targeted anchor is a leftover after pattern recognition declines.
+$runtimeAnchor = $makeDispatcher(array(
+    'runtimeIslands' => $makeRuntimeIslands(array('#mount')),
 ));
-$assert('core/html' === ($runtimeAnchor->convertAnchor($elementFrom('<a href="/x">go</a>'), $fallbacks)['blockName'] ?? ''), 'runtime-anchor-preserved');
-$assert(! $recognizeCalled, 'runtime-anchor-skips-pattern-recognition');
+$assert('core/html' === ($runtimeAnchor->convertAnchor($elementFrom('<a href="/x" id="mount">go</a>'), $fallbacks)['blockName'] ?? ''), 'runtime-anchor-preserved-as-leftover');
 
 // A runtime-targeted button additionally records a control island.
 $islandRecorded = false;
 $runtimeButton  = $makeDispatcher(array(
-    'isRuntimeTarget' => static fn (DOMElement $e): bool => true,
-    'recordIsland'    => static function (DOMElement $e) use (&$islandRecorded): void {
-        $islandRecorded = true;
-    },
+    'runtimeIslands' => $makeRuntimeIslands(array('#mount')),
+    'formRuntimeIslands' => new FormRuntimeIslandRecorder(
+        new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName)),
+        static function (DOMElement $e, string $kind) use (&$islandRecorded): void {
+            $islandRecorded = 'control' === $kind;
+        },
+        static fn (DOMElement $e): array => array(),
+        static fn (DOMElement $e): array => array()
+    ),
 ));
-$assert('core/html' === ($runtimeButton->convertButton($elementFrom('<button>go</button>'))['blockName'] ?? ''), 'runtime-button-preserved');
+$assert('core/html' === ($runtimeButton->convertButton($elementFrom('<button id="mount">go</button>'))['blockName'] ?? ''), 'runtime-button-preserved-as-leftover');
 $assert($islandRecorded, 'runtime-button-records-control-island');
 
 // A plain button that matches no pattern yields nothing.
@@ -165,16 +188,16 @@ $assert(
     'role-button-anchor-is-not-a-fragment-link'
 );
 
-// Dispatch precedence: a linked logo wins over pattern recognition.
-$logoFirst = $makeDispatcher(array(
-    'linkedLogo' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/site-logo');
-    },
-    'recognize'  => static function (DOMElement $e, array &$f, array $p): ?array {
-        return array('blockName' => 'core/buttons');
-    },
+// Pattern recognition precedes linked-logo leftovers: a wrapped button is
+// preserved even when leftover conversion would emit a logo.
+$logoIgnored = $makeDispatcher(array(
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/site-logo');
+        }
+    ),
 ));
-$assert('core/site-logo' === ($logoFirst->convertAnchor($elementFrom('<a href="/"><svg></svg></a>'), $fallbacks)['blockName'] ?? ''), 'linked-logo-precedes-pattern-recognition');
+$assert('core/html' === ($logoIgnored->convertAnchor($elementFrom('<a href="/" class="logo"><button type="submit" class="cta">Go</button></a>'), $fallbacks)['blockName'] ?? ''), 'pattern-recognition-precedes-linked-logo-leftover');
 
 // A brand lockup whose spans stack (column flex link) converts as a link
 // wrapper group instead of a paragraph host that merges its two lines.
@@ -185,9 +208,11 @@ $stacked = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
     )),
-    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/group');
-    },
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
 ));
 $assert(
     'core/group' === ($stacked->convertAnchor($elementFrom('<a class="flex flex-col" href="#home"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
@@ -199,9 +224,11 @@ $rowFlex = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'flex' => array( 'display' => 'flex' ),
     )),
-    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/group');
-    },
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
 ));
 $assert(
     'core/paragraph' === ($rowFlex->convertAnchor($elementFrom('<a class="flex" href="/"><span>Icon</span><span>Label</span></a>'), $fallbacks)['blockName'] ?? ''),
@@ -214,9 +241,11 @@ $unlinked = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
     )),
-    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/group');
-    },
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
 ));
 $assert(
     'core/paragraph' === ($unlinked->convertAnchor($elementFrom('<a class="flex flex-col"><span>Name</span><span>Role</span></a>'), $fallbacks)['blockName'] ?? ''),
@@ -241,9 +270,11 @@ $blockSpans = $makeDispatcher(array(
         'lockup-name' => array( 'display' => 'block' ),
         'lockup-role' => array( 'display' => 'block' ),
     )),
-    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/group');
-    },
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
 ));
 $assert(
     'core/group' === ($blockSpans->convertAnchor($elementFrom('<a href="/"><span class="lockup-name">Name</span><span class="lockup-role">Role</span></a>'), $fallbacks)['blockName'] ?? ''),
@@ -255,9 +286,11 @@ $singleSpan = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(
         'flex flex-col' => array( 'display' => 'flex', 'flex-direction' => 'column' ),
     )),
-    'linkWrapper' => static function (DOMElement $e, array &$f): ?array {
-        return array('blockName' => 'core/group');
-    },
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
 ));
 $assert(
     'core/paragraph' === ($singleSpan->convertAnchor($elementFrom('<a class="flex flex-col" href="/"><span>Name</span></a>'), $fallbacks)['blockName'] ?? ''),

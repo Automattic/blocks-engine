@@ -14,9 +14,8 @@ use DOMElement;
  * Routes `a` and `button` elements to their native block, a preserved runtime
  * island, or a paragraph host for the saved link.
  *
- * Previously `ButtonLinkDispatchTrait`. As a single-consumer trait its methods
- * still resolved against the transformer's `$this`; here they run against an
- * explicit {@see ButtonLinkDispatchContext}.
+ * Button-shaped controls go through {@see ButtonAnchorPattern} /
+ * {@see ButtonPattern} first. Remaining branches are non-button leftovers.
  */
 final class ButtonLinkDispatcher
 {
@@ -37,8 +36,9 @@ final class ButtonLinkDispatcher
      */
     public function convertAnchor(DOMElement $element, array &$fallbacks): ?array
     {
-        if ( $this->requiresWrappedButtonPreservation($element) ) {
-            return $this->context->htmlPreservationBlock($element);
+        $button = $this->context->recognizePatterns($element, $fallbacks, array( ButtonAnchorPattern::class ));
+        if ( null !== $button ) {
+            return $button;
         }
 
         if ( $this->context->isRuntimeDomTarget($element) ) {
@@ -50,12 +50,7 @@ final class ButtonLinkDispatcher
             return $linkedLogo;
         }
 
-        $button = $this->context->recognizePatterns($element, $fallbacks, array(ButtonAnchorPattern::class));
-        if ( null !== $button ) {
-            return $button;
-        }
-
-        $logo = $this->context->recognizePatterns($element, $fallbacks, array(LogoPattern::class));
+        $logo = $this->context->recognizePatterns($element, $fallbacks, array( LogoPattern::class ));
         if ( null !== $logo ) {
             return $logo;
         }
@@ -110,56 +105,23 @@ final class ButtonLinkDispatcher
         return InlineStackingClassifier::stacksInlineChildren($anchor, $this->context->structuralPresentationDeclarations(...));
     }
 
-    private function requiresWrappedButtonPreservation(DOMElement $anchor): bool
-    {
-        $button = null;
-        foreach ( $anchor->childNodes as $child ) {
-            if ( XML_TEXT_NODE === $child->nodeType && '' === trim($child->textContent ?? '') ) {
-                continue;
-            }
-            if ( ! $child instanceof DOMElement || 'button' !== strtolower($child->tagName) || $button instanceof DOMElement ) {
-                return false;
-            }
-            $button = $child;
-        }
-        if ( ! $button instanceof DOMElement || ! ($button->hasAttribute('class') || $button->hasAttribute('id') || $button->hasAttribute('style')) ) {
-            return false;
-        }
-
-        $type = strtolower(trim($button->getAttribute('type')));
-        if ( ! in_array($type, array( '', 'button' ), true) ) {
-            return true;
-        }
-        if ( '' === $type ) {
-            for ( $ancestor = $button->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-                if ( 'form' === strtolower($ancestor->tagName) ) {
-                    return true;
-                }
-            }
-        }
-
-        foreach ( array( 'disabled', 'form', 'formaction', 'formenctype', 'formmethod', 'formnovalidate', 'formtarget', 'popovertarget', 'popovertargetaction', 'command', 'commandfor', 'aria-controls', 'aria-expanded', 'data-action', 'jsaction', 'onclick', 'onchange', 'onsubmit' ) as $attribute ) {
-            if ( $button->hasAttribute($attribute) ) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * @return array<string, mixed>|null
      */
     public function convertButton(DOMElement $element): ?array
     {
+        $fallbacks = array();
+        $button = $this->context->recognizePatterns($element, $fallbacks, array( ButtonPattern::class ));
+        if ( null !== $button ) {
+            return $button;
+        }
+
         if ( $this->context->isRuntimeDomTarget($element) ) {
             $this->context->recordRuntimeControlIsland($element);
             return $this->context->htmlPreservationBlock($element);
         }
 
-        $fallbacks = array();
-
-        return $this->context->recognizePatterns($element, $fallbacks, array(ButtonPattern::class));
+        return null;
     }
 
     /**

@@ -4,9 +4,13 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\PatternRecognizerRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ElementPresentationResolver;
-use Closure;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\LinkUrlSanitizer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use DOMElement;
 
 /**
@@ -14,39 +18,27 @@ use DOMElement;
  */
 final class ButtonLinkDispatchContext
 {
-    /**
-     * @param Closure(DOMElement): bool                                                                      $isRuntimeDomTarget
-     * @param Closure(DOMElement): void                                                                      $recordRuntimeControlIsland
-     * @param Closure(DOMElement): array<string, mixed>                                                      $htmlPreservationBlock
-     * @param Closure(DOMElement, array<int, array<string, mixed>>, array<int, class-string>): ?array<string, mixed> $recognizePatterns
-     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $linkedSvgLogoBlockFromAnchor
-     * @param Closure(DOMElement): ?array<string, mixed>                                                     $imageBlockFromAnchor
-     * @param Closure(DOMElement, array<int, array<string, mixed>>): ?array<string, mixed>                    $convertLinkWrapperGroup
-     * @param Closure(string): string                                                                        $safeLinkUrl
-     */
     public function __construct(
         private readonly SourceElementClassifier $sourceElementClassifier,
-        private readonly Closure $isRuntimeDomTarget,
-        private readonly Closure $recordRuntimeControlIsland,
-        private readonly Closure $htmlPreservationBlock,
-        private readonly Closure $recognizePatterns,
-        private readonly Closure $linkedSvgLogoBlockFromAnchor,
-        private readonly Closure $imageBlockFromAnchor,
-        private readonly Closure $convertLinkWrapperGroup,
-        private readonly ElementPresentationResolver $presentationResolver,
-        private readonly SourceBlockCreator $createBlock,
-        private readonly Closure $safeLinkUrl
+        private readonly ?ElementPresentationResolver $presentationResolver = null,
+        private readonly ?SourceBlockCreator $createBlock = null,
+        private readonly ?PatternRecognizerRegistry $patternRecognizers = null,
+        private readonly ?PatternContext $patternContext = null,
+        private readonly ?RuntimeIslandAnalyzer $runtimeIslands = null,
+        private readonly ?FormRuntimeIslandRecorder $formRuntimeIslandRecorder = null,
+        private readonly ?ButtonLinkLeftovers $leftovers = null,
+        private readonly Runtime $runtime = new Runtime()
     ) {
     }
 
     public function isRuntimeDomTarget(DOMElement $element): bool
     {
-        return ($this->isRuntimeDomTarget)($element);
+        return $this->runtimeIslands?->isRuntimeDomTarget($element) ?? false;
     }
 
     public function recordRuntimeControlIsland(DOMElement $element): void
     {
-        ($this->recordRuntimeControlIsland)($element);
+        $this->formRuntimeIslandRecorder?->recordControl($element);
     }
 
     /**
@@ -54,7 +46,12 @@ final class ButtonLinkDispatchContext
      */
     public function htmlPreservationBlock(DOMElement $element): array
     {
-        return ($this->htmlPreservationBlock)($element);
+        $html = $this->patternContext?->markupContext()?->safeFallbackHtml($element) ?? SourceDom::outerHtml($element);
+        if ( ! $this->createBlock instanceof SourceBlockCreator ) {
+            return array( 'blockName' => 'core/html', 'attrs' => array( 'content' => $html ) );
+        }
+
+        return $this->createBlock->createBlock('core/html', array( 'content' => $html ), array(), $element);
     }
 
     /**
@@ -64,7 +61,18 @@ final class ButtonLinkDispatchContext
      */
     public function recognizePatterns(DOMElement $element, array &$fallbacks, array $patterns): ?array
     {
-        return ($this->recognizePatterns)($element, $fallbacks, $patterns);
+        if ( ! $this->patternRecognizers instanceof PatternRecognizerRegistry || ! $this->patternContext instanceof PatternContext ) {
+            return null;
+        }
+
+        $result = $this->patternRecognizers->firstMatch($element, $this->patternContext, $patterns);
+        if ( null === $result ) {
+            return null;
+        }
+
+        $fallbacks = array_merge($fallbacks, $result->fallbacks());
+
+        return $result->block();
     }
 
     /**
@@ -73,7 +81,11 @@ final class ButtonLinkDispatchContext
      */
     public function linkedSvgLogoBlockFromAnchor(DOMElement $element, array &$fallbacks): ?array
     {
-        return ($this->linkedSvgLogoBlockFromAnchor)($element, $fallbacks);
+        if ( ! $this->isLinkedSvgLogoAnchor($element) ) {
+            return null;
+        }
+
+        return $this->convertLinkWrapperGroup($element, $fallbacks);
     }
 
     /**
@@ -81,7 +93,7 @@ final class ButtonLinkDispatchContext
      */
     public function imageBlockFromAnchor(DOMElement $element): ?array
     {
-        return ($this->imageBlockFromAnchor)($element);
+        return $this->leftovers?->imageBlockFromAnchor($element);
     }
 
     /**
@@ -90,7 +102,7 @@ final class ButtonLinkDispatchContext
      */
     public function convertLinkWrapperGroup(DOMElement $element, array &$fallbacks): ?array
     {
-        return ($this->convertLinkWrapperGroup)($element, $fallbacks);
+        return $this->leftovers?->convertLinkWrapperGroup($element, $fallbacks);
     }
 
     /**
@@ -100,7 +112,7 @@ final class ButtonLinkDispatchContext
      */
     public function presentationAttributes(DOMElement $element, array $excludedProperties = array(), array $excludedGeometryProperties = array()): array
     {
-        return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
+        return $this->presentationResolver?->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties) ?? array();
     }
 
     /**
@@ -110,12 +122,16 @@ final class ButtonLinkDispatchContext
      */
     public function createBlock(string $name, array $attributes = array(), array $innerBlocks = array(), ?DOMElement $sourceElement = null): array
     {
+        if ( ! $this->createBlock instanceof SourceBlockCreator ) {
+            return array( 'blockName' => $name, 'attrs' => $attributes, 'innerBlocks' => $innerBlocks );
+        }
+
         return $this->createBlock->createBlock($name, $attributes, $innerBlocks, $sourceElement);
     }
 
     public function safeLinkUrl(string $href): string
     {
-        return ($this->safeLinkUrl)($href);
+        return LinkUrlSanitizer::sanitize($href);
     }
 
     public function hasBlockContentChildren(DOMElement $element): bool
@@ -128,6 +144,26 @@ final class ButtonLinkDispatchContext
      */
     public function structuralPresentationDeclarations(DOMElement $element): array
     {
-        return $this->presentationResolver->structuralPresentationDeclarations($element);
+        return $this->presentationResolver?->structuralPresentationDeclarations($element) ?? array();
+    }
+
+    private function isLinkedSvgLogoAnchor(DOMElement $anchor): bool
+    {
+        if ( 0 === $anchor->getElementsByTagName('svg')->length
+            || '' !== trim($this->runtime->stripAllTags(SourceDom::innerHtmlWithoutTags($anchor, array( 'svg' )))) ) {
+            return false;
+        }
+
+        if ( $this->sourceElementClassifier->hasLogoBrandSignal($anchor) ) {
+            return true;
+        }
+
+        foreach ( $anchor->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && $this->sourceElementClassifier->hasLogoBrandSignal($descendant) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -22,6 +22,10 @@ final class ButtonsPattern
 
     public function matchAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons): ?PatternRecognitionResult
     {
+        if ( $buttons->isRuntimeDomTarget($anchor) ) {
+            return null;
+        }
+
         $fileBlock = $buttons->fileBlockFromAnchor($anchor);
         if ( null !== $fileBlock ) {
             return new PatternRecognitionResult($fileBlock);
@@ -54,9 +58,13 @@ final class ButtonsPattern
         return new PatternRecognitionResult($block);
     }
 
-    /** @return array<string, mixed> */
-    public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): array
+    /** @return array<string, mixed>|null */
+    public function matchButton(DOMElement $button, PatternContext $context, ButtonPatternContext $buttons): ?array
     {
+        if ( $buttons->isRuntimeDomTarget($button) ) {
+            return null;
+        }
+
         $preservedAnchor = $this->guardedWrappedButtonAnchor($button);
         if ( $preservedAnchor instanceof DOMElement ) {
             return $context->createBlock('core/html', array( 'content' => SourceDom::outerHtml($preservedAnchor) ), array(), $preservedAnchor);
