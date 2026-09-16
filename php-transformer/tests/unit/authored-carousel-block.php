@@ -237,4 +237,68 @@ $assert(
     'an offset that does not centre its own layer is not read as a fitted stage'
 );
 
+$playbackSource = '<div id="gallery-showcase" class="photo-slideshow"><div class="stage"><div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div>'
+    . '<div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div></div>'
+    . '<div class="overlay"><span class="play-button">Play</span><span class="pause-button" style="display:none">Pause</span></div>'
+    . '<div class="picker" style="width:75px"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div></div>';
+$playbackResult = (new HtmlTransformer())->transform($playbackSource)->toArray();
+$playback = $playbackResult['blocks'][0] ?? array();
+$playbackMarkup = (string) ($playbackResult['serialized_blocks'] ?? '');
+$assert(
+    true === ($playback['attrs']['showPlayControl'] ?? null)
+        && 0 === ($playback['attrs']['autoplayInterval'] ?? null)
+        && 'fade' === ($playback['attrs']['transitionStyle'] ?? null),
+    'a source that offers start and stop keeps that affordance without inventing autoplay it never declared'
+);
+$assert(
+    str_contains($playbackMarkup, 'class="blocks-engine-authored-carousel__playback"')
+        && str_contains($playbackMarkup, 'data-wp-on--click="actions.toggleAutoplay"')
+        && str_contains($playbackMarkup, 'data-wp-text="state.playbackLabel"')
+        && str_contains($playbackMarkup, '>Play</button>'),
+    'the playback control is a real toggle whose label follows the running state'
+);
+
+$noPlaybackSource = str_replace('<span class="play-button">Play</span><span class="pause-button" style="display:none">Pause</span>', '', $playbackSource);
+$noPlayback = (new HtmlTransformer())->transform($noPlaybackSource)->toArray()['blocks'][0] ?? array();
+$assert(
+    'custom/authored-carousel' === ($noPlayback['blockName'] ?? null)
+        && false === ($noPlayback['attrs']['showPlayControl'] ?? null),
+    'a slideshow with no playback affordance does not gain one'
+);
+
+$slideTransitionSource = '<div class="hero-slideshow"><div class="slides">'
+    . '<div class="slide" style="transition:transform 400ms ease"><img src="a.jpg"></div>'
+    . '<div class="slide" style="display:none;transition:transform 400ms ease"><img src="b.jpg"></div>'
+    . '</div><div class="picker" style="width:75px"><a><img src="a-t.jpg"></a><a><img src="b-t.jpg"></a></div></div>';
+$slideTransitionResult = (new HtmlTransformer())->transform($slideTransitionSource)->toArray();
+$slideTransition = $slideTransitionResult['blocks'][0] ?? array();
+$assert(
+    'slide' === ($slideTransition['attrs']['transitionStyle'] ?? null)
+        && str_contains((string) ($slideTransitionResult['serialized_blocks'] ?? ''), 'blocks-engine-authored-carousel--transition-slide'),
+    'a source that moves its slides on the moving axis is carried as a slide transition, not a cross-fade'
+);
+
+$playbackStyle = (string) ($playbackResult['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? '');
+$playbackEditor = (string) ($playbackResult['source_reports']['generated_blocks'][0]['assets']['index.js'] ?? '');
+$playbackView = (string) ($playbackResult['source_reports']['generated_blocks'][0]['view_js'] ?? '');
+$assert(
+    str_contains($playbackStyle, '--transition-slide .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(100%)}')
+        && str_contains($playbackStyle, '[data-direction="backward"]')
+        && str_contains($playbackStyle, '@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--transition-slide'),
+    'the slide transition is direction aware and yields to a reduced-motion preference'
+);
+$assert(
+    str_contains($playbackEditor, 'InspectorControls')
+        && str_contains($playbackEditor, "label: 'Transition'")
+        && str_contains($playbackEditor, "label: 'Autoplay interval (ms, 0 to hold)'")
+        && str_contains($playbackEditor, "label: 'Show play control'"),
+    'the carried block hands playback and transition back to the editor as ordinary controls'
+);
+$assert(
+    str_contains($playbackView, 'toggleAutoplay()') && str_contains($playbackView, 'DEFAULT_AUTOPLAY_INTERVAL'),
+    'pressing play starts playback even when the source declared no interval of its own'
+);
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
