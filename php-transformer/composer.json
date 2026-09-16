@@ -235,6 +235,7 @@
              "php tests/unit/button-element-converter.php",
              "php tests/unit/image-carrier-hidden-label.php",
              "php tests/unit/image-object-fit-css-variable.php",
+             "php tests/unit/button-definite-ancestor-width.php",
             "php tests/unit/runtime-resource-element-converter.php",
             "php tests/unit/link-bearing-element-lowering.php",
             "php tests/unit/link-wrapper-text-color-parity.php"

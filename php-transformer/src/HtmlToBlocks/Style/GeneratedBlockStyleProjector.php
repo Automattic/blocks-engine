@@ -225,7 +225,13 @@ final class GeneratedBlockStyleProjector
             $inlineDeclarations = $this->styleResolver->cssDeclarations($sourceControl->getAttribute('style'));
             $hasAuthoredWidth = isset($inlineDeclarations['width'])
                 || array() !== $this->styleResolver->authorDeclaredPropertyValues($sourceControl, array( 'width' ));
-            if ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+            $definiteAncestorWidth = $hasAuthoredWidth ? '' : $this->definiteAncestorWidth($sourceControl);
+            if ( '' !== $definiteAncestorWidth ) {
+                $outerWrapperDeclarations[] = 'width:' . $definiteAncestorWidth;
+                $outerWrapperDeclarations[] = 'max-width:100%';
+                $declarations[] = 'box-sizing:border-box';
+                $declarations[] = 'width:100%';
+            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
                 $outerWrapperDeclarations[] = 'width:max-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
                 $intrinsicWrapperDeclarations[] = 'width:max-content';
@@ -450,6 +456,20 @@ final class GeneratedBlockStyleProjector
         // No explicit style component means the shorthand resets border-*-style to its
         // initial value of `none`, so the side has no visible border.
         return null !== $styleToken && ! in_array($styleToken, array( 'none', 'hidden' ), true);
+    }
+
+    private function definiteAncestorWidth(DOMElement $sourceControl): string
+    {
+        for ( $ancestor = $sourceControl->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $width = CssValueInspector::comparable(
+                (string) ($this->styleResolver->presentationDeclarations($ancestor)['width'] ?? '')
+            );
+            if ( preg_match('/^(?:\d+(?:\.\d+)?)px$/', $width) ) {
+                return $width;
+            }
+        }
+
+        return '';
     }
 
     private static function isInheritedCssWideValue(string $value): bool
