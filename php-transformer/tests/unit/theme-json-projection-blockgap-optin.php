@@ -54,8 +54,10 @@ $assert(
 
 // ---------------------------------------------------------------------------
 // 2. A source with no gap declarations still opts in: the plan asserts a
-//    global gap of 0px, so the theme must not leave WordPress's 0.5em
-//    fallback-gap branch active for its flex and grid containers.
+//    global gap of "no gap" (boolean false), so the theme must not leave
+//    WordPress's 0.5em fallback-gap branch active for its flex and grid
+//    containers while also not emitting 0-1-0 global margin/gap rules that
+//    would clobber authored element-level child spacing.
 // ---------------------------------------------------------------------------
 $noGap = $project( 'body{color:#111}' );
 $assert(
@@ -64,8 +66,8 @@ $assert(
     json_encode( $noGap['settings'] ?? null )
 );
 $assert(
-    '0px' === ( $noGap['styles']['spacing']['blockGap'] ?? null ),
-    '2b: the 0px global default remains the styles-side gap',
+    false === ( $noGap['styles']['spacing']['blockGap'] ?? null ),
+    '2b: the styles-side default is an explicit false that suppresses global gap rules',
     json_encode( $noGap['styles']['spacing'] ?? null )
 );
 $assert(
@@ -74,18 +76,19 @@ $assert(
 );
 
 // ---------------------------------------------------------------------------
-// 3. The opt-in survives the theme.json JSON round trip as a boolean, which is
-//    the exact value WordPress `isset()`-tests after json_decode.
+// 3. The opt-in and the styles disable survive the theme.json JSON round trip
+//    as booleans, the exact values WordPress isset()-tests after json_decode.
 // ---------------------------------------------------------------------------
 $encoded = json_decode( (string) json_encode( $noGap, JSON_UNESCAPED_SLASHES ), true );
 $assert(
     true === ( $encoded['settings']['spacing']['blockGap'] ?? null ) && isset( $encoded['settings']['spacing']['blockGap'] ),
-    '3: the opt-in round-trips through theme.json as a boolean true',
+    '3: the settings opt-in round-trips through theme.json as a boolean true',
     (string) json_encode( $encoded['settings'] ?? null )
 );
 $assert(
-    '' !== ( $encoded['styles']['spacing']['blockGap'] ?? '' ),
-    '3b: the styles gap survives the same round trip'
+    false === ( $encoded['styles']['spacing']['blockGap'] ?? null ),
+    '3b: the styles-side gap disable round-trips as a boolean false',
+    (string) json_encode( $encoded['styles']['spacing'] ?? null )
 );
 
 // ---------------------------------------------------------------------------

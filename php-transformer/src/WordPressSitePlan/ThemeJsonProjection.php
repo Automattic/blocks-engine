@@ -124,17 +124,20 @@ final class ThemeJsonProjection
         // explicit blockGap the block editor inherits WordPress's default 24px
         // layout gap (`:root :where(.is-layout-flow) > *`), which the frontend
         // never emits, so the same markup renders taller in the editor canvas.
-        if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = '0px';
-        // The styles default above is dead in WordPress unless the theme also
-        // declares the setting: core's layout serializer gates on
+        // The explicit boolean false (not a length) is load-bearing: WordPress
+        // core only emits layout gap CSS when
         // `isset( $this->theme_json['settings']['spacing']['blockGap'] )`
         // (WP_Theme_JSON::get_layout_styles() and
-        // wp_render_layout_support_flag()) and falls back to a 0.5em gap,
-        // silently discarding every per-block style.spacing.blockGap value the
-        // blocks already carry. A boolean true opts in without changing the
-        // global gap value owned by the styles declaration above, so
-        // WordPress serializes layout gap CSS from that global default and
-        // from each block's own blockGap instead of the fallback.
+        // wp_render_layout_support_flag()), and without the setting it falls
+        // back to a 0.5em gap, silently discarding every per-block
+        // style.spacing.blockGap value the blocks already carry. A string
+        // styles value would additionally make core serialize
+        // `:root :where(.is-layout-flow) > *` margin rules at 0-1-0
+        // specificity that clobber authored element-level child spacing, so
+        // the styles default stays a false that suppresses global gap output
+        // while the settings opt-in below keeps per-block gap serialization
+        // and the editor gap control enabled.
+        if (!isset($styles['spacing']['blockGap'])) $styles['spacing']['blockGap'] = false;
         $settings['spacing']['blockGap'] = true;
         return array('version' => 3, 'settings' => $settings, 'styles' => $styles);
     }
