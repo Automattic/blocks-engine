@@ -54,4 +54,21 @@ if ( str_contains($idThemeCss, '!important!important') ) {
     exit(1);
 }
 
+$compete = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.cta{height:auto;display:inline-block;padding:12px 24px;background:#4c2929;color:#fff}'
+    . '.fluid-engine .sqs-stretched .cta{height:100%;display:flex;flex:1;padding-top:0;padding-bottom:0;align-items:center;justify-content:center}'
+    . '</style>'
+    . '<div class="fluid-engine"><div class="sqs-stretched" style="height:78px"><a class="cta" href="/order">Order Now</a></div></div>'
+)->toArray();
+$competeCss = $cssOf($compete);
+if ( ! preg_match('/height:100%!important/', $competeCss) ) {
+    fwrite(STDERR, "FAIL: stretching height:100% must still fill inner carriers\n" . $competeCss . "\n");
+    exit(1);
+}
+if ( preg_match('/wp-block-button__link\)\{height:auto!important/', $competeCss) ) {
+    fwrite(STDERR, "FAIL: unconditioned height:auto must not force inner carriers to auto\n" . $competeCss . "\n");
+    exit(1);
+}
+
 fwrite(STDOUT, "button stretch flex tests: passed\n");
