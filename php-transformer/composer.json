@@ -101,6 +101,7 @@
       "php tests/unit/description-list-block.php",
       "php tests/unit/css-value-splitter.php",
       "php tests/unit/theme-json-projection-blockgap-optin.php",
+      "php tests/unit/theme-json-projection-typography-families.php",
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",
