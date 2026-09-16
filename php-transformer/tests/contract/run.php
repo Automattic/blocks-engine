@@ -1563,6 +1563,13 @@ $assert('Submit' === ($visibleFormSubmit[0]['text'] ?? ''), 'submit buttons keep
 $assert(1 === count($visibleFormPhone) && 'Phone' === ($visibleFormPhone[0]['label'] ?? ''), 'tel autocomplete fields keep legend labels and telephone type');
 $assert(true === ($visibleFormMessage[0]['required'] ?? false) && 'Message' === ($visibleFormMessage[0]['label'] ?? ''), 'visual required captions on textareas become required without staying in the label');
 $assert(! array_key_exists('required_indicator', $visibleFormMessage[0] ?? array()), 'visible required captions keep the provider required marker enabled');
+$assert('2' === ($visibleFormMessage[0]['rows'] ?? ''), 'textareas without an authored rows report the HTML default intrinsic height');
+
+$authoredRowsForm = ( new HtmlTransformer() )->transform(
+    '<main><form class="notes"><label for="notes">Notes</label><textarea id="notes" rows="6"></textarea><button type="submit">Send</button></form></main>'
+)->toArray();
+$authoredRowsControl = array_values(array_filter($authoredRowsForm['fallbacks'][0]['controls'] ?? array(), static fn (array $control): bool => 'textarea' === ($control['tag'] ?? '')))[0] ?? array();
+$assert('6' === ($authoredRowsControl['rows'] ?? ''), 'authored textarea rows are reported unchanged');
 
 $placeholderEmail = ( new HtmlTransformer() )->transform(
     '<main><form class="newsletter-form"><label class="title" for="email"></label><input id="email" class="field-element" type="text" name="email" x-autocompletetype="email" placeholder="Email Address"><button type="submit">Claim My Reward</button></form></main>'
