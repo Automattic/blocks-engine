@@ -135,12 +135,101 @@ final class SemanticParityReporter
                 is_array($blockMenu['items'] ?? null) ? array_values($blockMenu['items']) : array(),
                 is_array($carried['after'] ?? null) ? $carried['after'] : array()
             );
+            $items = $this->collapseLinkedWrapperRuns(
+                $items,
+                is_array($pairedSource['items'] ?? null) ? $pairedSource['items'] : array()
+            );
 
             $blockMenus[$index]['item_count'] = count($items);
             $blockMenus[$index]['items'] = $items;
         }
 
         return array_values($blockMenus);
+    }
+
+    /**
+     * A hoisted link-wrapper group — one source anchor around stacked text —
+     * surfaces as one linked block per authored line. The lines share the
+     * anchor's single href, so they are one menu item, not one per line:
+     * collapse each run of same-URL items whose whitespace-free labels
+     * concatenate to a paired source item's whitespace-free label back onto
+     * that source item.
+     *
+     * The whitespace-free comparison is what makes the collapse safe: two
+     * genuine same-URL menu items concatenate to a label no source anchor
+     * carries, so they are left alone and any real mismatch stays visible.
+     *
+     * @param array<int, array<string, string>> $items
+     * @param array<int, array<string, mixed>> $sourceItems
+     * @return array<int, array<string, string>>
+     */
+    private function collapseLinkedWrapperRuns(array $items, array $sourceItems): array
+    {
+        if ( count($items) < 2 || array() === $sourceItems ) {
+            return $items;
+        }
+
+        $sourceLabelsByFolded = array();
+        foreach ( $sourceItems as $sourceItem ) {
+            if ( ! is_array($sourceItem) ) {
+                continue;
+            }
+            $label = (string) ($sourceItem['label'] ?? '');
+            $url = (string) ($sourceItem['url'] ?? '');
+            if ( '' === $label ) {
+                continue;
+            }
+            $sourceLabelsByFolded[$this->foldedItemKey($label, $url)] = $label;
+        }
+
+        $collapsed = array();
+        $count = count($items);
+        for ( $index = 0; $index < $count; ) {
+            $url = (string) ($items[$index]['url'] ?? '');
+            if ( '' === $url ) {
+                $collapsed[] = $items[$index];
+                ++$index;
+                continue;
+            }
+
+            // The lines of one wrapper group sit beside the menu's own links,
+            // which may reuse the same URL. Extend the run only while a whole
+            // prefix of same-URL items concatenates to one source label, and
+            // prefer the longest such prefix.
+            $foldedLabels = array( $this->foldItemLabel((string) ($items[$index]['label'] ?? '')) );
+            $matchEnd = -1;
+            for ( $runEnd = $index + 1; $runEnd < $count && $url === (string) ($items[$runEnd]['url'] ?? ''); ++$runEnd ) {
+                $foldedLabels[] = $this->foldItemLabel((string) ($items[$runEnd]['label'] ?? ''));
+                $foldedConcatenation = implode('', $foldedLabels);
+                if ( isset($sourceLabelsByFolded[$this->foldedItemKey($foldedConcatenation, $url)]) ) {
+                    $matchEnd = $runEnd;
+                }
+            }
+
+            if ( -1 !== $matchEnd ) {
+                $collapsed[] = array(
+                    'label' => $sourceLabelsByFolded[$this->foldedItemKey(implode('', array_slice($foldedLabels, 0, $matchEnd - $index + 1)), $url)],
+                    'url'   => $url,
+                );
+                $index = $matchEnd + 1;
+                continue;
+            }
+
+            $collapsed[] = $items[$index];
+            ++$index;
+        }
+
+        return $collapsed;
+    }
+
+    private function foldedItemKey(string $label, string $url): string
+    {
+        return $this->foldItemLabel($label) . "\0" . $url;
+    }
+
+    private function foldItemLabel(string $label): string
+    {
+        return (string) preg_replace('/\s+/', '', $label);
     }
 
     /**
