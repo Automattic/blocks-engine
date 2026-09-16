@@ -93,6 +93,7 @@
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/core-block-snapshot-validity.php",
       "php tests/unit/list-item-lowering.php",
+      "php tests/unit/card-fragment-author-rule.php",
       "php tests/unit/artifact-normalizer-idempotence.php",
       "php tests/unit/staged-transport.php",
       "php tests/unit/wordpress-site-plan-composer.php",

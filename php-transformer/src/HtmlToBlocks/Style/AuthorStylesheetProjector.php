@@ -988,6 +988,13 @@ final class AuthorStylesheetProjector
                 if ( $this->isPreservedCodeSyntaxElement($element) ) {
                     $hasNonProjected = true;
                 } elseif ( $context->selectorProjections->isInlineLayoutCarrierPath($path) ) {
+                    // Structured card lowering unwraps the fragment and hoists
+                    // its styling hook onto the paragraph it emits, so the class
+                    // lands on that paragraph instead of inside a carrier.
+                    if ( $this->isHoistedCardFragment($element) ) {
+                        $hasNonProjected = true;
+                        continue;
+                    }
                     $inlineLayoutCarriers = true;
                 } elseif ( '' !== ($marker = $context->selectorProjections->richTextMarker($path)) ) {
                     $richTextLeaves[] = $marker;
@@ -1024,6 +1031,45 @@ final class AuthorStylesheetProjector
             }
         }
         return implode(',', $rewritten);
+    }
+
+    /**
+     * A styling-hook fragment of a structured card `<li>`.
+     *
+     * Card lowering unwraps such a fragment and hoists its class and style onto
+     * the paragraph it emits, so the hook ends up on that paragraph rather than
+     * nested inside an inline-layout carrier. Scoping its rule behind a carrier
+     * would leave the rule matching nothing.
+     */
+    private function isHoistedCardFragment(DOMElement $element): bool
+    {
+        if ( ! in_array(strtolower($element->tagName), array( 'span', 'a' ), true)
+            || '' === trim($element->getAttribute('class')) ) {
+            return false;
+        }
+
+        $item = $element->parentNode;
+        if ( ! $item instanceof DOMElement || 'li' !== strtolower($item->tagName) ) {
+            return false;
+        }
+
+        $list = $item->parentNode;
+        if ( ! $list instanceof DOMElement || ! in_array(strtolower($list->tagName), array( 'ul', 'ol' ), true) ) {
+            return false;
+        }
+
+        // Two or more classed inline fragments is the shape card lowering
+        // recognizes; a single hooked fragment stays ordinary inline flow.
+        $hooked = 0;
+        foreach ( $item->childNodes as $sibling ) {
+            if ( $sibling instanceof DOMElement
+                && in_array(strtolower($sibling->tagName), array( 'span', 'a', 'b', 'strong', 'em', 'i' ), true)
+                && '' !== trim($sibling->getAttribute('class')) ) {
+                ++$hooked;
+            }
+        }
+
+        return $hooked >= 2;
     }
 
     private function isPreservedCodeSyntaxElement(DOMElement $element): bool
