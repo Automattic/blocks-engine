@@ -250,6 +250,19 @@ $assert(
     $preflightCss
 );
 
+$negatedPreflightButton = ( new HtmlTransformer() )->transform(
+    '<style>*:not(:where(.keep)),:after,:before,::backdrop{box-sizing:border-box;border:0 solid;padding:0}'
+    . ':root{--spacing:.25rem}.px-6{padding-inline:calc(var(--spacing) * 6)}.py-2{padding-block:calc(var(--spacing) * 2)}'
+    . '.cta{background:oklch(0.56 0.13 45);color:#fff;display:inline-flex}</style>'
+    . '<a class="cta px-6 py-2" href="/x">Agendar</a>'
+)->toArray();
+$negatedPreflightCss = implode("\n", array_column($negatedPreflightButton['assets'] ?? array(), 'content'));
+$assert(
+    ! preg_match('/wp-block-button__link\)?\{[^}]*padding:\s*0!important/', $negatedPreflightCss),
+    'Tailwind v4 negated universal preflight does not force padding:0!important onto the button link',
+    $negatedPreflightCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Button style resolver tests: {$failures} failed, {$passes} passed\n");
     exit(1);
