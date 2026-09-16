@@ -36,7 +36,7 @@ $assert(str_contains($view, "'ArrowLeft'") && str_contains($view, "'ArrowRight'"
 $assert(str_contains($style, 'grid-auto-flow:column') && str_contains($style, '@media(max-width:600px)') && str_contains($style, 'prefers-reduced-motion:reduce'), 'carousel layout is bounded and responsive with reduced-motion handling');
 $assert(str_contains($style, 'pointer-events:auto'), 'slideshow controls and viewport remain interactive inside source layers that disable pointer events');
 $assert(str_contains($style, 'visibility:hidden!important') && str_contains($style, 'visibility:visible!important'), 'slideshow state overrides captured responsive visibility on borrowed slides');
-$assert(str_contains($style, 'height:var(--blocks-engine-carousel-height,auto)') && str_contains($style, 'slide--active{position:relative') && str_contains($style, '__track>:first-child'), 'slideshows size to the first slide before interactivity marks an active slide');
+$assert(str_contains($style, 'height:var(--blocks-engine-carousel-height,auto)') && str_contains($style, 'slide--active{position:relative!important') && str_contains($style, 'height:auto!important') && str_contains($style, '__track>:first-child'), 'slideshow overlay geometry wins over captured ID positioning so the active slide can size the track');
 
 $shell = (new AuthoredCarouselBlockGenerator())->shell(array('ariaLabel' => 'Care & <support>', 'itemsPerView' => 99, 'wrap' => false));
 $shellMarkup = $shell['opening'] . $shell['closing'];
