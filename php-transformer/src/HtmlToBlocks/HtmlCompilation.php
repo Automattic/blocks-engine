@@ -2809,7 +2809,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->textLeafConverter->convert($element, $tagName, $fallbacks)->block;
         }
 
-        if ( $this->session->preservesShellLandmarks() && (in_array($tagName, array('header', 'footer'), true) || in_array(strtolower($this->attr($element, 'role')), array('banner', 'contentinfo'), true)) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
+        if ( $this->session->preservesShellLandmarks() && in_array(ShellLandmarkPolicy::landmarkKind($tagName, $this->attr($element, 'role')), array('header', 'footer'), true) && ('body' === strtolower($element->parentNode?->nodeName ?? '') || $this->hasAncestorTag($element, array('article'))) ) {
             $children = $this->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($element), $children, $element);
@@ -9271,7 +9271,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( ! $descendant instanceof DOMElement ) {
                 continue;
             }
-            if ( in_array(strtolower($this->attr($descendant, 'role')), array( 'banner', 'contentinfo' ), true) ) {
+            if ( in_array(ShellLandmarkPolicy::landmarkKind($descendant->tagName, $this->attr($descendant, 'role')), array( 'header', 'footer' ), true) ) {
                 return true;
             }
         }

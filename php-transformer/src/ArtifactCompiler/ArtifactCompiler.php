@@ -1404,8 +1404,7 @@ final class ArtifactCompiler
 
     private function isGlobalFooterShellElement(DOMElement $element): bool
     {
-        $tagName = strtolower($element->tagName);
-        if ( 'footer' !== $tagName && 'contentinfo' !== strtolower((string) $element->getAttribute('role')) ) {
+        if ( 'footer' !== ShellLandmarkPolicy::landmarkKind($element->tagName, (string) $element->getAttribute('role')) ) {
             return false;
         }
 
