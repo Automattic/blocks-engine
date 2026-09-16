@@ -45,6 +45,9 @@ final class FlowContainerElementConverter implements ElementConverter
         if ( null !== $runtimeAppShell ) {
             return ConversionOutcome::handled($runtimeAppShell);
         }
+        if ( SourceDom::documentVariantRoot($element) === $element ) {
+            return ConversionOutcome::handled($this->context->authorLayoutBlock($element, $fallbacks));
+        }
         if ( $this->context->isEmptyInteractiveFeatureShell($element) ) {
             return ConversionOutcome::handled(null);
         }
