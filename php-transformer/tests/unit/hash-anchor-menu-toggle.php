@@ -91,12 +91,18 @@ $assert(
     $weeblyAssets
 );
 $assert(
-    str_contains($weeblyAssets, 'wp-block-navigation-item.wp-block-navigation-link{display:flex')
+    str_contains($weeblyAssets, 'wp-block-navigation-item.wp-block-navigation-link{display:inline-block!important;vertical-align:middle!important')
         && str_contains($weeblyAssets, 'height:60px')
-        && str_contains($weeblyAssets, 'align-items:center')
         && str_contains($weeblyAssets, 'white-space:nowrap')
-        && str_contains($weeblyAssets, 'wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:0 10px!important'),
+        && str_contains($weeblyAssets, 'padding:0 10px!important'),
     'overlay items are vertically centered in the 60px bar with source-like horizontal padding',
+    $weeblyAssets
+);
+$assert(
+    str_contains($weeblyAssets, '.wp-block-navigation__container{display:block!important;white-space:nowrap!important')
+        && str_contains($weeblyAssets, '.wp-block-navigation-item::after{content:" "!important;white-space:pre!important')
+        && str_contains($weeblyAssets, '.wp-block-navigation-item:last-child::after{content:none!important}'),
+    'the bar is an inline formatting context that restores the source inter-item whitespace in the inherited list font',
     $weeblyAssets
 );
 $assert(
