@@ -4685,7 +4685,11 @@ final class ArtifactCompiler
             if ( isset($file['media']) && is_scalar($file['media']) && '' !== trim((string) $file['media']) ) {
                 $asset['media'] = (string) $file['media'];
             }
-            if ( 'css' === ($file['kind'] ?? null) ) $asset['compilation'] = $this->fileOwnership($file);
+            if ( 'css' === ($file['kind'] ?? null) ) {
+                if (is_array($file['metadata']['compilation'] ?? null) || '' !== ArtifactNormalizer::inlineExpansionSourcePath($file)) {
+                    $asset['compilation'] = $this->fileOwnership($file);
+                }
+            }
             foreach ( array('defer', 'async') as $field ) {
                 if ( isset($file[$field]) ) {
                     $asset[$field] = (bool) $file[$field];
