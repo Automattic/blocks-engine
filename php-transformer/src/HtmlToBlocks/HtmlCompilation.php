@@ -4661,7 +4661,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $block;
         }
         $grand = is_array($inner[0]['innerBlocks'] ?? null) ? $inner[0]['innerBlocks'] : array();
-        if ( count($grand) < 2 ) {
+        if ( count($grand) < 2 || $this->groupCarriesAuthorClass($inner[0]) ) {
             return $block;
         }
         $block['innerBlocks'] = $grand;
@@ -4675,14 +4675,43 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function truncateWrappersAfterAuthoredGrid(array $wrappers): array
     {
         $trimmed = array();
+        $seenGrid = false;
         foreach ( $wrappers as $wrapper ) {
-            $trimmed[] = $wrapper;
             $className = (string) (is_array($wrapper['attributes'] ?? null) ? ($wrapper['attributes']['class'] ?? '') : '');
-            if ( str_contains($className, 'blocks-engine-css-owned-grid') ) {
-                break;
+            if ( ! $seenGrid ) {
+                $trimmed[] = $wrapper;
+                $seenGrid = str_contains($className, 'blocks-engine-css-owned-grid');
+                continue;
             }
+            if ( $this->classListHasAuthorToken($className) ) {
+                $trimmed[] = $wrapper;
+                continue;
+            }
+            break;
         }
         return $trimmed;
+    }
+
+    /** @param array<string, mixed> $block */
+    private function groupCarriesAuthorClass(array $block): bool
+    {
+        return $this->classListHasAuthorToken((string) ($block['attrs']['className'] ?? ''));
+    }
+
+    private function classListHasAuthorToken(string $className): bool
+    {
+        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+            if ( '' === $class
+                || str_starts_with($class, 'blocks-engine-')
+                || str_starts_with($class, 'wp-block-')
+                || str_starts_with($class, 'is-layout-')
+                || str_starts_with($class, 'be-inline-')
+            ) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     /** @return array<string, mixed> */
