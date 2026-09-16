@@ -5187,6 +5187,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
+        if ( $this->tagNameLoadBearingForUnprojectedPseudoElementRule($element) ) {
+            return false;
+        }
+
         $hasStyling = false;
         foreach ( $element->attributes ?? array() as $attribute ) {
             $attributeName = strtolower($attribute->nodeName);
@@ -5219,7 +5223,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( 'font' === $tagName ) {
-            return true;
+            return ! $this->tagNameLoadBearingForUnprojectedPseudoElementRule($element);
         }
 
         if ( ! in_array($tagName, array( 'em', 'i', 'strong', 'b', 'mark', 'small', 'sub', 'sup' ), true) ) {
@@ -5238,6 +5242,44 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $hasStyling;
+    }
+
+    /**
+     * Whether author CSS addresses this element's own tag name through a
+     * pseudo-element rule (`:before`/`:after`) whose base selector the
+     * stylesheet projector cannot re-point at a materialized carrier.
+     *
+     * `AuthorStylesheetProjector` retargets a type selector to the marker
+     * that survives RichText lowering (`mark[style*="…"],span[data-…]`) only
+     * when the selector itself is one `CssSelectorMatcher` can parse and
+     * match. A trailing single-colon `:before`/`:after` is deliberately
+     * outside that supported subset (it addresses generated content, not a
+     * real node) and rides through unrewritten, still keyed to the literal
+     * source tag name. Lowering a span/font carrying that tag name to
+     * `<mark>` — the RichText-safe carrier used elsewhere to keep styling
+     * hooks alive across serialization — would silently strip the one thing
+     * this untouched selector still matches on.
+     */
+    private function tagNameLoadBearingForUnprojectedPseudoElementRule(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        foreach ( $this->sourceStyles()->pseudoElementRules() as $rule ) {
+            $selector = (string) ($rule['selector'] ?? '');
+            $parsed = $this->sourceStyles()->parsedSelector($selector);
+            $compounds = is_array($parsed) ? ($parsed['compounds'] ?? array()) : array();
+            $rightmost = array() === $compounds ? null : $compounds[array_key_last($compounds)];
+            if (
+                ! is_array($parsed) || ! ($parsed['supported'] ?? false) || ! is_array($rightmost)
+                || $tagName !== strtolower((string) ($rightmost['type'] ?? ''))
+            ) {
+                continue;
+            }
+            if ( $this->styleResolver->matchesCssSelector($element, $selector) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
