@@ -8502,7 +8502,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( $link instanceof DOMElement ) {
-            $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+            // A source link whose only job is to open the same image larger is
+            // a lightbox trigger, not a destination. Core owns that behavior
+            // natively, so project it onto the image instead of leaving a link
+            // that navigates away from the page. Core ignores its lightbox when
+            // the image also carries a link, so the link attributes are dropped.
+            if ( $this->imageLinkOpensNativeLightbox($link) ) {
+                $attrs['lightbox'] = array( 'enabled' => true );
+            } else {
+                $attrs = array_filter(array_merge($attrs, $this->imageLinkAttributes($link)), static fn ($value): bool => '' !== $value);
+            }
         }
 
         return $this->createBlock('core/image', $attrs, array(), $figure ?? $image);
@@ -9609,6 +9618,34 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
+    }
+
+    /**
+     * Whether an image's wrapping link is a lightbox trigger rather than a
+     * destination: it has to point at an image resource and be marked as a
+     * lightbox/gallery viewer by the source script that handled the click.
+     */
+    private function imageLinkOpensNativeLightbox(DOMElement $link): bool
+    {
+        $href = $this->safeLinkUrl($this->attr($link, 'href'));
+        if ( '' === $href ) {
+            return false;
+        }
+
+        $path = (string) parse_url($href, PHP_URL_PATH);
+        if ( 1 !== preg_match('/\.(?:jpe?g|png|gif|webp|avif|bmp)$/i', $path) ) {
+            return false;
+        }
+
+        foreach ( array( 'data-lightbox', 'data-fancybox', 'data-featherlight', 'data-glightbox' ) as $attribute ) {
+            if ( '' !== trim($this->attr($link, $attribute)) ) {
+                return true;
+            }
+        }
+
+        $identity = strtolower($this->attr($link, 'rel') . ' ' . $this->attr($link, 'class'));
+
+        return 1 === preg_match('/(?:^|[^a-z0-9])(?:lightbox|fancybox|colorbox|magnific|photoswipe|prettyphoto)(?:[^a-z0-9]|$)/', $identity);
     }
 
     /**
