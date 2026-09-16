@@ -54,6 +54,7 @@ final class AuthoredCarouselBlockGenerator
             'thumbnails' => array('type' => 'array', 'default' => array()),
             'thumbnailPosition' => array('type' => 'string', 'default' => 'right'),
             'stageAspectRatio' => array('type' => 'string', 'default' => ''),
+            'stageMaxWidth' => array('type' => 'number', 'default' => 0),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element ) {
@@ -72,7 +73,11 @@ final class AuthoredCarouselBlockGenerator
         var initial = Math.min( Math.max( 0, Math.round( Number( attributes.initialSlide ) || 0 ) ), Math.max( 0, normalizedCount( attributes.slideCount ) - 1 ) );
         var aspect = attributes.viewportHeight > 0 ? '' : normalizedAspect( attributes.stageAspectRatio );
         var style = attributes.viewportHeight > 0 ? { '--blocks-engine-carousel-height': Math.round( attributes.viewportHeight ) + 'px', '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' } : undefined;
-        if ( aspect ) { style = { '--blocks-engine-carousel-stage-aspect': aspect, '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' }; }
+        if ( aspect ) {
+            style = { '--blocks-engine-carousel-stage-aspect': aspect, '--blocks-engine-carousel-transition': Math.max( 0, Math.round( Number( attributes.transitionDuration ) || 0 ) ) + 'ms' };
+            var stageWidth = Math.max( 0, Math.round( Number( attributes.stageMaxWidth ) || 0 ) );
+            if ( stageWidth > 0 ) { style[ '--blocks-engine-carousel-stage-width' ] = stageWidth + 'px'; }
+        }
         return { className: 'blocks-engine-authored-carousel blocks-engine-authored-carousel--items-' + items + ' blocks-engine-authored-carousel--' + presentation + ( attributes.fullBleed ? ' blocks-engine-authored-carousel--full-bleed' : '' ) + thumbnailModifier + ( aspect ? ' blocks-engine-authored-carousel--stage-aspect' : '' ), style: style, role: 'region', 'aria-label': attributes.ariaLabel || 'Carousel', 'aria-roledescription': 'carousel', 'data-wrap': false === attributes.wrap ? 'false' : 'true', 'data-wp-interactive': 'blocks-engine/carousel', 'data-wp-context': JSON.stringify( { index: initial, wrap: false !== attributes.wrap, count: 0, visible: items, presentation: presentation, autoplayInterval: Math.max( 0, Math.round( Number( attributes.autoplayInterval ) || 0 ) ), paused: false } ), 'data-wp-init': 'callbacks.init', 'data-wp-on--mouseenter': 'actions.pause', 'data-wp-on--mouseleave': 'actions.resume', 'data-wp-on--focusin': 'actions.pause', 'data-wp-on--focusout': 'actions.resume' };
     }
     blocks.registerBlockType( '__BLOCK_NAME__', {
@@ -239,14 +244,15 @@ JS;
         $style .= '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__viewport,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__previous,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__next,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__dot{pointer-events:auto}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>*{visibility:hidden!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>:first-child,.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{visibility:visible!important}.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__track:has(>.blocks-engine-authored-carousel__slide--active)>:first-child:not(.blocks-engine-authored-carousel__slide--active){visibility:hidden!important}';
 
         // The source sized its stage with a runtime script the artifact cannot
-        // carry, but every slide declares a centered layer scaled to cover that
-        // box. The recovered ratio keeps the stage a fixed frame that crops each
-        // slide, and stays responsive instead of pinning the source pixel height.
-        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__viewport{height:auto}'
+        // carry, but every slide declares a centered layer scaled to fit that
+        // box. The recovered box keeps the stage one steady frame that every
+        // slide is fitted and centred inside, whatever its orientation, and
+        // stays responsive instead of pinning the source pixel height.
+        $style .= '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__viewport{height:auto;max-width:var(--blocks-engine-carousel-stage-width,none);margin-inline:auto}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track{height:auto;aspect-ratio:var(--blocks-engine-carousel-stage-aspect)}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>*{position:absolute!important;inset:0!important;height:auto!important}'
             . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image{display:flex}'
-            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:cover;object-position:center}';
+            . '.blocks-engine-authored-carousel--slideshow.blocks-engine-authored-carousel--stage-aspect .blocks-engine-authored-carousel__track>.wp-block-image img{width:100%;height:100%;aspect-ratio:auto;object-fit:contain;object-position:center}';
 
         // A thumbnail pager is the source's own slide selector, so the rail is a
         // scrollable column beside the stage rather than a second slide track.
@@ -316,7 +322,10 @@ JS;
         if ( 0 < $viewportHeight ) {
             $styleAttribute = ' style="--blocks-engine-carousel-height:' . $viewportHeight . 'px;--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
         } elseif ( '' !== $stageAspect ) {
-            $styleAttribute = ' style="--blocks-engine-carousel-stage-aspect:' . $stageAspect . ';--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
+            $stageMaxWidth = max(0, (int) ($attributes['stageMaxWidth'] ?? 0));
+            $styleAttribute = ' style="--blocks-engine-carousel-stage-aspect:' . $stageAspect
+                . (0 < $stageMaxWidth ? ';--blocks-engine-carousel-stage-width:' . $stageMaxWidth . 'px' : '')
+                . ';--blocks-engine-carousel-transition:' . $transitionDuration . 'ms"';
         }
 
         $context = htmlspecialchars(
@@ -531,6 +540,10 @@ JS;
             ? 'bottom'
             : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $styleResolver);
 
+        $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
+            ? $this->stageBoxForItems($items, $styleResolver)
+            : array('ratio' => '', 'width' => 0);
+
         $registry->register(self::class, $this->definition($registry->namespace()));
         $attributes = array(
             'ariaLabel' => trim(SourceDom::attr($element, 'aria-label')) ?: 'Carousel',
@@ -546,7 +559,8 @@ JS;
             'fullBleed' => 'slideshow' === $presentation && $fullBleed,
             'thumbnails' => $thumbnails,
             'thumbnailPosition' => $thumbnailPosition,
-            'stageAspectRatio' => 'slideshow' === $presentation && 0 === $viewportHeight ? $this->stageAspectRatioForItems($items, $styleResolver) : '',
+            'stageAspectRatio' => $stageBox['ratio'],
+            'stageMaxWidth' => $stageBox['width'],
         );
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
@@ -565,20 +579,22 @@ JS;
     }
 
     /**
-     * The stage box a slideshow clipped its slides into, recovered from the
+     * The stage box a slideshow fitted its slides into, recovered from the
      * slides themselves.
      *
-     * A builder that crops with overflow rather than `object-fit` scales each
-     * slide's layer to cover a shared box and centres it by pulling the layer
-     * back half its own size. Every slide therefore reports a layer at least as
-     * large as the box on both axes, and exactly equal to it on the axis that
-     * constrained the cover fit, so the smallest width and the smallest height
+     * A builder that frames with overflow rather than `object-fit` scales each
+     * slide's layer to fit inside a shared box and centres it by pulling the
+     * layer back half its own size. Every slide therefore reports a layer no
+     * larger than the box on either axis, and exactly equal to it on the axis
+     * that constrained the fit, so the largest width and the largest height
      * across those layers reconstruct the box.
      *
      * @param array<int, DOMElement> $items
+     * @return array{ratio: string, width: int}
      */
-    private function stageAspectRatioForItems(array $items, StyleResolver $styleResolver): string
+    private function stageBoxForItems(array $items, StyleResolver $styleResolver): array
     {
+        $empty = array('ratio' => '', 'width' => 0);
         $width = null;
         $height = null;
         foreach ( $items as $item ) {
@@ -586,16 +602,18 @@ JS;
             if ( null === $layer ) {
                 continue;
             }
-            $width = null === $width ? $layer['width'] : min($width, $layer['width']);
-            $height = null === $height ? $layer['height'] : min($height, $layer['height']);
+            $width = null === $width ? $layer['width'] : max($width, $layer['width']);
+            $height = null === $height ? $layer['height'] : max($height, $layer['height']);
         }
         if ( null === $width || null === $height || 0.0 >= $width || 0.0 >= $height ) {
-            return '';
+            return $empty;
         }
 
-        return $this->normalizedAspectRatio(
+        $ratio = $this->normalizedAspectRatio(
             rtrim(rtrim(number_format($width, 2, '.', ''), '0'), '.') . '/' . rtrim(rtrim(number_format($height, 2, '.', ''), '0'), '.')
         );
+
+        return '' === $ratio ? $empty : array('ratio' => $ratio, 'width' => (int) round($width));
     }
 
     /** @return array{width: float, height: float}|null */
@@ -617,7 +635,7 @@ JS;
             }
             // The layer is pulled back half its own width, which is what centres
             // it on the box; the same offset on the block axis reports the
-            // rendered layer height the box clipped.
+            // rendered layer height the box framed.
             if ( 1.0 < abs(abs($left) - $width / 2) ) {
                 continue;
             }
