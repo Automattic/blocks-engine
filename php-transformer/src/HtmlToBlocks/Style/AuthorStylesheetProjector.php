@@ -449,9 +449,18 @@ final class AuthorStylesheetProjector
 
         foreach ( $selectors as $selector ) {
             $selector = strtolower(trim($selector));
-            if ( ! in_array($selector, array( '*', '::before', '::after', ':before', ':after' ), true) ) {
-                return false;
+            if ( in_array($selector, array( '*', '::before', '::after', ':before', ':after', '::backdrop' ), true) ) {
+                continue;
             }
+
+            // Tailwind v4 preflight is authored as `*:not(:where(…))` once the
+            // engine has excluded its own generated markers, so the universal
+            // selector arrives carrying a negation list rather than bare `*`.
+            if ( 1 === preg_match('/^\*:not\(/', $selector) ) {
+                continue;
+            }
+
+            return false;
         }
 
         return true;
