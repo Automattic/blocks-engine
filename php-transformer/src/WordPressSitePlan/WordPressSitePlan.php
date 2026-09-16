@@ -1214,7 +1214,7 @@ final class WordPressSitePlan
             $lines[] = "        if ( 'wp_template_part' === \$post->post_type && in_array( basename( (string) \$post->post_name ), \$style['template_part_slugs'], true ) ) { \$matches = true; break; }";
             $lines[] = "        if ( 'global' === \$scope['kind'] ) { \$matches = true; break; }";
             $lines[] = "        if ( 'post' === \$scope['kind'] && 'post' === \$post->post_type && \$scope['reconciliation_identity'] === get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ) ) { \$matches = true; break; }";
-            $lines[] = "        if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type && ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; }";
+            $lines[] = "        if ( 'page' === \$scope['kind'] && 'page' === \$post->post_type ) { \$identity = get_post_meta( \$post->ID, '_blocks_engine_reconciliation_identity', true ); if ( '' !== \$identity ? \$scope['reconciliation_identity'] === \$identity : ( ( \$scope['front_page'] && (int) get_option( 'page_on_front' ) === (int) \$post->ID ) || \$scope['route_path'] === trim( get_page_uri( \$post ), '/' ) ) ) { \$matches = true; break; } }";
             $lines[] = "    }";
             $lines[] = "    return \$matches;";
             $lines[] = "};";
