@@ -379,7 +379,59 @@ $scopedResponsive = ( new ArtifactCompiler() )->compile(array(
     ),
 ) )->toArray();
 $scopedResponsiveCss = implode("\n", array_column($scopedResponsive['assets'] ?? array(), 'content'));
-$assert(str_contains($scopedResponsiveCss, ':where(.mobile-document) :where(#copy)') && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry projection through canonical block markup');
+$assert(preg_match('/:where\(\.mobile-document\)\s+:where\(\.blocks-engine-attribute-[a-f0-9-]+\)>:where\(#copy\)/', $scopedResponsiveCss) && ! str_contains($scopedResponsiveCss, '[data-mesh-id="content"] > #copy'), 'zero-specificity responsive scopes retain attribute-ancestry combinators through canonical block markup');
+
+$dataMeshGrid = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="assets/services.css"><main><div data-mesh-id="services-gridContainer"><div id="service-one">One</div><div id="service-two">Two</div><div id="service-three">Three</div><div id="service-four">Four</div><div id="service-five">Five</div><div id="service-six">Six</div></div></main>' ),
+        array( 'path' => 'website/assets/services.css', 'kind' => 'css', 'content' => '[data-mesh-id="services-gridContainer"]{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}[data-mesh-id="services-gridContainer"]>[id]{grid-column:span 1}@media(max-width:600px){[data-mesh-id="services-gridContainer"]{grid-template-columns:1fr}}' ),
+    ),
+) )->toArray();
+$dataMeshGridMarkup = (string) ($dataMeshGrid['serialized_blocks'] ?? '');
+$dataMeshGridCss = implode("\n", array_column($dataMeshGrid['assets'] ?? array(), 'content'));
+preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshGridMarkup, $dataMeshGridMarker);
+$dataMeshGridMarker = $dataMeshGridMarker[1] ?? '';
+$assert(
+    '' !== $dataMeshGridMarker
+        && str_contains($dataMeshGridCss, ':where(.' . $dataMeshGridMarker . ')>:where(#service-one)')
+        && str_contains($dataMeshGridCss, '@media(max-width:600px){:where(.' . $dataMeshGridMarker . ')')
+        && ! str_contains($dataMeshGridCss, '[data-mesh-id="services-gridContainer"]'),
+    'artifact stylesheet projection retains a data-addressed grid root and its direct-child combinator through the responsive cascade'
+);
+
+// Real failure shape from the Jen Derrick homepage services grid (captured
+// statically): a class-less, id-less grid container identified only by an
+// (unquoted) data attribute, paired child selectors that also retain a
+// non-existent `interact-element` wrapper variant, positioned children with
+// explicit grid-areas, and a template that collapses to one column in a
+// narrow-media override. Compiled through the artifact path, the projected
+// stylesheet must keep the desktop grid computing at 1440 and the single
+// column at 390.
+$dataMeshPositionedGrid = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array( 'path' => 'website/index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="assets/mesh.css"><main><div data-mesh-id="services-meshinlineContent-gridContainer" data-testid="mesh-container-content"><div id="svc-copy" style="margin:65px 0 19px">Web copywriting</div><div id="svc-social">Social media copywriting</div><div id="svc-proof">Proofing &amp; editing</div><div id="svc-email">Email marketing copywriting</div><div id="svc-seo">SEO copywriting services</div><div id="svc-strategy">Content strategy</div></div></main>' ),
+        array( 'path' => 'website/assets/mesh.css', 'kind' => 'css', 'content' => '[data-mesh-id=services-meshinlineContent-gridContainer]{position:static;display:grid;height:auto;width:100%;min-height:auto;grid-template-rows:repeat(10, min-content) 1fr;grid-template-columns:100%}[data-mesh-id=services-meshinlineContent-gridContainer] > [id="svc-copy"], [data-mesh-id=services-meshinlineContent-gridContainer] > interact-element > [id="svc-copy"]{position:relative;left:72px;grid-area:1 / 1 / 2 / 2;justify-self:start;align-self:start}[data-mesh-id=services-meshinlineContent-gridContainer] > [id="svc-strategy"], [data-mesh-id=services-meshinlineContent-gridContainer] > interact-element > [id="svc-strategy"]{position:relative;left:36px;grid-area:10 / 1 / 11 / 2;justify-self:start;align-self:start}@media(max-width:980px){[data-mesh-id=services-meshinlineContent-gridContainer]{grid-template-columns:1fr}[data-mesh-id=services-meshinlineContent-gridContainer] > [id="svc-copy"], [data-mesh-id=services-meshinlineContent-gridContainer] > interact-element > [id="svc-copy"]{left:20px;grid-area:1 / 1 / 2 / 2}}' ),
+    ),
+) )->toArray();
+$dataMeshPositionedGridMarkup = (string) ($dataMeshPositionedGrid['serialized_blocks'] ?? '');
+$dataMeshPositionedGridCss = implode("\n", array_column($dataMeshPositionedGrid['assets'] ?? array(), 'content'));
+$dataMeshPositionedGridMarker = '';
+if ( preg_match('/\b(blocks-engine-attribute-[a-f0-9-]+)\b/', $dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarkerMatch) ) {
+    $dataMeshPositionedGridMarker = $dataMeshPositionedGridMarkerMatch[1];
+}
+$assert(
+    '' !== $dataMeshPositionedGridMarker
+        && str_contains($dataMeshPositionedGridMarkup, $dataMeshPositionedGridMarker)
+        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-copy\)/', $dataMeshPositionedGridCss)
+        && (bool) preg_match('/:where\(\.' . $dataMeshPositionedGridMarker . '\)>:where\(#svc-strategy\)/', $dataMeshPositionedGridCss)
+        && str_contains($dataMeshPositionedGridCss, 'grid-area:1 / 1 / 2 / 2')
+        && str_contains($dataMeshPositionedGridCss, 'grid-area:10 / 1 / 11 / 2')
+        && str_contains($dataMeshPositionedGridCss, 'grid-template-columns:100%')
+        && (bool) preg_match('/@media\(max-width:980px\)\{[^@]*:where\(\.' . $dataMeshPositionedGridMarker . '\)/', $dataMeshPositionedGridCss),
+    'artifact stylesheet projection keeps a data-identified, positioned-child grid computing through the paired interact-element selector family'
+);
 
 $externalLayouts = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',

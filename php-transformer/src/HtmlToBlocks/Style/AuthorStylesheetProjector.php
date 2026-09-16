@@ -1036,6 +1036,14 @@ final class AuthorStylesheetProjector
         }
         foreach ( $matches as $element ) {
             $id = trim($element->getAttribute('id'));
+            $parent = $element->parentNode;
+            $parentMarker = $parent instanceof DOMElement && preg_match('/>\s*$/', trim($ancestry))
+                ? $context->selectorProjections->attributeMarker($parent->getNodePath() ?? '')
+                : '';
+            if ( '' !== $parentMarker && preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
+                $projected[] = $scope . ':where(.' . $parentMarker . ')>:where(#' . $id . ')' . $this->selectorSpecificityShims($parsed, $context);
+                continue;
+            }
             if ( preg_match('/^[a-z_][a-z0-9_-]*$/i', $id) ) {
                 $target = '#' . $id;
             } else {

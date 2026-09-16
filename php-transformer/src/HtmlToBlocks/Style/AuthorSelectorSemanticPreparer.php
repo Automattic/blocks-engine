@@ -240,6 +240,14 @@ final class AuthorSelectorSemanticPreparer
             $ancestry = is_array($rightmostSpan) ? substr($authorSelector['selector'], 0, (int) $rightmostSpan['start']) : '';
             if ( preg_match('/\[\s*data-[a-z0-9_-]+(?:\s*[~|^$*]?=|\s*\])/i', $ancestry) ) {
                 foreach ( $this->matchingSourceElements($authorStyles, $authorSelector['selector'], $parsed) as $element ) {
+                    $parent = $element->parentNode;
+                    if ( preg_match('/>\s*$/', trim($ancestry)) && $parent instanceof DOMElement ) {
+                        $parentPath = $parent->getNodePath() ?? '';
+                        if ( '' !== $parentPath ) {
+                            $marker = $projections->ensureAttributeMarker($parentPath);
+                            $parent->setAttribute('class', SourceDom::mergeClassNames($parent->getAttribute('class'), $marker));
+                        }
+                    }
                     if ( self::hasSafeAnchor($element->getAttribute('id')) ) {
                         continue;
                     }
