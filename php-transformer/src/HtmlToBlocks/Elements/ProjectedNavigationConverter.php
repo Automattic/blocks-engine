@@ -187,10 +187,10 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
         $topOffset = $this->nativeNavigationToggleHeaderOffset($navigation);
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
-        return $open . '{box-sizing:border-box!important;position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
+        return $open . '{box-sizing:border-box!important;position:fixed!important;inset:auto!important;top:' . $topOffset . '!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;justify-content:flex-start!important;align-items:center!important;overflow:visible!important;z-index:6!important;padding:0 20px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(' . $topOffset . ' + var(--wp-admin--admin-bar--height,32px))!important}'
-            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0!important}'
-            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;width:auto!important;margin:0!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;width:100%!important;height:60px!important;margin:0!important;padding:0!important}'
+            . $open . ' .wp-block-navigation__container{display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:0!important;width:auto!important;height:60px!important;margin:0!important;padding:0!important;list-style:none!important}'
             . $this->nativeNavigationToggleItemCss($open, $navigation)
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
@@ -227,7 +227,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             'text-transform' => 'uppercase',
             'letter-spacing' => '0.04em',
             'color' => '#444',
-            'padding' => '15px 10px',
+            'padding' => '0 10px',
             'line-height' => 'normal',
         );
         if ( $anchor instanceof DOMElement ) {
@@ -267,8 +267,9 @@ final class ProjectedNavigationConverter implements ElementConverter
             }
         }
 
-        return $open . ' .wp-block-navigation-item{padding:' . $padding . '!important}'
-            . $open . ' .wp-block-navigation-item__content{' . implode(';', $withoutColor) . '}'
+        return $open . ' .wp-block-navigation-item,'
+            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:0!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
+            . $open . ' .wp-block-navigation-item__content{display:inline!important;padding:' . $padding . '!important;' . implode(';', $withoutColor) . '}'
             . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
 
