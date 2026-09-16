@@ -121,10 +121,10 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         $always = 'always' === $this->navigationToggleSuppressor->projectedOverlayMenu($toggle);
+        $display = strtolower(CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['display'] ?? ''))));
         $extra = '';
         $openDeclarations = $declarations;
         if ( $always ) {
-            $display = strtolower(CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['display'] ?? ''))));
             if ( 'table-cell' === $display && ! $hasUsableHeight ) {
                 $openDeclarations[] = 'min-height:60px!important';
             }
@@ -149,8 +149,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         $marker = 'blocks-engine-native-navigation-toggle-' . substr(hash('sha256', implode(';', $openDeclarations) . $extra), 0, 12);
-        $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
-        $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:fit-content!important;min-width:0!important;min-height:0!important;padding:0!important;position:relative!important}';
+        $host = '.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation.' . $marker;
+        $hostRule = $host . '{' . implode(';', $this->nativeNavigationToggleHostDeclarations($always, $display, $sourceDeclarations)) . '}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
         $extraRules = '';
         if ( str_contains($extra, 'SVG_HIDE') ) {
@@ -195,6 +195,37 @@ final class ProjectedNavigationConverter implements ElementConverter
             . $open . ' .wp-block-navigation__responsive-container-close svg{display:none!important}'
             . 'html.has-modal-open:has(' . $open . '){overflow:visible!important}'
             . 'body:has(' . $open . '){overflow:visible!important}';
+    }
+
+    /**
+     * @param array<string, string> $sourceDeclarations
+     * @return array<int, string>
+     */
+    private function nativeNavigationToggleHostDeclarations(bool $always, string $display, array $sourceDeclarations): array
+    {
+        $host = array(
+            'box-sizing:border-box!important',
+            'padding:0!important',
+            'position:relative!important',
+            'overflow:visible!important',
+        );
+        if ( $always && 'table-cell' === $display ) {
+            $host[] = 'display:table-cell!important';
+            $host[] = 'vertical-align:middle!important';
+            $width = CssValueInspector::withoutImportant(trim((string) ($sourceDeclarations['width'] ?? '')));
+            if ( $this->nativeNavigationToggleDimensionIsUsable($width) ) {
+                $host[] = 'width:' . $width . '!important';
+            }
+
+            return $host;
+        }
+
+        $host[] = 'width:fit-content!important';
+        $host[] = 'height:fit-content!important';
+        $host[] = 'min-width:0!important';
+        $host[] = 'min-height:0!important';
+
+        return $host;
     }
 
     private function nativeNavigationToggleOpenControlCss(string $host): string
@@ -267,7 +298,7 @@ final class ProjectedNavigationConverter implements ElementConverter
 
         return $open . ' .wp-block-navigation-item,'
             . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:0!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
-            . $open . ' .wp-block-navigation-item__content{display:inline!important;padding:' . $padding . '!important;' . implode(';', $withoutColor) . '}'
+            . $open . ' .wp-block-navigation-item__content{display:inline!important;white-space:nowrap!important;padding:' . $padding . '!important;' . implode(';', $withoutColor) . '}'
             . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
 
