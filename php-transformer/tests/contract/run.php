@@ -1545,6 +1545,17 @@ $assert('form' === ($newsletterFallbackDiagnostic['suggested_primitive'] ?? ''),
 $assert('form_provider' === ($newsletterFallbackDiagnostic['materialization_target']['provider_role'] ?? ''), 'static newsletter form declares the form provider materialization role');
 $assert(0 === substr_count((string) ($newsletterFallback['serialized_blocks'] ?? ''), '<!-- wp:html'), 'readable newsletter form output avoids core/html while keeping fallback metadata explicit');
 
+$visibleFormCopy = ( new HtmlTransformer() )->transform(
+    '<main><form class="react-form-contents"><label for="fname">First Name<span class="description required">(required)</span></label><input id="fname" name="fname" type="text" required aria-required="true"><label for="lname">Last Name<span class="description required">(required)</span></label><input id="lname" name="lname" type="text" required aria-required="true"><div aria-hidden="true"><input autocomplete="new-password" tabindex="-1" name="message-yui_hidden" type="text"></div><button type="submit"><span class="form-submit-button-label">Submit</span><span class="form-submit-button-state" aria-label="Submit"><span aria-hidden="true">Submit</span></span></button></form></main>'
+)->toArray();
+$visibleFormControls = $visibleFormCopy['fallbacks'][0]['controls'] ?? array();
+$visibleFormNames = array_values(array_filter(array_map(static fn (array $control): string => (string) ($control['name'] ?? ''), $visibleFormControls)));
+$visibleFormLabels = array_values(array_filter(array_map(static fn (array $control): string => (string) ($control['label'] ?? ''), $visibleFormControls)));
+$visibleFormSubmit = array_values(array_filter($visibleFormControls, static fn (array $control): bool => 'submit' === ($control['type'] ?? '')));
+$assert(! in_array('message-yui_hidden', $visibleFormNames, true), 'aria-hidden honeypot inputs are omitted from authored form controls');
+$assert(array( 'First Name', 'Last Name' ) === $visibleFormLabels, 'required markers stay off authored field labels');
+$assert('Submit' === ($visibleFormSubmit[0]['text'] ?? ''), 'submit buttons keep the visible label instead of concatenating hidden state text');
+
 $nestedPseudoForm = ( new HtmlTransformer() )->transform(
     '<article><nav aria-label="Blog"><a href="/posts">Posts</a></nav><div class="content-wrapper"><h1>Article title</h1><p>Article copy stays editable.</p><div class="contact-panel" action="/contact"><label for="contact-email">Email</label><input id="contact-email" name="email" type="email"><button>Send message</button><p role="status">Thanks, we will reply shortly.</p></div><p>Related reading.</p></div></article>'
 )->toArray();

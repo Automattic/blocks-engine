@@ -207,13 +207,6 @@ final class FormControlTopologyBuilder
     /** @return array<int, DOMElement> */
     private function controls(DOMElement $form): array
     {
-        $controls = array();
-        foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( $control instanceof DOMElement && FormControlClassifier::isControlElement($control) ) {
-                $controls[] = $control;
-            }
-        }
-
-        return $controls;
+        return FormControlClassifier::controlElements($form);
     }
 }

@@ -144,6 +144,12 @@ final class FormControlMetadataBuilder
                 // Required validation and a visible required marker are separate source facts.
                 $metadata['required_indicator'] = false;
             }
+            if ( isset($metadata['label']) && is_string($metadata['label']) && 1 === preg_match('/^(.*?)(?:\s*\(\s*required\s*\))\s*$/iu', $metadata['label'], $requiredLabel) ) {
+                $metadata['label'] = trim($requiredLabel[1]);
+                if ( '' === ($metadata['required_text'] ?? '') ) {
+                    $metadata['required_text'] = '(required)';
+                }
+            }
         }
         foreach ( array( 'disabled', 'readonly', 'checked', 'multiple' ) as $attribute ) {
             if ( $control->hasAttribute($attribute) ) {
@@ -393,7 +399,11 @@ final class FormControlMetadataBuilder
             }
         }
 
-        $text = trim(preg_replace('/\s+/', ' ', $control->textContent ?? '') ?? '');
+        $text = '';
+        foreach ( $control->childNodes as $child ) {
+            $text .= $this->labelTextWithoutControls($child);
+        }
+        $text = $this->collapseRepeatedLabel(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
         return '' !== $text ? $text : trim(SourceDom::attr($control, 'value'));
     }
 
@@ -401,6 +411,9 @@ final class FormControlMetadataBuilder
     {
         if ( preg_match('/^\s*(.+?)[.!?]\s+\1\s*$/iu', $label, $match) ) {
             return trim($match[1]);
+        }
+        if ( preg_match('/^(.{2,})\1$/u', $label, $match) ) {
+            return $match[1];
         }
         return $label;
     }

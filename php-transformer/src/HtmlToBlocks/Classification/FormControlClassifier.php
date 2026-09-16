@@ -68,12 +68,27 @@ final class FormControlClassifier
     {
         $controls = array();
         foreach ( $form->getElementsByTagName('*') as $control ) {
-            if ( $control instanceof DOMElement && self::isControlElement($control) ) {
+            if ( $control instanceof DOMElement && self::isControlElement($control) && ! self::isNonAuthoredControl($control) ) {
                 $controls[] = $control;
             }
         }
 
         return $controls;
+    }
+
+    /** Hidden honeypots and aria-hidden traps are not authored fields. */
+    public static function isNonAuthoredControl(DOMElement $control): bool
+    {
+        if ( 'new-password' === strtolower(trim($control->getAttribute('autocomplete'))) ) {
+            return true;
+        }
+        for ( $parent = $control->parentNode; $parent instanceof DOMElement; $parent = $parent->parentNode ) {
+            if ( 'true' === strtolower($parent->getAttribute('aria-hidden')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function hasDataEntryControls(DOMElement $form): bool
