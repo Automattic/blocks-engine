@@ -2743,8 +2743,12 @@ final class StyleResolver implements ElementPresentationResolver
                     }
                     if (preg_match('/::?(before|after)\b/i', $selector, $pseudoMatch)) {
                         $baseSelector = trim((string) preg_replace('/::?(?:before|after)\b/i', '', $selector));
-                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector) && $this->isSupportedCssSelector($baseSelector)) {
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $declarations, 'conditions' => $conditions);
+                        if ('' !== $baseSelector && ! $this->selectorCarriesPseudoState($baseSelector)) {
+                            $pseudoDeclarations = $declarations;
+                            if (isset($rawDeclarations['content'])) {
+                                $pseudoDeclarations['content'] = $rawDeclarations['content'];
+                            }
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $conditions);
                         }
                     }
                 }
