@@ -394,6 +394,7 @@ final class StyleResolver implements ElementPresentationResolver
         $applyingUnlayeredConditional  = '';
         $layeredWinner                 = '';
         $matchedLayeredDeclaration     = false;
+        $layeredBreakpoints            = array();
         foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
             if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
@@ -406,6 +407,9 @@ final class StyleResolver implements ElementPresentationResolver
             $applies    = array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions);
             if ( null !== ($rule['layer'] ?? null) ) {
                 $matchedLayeredDeclaration = true;
+                if ( array() !== $conditions ) {
+                    $layeredBreakpoints[implode('&', $conditions)] = $declared;
+                }
                 if ( $applies ) {
                     $layeredWinner = $declared;
                 }
@@ -422,6 +426,16 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         if ( $unlayeredDeclares || ! $matchedLayeredDeclaration ) {
+            return '';
+        }
+
+        // A responsive authored `font-size` is a set of viewport-specific values,
+        // not one value. Baking freezes the reference viewport's winner into an
+        // unconditional inline style that then wins at every width, so a phone
+        // renders the desktop size. The author's own breakpoints stay in the
+        // projected stylesheet and keep resolving per viewport, so responsive
+        // typography is left to them.
+        if ( array() !== $layeredBreakpoints ) {
             return '';
         }
 
