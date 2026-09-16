@@ -573,6 +573,15 @@ final class NavigationToggleSuppressor
                 return false;
             }
 
+            if ( 'svg' === strtolower($child->tagName) ) {
+                $svgBars = $child->getElementsByTagName('line')->length + $child->getElementsByTagName('rect')->length;
+                if ( $svgBars < 2 ) {
+                    return false;
+                }
+                $emptyBars += $svgBars;
+                continue;
+            }
+
             if ( 'span' !== strtolower($child->tagName)
                 || '' !== trim($child->textContent ?? '')
                 || 0 !== $child->getElementsByTagName('img')->length

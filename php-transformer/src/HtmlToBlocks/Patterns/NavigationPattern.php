@@ -1962,6 +1962,11 @@ final class NavigationPattern implements PatternRecognizerInterface
             return true;
         }
 
+        $popup = strtolower(trim($this->attr($element, 'aria-haspopup')));
+        if ( in_array($popup, array( 'true', 'menu' ), true) ) {
+            return true;
+        }
+
         foreach ( preg_split('/[^a-z0-9]+/', strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'aria-label'))) ?: array() as $token ) {
             if ( in_array($token, array( 'hamburger', 'menu', 'toggle' ), true) ) {
                 return true;
@@ -1991,6 +1996,11 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         $tokens = strtolower($this->attr($element, 'class') . ' ' . $this->attr($element, 'id'));
+
+        if ( (bool) preg_match('/overlay|fullscreen|drawer|offcanvas/', $tokens)
+            && 0 === $element->getElementsByTagName('a')->length ) {
+            return true;
+        }
 
         // A separator or a divider is decoration by authored intent, whatever it
         // happens to link to, so the destination escape below must not rescue
