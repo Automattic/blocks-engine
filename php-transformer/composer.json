@@ -155,6 +155,7 @@
       "php tests/unit/overlay-hidden-navigation.php",
       "php tests/unit/navigation-nested-authored-anchor.php",
       "php tests/unit/button-signal-classifier.php",
+      "php tests/unit/pill-button-anchor.php",
       "php tests/unit/button-style-resolver.php",
       "php tests/unit/button-font-family-carry.php",
       "php tests/unit/button-visual-probe-diagnostics.php",
