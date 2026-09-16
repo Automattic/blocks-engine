@@ -196,7 +196,9 @@ final class ProjectedNavigationConverter implements ElementConverter
             // context and restore the separator as generated content, which
             // lets the browser measure it in the same inherited font instead
             // of pinning a guessed pixel gap.
-            . $open . ' .wp-block-navigation__container{display:block!important;white-space:nowrap!important;width:auto!important;height:60px!important;margin:0!important;padding:0!important;list-style:none!important}'
+            // The bar's own line box has to span the bar, or vertical-align
+            // centers each item against a short strut parked at the top.
+            . $open . ' .wp-block-navigation__container{display:block!important;white-space:nowrap!important;width:auto!important;height:60px!important;line-height:60px!important;margin:0!important;padding:0!important;list-style:none!important}'
             . $this->nativeNavigationToggleItemCss($open, $navigation)
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:flex!important;position:fixed!important;top:calc(0px - ' . $topOffset . ')!important;left:0!important;width:100px!important;height:60px!important;opacity:0!important;z-index:9!important;padding:0!important;margin:0!important;border:0!important;background:transparent!important;cursor:pointer!important}'
@@ -305,7 +307,7 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $open . ' .wp-block-navigation-item,'
-            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:inline-block!important;vertical-align:middle!important;height:auto!important;padding:' . $padding . '!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
+            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:inline-block!important;vertical-align:middle!important;height:auto!important;line-height:normal!important;padding:' . $padding . '!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
             . $open . ' .wp-block-navigation-item::after{content:" "!important;white-space:pre!important;display:inline!important}'
             . $open . ' .wp-block-navigation-item:last-child::after{content:none!important}'
             . $open . ' .wp-block-navigation-item__content{display:inline!important;white-space:nowrap!important;padding:0!important;' . implode(';', $withoutColor) . '}'
