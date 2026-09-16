@@ -235,7 +235,10 @@ final class ShellExtraction
             }
             $first = $cluster['candidate'];
             foreach ($applicable as $index => $page) if (!in_array($index, $cluster['indexes'], true)) $excluded[$index] = isset($candidates[$index]) ? 'non_equivalent' : 'missing';
-            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page', 'single') : array('index');
+            // 'search' is never an applicable page in its own right (WordPress
+            // synthesizes it), so it rides along wherever 'index' is bound: both
+            // are the site's generic, non-singular fallback templates.
+            $templateSlugs = count($cluster['indexes']) === count($applicable) ? array('index', 'page', 'front-page', 'single', 'search') : array('index', 'search');
             if (count($cluster['indexes']) !== count($applicable)) foreach ($applicable as $index => $page) {
                 $selected = in_array($index, $cluster['indexes'], true);
                 if (!empty($page['entrypoint'])) { if ($selected) $templateSlugs[] = 'front-page'; continue; }
