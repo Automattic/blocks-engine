@@ -2289,6 +2289,16 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function nestedLayoutTableColumnsBlock(DOMElement $table, array &$fallbacks): array
     {
+        $directRows = 0;
+        foreach ( $table->getElementsByTagName('tr') as $candidate ) {
+            if ( $candidate instanceof DOMElement && $this->belongsToTable($candidate, $table) ) {
+                ++$directRows;
+                if ( 1 < $directRows ) {
+                    return $this->mediaLayoutTableColumnsBlock($table, $fallbacks);
+                }
+            }
+        }
+
         $rows = $table->getElementsByTagName('tr');
         $row = $rows->item(0);
         if ( ! $row instanceof DOMElement ) {
