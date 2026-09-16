@@ -564,6 +564,56 @@ $assert(
     $cssFor($seen, 'engine-support')
 );
 
+// ---------------------------------------------------------------------------
+// BACKGROUND-IMAGE SHORTHAND CONFLICT. `background-image: none` maps to no
+// block support and is only visible to the conflict rescue as a leftover
+// declaration. The matching author rule almost always paints its image
+// through the `background` SHORTHAND rather than the `background-image`
+// longhand, so a literal key match between the two never occurs. Without
+// treating the shorthand as also declaring `background-image`, the rescue
+// wrongly concludes no author rule conflicts and drops the override, and the
+// suppressed image reappears from the materialized author stylesheet.
+// ---------------------------------------------------------------------------
+$suppressedHero = $transform(
+    '<style>.hero{position:relative;background:url(/default-bg.jpg) no-repeat;'
+    . 'background-position:top center;background-size:cover}</style>'
+    . '<section><div class="hero" style="background-color:#fff;background-image:none;">'
+    . '<h1>Photos</h1><p>Gallery copy.</p></div></section>'
+);
+$suppressedHeroCss = $cssFor($suppressedHero, 'engine-support');
+
+$assert(
+    '' !== $nonImportantWith($tierRules($suppressedHeroCss), 'background-image:none'),
+    'shorthand conflict: an inline background-image:none overriding a .hero{background:url(...)} shorthand rule is carried',
+    $suppressedHeroCss
+);
+$assert(
+    str_contains($cssFor($suppressedHero, 'author-css'), 'url(/default-bg.jpg)'),
+    'shorthand conflict: the author rule stays materialized verbatim; the carrier overrides it rather than deleting it',
+    $cssFor($suppressedHero, 'author-css')
+);
+
+// The rescue must still recognise SAME effective value and stay a no-op: a
+// shorthand with no image function paints the same "no image" state as an
+// explicit `background-image: none`, so there is nothing to override.
+$noConflict = $transform(
+    '<style>.panel{background:red;padding:1rem}</style>'
+    . '<section><div class="panel" style="background-color:#fff;background-image:none;max-width:30rem;">'
+    . '<p>Panel copy.</p></div></section>'
+);
+$noConflictCss = $cssFor($noConflict, 'engine-support');
+
+$assert(
+    '' !== $anyWith($tierRules($noConflictCss), 'max-width:30rem'),
+    'shorthand no-conflict: the element does get a carrier, so the background-image assertion below is non-vacuous',
+    $noConflictCss
+);
+$assert(
+    '' === $anyWith($tierRules($noConflictCss), 'background-image'),
+    'shorthand no-conflict: a `background:red` shorthand with no image function already means "no image", so an inline background-image:none is a no-op and is not carried',
+    $noConflictCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline author-override carrier contract: {$failures} failed, {$passes} passed\n");
     exit(1);
