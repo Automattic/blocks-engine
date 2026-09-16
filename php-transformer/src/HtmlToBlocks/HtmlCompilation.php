@@ -3024,10 +3024,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->styleResolver->specificityResolvedPresentationStyle($panel)
         );
         $declarations = $this->styleResolver->cssDeclarations($resolved);
-        $background = CssValueInspector::withoutImportant(trim((string) ($declarations['background-color'] ?? '')));
-        if ( '' === $background || 'transparent' === strtolower($background) || str_contains($background, 'url(') ) {
-            $background = '#fff';
-        }
+        $background = '#fff';
         $maxHeight = CssValueInspector::withoutImportant(trim((string) ($declarations['max-height'] ?? '')));
         if ( '' === $maxHeight || 'none' === strtolower($maxHeight) || '0' === $maxHeight || '0px' === $maxHeight ) {
             $maxHeight = '200px';
@@ -3035,9 +3032,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $open = $host . ' .wp-block-navigation__responsive-container.is-menu-open';
         return $open . '{position:fixed!important;inset:auto!important;top:60px!important;left:0!important;right:0!important;width:100%!important;height:auto!important;min-height:60px!important;max-height:' . $maxHeight . '!important;background:' . $background . '!important;display:flex!important;overflow:hidden!important;z-index:6!important;padding:0 15px!important;box-shadow:0 5px 10px 0 rgba(0,0,0,0.2)!important}'
             . 'body.admin-bar ' . $open . '{top:calc(60px + var(--wp-admin--admin-bar--height,32px))!important}'
-            . $open . ' .wp-block-navigation__responsive-container-content{align-items:center!important;justify-content:flex-start!important;width:100%!important;padding:0!important}'
-            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;gap:1.5rem!important;width:auto!important}'
-            . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important}'
+            . $open . ' .wp-block-navigation__responsive-container-content{align-items:center!important;justify-content:flex-start!important;width:100%!important;margin:0!important;padding:0 15px!important}'
+            . $open . ' .wp-block-navigation__container{flex-direction:row!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-start!important;gap:1.5rem!important;width:auto!important;margin:0!important}'
+            . $open . ' .wp-block-navigation-item__content{padding:.5rem 0!important;color:#2b2b2b!important}'
             . $open . ' .wp-block-navigation-item span::after{content:none!important}'
             . $open . ' .wp-block-navigation__responsive-container-close{display:none!important}';
     }
