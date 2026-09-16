@@ -118,9 +118,35 @@ $stickyAssets = implode("\n", array_map(
     is_array($sticky['assets'] ?? null) ? $sticky['assets'] : array()
 ));
 $assert(
-    str_contains($stickyAssets, '#topBar{position:fixed') && ( str_contains($stickyAssets, 'background-color:#2B2B2B') || str_contains($stickyAssets, 'background-color:#2b2b2b') ),
-    'an absolutely pinned header bar is projected as a fixed opaque bar',
+    str_contains($stickyAssets, '#topBar{position:fixed') && str_contains($stickyAssets, 'background-color:transparent'),
+    'an absolutely pinned header bar stays transparent at rest so page chrome can show through',
     $stickyAssets
+);
+$assert(
+    str_contains($stickyAssets, 'animation-timeline:scroll()') && ( str_contains($stickyAssets, 'background-color:#2B2B2B') || str_contains($stickyAssets, 'background-color:#2b2b2b') ),
+    'scroll fills the pinned bar with the source header color instead of applying that color at rest',
+    $stickyAssets
+);
+
+$hero = $transform(
+    '<style>' . $weeblyCss
+    . '.header-wrap{background-color:transparent;height:240px}'
+    . '.topbar{position:absolute;top:0;left:0;right:0;height:61px;background-color:transparent}'
+    . 'body.affix .topbar{background-color:#2B2B2B;position:fixed}'
+    . '</style>'
+    . '<header class="header-wrap"><div id="topBar" class="topbar"><a class="hamburger" href="#" aria-label="Menu"><span></span></a>'
+    . '<div class="nav-wrap" style="display:none"><nav><ul>'
+    . '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>'
+    . '</ul></nav></div></div></header>'
+);
+$heroAssets = implode("\n", array_map(
+    static fn (array $asset): string => (string) ($asset['content'] ?? ''),
+    is_array($hero['assets'] ?? null) ? $hero['assets'] : array()
+));
+$assert(
+    str_contains($heroAssets, 'background-color:transparent') && str_contains($heroAssets, 'animation-timeline:scroll()'),
+    'a transparent hero header is not forced to a solid rest color',
+    $heroAssets
 );
 
 $links = '<li><a href="/">Home</a></li><li><a href="/about">About</a></li>';

@@ -283,12 +283,15 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( '' === $selector ) {
             return '';
         }
-        $background = $this->opaqueBackgroundColor($bar);
-        $rule = $selector . '{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:8!important';
-        if ( '' !== $background ) {
-            $rule .= ';background-color:' . $background . '!important';
+        $rule = $selector . '{position:fixed!important;top:0!important;left:0!important;right:0!important;z-index:8!important;background-color:transparent!important}';
+        $fill = $this->scrolledHeaderFillColor($bar);
+        if ( '' === $fill ) {
+            return $rule;
         }
-        return $rule . '}';
+        $name = 'blocks-engine-header-fill-' . substr(hash('sha256', $selector . $fill), 0, 12);
+        return $rule
+            . '@keyframes ' . $name . '{to{background-color:' . $fill . '}}'
+            . '@supports (animation-timeline:scroll()){' . $selector . '{animation-name:' . $name . '!important;animation-duration:1s!important;animation-timing-function:linear!important;animation-fill-mode:both!important;animation-timeline:scroll()!important;animation-range:0px 80px!important}}';
     }
 
     private function nativeNavigationToggleHeaderOffset(DOMElement $navigation): string
@@ -341,16 +344,49 @@ final class ProjectedNavigationConverter implements ElementConverter
         return null;
     }
 
-    private function opaqueBackgroundColor(DOMElement $element): string
+    private function scrolledHeaderFillColor(DOMElement $bar): string
     {
-        $node = $element;
-        while ( $node instanceof DOMElement ) {
+        $tokens = array();
+        $id = trim(SourceDom::attr($bar, 'id'));
+        if ( '' !== $id ) {
+            $tokens[] = '#' . strtolower($id);
+        }
+        foreach ( preg_split('/\s+/', trim(SourceDom::attr($bar, 'class'))) ?: array() as $className ) {
+            if ( '' !== $className ) {
+                $tokens[] = '.' . strtolower($className);
+            }
+        }
+        $css = $this->session->authorStyleAnalysis()->combinedCss();
+        if ( '' !== $css && array() !== $tokens && 1 === preg_match_all('/([^{}]*\b(?:affix|is-scrolling(?:-down)?|scrolled|stuck|fixed-header)\b[^{]*)\{([^}]*)\}/i', $css, $matches, PREG_SET_ORDER) ) {
+            foreach ( $matches as $match ) {
+                $selector = strtolower($match[1]);
+                $mentionsBar = false;
+                foreach ( $tokens as $token ) {
+                    if ( str_contains($selector, $token) ) {
+                        $mentionsBar = true;
+                        break;
+                    }
+                }
+                if ( ! $mentionsBar || 1 !== preg_match('/background(?:-color)?\s*:\s*([^;]+)/i', $match[2], $background) ) {
+                    continue;
+                }
+                $value = CssValueInspector::withoutImportant(trim($background[1]));
+                $comparable = strtolower($value);
+                if ( '' !== $value && ! in_array($comparable, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) && ! preg_match('/[{}<>]/', $value) ) {
+                    return $value;
+                }
+            }
+        }
+
+        $node = $bar->parentNode;
+        while ( $node instanceof DOMElement && ! in_array(strtolower($node->tagName), array( 'body', 'html' ), true) ) {
             $resolved = $this->styleResolver->resolveCssVariablesInValue(
                 $this->styleResolver->specificityResolvedPresentationStyle($node)
             );
-            $value = strtolower(CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? ''))));
-            if ( '' !== $value && ! in_array($value, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) ) {
-                return CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? '')));
+            $value = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($resolved)['background-color'] ?? '')));
+            $comparable = strtolower($value);
+            if ( '' !== $value && ! in_array($comparable, array( 'transparent', 'none', 'inherit', 'initial', 'unset', 'rgba(0, 0, 0, 0)', 'rgba(0,0,0,0)' ), true) ) {
+                return $value;
             }
             $node = $node->parentNode;
         }
