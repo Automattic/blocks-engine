@@ -155,6 +155,7 @@
       "php tests/unit/navigation-direct-cluster-parity.php",
       "php tests/unit/navigation-non-anchor-brand-carrier.php",
       "php tests/unit/navigation-block-normalizer.php",
+      "php tests/unit/navigation-container-frame-reset.php",
       "php tests/unit/menu-chrome-presentation-carry.php",
       "php tests/unit/navigation-inline-margin-carry.php",
        "php tests/unit/navigation-resolved-projection-spacing.php",
