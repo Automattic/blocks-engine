@@ -114,4 +114,78 @@ $assert(2 === count($responsiveTestimonialBlocks) && 2 === count($responsiveTest
 $assert(403 === ($responsiveTestimonialBlocks[0]['attrs']['viewportHeight'] ?? null) && 309 === ($responsiveTestimonialBlocks[1]['attrs']['viewportHeight'] ?? null), 'slideshow viewport geometry falls back to each authored root when its slide list uses percentage height');
 $assert(2 === substr_count($responsiveTestimonialMarkup, 'Second testimonial.') && 2 === substr_count($responsiveTestimonialMarkup, 'data-wp-interactive=') && 4 === substr_count($responsiveTestimonialMarkup, 'data-carousel-index='), 'responsive text slides remain editable and each variant receives functional carousel controls and pagination');
 
+$thumbnailRailSource = '<div id="gallery-showcase" class="photo-slideshow"><div class="stage"><div class="slides">'
+    . '<div class="slide"><img src="one-large.jpg" alt="One"></div>'
+    . '<div class="slide" style="display:none"><img src="two-large.jpg" alt="Two"></div>'
+    . '<div class="slide" style="display:none"><img src="three-large.jpg" alt="Three"></div>'
+    . '</div></div><div class="picker" style="width:75px;height:100%"><div class="picker-inner">'
+    . '<a><img src="one-thumb.jpg" alt=""></a><a><img src="two-thumb.jpg" alt=""></a><a><img src="three-thumb.jpg" alt=""></a>'
+    . '</div></div></div>';
+$thumbnailRailResult = (new HtmlTransformer())->transform($thumbnailRailSource)->toArray();
+$thumbnailRail = $thumbnailRailResult['blocks'][0] ?? array();
+$thumbnailRailMarkup = (string) ($thumbnailRailResult['serialized_blocks'] ?? '');
+$assert(
+    'custom/authored-carousel' === ($thumbnailRail['blockName'] ?? null)
+        && 3 === count($thumbnailRail['innerBlocks'] ?? array())
+        && 'slideshow' === ($thumbnailRail['attrs']['presentation'] ?? null)
+        && 1 === ($thumbnailRail['attrs']['itemsPerView'] ?? null),
+    'an image-only selector beside a stage is pagination, so the stage lowers to a one-at-a-time carousel'
+);
+$assert(
+    array(
+        array('url' => 'one-thumb.jpg', 'alt' => ''),
+        array('url' => 'two-thumb.jpg', 'alt' => ''),
+        array('url' => 'three-thumb.jpg', 'alt' => ''),
+    ) === ($thumbnailRail['attrs']['thumbnails'] ?? null)
+        && 'right' === ($thumbnailRail['attrs']['thumbnailPosition'] ?? null)
+        && false === ($thumbnailRail['attrs']['showDots'] ?? null),
+    'the source thumbnails become the carousel pager and replace generic dots'
+);
+$assert(
+    str_contains($thumbnailRailMarkup, 'blocks-engine-authored-carousel--thumbnails-right')
+        && 3 === substr_count($thumbnailRailMarkup, 'blocks-engine-authored-carousel__thumbnail"')
+        && str_contains($thumbnailRailMarkup, 'src="two-thumb.jpg"')
+        && str_contains($thumbnailRailMarkup, 'data-carousel-index="2" data-wp-on--click="actions.goTo"')
+        && str_contains($thumbnailRailMarkup, 'loading="lazy"'),
+    'the rendered rail keeps the source thumbnails as indexed, lazily loaded slide controls'
+);
+$assert(
+    array() === ($thumbnailRailResult['fallbacks'] ?? array())
+        && 'pass' === ($thumbnailRailResult['source_reports']['wp_block_validity']['status'] ?? null),
+    'the stage and its thumbnail rail convert without fallbacks and stay editor-valid'
+);
+
+$railDefinition = $thumbnailRailResult['source_reports']['generated_blocks'][0] ?? array();
+$railStyle = (string) ($railDefinition['assets']['style.css'] ?? '');
+$railView = (string) ($railDefinition['view_js'] ?? '');
+$assert(
+    str_contains($railStyle, '--thumbnails-right{display:grid;position:relative;grid-template-columns:minmax(0,1fr) var(--blocks-engine-carousel-thumbnail-size)')
+        && str_contains($railStyle, 'overflow-y:auto')
+        && str_contains($railStyle, '@media(max-width:600px)'),
+    'the side rail is a bounded scrollable column that collapses to a strip on small screens'
+);
+$assert(
+    str_contains($railView, "[ 'dot', 'thumbnail' ]") && str_contains($railView, 'scrollIntoView'),
+    'the active slide is reflected on both pager shapes and keeps the selected thumbnail in view'
+);
+
+$shortPagerSource = '<div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><img src="a.jpg"></div><div class="slide" style="display:none"><img src="b.jpg"></div><div class="slide" style="display:none"><img src="c.jpg"></div>'
+    . '</div><div class="picker" style="width:75px"><a><img src="a-t.jpg"></a><a><img src="b-t.jpg"></a></div></div>';
+$shortPagerResult = (new HtmlTransformer())->transform($shortPagerSource)->toArray();
+$shortPager = $shortPagerResult['blocks'][0] ?? array();
+$assert(
+    'custom/authored-carousel' === ($shortPager['blockName'] ?? null) && array() === ($shortPager['attrs']['thumbnails'] ?? null),
+    'a selector that does not cover every captured slide is not published as a thumbnail pager'
+);
+
+$wideePagerSource = '<div class="hero-slideshow"><div class="slides"><div class="slide"><img src="a.jpg"></div><div class="slide" style="display:none"><img src="b.jpg"></div></div>'
+    . '<div class="picker" style="width:900px"><a><img src="a-t.jpg"></a><a><img src="b-t.jpg"></a></div></div>';
+$widePagerResult = (new HtmlTransformer())->transform($wideePagerSource)->toArray();
+$widePager = $widePagerResult['blocks'][0] ?? array();
+$assert(
+    'bottom' === ($widePager['attrs']['thumbnailPosition'] ?? null) && 2 === count($widePager['attrs']['thumbnails'] ?? array()),
+    'a full-width thumbnail strip stays underneath the stage instead of becoming a side rail'
+);
+
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
