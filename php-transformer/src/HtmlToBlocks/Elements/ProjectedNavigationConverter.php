@@ -276,7 +276,7 @@ final class ProjectedNavigationConverter implements ElementConverter
                     $this->styleResolver->specificityResolvedPresentationStyle($parent)
                 );
                 $padding = CssValueInspector::withoutImportant(trim((string) ($this->styleResolver->cssDeclarations($parentResolved)['padding'] ?? '')));
-                if ( '' !== $padding && ! preg_match('/[{}<>]/', $padding) ) {
+                if ( $this->nativeNavigationTogglePaddingIsUsable($padding) ) {
                     $item['padding'] = $padding;
                 }
             }
@@ -297,8 +297,8 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $open . ' .wp-block-navigation-item,'
-            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:0!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
-            . $open . ' .wp-block-navigation-item__content{display:inline!important;white-space:nowrap!important;padding:' . $padding . '!important;' . implode(';', $withoutColor) . '}'
+            . $open . ' .wp-block-navigation-item.wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:' . $padding . '!important;margin:0!important;list-style:none!important;box-sizing:border-box!important}'
+            . $open . ' .wp-block-navigation-item__content{display:inline!important;white-space:nowrap!important;padding:0!important;' . implode(';', $withoutColor) . '}'
             . $open . ' .wp-block-navigation-item:not(.blocks-engine-current-navigation-item):not(.current-menu-item) .wp-block-navigation-item__content{color:' . $color . '!important}';
     }
 
@@ -412,6 +412,15 @@ final class ProjectedNavigationConverter implements ElementConverter
         }
 
         return $trimmed;
+    }
+
+    private function nativeNavigationTogglePaddingIsUsable(string $value): bool
+    {
+        if ( '' === $value || preg_match('/[{}<>]/', $value) ) {
+            return false;
+        }
+
+        return 1 !== preg_match('/^0(?:px|em|rem)?(?:\s+0(?:px|em|rem)?){0,3}$/', strtolower(trim($value)));
     }
 
     private function nativeNavigationToggleDimensionIsUsable(string $value): bool

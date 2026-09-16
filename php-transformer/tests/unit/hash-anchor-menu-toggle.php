@@ -94,8 +94,9 @@ $assert(
     str_contains($weeblyAssets, 'wp-block-navigation-item.wp-block-navigation-link{display:flex')
         && str_contains($weeblyAssets, 'height:60px')
         && str_contains($weeblyAssets, 'align-items:center')
-        && str_contains($weeblyAssets, 'white-space:nowrap'),
-    'overlay items are vertically centered in the 60px bar',
+        && str_contains($weeblyAssets, 'white-space:nowrap')
+        && str_contains($weeblyAssets, 'wp-block-navigation-link{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:center!important;height:60px!important;padding:0 10px!important'),
+    'overlay items are vertically centered in the 60px bar with source-like horizontal padding',
     $weeblyAssets
 );
 $assert(
