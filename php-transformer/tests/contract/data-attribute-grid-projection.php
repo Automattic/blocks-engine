@@ -70,6 +70,33 @@ $assert((bool) preg_match('/:where\(\.' . $marker . '\)>:where\(#svc-strategy\)/
 $assert(str_contains($authorProjectionCss, 'grid-area:1 / 1 / 2 / 2') && str_contains($authorProjectionCss, 'grid-area:10 / 1 / 11 / 2'), 'positioned children keep their explicit grid-area placement');
 $assert((bool) preg_match('/@media\(max-width:980px\)\{[^{}]*:where\(\.' . $marker . '\)[^{}]*\{grid-template-columns:1fr\}/', $authorProjectionCss), 'the narrow-viewport single-column override projects through the responsive cascade');
 
+// The grid placement contract is structural, not just selector-level: the
+// carrier is a CSS grid, so the child-combinator placements only honor grid
+// areas when the positioned children remain direct grid items. An intervening
+// core/group between the container wrapper and any authored child silently
+// breaks the sibling shared grid — the rendered items would fall into the
+// implicit auto-grid while only one stray item matches a descendant rule.
+$renderedDocument = new DOMDocument();
+$renderedDocument->loadHTML('<body>' . preg_replace('/<!--.*?-->/s', '', $serializedBlocks) . '</body>');
+$renderedContainer = null;
+foreach ( $renderedDocument->getElementsByTagName('div') as $element ) {
+    if ( in_array($marker, preg_split('/\s+/', $element->getAttribute('class')), true) ) {
+        $renderedContainer = $element;
+        break;
+    }
+}
+$assert(null !== $renderedContainer, 'the marker-selected grid container resolves in the serialized block markup');
+
+$directChildIds = array();
+foreach ( $renderedContainer->childNodes as $childNode ) {
+    if ( $childNode instanceof DOMElement && '' !== trim($childNode->getAttribute('id')) ) {
+        $directChildIds[] = $childNode->getAttribute('id');
+    }
+}
+$expectedChildIds = array('svc-copy', 'svc-social', 'svc-proof', 'svc-email', 'svc-seo', 'svc-strategy');
+$assert(count($renderedContainer->childNodes) === 6, 'the grid container keeps one serialized block per authored grid item without an intervening wrapper group', (string) count($renderedContainer->childNodes));
+$assert($expectedChildIds === $directChildIds, 'every authored positioned child stays a direct grid item of the marker carrier in serialized structure', implode(',', $directChildIds));
+
 // Resolve computed declared grid styling over the authored cascade at the
 // fixed 1440px desktop reference — the value-layer shape a browser render
 // must reproduce (the marker classes replace data attributes in the DOM).
