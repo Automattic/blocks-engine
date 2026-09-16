@@ -15,6 +15,7 @@ final class ButtonPatternContext
      * @param Closure(DOMElement, string): string $attribute
      * @param Closure(DOMElement): bool $isGridItem
      * @param Closure(DOMElement, string): PatternRecognitionResult $accessibleNameCompanion
+     * @param Closure(DOMElement): string $controlSurfaceStyle
      */
     public function __construct(
         private readonly Closure $fileBlockFromAnchor,
@@ -22,12 +23,14 @@ final class ButtonPatternContext
         private readonly RichTextMaterialization $richTextMaterializer,
         private readonly Closure $attribute,
         private readonly Closure $isGridItem,
-        private readonly Closure $accessibleNameCompanion
+        private readonly Closure $accessibleNameCompanion,
+        private readonly Closure $controlSurfaceStyle
     ) {
     }
 
     public function fileBlockFromAnchor(DOMElement $anchor): ?array { return ($this->fileBlockFromAnchor)($anchor); }
     public function resolvedStyle(DOMElement $element): string { return ($this->resolvedStyle)($element); }
+    public function controlSurfaceStyle(DOMElement $element): string { return ($this->controlSurfaceStyle)($element); }
     public function richText(DOMElement $element): string { return $this->richTextMaterializer->content($element); }
     public function materializeSvgImages(DOMElement $element, string $content): ?string { return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content); }
     public function attribute(DOMElement $element, string $name): string { return ($this->attribute)($element, $name); }

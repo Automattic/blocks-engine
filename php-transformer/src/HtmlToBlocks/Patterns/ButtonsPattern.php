@@ -559,6 +559,17 @@ final class ButtonsPattern
             return true;
         }
 
+        // Class-owned resting styling frequently lives behind media conditions
+        // (a capture serialises its desktop stylesheet behind a width query), so
+        // the static-cascade view above can miss an explicit control surface
+        // entirely. Before declining, re-classify a phrasing-content anchor —
+        // text plus an optional decorative inline svg — against the full authored
+        // cascade. This only decides recognition; the class-owned declarations
+        // still ride the author stylesheet, not the projected block attributes.
+        if ( $this->hasPhrasingContentOnly($anchor) && $this->signalClassifier->hasStyleSignal($anchor, $buttons->controlSurfaceStyle($anchor)) ) {
+            return true;
+        }
+
         $surface = $this->buttonSurfaceElement($anchor);
         if ( null !== $surface && 'button' === strtolower($surface->tagName) && $this->staticAnchorButtonSurface($anchor) === $surface ) {
             return true;
@@ -583,6 +594,25 @@ final class ButtonsPattern
     private function hasNestedLabelAndSvg(DOMElement $anchor): bool
     {
         return $anchor->getElementsByTagName('span')->length > 0 && $anchor->getElementsByTagName('svg')->length > 0;
+    }
+
+    /**
+     * Text plus an optional decorative inline svg, and no other elements: the
+     * phrasing content a pill control carries as its label. Any structural child
+     * (a card body, a list) keeps the anchor out of this recognition path.
+     */
+    private function hasPhrasingContentOnly(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || 'svg' !== strtolower($child->tagName) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isPositionedFragmentNavigation(DOMElement $anchor, string $resolvedStyle): bool

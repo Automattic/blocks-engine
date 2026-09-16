@@ -2618,7 +2618,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->richTextMaterializer,
                 fn (DOMElement $sourceElement, string $name): string => $this->attr($sourceElement, $name),
                 fn (DOMElement $sourceElement): bool => $sourceElement->parentNode instanceof DOMElement && in_array($this->authoredDisplay($sourceElement->parentNode), array('grid', 'inline-grid'), true),
-                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content)
+                fn (DOMElement $anchor, string $content): PatternRecognitionResult => $this->accessibleLinkCompanion($anchor, $content),
+                fn (DOMElement $sourceElement): string => $this->styleResolver->resolveCssVariablesInValue($this->styleResolver->controlSurfaceResolvedStyle($sourceElement), $sourceElement)
             ),
             new QuotePatternContext(
                 $this->sourceElementClassifier,
