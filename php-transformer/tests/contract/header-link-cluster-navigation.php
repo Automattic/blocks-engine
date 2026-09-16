@@ -35,6 +35,32 @@ $assert(
     'A header landmark whose items are heading links becomes core/navigation.'
 );
 
+$repeaterItem = static function (string $id, string $href, string $label): string {
+    return '<div class="TmK0x"><div role="listitem" class="_FiCX"><!--$-->'
+        . '<div id="' . $id . '" class="wixui-repeater__item">'
+        . '<div class="QG9w8P"><div class="LNYVZi ayCf9D"></div></div>'
+        . '<h1><a href="' . $href . '">' . $label . '</a></h1>'
+        . '</div><!--/$--></div></div>';
+};
+$repeaterHeader = '<header id="SITE_HEADER"><h1><a href="/">Rachel Braun</a></h1>'
+    . '<div id="comp-lrkw86p8" class="wixui-repeater"><div role="list" class="Exmq9">'
+    . $repeaterItem('item1', '/', 'Work')
+    . $repeaterItem('item2', '/about', 'About')
+    . $repeaterItem('item3', '/resume', 'Resume')
+    . $repeaterItem('item4', '/contact', 'Contact')
+    . '</div></div></header>';
+$repeaterMarkup = (new HtmlTransformer())->transform(
+    '<!doctype html><html><body>' . $repeaterHeader . '<main><h2>Home</h2></main></body></html>',
+    array('source' => 'index.html')
+)->serializedBlocks;
+$assert(
+    str_contains($repeaterMarkup, '<!-- wp:navigation')
+        && str_contains($repeaterMarkup, '"label":"Work"')
+        && str_contains($repeaterMarkup, '"label":"About"')
+        && str_contains($repeaterMarkup, '"label":"Contact"'),
+    'A Wix repeater of heading links with empty visual layers still becomes core/navigation.'
+);
+
 $pages = (new ArtifactCompiler())->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(

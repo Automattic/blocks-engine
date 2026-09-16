@@ -1858,6 +1858,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+
             if ( ! $child instanceof DOMElement ) {
                 return null;
             }
@@ -1871,6 +1875,9 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $anchor = $this->primaryNavigationAnchor($child);
                 if ( $anchor instanceof DOMElement ) {
                     $anchors[] = $anchor;
+                    continue;
+                }
+                if ( 0 === $child->getElementsByTagName('a')->length ) {
                     continue;
                 }
             }
