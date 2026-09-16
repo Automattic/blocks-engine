@@ -59,6 +59,11 @@ final class RichTextElementContext
         return $this->presentationResolver->presentationAttributes($element, $excludedProperties, $excludedGeometryProperties);
     }
 
+    public function bakedTypographyFontSize(DOMElement $element): string
+    {
+        return $this->presentationResolver->bakedTypographyFontSize($element);
+    }
+
     /**
      * @param array<string, mixed>             $attributes
      * @param array<int, array<string, mixed>> $innerBlocks

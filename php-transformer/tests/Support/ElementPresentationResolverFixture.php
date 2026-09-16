@@ -12,7 +12,8 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
     public function __construct(
         private readonly Closure $presentationAttributes,
         private readonly ?Closure $presentationDeclarations = null,
-        private readonly ?Closure $structuralPresentationDeclarations = null
+        private readonly ?Closure $structuralPresentationDeclarations = null,
+        private readonly ?Closure $bakedTypographyFontSize = null
     ) {}
 
     public function presentationAttributes(DOMElement $element, array $excludedGeometryProperties = array(), array $forcedGeometryProperties = array()): array
@@ -23,4 +24,7 @@ final class ElementPresentationResolverFixture implements ElementPresentationRes
 
     public function structuralPresentationDeclarations(DOMElement $element): array
     { return null === $this->structuralPresentationDeclarations ? array() : ($this->structuralPresentationDeclarations)($element); }
+
+    public function bakedTypographyFontSize(DOMElement $element): string
+    { return null === $this->bakedTypographyFontSize ? '' : ($this->bakedTypographyFontSize)($element); }
 }

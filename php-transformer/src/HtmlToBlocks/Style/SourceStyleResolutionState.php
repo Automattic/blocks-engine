@@ -49,6 +49,9 @@ final class SourceStyleResolutionState
     /** @var array<string, string> */
     private array $customProperties = array();
 
+    /** @var list<string> */
+    private array $layerNames = array();
+
     /** @var array<string, array<string, mixed>|null> */
     private array $parsedSelectors = array();
 
@@ -84,6 +87,7 @@ final class SourceStyleResolutionState
         $this->pseudoElementRules = $analysis['pseudo'];
         $this->cascadedValueRules = $analysis['cascaded_values'] ?? array();
         $this->customProperties = $analysis['custom_properties'];
+        $this->layerNames = array_values(array_map('strval', $analysis['layer_names'] ?? array()));
     }
 
     /**
@@ -184,6 +188,12 @@ final class SourceStyleResolutionState
     public function customProperties(): array
     {
         return $this->customProperties;
+    }
+
+    /** Whether any source rule is scoped to a cascade `@layer`. */
+    public function hasLayeredRules(): bool
+    {
+        return array() !== $this->layerNames;
     }
 
     /** @return array<string, mixed>|null */

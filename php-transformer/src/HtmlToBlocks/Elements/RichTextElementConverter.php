@@ -65,7 +65,7 @@ final class RichTextElementConverter implements ElementConverter
         return $this->context->createBlock(
             'core/heading',
             array_merge(
-                $this->context->presentationAttributes($element),
+                $this->presentationAttributesWithBakedFontSize($element),
                 array(
                     'content' => $content,
                     'level'   => $level,
@@ -74,6 +74,31 @@ final class RichTextElementConverter implements ElementConverter
             array(),
             $element
         );
+    }
+
+    /**
+     * Presentation attributes with the authored cascade-winning `font-size`
+     * baked into `style.typography.fontSize` when presentation resolution
+     * could not serialize one.
+     *
+     * `classOwnedResponsiveDeclarations()` hands a responsive `font-size` to
+     * author-stylesheet ownership so media queries keep winning the cascade.
+     * Text blocks cannot rely on that ownership: the heading rules a projected
+     * theme ships unlayered (`h1{font-size:inherit}`) outrank every `@layer`,
+     * so the only authored value that renders is the inline one a typography
+     * support serializes.
+     *
+     * @return array<string, mixed>
+     */
+    private function presentationAttributesWithBakedFontSize(DOMElement $element): array
+    {
+        $attrs    = $this->context->presentationAttributes($element);
+        $fontSize = $this->context->bakedTypographyFontSize($element);
+        if ( '' !== $fontSize && ! isset($attrs['style']['typography']['fontSize']) ) {
+            $attrs['style']['typography']['fontSize'] = $fontSize;
+        }
+
+        return $attrs;
     }
 
     /**
@@ -137,7 +162,7 @@ final class RichTextElementConverter implements ElementConverter
 
         return $this->context->createBlock(
             'core/paragraph',
-            array_merge($this->context->presentationAttributes($element), array( 'content' => $content )),
+            array_merge($this->presentationAttributesWithBakedFontSize($element), array( 'content' => $content )),
             array(),
             $element
         );
