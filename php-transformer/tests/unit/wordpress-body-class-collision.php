@@ -29,12 +29,18 @@ $frame = $compat('.page {max-width:44rem;margin:0 auto;padding:5rem 2rem 6rem}')
 $assert(str_contains($frame, 'body.page {'), 'a centered page frame neutralizes the WordPress body template class');
 $assert(
     str_contains($frame, 'max-width:none!important')
-        && str_contains($frame, 'padding-inline:0!important')
-        && str_contains($frame, 'margin-inline:0!important')
+        && str_contains($frame, 'padding:0!important')
+        && str_contains($frame, 'margin:0!important')
         && str_contains($frame, 'width:auto!important'),
     'the body reset covers the frame properties that double the source gutters'
 );
 $assert(! str_contains($frame, 'color'), 'the body reset carries no paint, only frame geometry');
+
+// The block axis matters as much as the inline axis: a page frame's leading and
+// trailing space would otherwise be added again outside the content.
+$blockAxis = $compat('.page {max-width:44rem;margin:0 auto;padding:5rem 2rem 6rem}');
+$assert(str_contains($blockAxis, 'padding:0!important') && ! str_contains($blockAxis, 'padding-inline'), 'the reset clears both axes of the duplicated frame padding');
+$assert($neutralizes('.page{padding-block:5rem 6rem}', 'page'), 'a block-axis-only frame is covered');
 
 $assert($neutralizes('@media (min-width:60rem){.page{padding:0 3rem}}', 'page'), 'a responsive frame rule still reaches the body reset');
 $assert($neutralizes('.home{max-width:70rem;padding-inline:2rem}', 'home'), 'other reserved template classes are covered');

@@ -47,7 +47,9 @@ final class WordPressCompatCss
      * WordPress stamps template classes such as `page`, `home`, and `search`
      * onto `<body>`. A source class rule of the same name then applies to the
      * document body as well as its own element, so a centered page frame pays
-     * its max-width and gutters twice and every line box narrows.
+     * its max-width and gutters twice: the inline axis narrows every line box,
+     * and the block axis adds the frame's leading and trailing space again
+     * outside the content.
      *
      * Neutralize only the frame properties, only on `body`, and only for the
      * reserved names WordPress owns.
@@ -69,7 +71,7 @@ final class WordPressCompatCss
 
         return "\n\n/* wp-compat: WordPress body template classes must not inherit source frame rules. */\n"
             . implode(",\n", $selectors)
-            . ' { max-width:none!important;width:auto!important;padding-inline:0!important;margin-inline:0!important }';
+            . ' { max-width:none!important;width:auto!important;padding:0!important;margin:0!important }';
     }
 
     /** @return array<int, string> */
@@ -83,7 +85,7 @@ final class WordPressCompatCss
                 }
                 continue;
             }
-            if ( ! preg_match('/(?:^|;)\s*(?:max-width|width|padding|padding-inline|padding-left|padding-right|margin|margin-inline)\s*:/i', $rule['body']) ) {
+            if ( ! preg_match('/(?:^|;)\s*(?:max-width|width|padding|padding-inline|padding-block|padding-left|padding-right|padding-top|padding-bottom|margin|margin-inline|margin-block)\s*:/i', $rule['body']) ) {
                 continue;
             }
             foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
