@@ -73,7 +73,97 @@ final class FormControlMetadataBuilder
             $metadata['trailing_status'] = $output;
         }
 
+        $context = $this->inFormContext($form);
+        foreach ( array( 'context_before', 'context_after' ) as $position ) {
+            if ( array() !== $context[$position] ) {
+                $metadata[$position] = $context[$position];
+            }
+        }
+        if ( $context['interleaved_context'] ) {
+            $metadata['interleaved_context'] = true;
+        }
+
         return $metadata;
+    }
+
+    /**
+     * Copy a source puts inside its own form — an introduction above the
+     * fields, a "required field" note — is content the reader sees, but it is
+     * not a control, so nothing in the control manifest carries it. Record it
+     * against the controls it sits around so a materialized form can keep it.
+     *
+     * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool}
+     */
+    private function inFormContext(DOMElement $form): array
+    {
+        $before = array();
+        $after = array();
+        $interleaved = false;
+        $seenControls = 0;
+        $totalControls = 0;
+        foreach ( $form->getElementsByTagName('*') as $node ) {
+            if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
+                ++$totalControls;
+            }
+        }
+
+        foreach ( $form->getElementsByTagName('*') as $node ) {
+            if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( FormControlClassifier::isControlElement($node) ) {
+                ++$seenControls;
+                continue;
+            }
+
+            $item = $this->inFormContextItem($node);
+            if ( null === $item ) {
+                continue;
+            }
+            if ( 0 === $seenControls ) {
+                $before[] = $item;
+            } elseif ( $seenControls >= $totalControls ) {
+                $after[] = $item;
+            } else {
+                $interleaved = true;
+            }
+        }
+
+        return array(
+            'context_before' => array_slice($before, 0, 8),
+            'context_after' => array_slice($after, 0, 8),
+            'interleaved_context' => $interleaved,
+        );
+    }
+
+    /** @return array<string, mixed>|null */
+    private function inFormContextItem(DOMElement $node): ?array
+    {
+        $tagName = strtolower($node->tagName);
+        $text = trim((string) preg_replace('/\s+/', ' ', $node->textContent ?? ''));
+        if ( '' === $text || 200 < strlen($text) ) {
+            return null;
+        }
+
+        if ( 1 === preg_match('/^h([1-6])$/', $tagName, $matches) ) {
+            return array(
+                'type' => 'heading',
+                'level' => (int) $matches[1],
+                'text' => $text,
+            );
+        }
+
+        // A note only reads as instructional when the source says so. Every
+        // label would otherwise be duplicated out of its own field.
+        if ( in_array($tagName, array( 'label', 'p' ), true)
+            && 1 === preg_match('/(?:required|note|instruction|help)/i', SourceDom::attr($node, 'class')) ) {
+            return array(
+                'type' => 'paragraph',
+                'text' => $text,
+            );
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed> */
