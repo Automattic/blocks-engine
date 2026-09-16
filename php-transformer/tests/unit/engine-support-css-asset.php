@@ -216,6 +216,18 @@ foreach ( $orderedCssAssets as $index => $asset ) {
     }
 }
 $assert(is_int($beforeIndex) && is_int($authorIndex) && is_int($afterIndex) && $beforeIndex < $authorIndex && $authorIndex < $afterIndex, 'G4: direct transform preserves before-author, author, after-author asset order');
+// Engine support CSS may join an author cascade layer, and naming a layer
+// registers it. Restating the author's order ahead of every engine stylesheet
+// keeps the author's own reset layer below its utilities wherever the support
+// CSS is parsed first — which is what the block editor does.
+$assert(
+    str_starts_with(trim((string) ($orderedCssAssets[$beforeIndex]['content'] ?? '')), '@layer contract;'),
+    'G4: before-author engine-support leads with the author cascade layer order'
+);
+$assert(
+    1 === substr_count($beforeCss, '@layer contract;'),
+    'G4: the author layer order is stated once per before-author stylesheet'
+);
 $assert(str_contains((string) ($orderedCssAssets[$beforeIndex]['content'] ?? ''), 'blocks-engine-list-navigation') && str_contains((string) ($orderedCssAssets[$afterIndex]['content'] ?? ''), 'blocks-engine-list-navigation'), 'G4: split list-navigation rules retain both cascade sides');
 
 $navArtifact = ( new ArtifactCompiler() )->compile(array(
