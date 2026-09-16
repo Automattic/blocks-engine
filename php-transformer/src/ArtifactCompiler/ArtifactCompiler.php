@@ -2824,13 +2824,20 @@ final class ArtifactCompiler
             $payload = is_string($asset['visual_payload'] ?? null) ? $asset['visual_payload'] : (is_string($asset['content_base64'] ?? null) ? $asset['content_base64'] : (string) ($asset['content'] ?? ''));
             $assetPayloadsByPath[$path][hash('sha256', $payload)] = true;
         }
+        $entryTitle = '';
+        foreach ( $artifact['files'] as $file ) {
+            if ( $entryPath === ($file['path'] ?? '') ) {
+                $entryTitle = $this->titleFromHtml((string) ($file['content'] ?? ''), $entryPath, $entryPath);
+                break;
+            }
+        }
         foreach ( $artifact['files'] as $file ) {
             if ( 'html' !== ($file['kind'] ?? '') || $this->isTemplatePartFile($file) ) {
                 continue;
             }
 
             $path = (string) ($file['path'] ?? '');
-            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path);
+            $title = $this->titleFromHtml((string) ($file['content'] ?? ''), $path, $entryPath, $entryTitle);
             $slug = $this->slugFromPath($path);
             $content = (string) ($file['content'] ?? '');
             $compiledBlocks = $path === $entryPath
@@ -3304,14 +3311,16 @@ final class ArtifactCompiler
         return 'css' === ($asset['kind'] ?? '') && ('visual-repair' === $role || 'visual-repair' === $intent || preg_match('/(?:^|[-_\/])visual[-_]repair(?:[-_\/]|\.)/i', $path));
     }
 
-    private function titleFromHtml(string $html, string $path): string
+    private function titleFromHtml(string $html, string $path, string $entryPath = '', string $entryTitle = ''): string
     {
         $normalize = static function (string $titleHtml): string {
             $titleHtml = preg_replace('/<\s*(?:br|\/\s*(?:div|h[1-6]|p))\b[^>]*>/i', ' ', $titleHtml) ?? $titleHtml;
+            $titleHtml = str_replace("\u{00A0}", ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
-            return trim(preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($titleHtml), ENT_QUOTES | ENT_HTML5)) ?? '');
+            return trim(preg_replace('/\s+/', ' ', $titleHtml) ?? '');
         };
 
+        $contentHeading = '';
         if ( preg_match_all('/<h1\b[^>]*>(.*?)<\/h1>/is', $html, $matches) ) {
             foreach ( $matches[1] as $headingHtml ) {
                 if ( $this->headingIsHyperlinkChrome($headingHtml) ) {
@@ -3319,14 +3328,18 @@ final class ArtifactCompiler
                 }
                 $title = $normalize($headingHtml);
                 if ( '' !== $title ) {
-                    return $title;
+                    $contentHeading = $title;
+                    break;
                 }
             }
+        }
+        if ( '' !== $contentHeading ) {
+            return $contentHeading;
         }
 
         if ( preg_match('/<title\b[^>]*>(.*?)<\/title>/is', $html, $match) ) {
             $title = $normalize($match[1]);
-            if ( '' !== $title ) {
+            if ( '' !== $title && ( $path === $entryPath || '' === $entryPath || $title !== $entryTitle ) ) {
                 return $title;
             }
         }
@@ -3337,7 +3350,7 @@ final class ArtifactCompiler
     private function headingIsHyperlinkChrome(string $headingHtml): bool
     {
         $remaining = trim($headingHtml);
-        while ( preg_match('/^<span\b[^>]*>([\s\S]*)<\/span>$/is', $remaining, $match) ) {
+        while ( preg_match('/^<(?:span|mark)\b[^>]*>([\s\S]*)<\/(?:span|mark)>$/is', $remaining, $match) ) {
             $remaining = trim($match[1]);
         }
 
@@ -4237,7 +4250,16 @@ final class ArtifactCompiler
 
     private function titleFromPath(string $path): string
     {
-        return ucwords(str_replace('-', ' ', $this->slugFromPath($path)));
+        $normalized = str_replace('\\', '/', $path);
+        $base = basename($normalized);
+        if ( preg_match('/^index\.html?$/i', $base) || 0 === strcasecmp($base, 'home.html') ) {
+            $parent = basename(dirname($normalized));
+            if ( '' !== $parent && '.' !== $parent ) {
+                return ucwords(str_replace(array( '-', '_' ), ' ', $parent));
+            }
+        }
+
+        return ucwords(str_replace(array( '-', '_' ), ' ', $this->slugFromPath($path)));
     }
 
     /**

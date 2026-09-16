@@ -5587,6 +5587,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( 'nav' === strtolower($element->tagName) || ! $this->shouldPreserveWrapper($element) ) {
             return false;
         }
+        if ( $this->isRepeatedLinkItemCluster($element) ) {
+            return false;
+        }
 
         $hasNavigationDescendant = false;
         foreach ( $element->childNodes as $child ) {
@@ -5602,6 +5605,46 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return $hasNavigationDescendant;
+    }
+
+    private function isRepeatedLinkItemCluster(DOMElement $element): bool
+    {
+        $items = 0;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType && '' !== trim($child->textContent ?? '') ) {
+                return false;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $anchors = $child->getElementsByTagName('a');
+            if ( 1 !== $anchors->length ) {
+                return false;
+            }
+            $anchor = $anchors->item(0);
+            if ( ! $anchor instanceof DOMElement || ! $this->anchorIsHeadingWrapped($anchor, $child) ) {
+                return false;
+            }
+            $href = trim($this->attr($anchor, 'href'));
+            $label = trim(preg_replace('/\s+/', ' ', $anchor->textContent ?? '') ?? '');
+            if ( '' === $href || '' === $label || str_starts_with($href, '#') ) {
+                return false;
+            }
+            ++$items;
+        }
+
+        return 3 <= $items;
+    }
+
+    private function anchorIsHeadingWrapped(DOMElement $anchor, DOMElement $boundary): bool
+    {
+        for ( $node = $anchor; $node instanceof DOMElement && ! $node->isSameNode($boundary); $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
+            if ( preg_match('/^h[1-6]$/', strtolower($node->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function shouldPreserveEmptyVisualElement(DOMElement $element): bool
