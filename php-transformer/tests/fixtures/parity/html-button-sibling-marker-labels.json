@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-sibling-marker-labels",
+  "description": "Native button label and hidden state spans become separate RichText markers without crossing sibling boundaries.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-sibling-marker-labels.json",
+    "notes": "Generic sibling label/state span regression, including inline formatting and hidden state paint."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Covers RichText marker preservation in the current transformer."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.action{background:#135e96;padding:10px 16px}.action .label{display:block}.action .state{display:none}</style><button class=\"action btn\"><span class=\"label\" style=\"display:block!important\">Order <strong>now</strong></span><span class=\"state\" style=\"display:none!important\">Added!</span></button>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/buttons"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/button"
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "equals",
+      "value": "<!-- wp:buttons {\"className\":\"blocks-engine-control-5a9626ad7831-5\"} --><div class=\"wp-block-buttons blocks-engine-control-5a9626ad7831-5\"><!-- wp:button {\"className\":\"action btn blocks-engine-control-5a9626ad7831-5\",\"tagName\":\"button\"} --><div class=\"wp-block-button action btn blocks-engine-control-5a9626ad7831-5\"><button type=\"button\" class=\"wp-block-button__link wp-element-button\"><mark class=\"label\" style=\"display:block!important;--blocks-engine-richtext-marker:blocks-engine-richtext-5a9626ad7831-3\">Order <strong>now</strong></mark><mark class=\"state\" style=\"display:none!important;--blocks-engine-richtext-marker:blocks-engine-richtext-5a9626ad7831-4\">Added!</mark></button></div><!-- /wp:button --></div><!-- /wp:buttons -->"
+    },
+    {
+      "path": "fallbacks",
+      "assert": "count",
+      "count": 0
+    }
+  ]
+}
