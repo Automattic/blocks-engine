@@ -48,6 +48,51 @@ final class CssStylesheetTransformer
     }
 
     /**
+     * Separate declaration runs from nested rules without interpreting values.
+     * Custom-property blocks belong to their declaration, not CSS nesting.
+     *
+     * @return list<array{declarations: string}|array{prelude: string, body: string, at_rule: string}>
+     */
+    public function splitStyleRuleBody(string $body): array
+    {
+        if ( ! $this->isWellFormedStylesheet($body) ) {
+            return array(array('declarations' => $body));
+        }
+        $parts = array();
+        $start = 0;
+        $offset = 0;
+        while ( null !== ($boundary = $this->nextRuleBoundary($body, $offset)) ) {
+            if ( ';' === $body[$boundary] ) {
+                $offset = $boundary + 1;
+                continue;
+            }
+            $end = $this->matchingBrace($body, $boundary);
+            if ( null === $end ) {
+                return array(array('declarations' => $body));
+            }
+            $prelude = substr($body, $offset, $boundary - $offset);
+            if ( preg_match('/^(?:\s|\/\*.*?\*\/)*--[^\s:]+\s*:/s', $prelude) ) {
+                $offset = $end + 1;
+                continue;
+            }
+            $declarations = substr($body, $start, $offset - $start);
+            if ( '' !== trim($declarations) ) {
+                $parts[] = array('declarations' => $declarations);
+            }
+            $parts[] = array(
+                'prelude' => $prelude,
+                'body' => substr($body, $boundary + 1, $end - $boundary - 1),
+                'at_rule' => $this->isAtRule($prelude) ? self::atRuleName($prelude) : '',
+            );
+            $start = $offset = $end + 1;
+        }
+        if ( $start < strlen($body) ) {
+            $parts[] = array('declarations' => substr($body, $start));
+        }
+        return $parts;
+    }
+
+    /**
      * Visit every style rule with its enclosing safe-to-walk at-rules.
      *
      * @param callable(string, string, list<string>): void $visitStyleRule
