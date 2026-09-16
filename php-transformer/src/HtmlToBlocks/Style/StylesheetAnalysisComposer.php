@@ -34,7 +34,47 @@ final class StylesheetAnalysisComposer
         if ( '' !== $staticCss ) {
             $cssParts[] = $staticCss;
         }
+        // An inline style on <body> never reaches the stylesheet pipeline, so
+        // the spacing it declares is lost. Authors reserve room for a fixed
+        // footer this way. Append it last so it keeps the precedence inline
+        // style had over the document's own body rules.
+        $inlineBody = $this->inlineBodySpacingRule($html);
+        if ( '' !== $inlineBody ) {
+            $cssParts[] = $inlineBody;
+        }
         return trim(implode("\n\n", $cssParts));
+    }
+
+    /**
+     * The body's authored spacing is page content the reader sees. Its
+     * positioning, sizing and overflow are document mechanics WordPress owns,
+     * and overriding those breaks scrolling in the editor canvas, so only
+     * spacing is carried across.
+     */
+    private function inlineBodySpacingRule(string $html): string
+    {
+        if ( 1 !== preg_match('/<body\b[^>]*\sstyle\s*=\s*(?:"([^"]*)"|\'([^\']*)\')/i', $html, $matches) ) {
+            return '';
+        }
+
+        $raw = '' !== ($matches[1] ?? '') ? $matches[1] : ($matches[2] ?? '');
+        $style = html_entity_decode($raw, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ( '' === trim($style) || preg_match('/[{}<>]/', $style) ) {
+            return '';
+        }
+
+        $spacing = array();
+        foreach ( $this->styleResolver->cssDeclarations($style) as $property => $value ) {
+            $value = trim($value);
+            if ( '' === $value ) {
+                continue;
+            }
+            if ( 1 === preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property) ) {
+                $spacing[] = $property . ':' . $value;
+            }
+        }
+
+        return array() === $spacing ? '' : 'body{' . implode(';', $spacing) . '}';
     }
 
     /** @param array<string, mixed> $options @return list<string> */
