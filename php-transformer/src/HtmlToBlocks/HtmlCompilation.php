@@ -2984,10 +2984,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( array() !== $pseudo ) {
                 $afterParts = array();
                 foreach ( $pseudo as $property => $value ) {
-                    $afterParts[] = $property . ':' . $value;
+                    $afterParts[] = $property . ':' . $value . '!important';
                 }
-                $extra .= '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
-                $extra .= '>.wp-block-navigation__responsive-container-open::after{' . implode(';', $afterParts) . '}';
+                $extra .= 'SVG_HIDE';
+                $extra .= 'AFTER:' . implode(';', $afterParts);
             }
         }
 
@@ -2995,7 +2995,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $host = '.wp-block-navigation.blocks-engine-native-responsive-navigation.' . $marker;
         $hostRule = $host . '{box-sizing:border-box!important;width:fit-content!important;height:' . ( $always ? '100%' : 'fit-content' ) . '!important;min-width:0!important;min-height:0!important;padding:0!important}';
         $openRule = $host . '>.wp-block-navigation__responsive-container-open{' . implode(';', $openDeclarations) . '}';
-        $extraRules = '' === $extra ? '' : $host . $extra;
+        $extraRules = '';
+        if ( str_contains($extra, 'SVG_HIDE') ) {
+            $extraRules .= $host . '>.wp-block-navigation__responsive-container-open svg{display:none!important}';
+        }
+        if ( str_contains($extra, 'AFTER:') ) {
+            $afterBody = substr($extra, strpos($extra, 'AFTER:') + 6);
+            $extraRules .= $host . '>.wp-block-navigation__responsive-container-open::after{' . $afterBody . '}';
+        }
         $rule = $always
             ? $hostRule . $openRule . $extraRules
             : '@media(max-width:599px){' . $hostRule . $openRule . '}';
