@@ -250,7 +250,7 @@ final class ThemeJsonProjection
     private function representable(string $target, string $property, string $value): bool
     {
         if (str_contains($value, 'var(') || str_contains($value, 'calc(')) return false;
-        if (in_array($property, array('color', 'background-color'), true)) return (bool) preg_match('/^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla)\([^;]+\)|[a-z]+)$/i', $value);
+        if (in_array($property, array('color', 'background-color'), true)) return (bool) preg_match('/^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\([^;]+\)|[a-z]+)$/i', $value);
         if (in_array($property, array('font-family', 'font-size', 'line-height', 'font-weight', 'letter-spacing', 'text-transform', 'font-style'), true)) return true;
         if ('body' === $target && in_array($property, array('padding', 'margin', 'gap'), true)) return (bool) preg_match('/^[0-9.]+(?:px|rem|em|%|vw|vh)$/i', $value);
         if ('layout' === $target && 'max-width' === $property) return (bool) preg_match('/^[0-9.]+(?:px|rem|em|%|vw|vh)$/i', $value);
