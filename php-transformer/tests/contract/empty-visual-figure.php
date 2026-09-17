@@ -148,4 +148,40 @@ $fullBleed = ( new HtmlTransformer() )->transform('<style>' . $fullBleedCss . '<
 $fullBleedMarkup = (string) ($fullBleed['serialized_blocks'] ?? '');
 $assert(str_contains($fullBleedMarkup, 'wp-block-group hero-grid') && ! str_contains($fullBleedMarkup, 'hero-grid blocks-engine-empty-flex-item'), 'Out-of-flow decorative layers remain full-bleed instead of receiving in-flow empty flex-item sizing.');
 
+// A childless divider with authored geometry (width/height) and a visible
+// background is deliberate decorative paint, not an incidental empty flex
+// item. Regression for a static-site import (a Lovable-built page) whose
+// hero divider `<div class="mt-8 h-px w-24 bg-ink/20">` rendered 96x1 in the
+// source but collapsed to 0x0 once imported: the column-direction parent's
+// main axis is height, so `flex:0 0 0` plus a row-shaped compatibility rule
+// zeroed both axes instead of only the one core needed to neutralize.
+$rowDividerCss = '.hero{display:flex}.divider{margin-top:2rem;height:1px;width:6rem;background-color:rgba(20,20,20,.2)}';
+$rowDividerHtml = '<header class="hero"><h1>Title</h1><div class="divider"></div></header>';
+$rowDivider = ( new HtmlTransformer() )->transform('<style>' . $rowDividerCss . '</style>' . $rowDividerHtml)->toArray();
+$rowDividerMarkup = (string) ($rowDivider['serialized_blocks'] ?? '');
+$rowDividerCssOut = $engineSupportCss($rowDivider['assets'] ?? array());
+$assert(str_contains($rowDividerMarkup, 'wp-block-group divider') && ! str_contains($rowDividerMarkup, 'divider blocks-engine-empty-flex-item') && ! str_contains($rowDividerCssOut, 'blocks-engine-empty-flex-item'), 'A painted divider with authored width and height keeps its source box inside a row-direction flex parent.');
+
+$columnDividerCss = '.hero{display:flex;flex-direction:column}.divider{margin-top:2rem;height:1px;width:6rem;background-color:rgba(20,20,20,.2)}';
+$columnDividerHtml = '<header class="hero"><h1>Title</h1><div class="divider"></div></header>';
+$columnDivider = ( new HtmlTransformer() )->transform('<style>' . $columnDividerCss . '</style>' . $columnDividerHtml)->toArray();
+$columnDividerMarkup = (string) ($columnDivider['serialized_blocks'] ?? '');
+$columnDividerCssOut = $engineSupportCss($columnDivider['assets'] ?? array());
+$assert(str_contains($columnDividerMarkup, 'wp-block-group divider') && ! str_contains($columnDividerMarkup, 'divider blocks-engine-empty-flex') && ! str_contains($columnDividerCssOut, 'blocks-engine-empty-flex'), 'A painted divider with authored width and height keeps its source box inside a column-direction flex parent, where the main axis is height rather than width.');
+$columnDividerAuthorCss = implode("\n", array_map(static fn (array $asset): string => 'author-css' === ($asset['source'] ?? '') ? (string) ($asset['content'] ?? '') : '', $columnDivider['assets'] ?? array()));
+$assert(str_contains($columnDividerAuthorCss, 'height:1px') && str_contains($columnDividerAuthorCss, 'width:6rem'), 'The column-parent divider retains both its authored height and width declarations verbatim.');
+
+// A genuinely sizeless (no authored width or height) flex child in a
+// column-direction container still collapses to avoid an in-flow footprint
+// core would otherwise add, using the axis-appropriate (height-owning)
+// compatibility class, even though it is painted.
+$columnSizelessCss = '.hero{display:flex;flex-direction:column}.placeholder{background:#123}';
+$columnSizelessHtml = '<div class="hero"><h1>Title</h1><div class="placeholder"></div></div>';
+$columnSizeless = ( new HtmlTransformer() )->transform('<style>' . $columnSizelessCss . '</style>' . $columnSizelessHtml)->toArray();
+$columnSizelessMarkup = (string) ($columnSizeless['serialized_blocks'] ?? '');
+$columnSizelessCssOut = $engineSupportCss($columnSizeless['assets'] ?? array());
+$assert(str_contains($columnSizelessMarkup, 'placeholder blocks-engine-empty-flex-column-item'), 'A sizeless painted flex child in a column-direction container carries the column-axis compatibility marker.');
+$assert(str_contains($columnSizelessCssOut, ':where(.blocks-engine-empty-flex-column-item){flex:0 0 0!important;height:0!important;min-height:0!important;margin-top:0!important;margin-bottom:0!important}'), 'The column-axis compatibility rule zeroes height and vertical margin instead of the row-axis width and horizontal margin.');
+$assert(! str_contains($columnSizelessCssOut, 'blocks-engine-empty-flex-item){'), 'A page with only column-axis empty flex items does not also emit the unused row-axis compatibility rule.');
+
 fwrite(STDOUT, "Empty visual figure contracts passed.\n");
