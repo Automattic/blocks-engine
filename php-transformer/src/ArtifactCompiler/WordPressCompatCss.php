@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\MenuVocabulary;
 
 /**
@@ -455,138 +457,70 @@ final class WordPressCompatCss
             : "\n\n/* wp-compat: protect core block runtime semantics from source selector collisions */\n" . implode("\n", $rules);
     }
 
-    /** @return array<int, array{selector:string,body:string}> */
+    /**
+     * Top-level qualified rules, with nesting and lexical context honoured.
+     *
+     * This walked the stylesheet byte by byte with its own comment and quote
+     * handling, and like every other local copy it did not read escapes — so an
+     * escaped brace in a selector desynchronised the block depth and dropped
+     * every rule after it. CssSyntaxScanner owns that lexing.
+     *
+     * @return array<int, array{selector:string,body:string}>
+     */
     private function topLevelCssRules(string $css, bool $includeConditionalRules = false): array
     {
         $rules = array();
         $length = strlen($css);
+        $state = CssSyntaxScanner::state();
         $start = 0;
-        for ( $index = 0; $index < $length; $index++ ) {
-            if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
-                $end = strpos($css, '*/', $index + 2);
-                $index = false === $end ? $length : $end + 1;
-                continue;
-            }
-            if ( in_array($css[$index], array('"', "'"), true) ) {
-                $quote = $css[$index];
-                while ( ++$index < $length ) {
-                    if ( '\\' === $css[$index] ) {
-                        $index++;
-                    } elseif ( $quote === $css[$index] ) {
-                        break;
-                    }
+        $cursor = 0;
+
+        while ( $cursor < $length ) {
+            if ( ! CssSyntaxScanner::isTopLevel($state) || '{' !== $css[ $cursor ] ) {
+                $isStatementEnd = CssSyntaxScanner::isTopLevel($state) && ';' === $css[ $cursor ];
+                $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
+                if ( $isStatementEnd ) {
+                    $start = $cursor;
                 }
-                continue;
-            }
-            if ( ';' === $css[$index] ) {
-                $start = $index + 1;
-                continue;
-            }
-            if ( '{' !== $css[$index] ) {
                 continue;
             }
 
-            $selector = trim(substr($css, $start, $index - $start));
-            $bodyStart = $index + 1;
-            $depth = 1;
-            while ( ++$index < $length && $depth > 0 ) {
-                if ( '/' === $css[$index] && '*' === ($css[$index + 1] ?? '') ) {
-                    $end = strpos($css, '*/', $index + 2);
-                    $index = false === $end ? $length : $end + 1;
-                    continue;
-                }
-                if ( in_array($css[$index], array('"', "'"), true) ) {
-                    $quote = $css[$index];
-                    while ( ++$index < $length ) {
-                        if ( '\\' === $css[$index] ) {
-                            $index++;
-                        } elseif ( $quote === $css[$index] ) {
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if ( '{' === $css[$index] ) {
-                    $depth++;
-                } elseif ( '}' === $css[$index] ) {
-                    $depth--;
-                }
+            $closing = CssSyntaxScanner::matchingBrace($css, $cursor);
+            if ( null === $closing ) {
+                break;
             }
-            if ( '' !== $selector && ( $includeConditionalRules || ! str_starts_with($selector, '@') ) && 0 === $depth ) {
-                $closingBrace = $index - 1;
+
+            $selector = trim(substr($css, $start, $cursor - $start));
+            if ( '' !== $selector && ( $includeConditionalRules || ! str_starts_with($selector, '@') ) ) {
                 $rules[] = array(
                     'selector' => $selector,
-                    'body'     => trim(substr($css, $bodyStart, $closingBrace - $bodyStart)),
+                    'body'     => trim(substr($css, $cursor + 1, $closing - $cursor - 1)),
                 );
             }
-            $start = $index;
-            $index--;
+
+            $start = $cursor = $closing + 1;
         }
 
         return $rules;
     }
 
     /**
+     * Split a selector list on top-level commas.
+     *
+     * Delegates to the shared transformer rather than repeating the scan:
+     * escapes, comments, quotes, parentheses and brackets all have to be
+     * honoured, and this class had its own ~55-line copy of that logic.
+     *
      * @return array<int, string>
      */
     private function splitSelectorList(string $selectorList): array
     {
         $selectors = array();
-        $current = '';
-        $depth = 0;
-        $length = strlen($selectorList);
-        for ( $i = 0; $i < $length; $i++ ) {
-            $char = $selectorList[$i];
-            if ( '\\' === $char && $i + 1 < $length ) {
-                $current .= $char . $selectorList[++$i];
-                continue;
+        foreach ( CssStylesheetTransformer::splitSelectorList($selectorList) ?? array() as $selector ) {
+            $selector = trim($selector);
+            if ( '' !== $selector ) {
+                $selectors[] = $selector;
             }
-            if ( '/' === $char && '*' === ($selectorList[$i + 1] ?? '') ) {
-                $end = strpos($selectorList, '*/', $i + 2);
-                if ( false === $end ) {
-                    $current .= substr($selectorList, $i);
-                    break;
-                }
-                $current .= substr($selectorList, $i, $end + 2 - $i);
-                $i = $end + 1;
-                continue;
-            }
-            if ( in_array($char, array( '"', "'" ), true) ) {
-                $quote = $char;
-                $current .= $char;
-                while ( ++$i < $length ) {
-                    $current .= $selectorList[$i];
-                    if ( '\\' === $selectorList[$i] && $i + 1 < $length ) {
-                        $current .= $selectorList[++$i];
-                        continue;
-                    }
-                    if ( $quote === $selectorList[$i] ) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if ( '(' === $char || '[' === $char ) {
-                $depth++;
-            } elseif ( ')' === $char || ']' === $char ) {
-                $depth = max(0, $depth - 1);
-            }
-
-            if ( ',' === $char && 0 === $depth ) {
-                $selector = trim($current);
-                if ( '' !== $selector ) {
-                    $selectors[] = $selector;
-                }
-                $current = '';
-                continue;
-            }
-
-            $current .= $char;
-        }
-
-        $selector = trim($current);
-        if ( '' !== $selector ) {
-            $selectors[] = $selector;
         }
 
         return $selectors;

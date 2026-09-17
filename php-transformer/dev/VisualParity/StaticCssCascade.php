@@ -394,35 +394,15 @@ final class StaticCssCascade
         return $out . substr($body, $keepFrom);
     }
 
-    /** Index of the `}` closing the block opened at $open, or the last byte. */
+    /**
+     * Index of the `}` closing the block opened at $open.
+     *
+     * Unbalanced input falls back to the final byte so a truncated stylesheet
+     * still contributes the rules it did declare.
+     */
     private function matchingBrace(string $css, int $open): int
     {
-        $length = strlen($css);
-        $state = CssSyntaxScanner::state();
-        $depth = 0;
-        $cursor = $open;
-
-        while ( $cursor < $length ) {
-            $character = $css[ $cursor ];
-            if ( CssSyntaxScanner::isTopLevel($state) ) {
-                if ( '{' === $character ) {
-                    ++$depth;
-                    ++$cursor;
-                    continue;
-                }
-                if ( '}' === $character ) {
-                    if ( 0 === --$depth ) {
-                        return $cursor;
-                    }
-                    ++$cursor;
-                    continue;
-                }
-            }
-            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
-        }
-
-        // Unbalanced input: treat the remainder as the block rather than guessing.
-        return $length - 1;
+        return CssSyntaxScanner::matchingBrace($css, $open) ?? ( strlen($css) - 1 );
     }
 
     /**
