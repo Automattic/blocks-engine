@@ -102,7 +102,7 @@ $explicitButton = ( new HtmlTransformer() )->transform(
 $explicitMarkup = (string) ($explicitButton['serialized_blocks'] ?? '');
 $explicitCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $explicitButton['assets'] ?? array()));
 $explicitButtonAttrs = $explicitButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0]['attrs'] ?? array();
-$assert(! isset($explicitButtonAttrs['style']['color']['text']) && str_contains($explicitCss, 'color:#102030'), 'explicit anchor color remains authoritative over inherited color through CSS', $explicitMarkup);
+$assert('#102030' === ($explicitButtonAttrs['style']['color']['text'] ?? null) && str_contains($explicitCss, 'color:#102030'), 'explicit anchor color remains authoritative over inherited color through CSS', $explicitMarkup);
 $assert(str_contains($explicitCss, 'text-align:end!important') && ! str_contains($explicitCss, 'text-align:start!important'), 'explicit anchor alignment remains authoritative over inherited alignment', $explicitCss);
 $assert('pass' === ($explicitButton['source_reports']['wp_block_validity']['status'] ?? ''), 'explicit native button remains editor-valid', json_encode($explicitButton['source_reports']['wp_block_validity'] ?? array()));
 
@@ -261,6 +261,100 @@ $assert(
     ! preg_match('/wp-block-button__link\)?\{[^}]*padding:\s*0!important/', $negatedPreflightCss),
     'Tailwind v4 negated universal preflight does not force padding:0!important onto the button link',
     $negatedPreflightCss
+);
+
+// -- core/button declares `color.__experimentalSkipSerialization: true` and
+// `__experimentalBorder.__experimentalSkipSerialization: true` because its
+// save() merges colorProps.style and borderProps.style into the link's own
+// style attribute — the same statement the spacing and typography filters
+// above it already make. Reading those flags as "this block has no colour or
+// border" dropped the authored paint from the block entirely, leaving the
+// theme's styles.elements.button to repaint the button while only the CSS
+// carrier still held the author's value.
+$paintedButton = ( new HtmlTransformer() )->transform(
+    '<html><body><div><button class="pill" type="button">All 06</button></div></body></html>',
+    array( 'static_css' => '.pill{border-radius:9999px;background:#1b2a3a;border:1px solid #2d4257;padding:8px 16px;color:#e6f0ff}' )
+)->toArray();
+$paintedBlock = $paintedButton['blocks'][0]['innerBlocks'][0] ?? array();
+$paintedStyle = $paintedBlock['attrs']['style'] ?? array();
+$paintedMarkup = (string) ($paintedButton['serialized_blocks'] ?? '');
+$paintedCss = implode("\n", array_column($paintedButton['assets'] ?? array(), 'content'));
+
+$assert(
+    array( 'background' => '#1b2a3a', 'text' => '#e6f0ff' ) === ($paintedStyle['color'] ?? null),
+    'authored button colour survives block-support normalization into style.color',
+    (string) json_encode($paintedStyle['color'] ?? null)
+);
+$assert(
+    array( 'width' => '1px', 'style' => 'solid', 'color' => '#2d4257', 'radius' => '9999px' ) === ($paintedStyle['border'] ?? null),
+    'authored button border survives block-support normalization into style.border',
+    (string) json_encode($paintedStyle['border'] ?? null)
+);
+$assert(
+    str_contains($paintedMarkup, 'class="wp-block-button__link has-text-color has-background has-border-color wp-element-button"')
+        && str_contains($paintedMarkup, 'color:#e6f0ff')
+        && str_contains($paintedMarkup, 'background-color:#1b2a3a')
+        && str_contains($paintedMarkup, 'border-color:#2d4257')
+        && str_contains($paintedMarkup, 'border-radius:9999px'),
+    'authored button colour and border serialize onto the link with the support classes core/button save() emits',
+    $paintedMarkup
+);
+$assert(
+    str_contains($paintedCss, 'background-color:#1b2a3a!important') && str_contains($paintedCss, 'color:#e6f0ff!important'),
+    'the CSS carrier keeps its copy of the authored button paint',
+    $paintedCss
+);
+$assert(
+    'pass' === ($paintedButton['source_reports']['wp_block_validity']['status'] ?? ''),
+    'a painted button still passes generated WordPress block validity checks',
+    (string) ($paintedButton['source_reports']['wp_block_validity']['status'] ?? '(none)')
+);
+
+// An authored alpha channel is a plain part of the value: it has to reach the
+// attribute byte-for-byte rather than being flattened to an opaque colour.
+$translucentButton = ( new HtmlTransformer() )->transform(
+    '<html><body><div><button class="pill" type="button">All 06</button></div></body></html>',
+    array( 'static_css' => '.pill{padding:8px 16px;background:rgba(27,42,58,0.35);border:1px solid rgba(45,66,87,0.5);color:rgba(230,240,255,0.7)}' )
+)->toArray();
+$translucentStyle = $translucentButton['blocks'][0]['innerBlocks'][0]['attrs']['style'] ?? array();
+$translucentMarkup = (string) ($translucentButton['serialized_blocks'] ?? '');
+
+$assert(
+    'rgba(230,240,255,0.7)' === ($translucentStyle['color']['text'] ?? null)
+        && 'rgba(27,42,58,0.35)' === ($translucentStyle['color']['background'] ?? null)
+        && 'rgba(45,66,87,0.5)' === ($translucentStyle['border']['color'] ?? null),
+    'a translucent authored button colour reaches the block attribute with its alpha channel intact',
+    (string) json_encode($translucentStyle)
+);
+$assert(
+    str_contains($translucentMarkup, 'color:rgba(230,240,255,0.7)')
+        && str_contains($translucentMarkup, 'background-color:rgba(27,42,58,0.35)')
+        && str_contains($translucentMarkup, 'border-color:rgba(45,66,87,0.5)'),
+    'a translucent authored button colour serializes onto the link with its alpha channel intact',
+    $translucentMarkup
+);
+
+// A button whose source authors no colour or border gains none, so the theme
+// keeps painting it rather than having an opaque default frozen into the block.
+$unpaintedButton = ( new HtmlTransformer() )->transform(
+    '<style>.plain{padding:10px 16px;font-weight:600}</style><section><button class="plain" type="button">Start</button></section>'
+)->toArray();
+$unpaintedStyle = $unpaintedButton['blocks'][0]['innerBlocks'][0]['attrs']['style'] ?? array();
+$unpaintedMarkup = (string) ($unpaintedButton['serialized_blocks'] ?? '');
+
+$assert(
+    ! isset($unpaintedStyle['color']) && ! isset($unpaintedStyle['border']),
+    'a button with no authored colour or border gains neither attribute',
+    (string) json_encode($unpaintedStyle)
+);
+$assert(
+    ! str_contains($unpaintedMarkup, 'has-text-color')
+        && ! str_contains($unpaintedMarkup, 'has-background')
+        && ! str_contains($unpaintedMarkup, 'has-border-color')
+        && ! str_contains($unpaintedMarkup, 'background-color:')
+        && ! str_contains($unpaintedMarkup, 'border-color:'),
+    'no paint is frozen inline onto an unpainted button link, so theme defaults keep applying',
+    $unpaintedMarkup
 );
 
 if ( $failures > 0 ) {

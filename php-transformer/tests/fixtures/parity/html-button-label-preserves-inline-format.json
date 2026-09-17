@@ -24,7 +24,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "btn blocks-engine-native-button-alignment-start be-inline-geometry-" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link wp-element-button\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
     { "path": "serialized_blocks", "assert": "contains", "value": "href=\"/go\"><strong>Go</strong> now</a>" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
