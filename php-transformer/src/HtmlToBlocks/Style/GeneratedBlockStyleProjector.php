@@ -433,16 +433,44 @@ final class GeneratedBlockStyleProjector
         $parent = $control->parentNode;
         $parentStyle = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
         $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
+        $stretchesCrossAxis = $isColumn && $this->columnFlexChildStretches($parentStyle, $control);
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';
         $button = ':where(.' . $marker . '.wp-block-buttons)>:where(.' . $marker . '.wp-block-button)';
         $link = $button . '>:where(.wp-block-button__link)';
-        $columnGeometry = $isColumn ? ';width:100%!important' : '';
+        $columnGeometry = $stretchesCrossAxis ? ';width:100%!important' : '';
         $generatedStyles->registerDirectFlexButton(
             $marker,
             $wrapper . '{display:block!important;gap:0!important;min-width:0' . $columnGeometry . '}'
                 . $button . '{display:block!important;margin:0!important;min-width:0' . $columnGeometry . '}'
-                . $link . '{box-sizing:border-box' . ($isColumn ? ';width:100%!important' : '') . '}'
+                . $link . '{box-sizing:border-box' . ($stretchesCrossAxis ? ';width:100%!important' : '') . '}'
         );
+    }
+
+    /**
+     * Whether a flex column's cross axis (its children's inline size) resolves
+     * to `stretch` -- the CSS default, since `align-items: normal` computes to
+     * `stretch` for flex items -- so a content-sized native button should be
+     * widened to fill the row the way its source anchor was. The parent's
+     * `align-items` governs this unless the control itself opts out with a
+     * non-stretch `align-self`; either one naming a keyword alignment
+     * (`center`, `flex-start`, `flex-end`, `baseline`, ...) means the source
+     * anchor sized to its own content instead of the row, and the button must
+     * keep hugging its label rather than stretching to the container width.
+     *
+     * @param array<string, string> $parentStyle
+     */
+    private function columnFlexChildStretches(array $parentStyle, DOMElement $control): bool
+    {
+        $alignSelf = CssValueInspector::comparable(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($control)['align-self'] ?? '')
+        );
+        if ( '' !== $alignSelf && ! in_array($alignSelf, array( 'stretch', 'auto', 'normal' ), true) ) {
+            return false;
+        }
+
+        $alignItems = CssValueInspector::comparable((string) ($parentStyle['align-items'] ?? ''));
+
+        return '' === $alignItems || in_array($alignItems, array( 'stretch', 'normal' ), true);
     }
 
     public function registerButtonWidth(string $marker, int $width, GeneratedSupportStylesheetState $generatedStyles): void
