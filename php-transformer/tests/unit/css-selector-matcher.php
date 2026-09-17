@@ -295,6 +295,31 @@ $assert(false === CssSelectorMatcher::matches($disabledAnchor, $restingSelector)
 $hoverSelector = CssSelectorMatcher::parse('.root:hover');
 $assert(false === CssSelectorMatcher::matches($restingAnchor, $hoverSelector)['supported'], 'an unnegated dynamic state stays outside the resting cascade');
 
+// `:root` is the document element. Several engine projectors emit `:root`-scoped
+// support CSS as a specificity device, and author stylesheets declare custom
+// properties on bare `:root`, so a matcher that rejected it could not read
+// selectors the engine itself writes.
+$rootDom = new DOMDocument();
+$rootDom->loadHTML('<html><body><p class="lead">Copy</p></body></html>');
+$documentElement = $rootDom->documentElement;
+$paragraph = $rootDom->getElementsByTagName('p')->item(0);
+
+$rootSelector = CssSelectorMatcher::parse(':root');
+$assert(true === $rootSelector['supported'], ':root is a supported resting-state selector');
+$assert(10 === CssSelectorMatcher::specificity($rootSelector), ':root contributes class-level specificity');
+$assert(true === CssSelectorMatcher::matches($documentElement, $rootSelector)['matches'], ':root matches the document element');
+$assert(false === CssSelectorMatcher::matches($paragraph, $rootSelector)['matches'], ':root matches nothing below the document element');
+
+$rootScoped = CssSelectorMatcher::parse(':root .lead');
+$assert(true === $rootScoped['supported'], ':root scoping a descendant is supported');
+$assert(20 === CssSelectorMatcher::specificity($rootScoped), ':root plus a class is two class-level components');
+$assert(true === CssSelectorMatcher::matches($paragraph, $rootScoped)['matches'], ':root-scoped support CSS matches its target');
+$assert(false === CssSelectorMatcher::matches($documentElement, $rootScoped)['matches'], ':root-scoped support CSS does not match the root itself');
+
+$rootAttribute = CssSelectorMatcher::parse(':root[data-theme="light"] .lead');
+$assert(true === $rootAttribute['supported'], ':root carrying an attribute filter is supported');
+$assert(false === CssSelectorMatcher::matches($paragraph, $rootAttribute)['matches'], 'a :root attribute filter is honoured against the document element');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
