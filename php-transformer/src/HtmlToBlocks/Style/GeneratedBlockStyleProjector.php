@@ -435,7 +435,15 @@ final class GeneratedBlockStyleProjector
     public function registerDirectFlexButton(string $marker, DOMElement $control, GeneratedSupportStylesheetState $generatedStyles): void
     {
         $parent = $control->parentNode;
-        $parentStyle = $parent instanceof DOMElement ? $this->styleResolver->structuralPresentationDeclarations($parent) : array();
+        // Which axis the parent lays out on is a classification question, and it
+        // has to be answered at the reference viewport the rest of the geometry
+        // is resolved for. The resting view sees only the mobile-first value, so
+        // a `flex-col md:flex-row` container reads as a column, its children read
+        // as cross-axis stretched, and a content-sized control gets pinned to
+        // `width:100%` for a column it is not in at the width being rendered.
+        $parentStyle = $parent instanceof DOMElement
+            ? $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($parent))
+            : array();
         $isColumn = str_starts_with(strtolower(trim((string) ($parentStyle['flex-direction'] ?? 'row'))), 'column');
         $stretchesCrossAxis = $isColumn && $this->columnFlexChildStretches($parentStyle, $control);
         $wrapper = ':where(.' . $marker . '.wp-block-buttons)';

@@ -112,6 +112,37 @@ if ( $shrinkOnLink ) {
     exit(1);
 }
 
+// Which axis the parent lays out on has to be read at the reference viewport.
+// A `flex-col md:flex-row` container is a column only below the breakpoint; at
+// the width being rendered it is a row, and its children are not cross-axis
+// stretched. Reading the resting value sees the mobile column and pins a
+// content-sized control to the full row.
+$responsiveRow = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.row{display:flex;flex-direction:column;gap:24px}'
+    . '@media (min-width:768px){.row{flex-direction:row;align-items:flex-end;justify-content:space-between}}'
+    . '.pill{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}'
+    . '</style>'
+    . '<div class="row"><div><h2>Experience</h2></div><a href="/cv" class="pill">Download full CV</a></div>'
+)->toArray();
+if ( str_contains($cssOf($responsiveRow), 'width:100%!important') ) {
+    fwrite(STDERR, "FAIL: a control in a row-at-desktop container must not be pinned to the column stretch width\n" . $cssOf($responsiveRow) . "\n");
+    exit(1);
+}
+
+// A genuine column still stretches its children, which is why the branch exists.
+$trueColumn = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.col{display:flex;flex-direction:column;gap:24px}'
+    . '.pill{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}'
+    . '</style>'
+    . '<div class="col"><div><h2>Experience</h2></div><a href="/cv" class="pill">Download full CV</a></div>'
+)->toArray();
+if ( ! str_contains($cssOf($trueColumn), 'width:100%!important') ) {
+    fwrite(STDERR, "FAIL: a control in a real flex column must still fill the cross axis\n" . $cssOf($trueColumn) . "\n");
+    exit(1);
+}
+
 // A control with no authored flex participation must gain none.
 $plain = ( new HtmlTransformer() )->transform(
     '<style>.plain{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}</style>'
