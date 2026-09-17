@@ -392,6 +392,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    /**
+     * Marks a childless flex item inside a column-direction (or
+     * column-reverse) container. The main axis there is height, not width,
+     * so the compatibility box this class carries zeroes the opposite
+     * properties from {@see EMPTY_FLEX_ITEM_CLASS}'s row-axis assumption.
+     */
+    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
+
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
     public const EMPTY_VISUAL_GROUP_CLASS = 'blocks-engine-empty-visual-group';
@@ -5603,17 +5611,35 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $attrs;
         }
 
-        $parentDisplay = strtolower(trim((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '')));
+        $parentDeclarations = $this->styleResolver->structuralPresentationDeclarations($parent);
+        $parentDisplay = strtolower(trim((string) ($parentDeclarations['display'] ?? '')));
         if ( ! in_array($parentDisplay, array( 'flex', 'inline-flex' ), true) ) {
             return $attrs;
         }
 
-        $declarations = $this->styleResolver->presentationDeclarations($element);
+        // Resolve the element's full matched CSS, not only its inline style:
+        // a utility-class divider (e.g. Tailwind's `h-px w-24`) declares its
+        // geometry on a stylesheet rule that the narrower inline-only
+        // resolver used here previously never saw, so an authored box was
+        // misread as sizeless.
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $position = strtolower(trim((string) ($declarations['position'] ?? 'static')));
         if ( in_array($position, array( 'absolute', 'fixed' ), true) ) {
             return $attrs;
         }
-        foreach ( array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' ) as $property ) {
+
+        // The zero-collapse compatibility box below only removes the flex
+        // main-axis footprint core would otherwise add to a childless flex
+        // item. Which CSS properties own that axis depends on the parent's
+        // flex-direction: a row container's main axis is width, a column
+        // container's is height. Checking width alone let an authored
+        // height survive the escape hatch but still be crushed by the
+        // row-shaped compatibility box below.
+        $isColumnAxis = in_array(strtolower(trim((string) ($parentDeclarations['flex-direction'] ?? 'row'))), array( 'column', 'column-reverse' ), true);
+        $mainAxisSizeProperties = $isColumnAxis
+            ? array( 'height', 'min-height', 'max-height', 'flex', 'flex-basis' )
+            : array( 'width', 'min-width', 'max-width', 'flex', 'flex-basis' );
+        foreach ( $mainAxisSizeProperties as $property ) {
             if ( isset($declarations[$property]) && '' !== trim($declarations[$property]) && 'auto' !== strtolower(trim($declarations[$property])) ) {
                 return $attrs;
             }
@@ -5624,7 +5650,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::EMPTY_FLEX_ITEM_CLASS);
+        $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . ( $isColumnAxis ? self::EMPTY_FLEX_ITEM_COLUMN_CLASS : self::EMPTY_FLEX_ITEM_CLASS ));
         if ( $this->runtimeIslands->isRuntimeDomTarget($element) ) {
             $attrs['className'] = trim($attrs['className'] . ' ' . self::EMPTY_RUNTIME_TARGET_CLASS);
             $this->runtimeBehavior()->markEmptyRuntimeTargetGenerated();

@@ -22,6 +22,8 @@ final class EngineSupportCss
 
     private const EMPTY_FLEX_ITEM_CLASS = 'blocks-engine-empty-flex-item';
 
+    private const EMPTY_FLEX_ITEM_COLUMN_CLASS = 'blocks-engine-empty-flex-column-item';
+
     private const LAYOUT_TABLE_COLUMNS_CLASS = 'blocks-engine-layout-table-columns';
 
     private const PROPAGATED_LINK_COLOR_CARRIER_CLASS = 'blocks-engine-propagated-link-color';
@@ -111,6 +113,12 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
+        }
+        if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_COLUMN_CLASS) ) {
+            // A column-direction flex container's main axis is height, so
+            // the compatibility box zeroes the vertical properties instead
+            // of the row-axis rule's width/horizontal-margin set above.
+            $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_COLUMN_CLASS . '){flex:0 0 0!important;height:0!important;min-height:0!important;margin-top:0!important;margin-bottom:0!important}';
         }
         if ( str_contains($serializedBlocks, HtmlCompilation::EMPTY_VISUAL_GROUP_CLASS) ) {
             // An empty painted layer has no portable interaction contract. It
