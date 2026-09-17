@@ -1133,6 +1133,7 @@ final class ArtifactCompiler
             'static_css'                => trim(implode("\n", array_column($stylesheetPayloads, 'content'))),
             'stylesheet_payloads'       => $stylesheetPayloads,
             'author_stylesheet_assets'  => $stylesheetAssets,
+            'shared_stylesheet_paths'   => $this->sharedStylesheetPathsFromFiles($files),
             'skip_author_stylesheet_materialization' => true,
             'asset_metadata'            => $this->assetMetadataForSource($sourcePath, $files),
             'runtime_script_metadata'   => $this->runtimeScriptMetadataForSource($html, $sourcePath, $files),
@@ -1548,6 +1549,29 @@ final class ArtifactCompiler
         }
 
         return $payloads;
+    }
+
+    /**
+     * Linked CSS files are shared artifact assets. Their class-bound rules must
+     * keep addressing authored classes across every consuming document.
+     *
+     * @param array<int, array<string, mixed>> $files
+     * @return list<string>
+     */
+    private function sharedStylesheetPathsFromFiles(array $files): array
+    {
+        $paths = array();
+        foreach ( $files as $file ) {
+            if ( 'css' !== ($file['kind'] ?? '') || ! is_string($file['path'] ?? null) || 'shared' !== $this->fileOwnership($file)['scope'] ) {
+                continue;
+            }
+            $paths[$file['path']] = true;
+            if ( is_string($file['stylesheet_source_path'] ?? null) && '' !== $file['stylesheet_source_path'] ) {
+                $paths[$file['stylesheet_source_path']] = true;
+            }
+        }
+
+        return array_keys($paths);
     }
 
     /**
