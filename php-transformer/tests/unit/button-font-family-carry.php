@@ -115,23 +115,65 @@ $assert(
     (string) ($button['blockName'] ?? '(none)')
 );
 $assert(
-    ! isset($buttonTypography['fontFamily']) && str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif'),
-    'end to end: the CSS carrier preserves the authored typeface',
+    array(
+        'fontFamily' => '"Trebuchet MS", "Segoe UI", sans-serif',
+        'fontSize' => '0.88rem',
+        'fontWeight' => '700',
+        'letterSpacing' => '0.08em',
+        'textTransform' => 'uppercase',
+    ) === $buttonTypography,
+    'end to end: the resolved typography survives block-support normalization into style.typography',
     json_encode($buttonTypography)
 );
+// The cascade, not just the attribute, is the contract. WordPress emits
+// `:root :where(.wp-element-button, .wp-block-button__link){font-family:inherit;
+// font-size:inherit;letter-spacing:inherit;text-transform:inherit}` UNLAYERED in
+// global-styles-inline-css, and an unlayered rule beats every `@layer` the engine
+// can write. Only an inline value on the link outranks it, which is why core's own
+// save() serializes these properties there and why the attribute has to arrive.
 $assert(
-    str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif'),
-    'end to end: the rendered button link receives the authored typeface through its carrier, where theme.json cannot outrank it',
-    $css
+    str_contains($serialized, 'font-family:&quot;Trebuchet MS&quot;, &quot;Segoe UI&quot;, sans-serif')
+        && str_contains($serialized, 'font-size:0.88rem')
+        && str_contains($serialized, 'font-weight:700')
+        && str_contains($serialized, 'letter-spacing:0.08em')
+        && str_contains($serialized, 'text-transform:uppercase'),
+    'end to end: the rendered button link carries the authored typography inline, where unlayered Global Styles cannot outrank it',
+    $serialized
 );
 $assert(
-    null === $buttonTypography
+    str_contains($serialized, 'class="wp-block-button__link has-custom-font-size wp-element-button"'),
+    'end to end: a custom font size marks the link has-custom-font-size, as core save() does',
+    $serialized
+);
+$assert(
+    str_contains($css, 'font-family:"Trebuchet MS", "Segoe UI", sans-serif')
         && str_contains($css, 'font-size:0.88rem!important')
         && str_contains($css, 'font-weight:700!important')
         && str_contains($css, 'letter-spacing:0.08em!important')
         && str_contains($css, 'text-transform:uppercase!important'),
-    'end to end: the other carried typography declarations remain in the CSS carrier',
+    'end to end: the CSS carrier keeps its copy of the carried typography',
     $css
+);
+
+// -- A button whose rule authors no typography gains none, so theme defaults
+// keep inheriting rather than being frozen into the block.
+$untyped = ( new HtmlTransformer() )->transform(
+    '<style>.plain{background:#135e96;color:#fff;padding:10px 16px}</style>'
+    . '<div class="hero-cta"><a class="plain" href="/a">Start</a></div>',
+    array()
+)->toArray();
+$untypedButton = $untyped['blocks'][0]['innerBlocks'][0] ?? array();
+
+$assert(
+    ! isset($untypedButton['attrs']['style']['typography']),
+    'end to end: a button with no authored typography gains no typography attribute',
+    json_encode($untypedButton['attrs']['style'] ?? null)
+);
+$assert(
+    ! str_contains((string) ($untyped['serialized_blocks'] ?? ''), 'font-family:')
+        && ! str_contains((string) ($untyped['serialized_blocks'] ?? ''), 'font-size:'),
+    'end to end: no typeface or size is frozen inline onto an untyped button link',
+    (string) ($untyped['serialized_blocks'] ?? '')
 );
 
 if ( $failures > 0 ) {

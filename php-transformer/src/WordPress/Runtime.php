@@ -177,7 +177,17 @@ final class Runtime
         // automatic style-engine output on the wrapper), so baked padding stays
         // in the attribute object while the carrier fallback keeps its copy.
         $this->filterSpacing($style, $fallback, $supports, 'core/button' === $blockName);
-        $this->filterStyleGroup($style, $fallback, $supports, 'typography', array( 'fontFamily' => '__experimentalFontFamily', 'fontSize' => 'fontSize', 'fontWeight' => '__experimentalFontWeight', 'lineHeight' => 'lineHeight', 'letterSpacing' => '__experimentalLetterSpacing', 'textTransform' => '__experimentalTextTransform', 'textDecoration' => '__experimentalTextDecoration', 'fontStyle' => '__experimentalFontStyle' ));
+        // core/button's save() merges getTypographyClassesAndStyles() into the
+        // link's own style attribute for the exact properties its supports list
+        // under `typography.__experimentalSkipSerialization`, so that flag opts
+        // the block out of the wrapper style-engine output rather than out of
+        // typography altogether — the same distinction the spacing filter above
+        // already draws. Dropping these left the button's typeface to the
+        // UNLAYERED Global Styles rule for `.wp-element-button`, which sets
+        // `font-family: inherit` and therefore beats any `@layer` carrier rule
+        // the engine can write; only an inline value on the link survives that
+        // cascade. The carrier fallback still keeps its copy.
+        $this->filterStyleGroup($style, $fallback, $supports, 'typography', array( 'fontFamily' => '__experimentalFontFamily', 'fontSize' => 'fontSize', 'fontWeight' => '__experimentalFontWeight', 'lineHeight' => 'lineHeight', 'letterSpacing' => '__experimentalLetterSpacing', 'textTransform' => '__experimentalTextTransform', 'textDecoration' => '__experimentalTextDecoration', 'fontStyle' => '__experimentalFontStyle' ), false, 'core/button' === $blockName);
         $this->filterStyleGroup($style, $fallback, $supports, 'color', array( 'text' => 'text', 'background' => 'background', 'gradient' => 'gradients' ), true);
         $this->filterBorder($style, $fallback, $supports);
         if ( isset($style['shadow']) && ! $this->supportsFeature($supports, 'shadow', 'shadow') ) { $fallback['shadow'] = $style['shadow']; unset($style['shadow']); }
@@ -187,7 +197,7 @@ final class Runtime
     }
 
     /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports @param array<string, string> $features */
-    private function filterStyleGroup(array &$style, array &$fallback, array $supports, string $group, array $features, bool $colorDefaults = false): void { $values = is_array($style[ $group ] ?? null) ? $style[ $group ] : array(); foreach ( $features as $key => $feature ) if ( array_key_exists($key, $values) && ! $this->supportsFeature($supports, $group, $feature, $colorDefaults) ) { $fallback[ $group ][ $key ] = $values[ $key ]; unset($values[ $key ]); } if ( array() === $values ) unset($style[ $group ]); else $style[ $group ] = $values; }
+    private function filterStyleGroup(array &$style, array &$fallback, array $supports, string $group, array $features, bool $colorDefaults = false, bool $blockSerializesItsOwnValues = false): void { $values = is_array($style[ $group ] ?? null) ? $style[ $group ] : array(); foreach ( $features as $key => $feature ) if ( array_key_exists($key, $values) && ! $this->supportsFeature($supports, $group, $feature, $colorDefaults) ) { $fallback[ $group ][ $key ] = $values[ $key ]; if ( ! $blockSerializesItsOwnValues ) unset($values[ $key ]); } if ( array() === $values ) unset($style[ $group ]); else $style[ $group ] = $values; }
 
     /** @param array<string, mixed> $style @param array<string, mixed> $fallback @param array<string, mixed> $supports */
     private function filterSpacing(array &$style, array &$fallback, array $supports, bool $blockSerializesItsOwnPadding = false): void { $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array(); foreach ( array( 'margin', 'padding' ) as $box ) { $sides = is_array($spacing[ $box ] ?? null) ? $spacing[ $box ] : array(); foreach ( $sides as $side => $value ) if ( ! $this->supportsFeature($supports, 'spacing', $box, false, (string) $side) ) { $fallback['spacing'][ $box ][ $side ] = $value; if ( ! ( $blockSerializesItsOwnPadding && 'padding' === $box ) ) unset($sides[ $side ]); } if ( array() === $sides ) unset($spacing[ $box ]); else $spacing[ $box ] = $sides; } if ( isset($spacing['blockGap']) && ! $this->supportsFeature($supports, 'spacing', 'blockGap') ) { $fallback['spacing']['blockGap'] = $spacing['blockGap']; unset($spacing['blockGap']); } if ( array() === $spacing ) unset($style['spacing']); else $style['spacing'] = $spacing; }
