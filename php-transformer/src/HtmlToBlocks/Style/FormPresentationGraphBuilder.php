@@ -311,6 +311,10 @@ final class FormPresentationGraphBuilder
         $classifier = new SourceElementClassifier();
         foreach ( array('background', 'background_color') as $property ) if (isset($styles[$property]) && $classifier->isVisibleEmptyVisualPaint($styles[$property])) return true;
         if (isset($styles['border']) && $classifier->isVisibleEmptyVisualBorder($styles['border'])) return true;
+        // A zero-width border shorthand is a reset, not paint, even when a
+        // separate border-color also matched. Layered author resets often
+        // declare both `border: 0 solid` and `border-color` on `*`.
+        if (isset($styles['border']) && 1 === preg_match('/(?:^|\s)0(?:\.0+)?(?:px|em|rem|ex|ch|cm|mm|in|pt|pc|vw|vh|vmin|vmax)?(?:\s|$)/i', trim($styles['border']))) return false;
         foreach ( array('border_width', 'border_top_width', 'border_right_width', 'border_bottom_width', 'border_left_width') as $property ) if (isset($styles[$property]) && ! $classifier->isPositiveCssLength($styles[$property])) return false;
         foreach ( array('border_color', 'border_top_color', 'border_right_color', 'border_bottom_color', 'border_left_color') as $property ) if (isset($styles[$property]) && $classifier->isVisibleEmptyVisualPaint($styles[$property])) return true;
         return false;
@@ -453,7 +457,7 @@ final class FormPresentationGraphBuilder
                 if ( ! in_array($declaration['name'], self::PROPERTIES, true) ) continue;
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important );
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
                 $encoded = null === $rule['condition'] ? null : json_encode($rule['condition']);
                 if ( null === $encoded ) $target =& $base; else { $conditional[$encoded] ??= array(); $target =& $conditional[$encoded]; }
                 CssCascade::apply($target, $declaration['name'], $fact); unset($target);
