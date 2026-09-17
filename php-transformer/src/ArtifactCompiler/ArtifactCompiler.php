@@ -1483,7 +1483,7 @@ final class ArtifactCompiler
         $styleIndex = 0;
         return preg_replace_callback('/<style\b([^>]*)>(.*?)<\/style>/is', function (array $matches) use ($entryPath, $files, &$styleIndex): string {
             $attributes = (string) $matches[1];
-            if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) || '' === trim((string) $matches[2]) ) {
+            if ( ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) || '' === trim((string) $matches[2]) ) {
                 return (string) $matches[0];
             }
 
@@ -1583,16 +1583,14 @@ final class ArtifactCompiler
             static fn (array $style): array => array('kind' => 'style', 'offset' => $style['offset'], 'attributes' => $style['attributes'], 'content' => $style['content']),
             StyleTagScanner::scan($html)
         );
-        if ( preg_match_all('/<link\b[^>]*>/i', $html, $linkMatches, PREG_OFFSET_CAPTURE) ) {
-            foreach ($linkMatches[0] as $linkMatch) {
-                $tags[] = array('kind' => 'link', 'offset' => $linkMatch[1], 'tag' => $linkMatch[0]);
-            }
+        foreach ( StyleTagScanner::scanLinks($html) as $link ) {
+            $tags[] = array('kind' => 'link', 'offset' => $link['offset'], 'tag' => $link['tag']);
         }
         usort($tags, static fn (array $left, array $right): int => $left['offset'] <=> $right['offset']);
         foreach ( $tags as $tagRecord ) {
             if ( 'style' === $tagRecord['kind'] ) {
                 $attributes = $tagRecord['attributes'];
-                if ( ! $this->isCssStylesheetType($this->htmlAttribute($attributes, 'type')) ) {
+                if ( ! StyleTagScanner::isCssType($this->htmlAttribute($attributes, 'type')) ) {
                     continue;
                 }
                 if ( '' === trim($tagRecord['content']) ) {
@@ -1612,7 +1610,7 @@ final class ArtifactCompiler
                 continue;
             }
             $tag = $tagRecord['tag'];
-            if ( ! preg_match('/^<link\b/i', $tag) || ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel') ) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+            if ( ! preg_match('/^<link\b/i', $tag) || ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
                 continue;
             }
             $sourcePathForLink = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
@@ -1653,11 +1651,9 @@ final class ArtifactCompiler
         }
         $occurrences = array();
         $variants = array();
-        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
-            return $files;
-        }
-        foreach ( $matches[0] as $tag ) {
-            if ( ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel')) || ! $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+        foreach ( StyleTagScanner::scanLinks($html) as $link ) {
+            $tag = $link['tag'];
+            if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) || ! StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
                 continue;
             }
             $originalPath = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath, $files);
@@ -1755,12 +1751,6 @@ final class ArtifactCompiler
         }
         $reserved[$path] = true;
         return $path;
-    }
-
-    private function isCssStylesheetType(string $type): bool
-    {
-        $type = strtolower(trim($type));
-        return '' === $type || 1 === preg_match("/^text\\/css(?:\\s*;\\s*[!#$%&'*+\\-.^_`|~0-9a-z]+(?:\\s*=\\s*(?:[!#$%&'*+\\-.^_`|~0-9a-z]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)*\\s*$/i", $type);
     }
 
     /**
@@ -2101,11 +2091,8 @@ final class ArtifactCompiler
             if ( 'html' !== ($file['kind'] ?? '') || ! is_string($file['content'] ?? null) ) {
                 continue;
             }
-            if ( ! preg_match_all('/<link\b[^>]*>/i', (string) $file['content'], $matches) ) {
-                continue;
-            }
-            foreach ( $matches[0] as $tag ) {
-                $tags[trim((string) $tag)] = true;
+            foreach ( StyleTagScanner::scanLinks((string) $file['content']) as $link ) {
+                $tags[trim($link['tag'])] = true;
             }
         }
 
@@ -3126,10 +3113,10 @@ final class ArtifactCompiler
             $row = $attributes($tag, array('charset', 'name', 'property', 'http-equiv', 'content'));
             if (array() !== $row) { $row = array_merge(array('order' => count($meta), 'placement' => $placement((int) $match[1])), $row); $meta[] = $row; }
         }
-        if (preg_match_all('/<link\b[^>]*>/i', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
-            $tag = (string) $match[0]; $href = $this->htmlAttribute($tag, 'href');
+        foreach (StyleTagScanner::scanLinks($html) as $link) {
+            $tag = $link['tag']; $href = $this->htmlAttribute($tag, 'href');
             if ('' === $href) continue;
-            $links[] = array_merge(array('order' => count($links), 'placement' => $placement((int) $match[1])), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
+            $links[] = array_merge(array('order' => count($links), 'placement' => $placement($link['offset'])), $attributes($tag, array('rel', 'type', 'media', 'integrity', 'crossorigin', 'referrerpolicy', 'as', 'fetchpriority', 'sizes')), $reference($href));
         }
         if (preg_match_all('/<script\b[^>]*>(?:.*?)<\/script\s*>/is', $html, $matches, PREG_OFFSET_CAPTURE)) foreach ($matches[0] as $match) {
             $tag = (string) $match[0]; $open = strstr($tag, '>', true) . '>'; $src = $this->htmlAttribute($open, 'src');
@@ -3658,18 +3645,16 @@ final class ArtifactCompiler
     {
         $unsupported = array();
         $supported = array();
-        if ( ! preg_match_all('/<link\b[^>]*>/i', $html, $matches) ) {
-            return $unsupported;
-        }
-        foreach ( $matches[0] as $tag ) {
-            if ( ! preg_match('/(?:^|\s)stylesheet(?:\s|$)/i', $this->htmlAttribute((string) $tag, 'rel')) ) {
+        foreach ( StyleTagScanner::scanLinks($html) as $link ) {
+            $tag = $link['tag'];
+            if ( ! StyleTagScanner::isStylesheetRel($this->htmlAttribute((string) $tag, 'rel')) ) {
                 continue;
             }
             $path = $this->stylesheetPathFromHref($this->htmlAttribute((string) $tag, 'href'), $sourcePath);
             if ( '' === $path ) {
                 continue;
             }
-            if ( $this->isCssStylesheetType($this->htmlAttribute((string) $tag, 'type')) ) {
+            if ( StyleTagScanner::isCssType($this->htmlAttribute((string) $tag, 'type')) ) {
                 $supported[$path] = true;
             } else {
                 $unsupported[$path] = true;

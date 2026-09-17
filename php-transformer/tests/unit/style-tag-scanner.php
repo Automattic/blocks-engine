@@ -45,6 +45,27 @@ $assert(str_contains((string) ($authorAssets[0]['content'] ?? ''), '.large{color
 $planAssets = $compiled['source_reports']['wordpress_site_plan']['assets'] ?? array();
 $assert((bool) array_filter($planAssets, static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '') && 'inline-style' === ($asset['source'] ?? '')), 'WordPress site plan retains inline author stylesheet coverage');
 
+// `<link>` scanning and the stylesheet predicates live here so that callers
+// asking "which stylesheets does this document link" reach for one scanner.
+// ArtifactCompiler scanned `<link>` five separate times, read `rel` with three
+// separate copies of the same expression, and carried a byte-for-byte duplicate
+// of the media-type test.
+$links = StyleTagScanner::scanLinks('<link rel="stylesheet" href="a.css"><p>x</p><link rel="preload stylesheet" href="b.css">');
+$assert(2 === count($links), 'every link tag is scanned');
+$assert(0 === $links[0]['offset'], 'the first link reports its own offset');
+$assert('<link rel="stylesheet" href="a.css">' === $links[0]['tag'], 'the whole tag is returned');
+$assert($links[1]['offset'] > $links[0]['offset'], 'a later link reports a later offset');
+$assert(array() === StyleTagScanner::scanLinks('<p>no links here</p>'), 'a document with no links scans to nothing');
+
+// `rel` is a space-separated token list, so the token has to match on its own
+// boundaries.
+$assert(StyleTagScanner::isStylesheetRel('stylesheet'), 'a bare stylesheet rel matches');
+$assert(StyleTagScanner::isStylesheetRel('preload stylesheet'), 'a stylesheet token among others matches');
+$assert(StyleTagScanner::isStylesheetRel('STYLESHEET'), 'the rel token is case-insensitive');
+$assert(! StyleTagScanner::isStylesheetRel('stylesheets'), 'a longer token is not a stylesheet rel');
+$assert(! StyleTagScanner::isStylesheetRel('preconnect'), 'an unrelated rel does not match');
+$assert(! StyleTagScanner::isStylesheetRel(''), 'an absent rel does not match');
+
 if ($failures > 0) {
     exit(1);
 }
