@@ -24,7 +24,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 1 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube video-frame\"><div class=\"wp-block-embed__wrapper\">https://www.youtube.com/watch?v=abc123</div></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-youtube wp-block-embed-youtube video-frame\"><div class=\"wp-block-embed__wrapper\">\nhttps://www.youtube.com/watch?v=abc123\n</div></figure>" },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "srcdoc" },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onload" },

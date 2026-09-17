@@ -25,8 +25,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "blocks", "assert": "count", "count": 2 },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-dailymotion wp-block-embed-dailymotion\"><div class=\"wp-block-embed__wrapper\">https://www.dailymotion.com/video/x7tgad0</div></figure>" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify\"><div class=\"wp-block-embed__wrapper\">https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh</div></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-video is-provider-dailymotion wp-block-embed-dailymotion\"><div class=\"wp-block-embed__wrapper\">\nhttps://www.dailymotion.com/video/x7tgad0\n</div></figure>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figure class=\"wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify\"><div class=\"wp-block-embed__wrapper\">\nhttps://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh\n</div></figure>" },
     { "path": "fallbacks", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "srcdoc" },
     { "path": "fallbacks.0.html", "assert": "not_contains", "value": "onload" },
