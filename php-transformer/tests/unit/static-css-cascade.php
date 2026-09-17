@@ -12,7 +12,13 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StylesheetAnalysisComposer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
 $failures = 0;
 $passes = 0;
@@ -39,6 +45,49 @@ $resolve = static function (string $html, string $css, string $xpath, array $pro
     }
 
     return ( new StaticCssCascade($dom, $css) )->resolve($element, $properties, $inheritable);
+};
+
+/**
+ * The value the TRANSFORMER resolves for one author-declared property, which is
+ * the candidate side of the same comparison `$resolve()` supplies the source
+ * side of. `declaredPresentation()->resolvedValue()` is the entry point every
+ * colour carrier reads, and it is where an `@supports` condition the evaluator
+ * cannot read turns into the wrong declaration.
+ */
+$resolvedAuthorColor = static function (string $html, string $css, string $xpath): string {
+    $dom = new DOMDocument();
+    $previous = libxml_use_internal_errors(true);
+    $dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
+    libxml_clear_errors();
+    libxml_use_internal_errors($previous);
+
+    $element = ( new DOMXPath($dom) )->query($xpath)->item(0);
+    if ( ! $element instanceof DOMElement ) {
+        throw new RuntimeException("No element for {$xpath}");
+    }
+
+    $session = new HtmlTransformerSession(new Runtime(), static fn (DOMElement $node): array => array());
+    $context = null;
+    $context = new StyleResolutionContext(
+        $session,
+        static fn (DOMElement $node): int => 0,
+        static fn (string $value): string => $value,
+        static function (string $selector) use (&$context): array {
+            return $context->sourceStyles()->parsedSelector($selector);
+        },
+        static fn (string $className): string => $className,
+        static fn (string $url): string => $url,
+        static fn (DOMElement $node): bool => false
+    );
+
+    $analysisCache = new HtmlTransformerAnalysisCache();
+    $resolver = new StyleResolver($context, $analysisCache);
+    $context->sourceStyles()->installStylesheetAnalysis(
+        array(),
+        ( new StylesheetAnalysisComposer($resolver, $analysisCache) )->composedStyleAnalysis(array( $css ))
+    );
+
+    return $resolver->declaredPresentation($element, 'color')->resolvedValue();
 };
 
 $page = '<html><body><footer class="site-footer"><div class="col"><ul><li><a href="#">Link</a></li></ul></div></footer><nav class="main-nav">nav</nav></body></html>';
@@ -124,6 +173,93 @@ $assert(
 $assert(
     ! CssCascade::supportsConditionApplies('(display:grid) and (unknown-feature:value)'),
     'unknown @supports terms remain fail-closed inside compound expressions'
+);
+
+// Tailwind v4 emits every opacity-modified colour as a progressive-enhancement
+// pair: an opaque fallback, then the translucent value gated on
+// `@supports (color:color-mix(in lab, red, red))`. Reading that gate as unknown
+// takes the fallback, and every translucent colour on the page renders opaque.
+// One real stylesheet carried 74 of these pairs, which is the shape of every
+// Tailwind v4 build and so of essentially every Lovable/v0/Bolt site.
+$assert(
+    CssCascade::supportsConditionApplies('(color:color-mix(in lab, red, red))'),
+    'the Tailwind v4 colour-mix gate applies'
+);
+$assert(
+    CssCascade::supportsConditionApplies('(color: color-mix(in lab, red, red))'),
+    'whitespace around the colon does not change the colour-mix gate'
+);
+foreach ( array( 'lab(29% 39 -52)', 'lch(29% 65 301)', 'oklab(0.4 0.09 -0.13)', 'oklch(0.4 0.16 301)', 'color(display-p3 1 1 1)' ) as $function ) {
+    $assert(
+        CssCascade::supportsConditionApplies("(color:{$function})"),
+        "the widely available colour function {$function} applies"
+    );
+}
+$assert(
+    CssCascade::supportsConditionApplies('(background-color:color-mix(in oklab, var(--brand) 70%, transparent))'),
+    'a nested-paren colour-mix value under a -color longhand applies'
+);
+$assert(
+    CssCascade::supportsConditionApplies('(fill:oklch(0.4 0.16 301))'),
+    'SVG paint accepts a widely available colour function'
+);
+
+// The allowlist states browser support, so everything it does not name stays
+// unknown. Blanket-applying unsupported `@supports` blocks would be a worse
+// defect than the opaque fallback this fixes.
+$assert(
+    ! CssCascade::supportsConditionApplies('(color: some-nonexistent-fn(1))'),
+    'an unrecognised colour function remains fail-closed'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(color:rgb(from red r g b))'),
+    'relative colour syntax remains unknown'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(color:lch(from red l c calc(h + 180deg)))'),
+    'relative colour syntax stays unknown even inside an allowlisted function'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(width:color-mix(in lab, red, red))'),
+    'a colour function under a property that takes no colour remains unknown'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('(color:color-mix(in lab, red, red) nonsense)'),
+    'a value that is more than one function call remains unknown'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('not (color:color-mix(in lab, red, red))'),
+    'negating a known-supported colour function is known false'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('not (color: some-nonexistent-fn(1))'),
+    'negating an unknown term stays unknown rather than becoming true'
+);
+$assert(
+    CssCascade::supportsConditionApplies('(color: some-nonexistent-fn(1)) or (color:color-mix(in lab, red, red))'),
+    'a known-supported colour alternative carries an or-expression past an unknown term'
+);
+$assert(
+    ! CssCascade::supportsConditionApplies('not (display: grid)'),
+    'negating a known-supported display value is still known false'
+);
+
+// Both sides of a parity comparison have to read the pair the same way. The
+// probe inlines `@supports` bodies; the transformer evaluates the condition. An
+// engine that resolved the fallback here reported the author's translucent
+// colour as opaque against a source that reported it correctly.
+$translucent = ':root{--foreground:oklch(0.24 0.031 254.5)}'
+    . '.meta{color:var(--foreground)}'
+    . '@supports (color:color-mix(in lab, red, red)){.meta{color:color-mix(in oklab, var(--foreground) 70%, transparent)}}';
+$mixed = 'color-mix(in oklab, oklch(0.24 0.031 254.5) 70%, transparent)';
+
+$metaPage = '<html><body><p class="meta">Independent designer</p></body></html>';
+$result = $resolve($metaPage, $translucent, '//p', array( 'color' ));
+$assert($mixed === ( $result['color'] ?? '' ), 'the source probe reads the @supports-gated translucent colour');
+
+$assert(
+    'color-mix(in oklab, var(--foreground) 70%, transparent)' === $resolvedAuthorColor($metaPage, $translucent, '//p'),
+    'the transformer resolves the @supports-gated translucent colour, not the opaque fallback'
 );
 
 $result = $resolve($page, '@media print { .main-nav { display: none; } }', '//nav', array( 'display' ));

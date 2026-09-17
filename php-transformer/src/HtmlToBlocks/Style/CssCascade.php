@@ -48,6 +48,23 @@ final class CssCascade
     }
 
     /**
+     * CSS colour functions that every evergreen browser has shipped.
+     *
+     * All six reached Baseline widely available together — interoperable since
+     * May 2023 (Chrome 111, Safari 15.4/16.2, Firefox 113), the Baseline 2023
+     * colour cohort. A browser running the transformed output resolves an
+     * `@supports` block gating one of these to true, so the engine has to as
+     * well.
+     *
+     * Relative colour syntax (`lch(from red l c h)`) is deliberately absent. It
+     * is a later, still-diverging feature — MDN's own guide gates it behind
+     * `@supports (color: lch(from red l c calc(h + 180deg)))` to tell Safari's
+     * first implementation apart from the current one — so its truth value here
+     * stays unknown.
+     */
+    private const WIDELY_AVAILABLE_COLOR_FUNCTIONS = array( 'color', 'color-mix', 'lab', 'lch', 'oklab', 'oklch' );
+
+    /**
      * Evaluate the supported subset of a CSS @supports condition.
      *
      * The tri-state evaluator preserves unknown terms through `not`, `and`, and
@@ -55,14 +72,72 @@ final class CssCascade
      */
     public static function supportsConditionApplies(string $condition): bool
     {
-        return true === self::booleanConditionValue($condition, static function (string $term): ?bool {
-            [$property, $value] = array_pad(array_map('trim', explode(':', strtolower($term), 2)), 2, '');
-            return ('display' === $property && in_array($value, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true))
-                || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
-                || ('object-fit' === $property && in_array($value, array( 'cover', 'contain' ), true))
-                ? true
-                : null;
-        });
+        return true === self::booleanConditionValue($condition, static fn (string $term): ?bool => self::supportsTermValue($term));
+    }
+
+    /** Whether a single `property: value` support test is known true, or null when unknown. */
+    private static function supportsTermValue(string $term): ?bool
+    {
+        [$property, $value] = array_pad(array_map('trim', explode(':', strtolower($term), 2)), 2, '');
+        return ('display' === $property && in_array($value, array( 'flex', 'grid', 'inline-flex', 'inline-grid' ), true))
+            || ('aspect-ratio' === $property && 1 === preg_match('#^\d*\.?\d+\s*(?:/\s*\d*\.?\d+)?$#', $value))
+            || ('object-fit' === $property && in_array($value, array( 'cover', 'contain' ), true))
+            || self::declaresWidelyAvailableColorFunction($property, $value)
+            ? true
+            : null;
+    }
+
+    /**
+     * Whether a support test paints a colour property with a widely available
+     * colour function.
+     *
+     * Tailwind v4 emits every opacity-modified colour as a progressive
+     * enhancement pair — an opaque fallback, then the translucent value behind
+     * `@supports (color: color-mix(in lab, red, red))`. Reading that gate as
+     * unknown takes the fallback and renders the whole page opaque.
+     *
+     * The property has to accept a colour for the test to be true: every CSS
+     * colour property is named `color` or `<something>-color`, plus the SVG
+     * paints. A colour function under any other property stays unknown rather
+     * than becoming true.
+     */
+    private static function declaresWidelyAvailableColorFunction(string $property, string $value): bool
+    {
+        if ( 1 !== preg_match('/(?:^|-)color$/', $property) && ! in_array($property, array( 'fill', 'stroke' ), true) ) {
+            return false;
+        }
+        $name = self::soleFunctionName($value);
+        if ( ! in_array($name, self::WIDELY_AVAILABLE_COLOR_FUNCTIONS, true) ) {
+            return false;
+        }
+        // `color(from red srgb r g b)` is relative colour syntax wearing an
+        // allowlisted function's name, and is not the same feature.
+        return 1 !== preg_match('/^from\s/', trim(substr($value, strlen($name) + 1, -1)));
+    }
+
+    /** The name of the single CSS function a value consists of, or '' when it is anything else. */
+    private static function soleFunctionName(string $value): string
+    {
+        $open = strpos($value, '(');
+        if ( false === $open || ! str_ends_with($value, ')') ) {
+            return '';
+        }
+        $name = substr($value, 0, $open);
+        if ( 1 !== preg_match('/^[a-z][a-z0-9-]*$/', $name) ) {
+            return '';
+        }
+        $state = CssSyntaxScanner::state();
+        for ( $offset = $open, $length = strlen($value); $offset < $length; ) {
+            $next = CssSyntaxScanner::consume($value, $offset, $state);
+            if ( null === $next ) {
+                return '';
+            }
+            if ( 0 === $state['parens'] ) {
+                return $length === $next ? $name : '';
+            }
+            $offset = $next;
+        }
+        return '';
     }
 
     /** @param callable(string): ?bool $termValue */
