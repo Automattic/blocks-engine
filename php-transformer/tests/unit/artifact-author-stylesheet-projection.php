@@ -209,6 +209,28 @@ $standaloneAnchorValidity = ( new HtmlTransformer() )->transform('<style>.flex-l
 $assert(7 === substr_count($standaloneAnchorMarkup, '<p class=') && str_contains($standaloneAnchorMarkup, '<p>Normal <a href="/prose">prose link</a>.</p>') && ! str_contains($standaloneAnchorMarkup, 'wp:html'), 'direct flex, grid, and standalone anchors retain native editable links in synthetic paragraph carriers without changing normal prose links or using HTML fallback');
 $assert(str_contains($standaloneAnchorCss, ':where(p.blocks-engine-synthetic-paragraph)>a{text-decoration:underline}') && str_contains($standaloneAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-undecorated)>a{text-decoration:none}') && 6 === substr_count($standaloneAnchorMarkup, 'blocks-engine-synthetic-anchor-undecorated') && 'none' === ($standaloneAnchorDecorations['Explicit none'] ?? '') && 'pass' === ($standaloneAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''), 'source-resolved explicit, direct-child :not(), and :last-child text-decoration suppressions survive synthetic carriers while default underline anchors remain covered by the baseline rule');
 
+// A Tailwind Preflight-style `a{text-decoration:inherit}` reset resolves to
+// `none` on a plain, undeclared ancestor: the inherited chain must be walked
+// to find that resolution, not just the anchor's own declaration (#4 of the
+// harrykahanhai.lovable.app regressions). An ancestor that itself declares
+// `underline` must keep the same inherited anchor underlined, so the walk
+// does not turn every reset anchor into an undecorated one. `text-decoration`
+// is not a cascade-inheritable property for the static parity probe (it isn't
+// one in real CSS either — only the explicit `inherit` keyword propagates it),
+// so this asserts directly on the marker class the engine emits rather than on
+// a probed computed value.
+$inheritedAnchorCarriers = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="reset.css"><div class="plain-wrap"><a class="reset-link" href="/reset">Reset link</a></div><div class="underline-wrap"><a class="reset-link" href="/underline">Underline link</a></div>' ),
+    array( 'path' => 'reset.css', 'kind' => 'css', 'content' => 'a{text-decoration:inherit}.underline-wrap{text-decoration:underline}' ),
+) ) )->toArray();
+$inheritedAnchorMarkup = (string) ($inheritedAnchorCarriers['serialized_blocks'] ?? '');
+$inheritedAnchorValidity = ( new HtmlTransformer() )->transform('<style>a{text-decoration:inherit}.underline-wrap{text-decoration:underline}</style><div class="plain-wrap"><a class="reset-link" href="/reset">Reset link</a></div><div class="underline-wrap"><a class="reset-link" href="/underline">Underline link</a></div>')->toArray();
+$assert(2 === substr_count($inheritedAnchorMarkup, 'blocks-engine-synthetic-anchor-undecorated')
+    && str_contains($inheritedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph blocks-engine-synthetic-anchor-undecorated" style="text-decoration:inherit"><a class="reset-link" href="/reset">Reset link</a></p>')
+    && str_contains($inheritedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph" style="text-decoration:inherit"><a class="reset-link" href="/underline">Underline link</a></p>')
+    && 'pass' === ($inheritedAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''),
+    'an inherited text-decoration reset that resolves to none through a plain ancestor is marked undecorated, while the same reset resolving to underline through an explicitly-underlined ancestor is not');
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),
