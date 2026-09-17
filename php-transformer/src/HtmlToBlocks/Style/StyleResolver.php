@@ -686,35 +686,47 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
-     * A source `<img>` box constrained by author CSS `min-width`, `max-width`,
-     * `min-height`, or `max-height` — properties core/image cannot express as
-     * a native block attribute at all (it serializes only a single width/
-     * height pair, or an aspectRatio/scale crop). core/image's save() puts
-     * `className` on the generated `<figure>` — or, when the source `<img>`
-     * is itself the anchor of a link, on that same figure one level further
-     * out — never on the descendant `<img>` that actually paints. An author
-     * class establishing this constraint therefore sizes a box nothing
-     * renders, and the image is free to render at whatever its intrinsic
-     * width/height attributes (or an unconstrained native width/height carry)
-     * resolve to instead.
+     * A source `<img>` box constrained by author CSS `min-width`/`max-width`/
+     * `min-height`/`max-height` — properties core/image cannot express as a
+     * native block attribute at all — or by a `width`/`height` the caller's
+     * own native width/height resolution above could not carry as one.
      *
-     * This reaches the same be-inline-geometry primitive {@see
-     * SvgMaterializer::inlineSvgImageAttributesFromMarkup()} already uses to
-     * carry a materialized inline SVG's own box (see also #1624 for the
-     * analogous button-icon failure this mirrors), targeting a descendant
-     * `img` selector so it reaches the `<img>` whether or not a source `<a>`
-     * still sits between the figure and it. `!important` is required: the
-     * generic per-class figure-to-image bridge {@see
-     * AuthorStylesheetProjector::imageProjectionBridgeDeclarations()} already
-     * restates a blanket `max-width:100%` at higher selector specificity for
-     * every author class merged onto the figure, which would otherwise mask
-     * this narrower, author-intended constraint.
+     * core/image's save() puts `className` on the generated `<figure>` — or,
+     * when the source `<img>` is itself the anchor of a link, on the same
+     * figure one level further out — never on the descendant `<img>` that
+     * actually paints. An author class establishing this box therefore sizes
+     * a box nothing renders, and the image falls back to its intrinsic
+     * width/height attributes. This carries the resolved box through the
+     * same be-inline-geometry primitive {@see
+     * SvgMaterializer::inlineSvgImageAttributesFromMarkup()} already uses for
+     * a materialized inline SVG's box (see also #1624 for the analogous
+     * button-icon failure this mirrors), targeting a descendant `img`
+     * selector so it reaches the `<img>` whether or not a source `<a>`
+     * still sits between the figure and it.
+     *
+     * A `width`/`height` this resolves is a safety net only: it fires
+     * exclusively when the caller's own native attribute for that axis is
+     * still empty (and, for height, no native aspectRatio already implies
+     * it), so an already-successful native width/height/aspectRatio/scale
+     * carry is left untouched.
      */
-    public function imageBoxConstraintClassName(DOMElement $image): string
+    public function imageBoxConstraintClassName(DOMElement $image, string $nativeWidth, string $nativeHeight, bool $hasNativeAspectRatio): string
     {
         $declarations = $this->imageShapeDeclarations($image);
         $box = array();
-        foreach (array('min-width', 'max-width', 'min-height', 'max-height') as $property) {
+        foreach (array('width', 'min-width', 'max-width') as $property) {
+            if ('width' === $property && '' !== $nativeWidth) {
+                continue;
+            }
+            $value = $this->comparableImageShapeConstraintValue($declarations, $property);
+            if ('' !== $value) {
+                $box[$property] = $value;
+            }
+        }
+        foreach (array('height', 'min-height', 'max-height') as $property) {
+            if ('height' === $property && ('' !== $nativeHeight || $hasNativeAspectRatio)) {
+                continue;
+            }
             $value = $this->comparableImageShapeConstraintValue($declarations, $property);
             if ('' !== $value) {
                 $box[$property] = $value;
