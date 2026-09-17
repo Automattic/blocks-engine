@@ -141,8 +141,8 @@ $assert(
     $serialized
 );
 $assert(
-    str_contains($serialized, 'class="wp-block-button__link has-custom-font-size wp-element-button"'),
-    'end to end: a custom font size marks the link has-custom-font-size, as core save() does',
+    str_contains($serialized, 'class="wp-block-button__link has-text-color has-background has-border-color has-custom-font-size wp-element-button"'),
+    'end to end: a custom font size marks the link has-custom-font-size beside the colour and border support classes, as core save() does',
     $serialized
 );
 $assert(
