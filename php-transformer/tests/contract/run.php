@@ -2598,7 +2598,8 @@ $buttonCustomFontSizeResult = ( new HtmlTransformer() )->transform(
 )->toArray();
 $buttonCustomFontSizeMarkup = (string) ($buttonCustomFontSizeResult['serialized_blocks'] ?? '');
 $buttonCustomFontSizeCss = implode("\n", array_column($buttonCustomFontSizeResult['assets'] ?? array(), 'content'));
-$assert(! str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size avoids unsupported native save markup');
+$assert(str_contains($buttonCustomFontSizeMarkup, 'has-custom-font-size'), 'button custom font-size emits the WordPress support class core/button save() puts on its link');
+$assert(str_contains($buttonCustomFontSizeMarkup, 'font-size:1rem'), 'button custom font-size serializes inline on the link, where unlayered Global Styles cannot outrank it');
 $assert(str_contains($buttonCustomFontSizeCss, 'font-size:1rem !important'), 'button custom font-size preserves the declaration through the carrier');
 $assert('pass' === ($buttonCustomFontSizeResult['source_reports']['wp_block_validity']['status'] ?? ''), 'button custom font-size serialization passes generated WordPress block validity checks');
 
