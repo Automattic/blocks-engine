@@ -9,10 +9,12 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 /**
  * Marker-class engine-support CSS gated on serialized block markup.
  *
- * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()} so the
- * compiler orchestrates cascade order without owning the CSS table. No
+ * Extracted from {@see HtmlCompilation::materializeAuthorStylesheet()}. No
  * HtmlCompilation `$this` — only public constants and the layout-shell block
- * name passed in as a string.
+ * name passed in as a string. The after-author methods tag their own
+ * {@see CascadeRule} layer, per {@see CascadeLayer}; the compiler only
+ * collects and orders what it is handed, it does not decide where a
+ * contribution belongs.
  */
 final class EngineSupportCss
 {
@@ -159,9 +161,13 @@ final class EngineSupportCss
     }
 
     /**
-     * @return list<string>
+     * Structural repairs to Gutenberg's own generated markup — table-column
+     * flex geometry, and inheriting text colour across a content-wrapping
+     * link core cannot see — tagged {@see CascadeLayer::GENERATED_MARKUP_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
-    public function afterAuthorEarlyCss(string $serializedBlocks): array
+    public function generatedMarkupRepairCss(string $serializedBlocks): array
     {
         $parts = array();
         if ( str_contains($serializedBlocks, self::LAYOUT_TABLE_COLUMNS_CLASS) ) {
@@ -176,11 +182,17 @@ final class EngineSupportCss
             $parts[] = ':root :where(.' . self::PROPAGATED_LINK_COLOR_CARRIER_CLASS . ')>a{color:inherit}';
         }
 
-        return $parts;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::GENERATED_MARKUP_REPAIR, $css),
+            $parts
+        );
     }
 
     /**
-     * @return list<string>
+     * Repairs to core/social-links' own rendering, independent of anything
+     * captured from the source — tagged {@see CascadeLayer::BLOCK_RENDER_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
     public function socialLinkCss(string $serializedBlocks): array
     {
@@ -205,17 +217,24 @@ final class EngineSupportCss
                 . ':root ul.wp-block-social-links.is-content-justification-space-between{justify-content:space-between}';
         }
 
-        return $parts;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::BLOCK_RENDER_REPAIR, $css),
+            $parts
+        );
     }
 
     /**
-     * @return list<string>
+     * Repairs for how a promoted list-navigation's host renders across its
+     * responsive/dialog/sidebar/brand-carrier variants — tagged
+     * {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
-    public function listNavigationAfterAuthorPrefixCss(string $serializedBlocks, string $mobileOverlayBackground): array
+    public function listNavigationHostRepairCss(string $serializedBlocks, string $mobileOverlayBackground): array
     {
         $parts = array();
         if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            return $parts;
+            return array();
         }
         // Keep only source-responsive navigation hosts visible. Ordinary
         // link rows retain authored mobile display rules without core's
@@ -268,17 +287,24 @@ final class EngineSupportCss
         // source declared it on the menu element or on its list.
         $parts[] = 'nav.wp-block-group.blocks-engine-brand-navigation-carrier>.wp-block-navigation.blocks-engine-list-navigation{width:max-content;max-width:100%}';
 
-        return $parts;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css),
+            $parts
+        );
     }
 
     /**
-     * @return list<string>
+     * Overlay-background and submenu-overflow follow-ups for a promoted
+     * list-navigation, emitted once the host repair and item-anchor rules
+     * are known — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
-    public function listNavigationAfterAuthorSuffixCss(string $serializedBlocks, string $mobileOverlayBackground): array
+    public function listNavigationOverlayRepairCss(string $serializedBlocks, string $mobileOverlayBackground): array
     {
         $parts = array();
         if ( ! str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
-            return $parts;
+            return array();
         }
         if ( '' !== $mobileOverlayBackground ) {
             $parts[] = '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation__responsive-container.is-menu-open{background:' . $mobileOverlayBackground . '!important}';
@@ -292,13 +318,20 @@ final class EngineSupportCss
             $parts[] = ':where(.wp-block-group:has(.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-submenu)){overflow:visible!important}';
         }
 
-        return $parts;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css),
+            $parts
+        );
     }
 
     /**
-     * @return list<string>
+     * A second, later wave of block-render repairs (inline-navigation
+     * display, social-links logo-only styling, source social-item spacing)
+     * — tagged {@see CascadeLayer::SECONDARY_BLOCK_RENDER_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
-    public function afterAuthorLateCss(string $serializedBlocks): array
+    public function secondaryBlockRenderRepairCss(string $serializedBlocks): array
     {
         $parts = array();
         if ( str_contains($serializedBlocks, 'blocks-engine-inline-navigation') ) {
@@ -311,6 +344,9 @@ final class EngineSupportCss
             $parts[] = '.wp-block-social-links.blocks-engine-source-social-item-spacing{gap:0}';
         }
 
-        return $parts;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SECONDARY_BLOCK_RENDER_REPAIR, $css),
+            $parts
+        );
     }
 }

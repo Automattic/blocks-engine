@@ -133,7 +133,9 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
@@ -2016,7 +2018,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $beforeAuthorCssParts = array();
         $authorCssParts = array();
-        $afterAuthorCssParts = array();
+        $afterAuthorCss = new LayeredCssCollector();
         $authorCss = '';
         if ( $includeAuthorStyles && '' !== $this->authorStyles()->combinedCss() ) {
             $authorCss = $this->rewriteAuthorStylesheet($this->authorStyles()->combinedCss());
@@ -2041,52 +2043,38 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $engineSupportCss = new EngineSupportCss();
         array_push($beforeAuthorCssParts, ...$engineSupportCss->beforeAuthorCss($serializedBlocks, $this->generatedBlocks()->blockName('layout-shell')));
-        array_push($afterAuthorCssParts, ...$engineSupportCss->afterAuthorEarlyCss($serializedBlocks));
-        foreach ( $this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks) as $navigationLinkTextColorRule ) {
-            $afterAuthorCssParts[] = $navigationLinkTextColorRule;
-        }
-        array_push($afterAuthorCssParts, ...$this->session->sourceTargetProjectionState()->rules());
-        foreach ( $this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks) as $navigationLinkIconRule ) {
-            $afterAuthorCssParts[] = $navigationLinkIconRule;
-        }
-        array_push($afterAuthorCssParts, ...$engineSupportCss->socialLinkCss($serializedBlocks));
-        array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
+        // Precedence for everything below is declared on each contribution's
+        // CascadeLayer (see CascadeLayer), not by the order these calls
+        // appear in. $afterAuthorCss orders the collected stylesheet by that
+        // declared layer once every contribution below has been collected.
+        $afterAuthorCss->absorb($engineSupportCss->generatedMarkupRepairCss($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
+        $afterAuthorCss->addAll(CascadeLayer::SOURCE_STYLE_PROJECTION, $this->session->sourceTargetProjectionState()->rules());
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks));
+        $afterAuthorCss->absorb($engineSupportCss->socialLinkCss($serializedBlocks));
+        $afterAuthorCss->absorb($this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();
         if ( '' !== $nativeSearchTriggerCss ) {
             $beforeAuthorCssParts[] = $nativeSearchTriggerCss;
         }
         if ( '' !== trim($authorCss) ) {
             $authorCssParts[] = $authorCss;
-            $adminBarAccommodation = (new AdminBarAccommodation())->supportCss($authorCss);
-            if ( '' !== $adminBarAccommodation ) {
-                $afterAuthorCssParts[] = $adminBarAccommodation;
-            }
+            $afterAuthorCss->add(CascadeLayer::VIEWPORT_CHROME_COMPAT, (new AdminBarAccommodation())->supportCss($authorCss));
         }
         if ( str_contains($serializedBlocks, 'blocks-engine-list-navigation') ) {
             $mobileOverlayBackground = $this->navigationStyleProjector->sourceMobileNavigationOverlayBackground();
-            array_push($afterAuthorCssParts, ...$engineSupportCss->listNavigationAfterAuthorPrefixCss($serializedBlocks, $mobileOverlayBackground));
-            foreach ( $this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks) as $inlineMarginRule ) {
-                $afterAuthorCssParts[] = $inlineMarginRule;
-            }
-            foreach ( $this->navigationStyleProjector->listNavigationPaddingRules($serializedBlocks) as $paddingRule ) {
-                $afterAuthorCssParts[] = $paddingRule;
-            }
-            foreach ( $this->navigationStyleProjector->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
-                $afterAuthorCssParts[] = $itemAnchorRule;
-            }
-            array_push($afterAuthorCssParts, ...$engineSupportCss->listNavigationAfterAuthorSuffixCss($serializedBlocks, $mobileOverlayBackground));
+            $afterAuthorCss->absorb($engineSupportCss->listNavigationHostRepairCss($serializedBlocks, $mobileOverlayBackground));
+            $afterAuthorCss->absorb($this->navigationStyleProjector->listNavigationInlineMarginRules($serializedBlocks));
+            $afterAuthorCss->absorb($this->navigationStyleProjector->listNavigationPaddingRules($serializedBlocks));
+            $afterAuthorCss->absorb($this->navigationStyleProjector->listNavigationItemAnchorRules($serializedBlocks, $sourceProvenance));
+            $afterAuthorCss->absorb($engineSupportCss->listNavigationOverlayRepairCss($serializedBlocks, $mobileOverlayBackground));
         }
-        array_push($afterAuthorCssParts, ...$engineSupportCss->afterAuthorLateCss($serializedBlocks));
-        foreach ( $this->navigationStyleProjector->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance) as $itemAnchorRule ) {
-            $afterAuthorCssParts[] = $itemAnchorRule;
-        }
-        $directNavigationCss = $this->navigationStyleProjector->directNavigationSupportCss($serializedBlocks);
-        if ( '' !== $directNavigationCss ) {
-            $afterAuthorCssParts[] = $directNavigationCss;
-        }
-        array_push($afterAuthorCssParts, ...$this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
-        array_push($afterAuthorCssParts, ...$this->generatedSupportStyles()->buttonAfterAuthorCss());
-        array_push($afterAuthorCssParts, ...$this->styleResolver->closedStateRepairCssRules());
+        $afterAuthorCss->absorb($engineSupportCss->secondaryBlockRenderRepairCss($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationItemStateAnchorRules($serializedBlocks, $sourceProvenance));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationSupportCss($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->directNavigationDisplayRules($serializedBlocks));
+        $afterAuthorCss->absorb($this->generatedSupportStyles()->buttonAfterAuthorCss());
+        $afterAuthorCss->addAll(CascadeLayer::CLOSED_STATE_REPAIR, $this->styleResolver->closedStateRepairCssRules());
         // A captured reveal whose driver did not survive import must still
         // settle at the appearance it was travelling towards, not at the hidden
         // keyframe it starts from (#239). Read the projected author CSS the
@@ -2097,7 +2085,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $settleableAuthorCss = '' !== trim($authorCss)
             ? $authorCss
             : implode("\n\n", array_column($authorStylesheetProjections, 'content'));
-        array_push($afterAuthorCssParts, ...( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
+        $afterAuthorCss->addAll(CascadeLayer::REVEAL_SETTLE, ( new RevealAnimationSettler() )->settleRules($settleableAuthorCss));
         // Engine support CSS may join an author cascade layer, and naming a
         // layer registers it. The editor injects author CSS after the enqueued
         // editor styles, so that registration would otherwise arrive first and
@@ -2116,7 +2104,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         } else {
             $this->materializeStylesheetAsset($authorCssParts, 'author-css', 'author', 'source-author');
         }
-        $this->materializeStylesheetAsset($afterAuthorCssParts, 'engine-support', 'after-author', 'engine-support-after-author');
+        $this->materializeStylesheetAsset($afterAuthorCss->orderedCss(), 'engine-support', 'after-author', 'engine-support-after-author');
     }
 
     /** @param array<string, mixed> $projection */
