@@ -193,6 +193,121 @@ $ordinary = '<html><body><a class="ordinary" href="#">Ordinary</a></body></html>
 $result = $resolve($ordinary, $guardSpecificity, '//a', array( 'font-size' ));
 $assert('1rem' === ( $result['font-size'] ?? '' ), ':not(:where()) adds zero specificity');
 
+// Selector shapes this resolver used to accept from no author stylesheet. The
+// local grammar recognised `#id`, `.class`, `tag`, `tag.class…` and combinator
+// chains of those, so each of the following matched nothing and the property it
+// declares was reported as absent from the source — a parity finding blaming the
+// transformer for a declaration the author had written and the probe could not
+// read.
+$utility = '<html><body><div class="card wide md:hidden" data-variant="promo">Card</div></body></html>';
+
+$result = $resolve($utility, '.card.wide { color: #101010; }', '//div', array( 'color' ));
+$assert('#101010' === ( $result['color'] ?? '' ), 'a tagless compound class selector matches');
+
+$result = $resolve($utility, '.card[data-variant="promo"] { color: #202020; }', '//div', array( 'color' ));
+$assert('#202020' === ( $result['color'] ?? '' ), 'an attribute selector matches');
+
+// Every Tailwind variant utility is an escaped identifier. Without this the
+// probe is blind to the whole utility layer of a Tailwind build, which is the
+// author CSS that #1865 and #1879 were about.
+$result = $resolve($utility, '.md\\:hidden { display: none; }', '//div', array( 'display' ));
+$assert('none' === ( $result['display'] ?? '' ), 'an escaped identifier matches the class the author wrote');
+
+// Matching and specificity must read the same grammar. The escaped identifier is
+// one class (0,1,0); the old heuristic scored it 11 by counting `.md` plus a
+// phantom `hidden` type, which let it beat a genuinely more specific rule.
+$escapedSpecificity = '.md\\:hidden { color: #303030; } div.card { color: #404040; }';
+$result = $resolve($utility, $escapedSpecificity, '//div', array( 'color' ));
+$assert('#404040' === ( $result['color'] ?? '' ), 'an escaped identifier is ranked as a single class');
+
+// `:root` reaches the resolver through the production matcher now rather than a
+// local special case, both bare and as a descendant scope.
+$rooted = ':root { --ink: #505050; } :root .card { color: var(--ink); }';
+$result = $resolve($utility, $rooted, '//div', array( 'color' ));
+$assert('#505050' === ( $result['color'] ?? '' ), ':root declares custom properties and scopes descendants');
+
+// Cascade layers. `@layer` wrappers used to be deleted textually, which threw
+// away the author's own precedence: a later layer lost to an earlier one
+// whenever the earlier was more specific, and unlayered engine CSS became
+// indistinguishable from layered author CSS. Each expectation below was
+// confirmed against Chromium's getComputedStyle for the same markup and CSS.
+$layered = static function (string $css) use ($resolve, $utility): string {
+    return $resolve($utility, $css, '//div', array( 'color' ))['color'] ?? '';
+};
+
+$assert(
+    'blue' === $layered('@layer base, utilities;@layer base{.card.wide{color:red}}@layer utilities{div{color:blue}}'),
+    'a later layer wins over an earlier layer that is more specific'
+);
+$assert(
+    'blue' === $layered('@layer base, utilities;@layer utilities{div{color:blue}}@layer base{.card.wide{color:red}}'),
+    'layer precedence comes from registration order, not from where the rules appear'
+);
+$assert(
+    'red' === $layered('@layer utilities{div{color:blue}}.card.wide{color:red}'),
+    'an unlayered rule beats any layer'
+);
+$assert(
+    'red' === $layered('.card.wide{color:red}@layer utilities{div{color:blue}}'),
+    'an unlayered rule beats a layer declared after it'
+);
+$assert(
+    'red' === $layered('@layer base, utilities;@layer base{.card.wide{color:red!important}}@layer utilities{div{color:blue!important}}'),
+    '!important reverses layer order'
+);
+$assert(
+    'blue' === $layered('@layer utilities{div{color:blue!important}}.card.wide{color:red!important}'),
+    'an !important unlayered rule loses to an !important layered one'
+);
+$assert(
+    'red' === $layered('@layer base{div{color:blue}.card.wide{color:red}}'),
+    'within one layer specificity still decides'
+);
+
+// A layer nobody registered by statement takes its position from first use, and
+// a nested layer inherits its top-level ancestor's position.
+$assert(
+    'blue' === $layered('@layer base{.card.wide{color:red}}@layer utilities{div{color:blue}}'),
+    'an unregistered layer takes its position from first use'
+);
+$assert(
+    'blue' === $layered('@layer base, utilities;@layer base{@layer inner{.card.wide{color:red}}}@layer utilities{div{color:blue}}'),
+    'a nested layer inherits its top-level ancestor position'
+);
+
+// @media inside @layer and @layer inside @media both have to survive the walk.
+$assert(
+    'blue' === $layered('@layer base, utilities;@layer base{.card.wide{color:red}}@layer utilities{@media (width>=48rem){div{color:blue}}}'),
+    'a media block inside a layer keeps its layer'
+);
+$assert(
+    'blue' === $layered('@layer base, utilities;@layer base{.card.wide{color:red}}@media (width>=48rem){@layer utilities{div{color:blue}}}'),
+    'a layer inside a media block keeps its layer'
+);
+$assert(
+    'red' === $layered('@layer base, utilities;@layer base{.card.wide{color:red}}@layer utilities{@media (width<=30rem){div{color:blue}}}'),
+    'a media block that does not apply contributes nothing, layer or not'
+);
+
+// Escaped identifiers can contain the very characters that delimit CSS blocks.
+// Tailwind arbitrary-value utilities do exactly this, so the stylesheet walk
+// reads escapes, quotes, parens and brackets through the shared
+// CssSyntaxScanner rather than counting raw braces: an escaped `{` must not
+// open a block and desynchronise every rule after it.
+$arbitrary = '<html><body><div class="w-[calc(100%-1rem)] content-{x}">T</div></body></html>';
+$result = $resolve($arbitrary, '.w-\\[calc\\(100\\%-1rem\\)\\]{color:red}', '//div', array( 'color' ));
+$assert('red' === ( $result['color'] ?? '' ), 'an escaped bracket-and-paren utility matches');
+
+$result = $resolve($arbitrary, '.content-\\{x\\}{color:blue}div{font-size:9px}', '//div', array( 'color', 'font-size' ));
+$assert('blue' === ( $result['color'] ?? '' ), 'an escaped brace does not open a block');
+$assert('9px' === ( $result['font-size'] ?? '' ), 'a rule following an escaped brace is still read');
+
+// At-rules that declare no element rules must not leak declarations.
+$assert(
+    'red' === $layered('@keyframes spin{from{color:blue}to{color:blue}}@font-face{font-family:x;src:url(a.woff2)}.card.wide{color:red}'),
+    'keyframe stops and @font-face descriptors are not element rules'
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "StaticCssCascade unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

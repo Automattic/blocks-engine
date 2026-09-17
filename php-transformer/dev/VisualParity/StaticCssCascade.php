@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use DOMDocument;
 use DOMElement;
@@ -41,9 +43,25 @@ final class StaticCssCascade
     private const ROOT_FONT_SIZE_PX = 16;
 
     /**
-     * @var array<int, array{selector: string, declarations: array<string, string>, specificity: int, order: int}>
+     * @var array<int, array{selector: string, declarations: array<string, string>, specificity: int, order: int, layer: int|null}>
      */
     private array $rules;
+
+    /**
+     * Cascade-layer position by top-level layer name, in registration order.
+     *
+     * A layer's precedence comes from where its name is first registered, not
+     * from where its rules appear, so this is built once per stylesheet and
+     * shared by every rule inside it. Unlayered rules carry `null`, which
+     * {@see CssCascade::compareLayers()} already ranks above every layer for
+     * normal declarations and below every layer for `!important` ones.
+     *
+     * @var array<string, int>
+     */
+    private array $layerPositions = array();
+
+    /** Distinguishes anonymous `@layer {}` blocks, which share no name. */
+    private int $anonymousLayerCount = 0;
 
     public function __construct(DOMDocument $document, string $extraCss = '')
     {
@@ -137,7 +155,7 @@ final class StaticCssCascade
 
         $resolved = array();
         foreach ( $matched as $rule ) {
-            $this->applyDeclarations($resolved, $rule['declarations'], $rule['specificity'], $rule['order'], false);
+            $this->applyDeclarations($resolved, $rule['declarations'], $rule['specificity'], $rule['order'], false, $rule['layer']);
         }
 
         if ( $element->hasAttribute('style') ) {
@@ -151,7 +169,7 @@ final class StaticCssCascade
      * @param array<string, array{value: string, important: bool, specificity: int, order: int, inline: bool}> $resolved
      * @param array<string, string> $declarations
      */
-    private function applyDeclarations(array &$resolved, array $declarations, int $specificity, int $order, bool $inline): void
+    private function applyDeclarations(array &$resolved, array $declarations, int $specificity, int $order, bool $inline, ?int $layer = null): void
     {
         foreach ($declarations as $name => $rawValue) {
             $important = 1 === preg_match('/\s*!important\s*$/i', $rawValue);
@@ -162,7 +180,7 @@ final class StaticCssCascade
                 'specificity' => $specificity,
                 'order' => $order,
                 'inline' => $inline,
-                'layer' => null,
+                'layer' => $layer,
             ));
         }
     }
@@ -184,6 +202,7 @@ final class StaticCssCascade
         }
 
         foreach ( $cssBlocks as $css ) {
+            $this->registerLayerOrder($css);
             // Comments must go before anything reads the rule grammar. The flat
             // `selector { declarations }` scan treats everything between the
             // previous `}` and the next `{` as the selector, so a section header
@@ -192,128 +211,259 @@ final class StaticCssCascade
             // first rule after every comment — which in a hand-authored
             // stylesheet is typically the structural one (`:root`, `*`, `body`,
             // a layout container, a landmark).
-            $css = $this->stripComments($css);
-            $css = $this->stripAtRuleBlocks($css);
-            if ( ! preg_match_all('/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER) ) {
-                continue;
-            }
-            foreach ( $matches as $match ) {
-                $declarations = $this->declarations((string) $match[2]);
-                if ( array() === $declarations ) {
-                    continue;
-                }
-                // Parenthesis-aware: a comma inside functional notation is not
-                // a selector-list separator.
-                foreach ( CssStylesheetTransformer::splitSelectorList((string) $match[1]) ?? array() as $selector ) {
-                    $selector = trim($selector);
-                    if ( '' === $selector ) {
-                        continue;
-                    }
-                    $rules[] = array(
-                        'selector' => $selector,
-                        'declarations' => $declarations,
-                        'specificity' => $this->specificity($selector),
-                        'order' => $order++,
-                    );
-                }
-            }
+            $this->collectRules($this->stripComments($css), null, $rules, $order);
         }
 
         return $rules;
+    }
+
+    /**
+     * Walk one stylesheet, carrying the cascade layer each rule sits in.
+     *
+     * At-rules were previously removed textually — `@media` blocks that applied
+     * at the reference viewport were inlined and `@layer`/`@supports` wrappers
+     * were deleted outright — and the flat remainder was scanned for
+     * `selector { declarations }`. Deleting the `@layer` wrapper discards the
+     * author's own precedence: a declaration in a later layer loses to an
+     * earlier layer whenever the earlier one is more specific, which is the
+     * inversion of what the author wrote and the second failure axis in #1898.
+     * It also made unlayered engine CSS indistinguishable from layered author
+     * CSS, so the probe could not see the escalation in #1854 or #1879 at all.
+     *
+     * Walking instead of stripping keeps the nesting, which is also what lets a
+     * `@media` inside a `@layer` (and the reverse) resolve correctly.
+     *
+     * @param array<int, array<string, mixed>> $rules
+     */
+    private function collectRules(string $css, ?string $layer, array &$rules, int &$order): void
+    {
+        foreach ( $this->topLevelItems($css) as $item ) {
+            $prelude = $item['prelude'];
+            $body = $item['body'];
+
+            if ( str_starts_with($prelude, '@') ) {
+                $this->collectAtRule($prelude, $body, $layer, $rules, $order);
+                continue;
+            }
+
+            if ( null === $body ) {
+                continue;
+            }
+
+            // Nested rules need a `&` resolution the matcher does not model, so
+            // read only this rule's own declarations and leave the nesting
+            // unmatched rather than attributing a child's declarations to it.
+            $declarations = $this->declarations($this->withoutNestedBlocks($body));
+            if ( array() === $declarations ) {
+                continue;
+            }
+
+            // Parenthesis-aware: a comma inside functional notation is not
+            // a selector-list separator.
+            foreach ( CssStylesheetTransformer::splitSelectorList($prelude) ?? array() as $selector ) {
+                $selector = trim($selector);
+                if ( '' === $selector ) {
+                    continue;
+                }
+                $rules[] = array(
+                    'selector' => $selector,
+                    'declarations' => $declarations,
+                    'specificity' => $this->specificity($selector),
+                    'order' => $order++,
+                    'layer' => $this->layerPosition($layer),
+                );
+            }
+        }
+    }
+
+    /**
+     * Descend into an at-rule, or drop it when it declares no element rules.
+     *
+     * @param array<int, array<string, mixed>> $rules
+     */
+    private function collectAtRule(string $prelude, ?string $body, ?string $layer, array &$rules, int &$order): void
+    {
+        if ( 1 === preg_match('/^@layer\b(.*)$/is', $prelude, $match) ) {
+            // Statement form (`@layer base, utilities;`) only registers order,
+            // which registerLayerOrder() has already read off the stylesheet.
+            if ( null === $body ) {
+                return;
+            }
+            $name = trim($match[1]);
+            if ( '' === $name ) {
+                // An anonymous layer holds a position no later rule can name, so
+                // it must not merge with any other anonymous block.
+                $name = "\0anonymous-" . ( ++$this->anonymousLayerCount );
+            }
+            // A nested layer inherits its top-level ancestor's position; within
+            // that position the rules keep source order, which is registration
+            // order for the nested names themselves.
+            $this->collectRules($body, null === $layer ? $name : $layer . '.' . $name, $rules, $order);
+            return;
+        }
+
+        if ( 1 === preg_match('/^@media\b(.*)$/is', $prelude, $match) ) {
+            if ( null !== $body && $this->mediaConditionApplies(trim($match[1])) ) {
+                $this->collectRules($body, $layer, $rules, $order);
+            }
+            return;
+        }
+
+        // @supports carries no viewport condition, so its rules declare
+        // effective style. @keyframes interiors are not element rules, and
+        // @font-face/@import/@charset declare none either.
+        if ( 1 === preg_match('/^@supports\b/i', $prelude) && null !== $body ) {
+            $this->collectRules($body, $layer, $rules, $order);
+        }
+    }
+
+    /**
+     * Split CSS into its top-level qualified rules and at-rules.
+     *
+     * `body` is the block interior, or null for a statement at-rule terminated
+     * by `;`. Brace matching is string-aware so a `{`, `}` or `;` inside a
+     * quoted value cannot end a block early.
+     *
+     * @return list<array{prelude: string, body: string|null}>
+     */
+    private function topLevelItems(string $css): array
+    {
+        $items = array();
+        $length = strlen($css);
+        $state = CssSyntaxScanner::state();
+        $preludeStart = 0;
+        $cursor = 0;
+
+        while ( $cursor < $length ) {
+            $character = $css[ $cursor ];
+
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                if ( ';' === $character ) {
+                    $prelude = trim(substr($css, $preludeStart, $cursor - $preludeStart));
+                    if ( '' !== $prelude ) {
+                        $items[] = array( 'prelude' => $prelude, 'body' => null );
+                    }
+                    $preludeStart = ++$cursor;
+                    continue;
+                }
+
+                if ( '{' === $character ) {
+                    $end = $this->matchingBrace($css, $cursor);
+                    $items[] = array(
+                        'prelude' => trim(substr($css, $preludeStart, $cursor - $preludeStart)),
+                        'body' => substr($css, $cursor + 1, $end - $cursor - 1),
+                    );
+                    $preludeStart = $cursor = $end + 1;
+                    continue;
+                }
+            }
+
+            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
+        }
+
+        return $items;
+    }
+
+    /** A rule body with any nested `{ … }` blocks and their preludes removed. */
+    private function withoutNestedBlocks(string $body): string
+    {
+        if ( ! str_contains($body, '{') ) {
+            return $body;
+        }
+
+        $out = '';
+        $length = strlen($body);
+        $state = CssSyntaxScanner::state();
+        $keepFrom = 0;
+        $cursor = 0;
+
+        while ( $cursor < $length ) {
+            if ( '{' !== $body[ $cursor ] || ! CssSyntaxScanner::isTopLevel($state) ) {
+                $cursor = CssSyntaxScanner::consume($body, $cursor, $state) ?? ( $cursor + 1 );
+                continue;
+            }
+            // Drop back to the declaration boundary so the nested rule's own
+            // prelude does not read as a truncated declaration.
+            $preludeStart = strrpos(substr($body, 0, $cursor), ';');
+            $preludeStart = false === $preludeStart ? $keepFrom : $preludeStart + 1;
+            $out .= substr($body, $keepFrom, max(0, $preludeStart - $keepFrom));
+            $cursor = $this->matchingBrace($body, $cursor) + 1;
+            $keepFrom = $cursor;
+        }
+
+        return $out . substr($body, $keepFrom);
+    }
+
+    /** Index of the `}` closing the block opened at $open, or the last byte. */
+    private function matchingBrace(string $css, int $open): int
+    {
+        $length = strlen($css);
+        $state = CssSyntaxScanner::state();
+        $depth = 0;
+        $cursor = $open;
+
+        while ( $cursor < $length ) {
+            $character = $css[ $cursor ];
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                if ( '{' === $character ) {
+                    ++$depth;
+                    ++$cursor;
+                    continue;
+                }
+                if ( '}' === $character ) {
+                    if ( 0 === --$depth ) {
+                        return $cursor;
+                    }
+                    ++$cursor;
+                    continue;
+                }
+            }
+            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
+        }
+
+        // Unbalanced input: treat the remainder as the block rather than guessing.
+        return $length - 1;
+    }
+
+    /**
+     * Record the layer order a stylesheet establishes, reusing the reader the
+     * engine already uses to pin that order when it emits support CSS.
+     */
+    private function registerLayerOrder(string $css): void
+    {
+        foreach ( ( new AuthorCascadeLayerOrder() )->names($css) as $name ) {
+            if ( ! array_key_exists($name, $this->layerPositions) ) {
+                $this->layerPositions[ $name ] = count($this->layerPositions);
+            }
+        }
+    }
+
+    /**
+     * Position of the layer a rule sits in, or null when it is unlayered.
+     *
+     * A layer first seen in a nested context that no `@layer` statement
+     * registered takes its position from first use, which is what a browser
+     * does with it.
+     */
+    private function layerPosition(?string $layer): ?int
+    {
+        if ( null === $layer ) {
+            return null;
+        }
+
+        $top = strstr($layer, '.', true);
+        $top = false === $top ? $layer : $top;
+        if ( ! array_key_exists($top, $this->layerPositions) ) {
+            $this->layerPositions[ $top ] = count($this->layerPositions);
+        }
+
+        return $this->layerPositions[ $top ];
     }
 
     /** Remove `/* … *&#47;` comments so they cannot be absorbed into a selector. */
     private function stripComments(string $css): string
     {
         return preg_replace('#/\*.*?\*/#s', '', $css) ?? $css;
-    }
-
-    /**
-     * Remove at-rule prelude tokens (@media/@supports/@font-face headers and
-     * @keyframes blocks) that would otherwise corrupt the flat rule grammar.
-     *
-     * @media blocks are resolved against {@see REFERENCE_VIEWPORT_WIDTH_PX}
-     * rather than flattened unconditionally. Flattening every block makes a
-     * `@media (max-width: 1080px) { .main-nav { display: none } }` rule declare
-     * `display: none` on the desktop nav in base state, which is the opposite of
-     * what the stylesheet says at the reference width. @supports and @layer are
-     * still unwrapped: they carry no viewport condition, so their rules do
-     * declare effective style. @keyframes interiors are dropped because their
-     * "selectors" (0%, to, from) are not element selectors.
-     */
-    private function stripAtRuleBlocks(string $css): string
-    {
-        // Drop @keyframes blocks (including nested braces) entirely.
-        $css = preg_replace('/@(?:-webkit-|-moz-|-o-)?keyframes\b[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/i', '', $css) ?? $css;
-        // Drop @font-face / @import / @charset prelude+block which carry no element rules.
-        $css = preg_replace('/@font-face\b[^{]*\{[^{}]*\}/i', '', $css) ?? $css;
-        $css = preg_replace('/@(?:import|charset)\b[^;]*;/i', '', $css) ?? $css;
-        // Resolve @media against the reference viewport, keeping only the blocks
-        // that apply there.
-        $css = $this->resolveMediaBlocks($css);
-        // Unwrap @supports/@layer wrappers, keeping their inner rules.
-        $css = preg_replace('/@(?:supports|layer)\b[^{]*\{/i', '', $css) ?? $css;
-
-        return $css;
-    }
-
-    /**
-     * Inline the contents of every @media block that applies at the reference
-     * viewport and drop the rest, brace-balanced so nested rules survive intact.
-     */
-    private function resolveMediaBlocks(string $css): string
-    {
-        $out = '';
-        $offset = 0;
-        $length = strlen($css);
-
-        while ( $offset < $length ) {
-            if ( ! preg_match('/@media\b/i', $css, $match, PREG_OFFSET_CAPTURE, $offset) ) {
-                $out .= substr($css, $offset);
-                break;
-            }
-
-            $start = (int) $match[0][1];
-            $out  .= substr($css, $offset, $start - $offset);
-
-            $bracePos = strpos($css, '{', $start);
-            if ( false === $bracePos ) {
-                // Truncated at-rule with no block: nothing further to resolve.
-                break;
-            }
-
-            $condition = trim(substr($css, $start + strlen('@media'), $bracePos - $start - strlen('@media')));
-
-            $depth = 0;
-            $end   = $bracePos;
-            for ( $index = $bracePos; $index < $length; $index++ ) {
-                if ( '{' === $css[$index] ) {
-                    $depth++;
-                    continue;
-                }
-                if ( '}' === $css[$index] ) {
-                    $depth--;
-                    if ( 0 === $depth ) {
-                        $end = $index;
-                        break;
-                    }
-                }
-            }
-
-            if ( 0 !== $depth ) {
-                // Unbalanced block: keep the remainder verbatim rather than guessing.
-                $out .= substr($css, $bracePos + 1);
-                break;
-            }
-
-            if ( $this->mediaConditionApplies($condition) ) {
-                $out .= "\n" . substr($css, $bracePos + 1, $end - $bracePos - 1) . "\n";
-            }
-
-            $offset = $end + 1;
-        }
-
-        return $out;
     }
 
     /**
@@ -338,12 +488,18 @@ final class StaticCssCascade
     {
         $selector = trim(preg_replace('/::?(hover|focus|active|visited|before|after)\b[^ ]*/', '', $selector) ?? $selector);
         $selector = $this->normalizeGeneratedFunctionalGuard($selector, true);
-        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
-            $parsed = CssSelectorMatcher::parse($selector);
-            if ( $parsed['supported'] ) {
-                return $this->parsedSpecificity($parsed['compounds']);
-            }
+
+        // Read specificity off the same parse that decides matching, so a
+        // selector cannot be ranked by one grammar and matched by another. The
+        // regex heuristic below miscounts every shape the local matcher used to
+        // reject anyway — `.md\:hidden` scored 11 (a class plus a phantom
+        // `hidden` element) where CSS says 10 — and now only covers selectors the
+        // production parser rejects outright.
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( $parsed['supported'] ) {
+            return $this->parsedSpecificity($parsed['compounds']);
         }
+
         $ids = preg_match_all('/#[A-Za-z0-9_-]+/', $selector);
         $classes = preg_match_all('/\.[A-Za-z0-9_-]+|\[[^\]]+\]/', $selector);
         $bare = preg_replace('/[#.][A-Za-z0-9_-]+|\[[^\]]+\]|[>+~]/', ' ', $selector) ?? $selector;
@@ -428,62 +584,25 @@ final class StaticCssCascade
 
         $selector = $this->normalizeGeneratedFunctionalGuard($selector, false);
 
-        // `:is()`, `:where()` and `:not()` are the grammar the transformer's own
-        // author-stylesheet projection emits to preserve author specificity, e.g.
-        // `.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`. Without
-        // support here the probe cannot match the candidate's own generated rules,
-        // so it reports the inherited value and blames the transformer for a
-        // declaration it carried correctly.
-        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
-            $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
-            return $match['supported'] && $match['matches'];
-        }
+        // Matching is delegated to the production selector engine rather than
+        // re-derived here. The previous local grammar accepted only `#id`,
+        // `.class`, `tag`, `tag.class…` and combinator chains of those, so three
+        // shapes silently matched nothing: a tagless compound (`.card.wide`), an
+        // attribute selector (`.card[data-x]`), and — decisively — an escaped
+        // identifier (`.md\:hidden`). Every Tailwind variant utility is escaped,
+        // so the probe was blind to the entire utility layer of a Tailwind build:
+        // the exact CSS that #1865 and #1879 were about. Delegating also keeps
+        // matching and specificity reading one grammar instead of two.
+        //
+        // `:is()`/`:where()`/`:not()` come along for free, which the transformer's
+        // own author-stylesheet projection emits to preserve author specificity
+        // (`.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`).
+        //
+        // Unsupported selectors fail closed: not matching is a missing
+        // declaration, while matching wrongly invents one the author never wrote.
+        $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
 
-        if ( '' === $selector || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
-            return false;
-        }
-
-        if ( str_contains($selector, '>') ) {
-            return $this->matchesChildSelector($element, $selector);
-        }
-
-        if ( str_contains($selector, ' ') ) {
-            return $this->matchesDescendantSelector($element, $selector);
-        }
-
-        if ( '*' === $selector ) {
-            return true;
-        }
-
-        if ( preg_match('/^#([A-Za-z0-9_-]+)$/', $selector, $match) ) {
-            return $element->hasAttribute('id') && $element->getAttribute('id') === $match[1];
-        }
-
-        if ( preg_match('/^\.([A-Za-z0-9_-]+)$/', $selector, $match) ) {
-            return in_array($match[1], $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : ''), true);
-        }
-
-        if ( preg_match('/^([A-Za-z0-9_-]+)(\.[A-Za-z0-9_-]+)+$/', $selector) ) {
-            $parts = explode('.', $selector);
-            $tag = array_shift($parts);
-            if ( strtolower((string) $tag) !== strtolower($element->tagName) ) {
-                return false;
-            }
-            $classes = $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '');
-            foreach ( $parts as $class ) {
-                if ( ! in_array($class, $classes, true) ) {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        if ( ! preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
-            return false;
-        }
-
-        return strtolower($selector) === strtolower($element->tagName);
+        return $match['supported'] && $match['matches'];
     }
 
     /**
@@ -533,54 +652,4 @@ final class StaticCssCascade
         );
     }
 
-    private function matchesChildSelector(DOMElement $element, string $selector): bool
-    {
-        $parts = array_values(array_filter(array_map('trim', preg_split('/\s*>\s*/', trim($selector)) ?: array())));
-        if ( count($parts) < 2 || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
-            if ( ! $current instanceof DOMElement || ! $this->matchesSimpleSelector($current, $parts[$index]) ) {
-                return false;
-            }
-            $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null;
-        }
-
-        return true;
-    }
-
-    private function matchesDescendantSelector(DOMElement $element, string $selector): bool
-    {
-        $parts = preg_split('/\s+/', trim($selector)) ?: array();
-        if ( array() === $parts || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
-            $matched = false;
-            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                if ( $this->matchesSimpleSelector($node, $parts[$index]) ) {
-                    $matched = true;
-                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
-                    break;
-                }
-            }
-            if ( ! $matched ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function tokens(string $value): array
-    {
-        return array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $token): bool => '' !== $token));
-    }
 }
