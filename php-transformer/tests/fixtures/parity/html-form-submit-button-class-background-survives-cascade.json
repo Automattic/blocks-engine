@@ -1,0 +1,31 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-form-submit-button-class-background-survives-cascade",
+  "description": "A form's native submit button whose fill comes from an author CSS class (not an inline style attribute) keeps that background as native core/button color support -- baked inline the same way text color already is -- instead of being dropped and left to lose the cascade to WordPress's unlayered wp-element-button default.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-form-submit-button-class-background-survives-cascade.json",
+    "notes": "Regression fixture for the button-background-cascade defect: a class-owned flat background-color on a form submit control was unconditionally excluded from native block style attrs (StyleResolver::classOwnedBackgroundPaintDeclarations), so nothing but a secondary CSS-cascade repair stood between the author's fill and the theme's default button background. See #1894/#1896."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Native button color-support fidelity for form submit controls is a PHP transformer behavior with no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<form><button type=\"submit\" class=\"btn btn-fill\">Send Message</button></form>",
+    "options": { "static_css": ".btn{padding:12px 24px;border-radius:6px}.btn-fill{background-color:#13314f;color:#ffffff}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Send Message" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#13314f" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-button__link has-text-color has-background wp-element-button" },
+    { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "background-color:#13314f" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
