@@ -15,6 +15,12 @@ declare(strict_types=1);
  * Positioning is preserved, never synthesized: only an element whose own inline
  * style declares it is carried, and `absolute` additionally requires a
  * containing block that is itself carried inline.
+ *
+ * Offsets (`left`/`top`/`right`/`bottom`, plus `inset`/`z-index`) are different:
+ * they only place a box when the used `position` is not `static`, and that
+ * position is often class-owned (Tailwind `absolute`) while the insets are
+ * per-element inline. Dropping the insets collapses every positioned sibling
+ * onto the same default offset.
  */
 
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
@@ -154,6 +160,69 @@ $assert(
     str_contains($carrierRules($relativeOnly), 'position:relative'),
     'relative positioning stays in flow and is carried without an ancestor requirement',
     $carrierRules($relativeOnly)
+);
+
+// -- Class-owned position keeps distinct inline offsets on converted siblings.
+$orbital = $transform(
+    '<style>.stage{position:relative;height:20rem;width:20rem}.absolute{position:absolute}</style>'
+    . '<div class="stage">'
+    . '<button class="absolute" type="button" style="left:50%;top:6%;border-radius:0">North</button>'
+    . '<button class="absolute" type="button" style="left:93%;top:50%;border-radius:0">East</button>'
+    . '<button class="absolute" type="button" style="left:7%;top:50%;border-radius:0">West</button>'
+    . '</div>'
+);
+$orbitalCss = $cssOf($orbital);
+$orbitalMarkup = (string) ($orbital['serialized_blocks'] ?? '');
+$assert(
+    str_contains($orbitalMarkup, '<!-- wp:button'),
+    'positioned controls still convert to core/button',
+    $orbitalMarkup
+);
+
+$orbitalRules = array();
+if ( preg_match_all('/(?<![\w-])\.(be-inline-geometry-[a-f0-9-]+)\{([^}]*)\}/', $orbitalCss, $orbitalMatches, PREG_SET_ORDER) ) {
+    foreach ( $orbitalMatches as $match ) {
+        $orbitalRules[ $match[1] ] = $match[2];
+    }
+}
+
+$offsetPairs = array(
+    array( 'left:50%', 'top:6%' ),
+    array( 'left:93%', 'top:50%' ),
+    array( 'left:7%', 'top:50%' ),
+);
+$matchedCarriers = array();
+foreach ( $offsetPairs as $pair ) {
+    $carrier = '';
+    foreach ( $orbitalRules as $className => $body ) {
+        if ( str_contains($body, $pair[0]) && str_contains($body, $pair[1]) ) {
+            $carrier = $className;
+            break;
+        }
+    }
+    $assert(
+        '' !== $carrier,
+        'a generated carrier emits the source offset pair ' . $pair[0] . ';' . $pair[1],
+        $orbitalCss
+    );
+    $matchedCarriers[] = $carrier;
+}
+$assert(
+    3 === count(array_unique($matchedCarriers)),
+    'distinct positioned siblings keep distinct offset carriers instead of stacking',
+    implode(',', $matchedCarriers)
+);
+
+$staticOffsets = $transform(
+    '<div class="plain" style="left:12%;top:8%;width:4rem"><p>Copy</p></div>'
+);
+$staticOffsetRules = $carrierRules($staticOffsets);
+$assert(
+    str_contains($staticOffsetRules, 'width:4rem')
+        && ! str_contains($staticOffsetRules, 'left:12%')
+        && ! str_contains($staticOffsetRules, 'top:8%'),
+    'a static-flow box does not carry leftover positional offsets',
+    $staticOffsetRules
 );
 
 if ( 0 < $failures ) {

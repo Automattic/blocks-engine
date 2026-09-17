@@ -131,6 +131,54 @@ final class InlineGeometry
     }
 
     /**
+     * Insets that only place a box when its used `position` is not `static`.
+     *
+     * @return list<string>
+     */
+    public function offsetCarrierProperties(): array
+    {
+        return array(
+            'top',
+            'right',
+            'bottom',
+            'left',
+            'inset',
+            'z-index',
+        );
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     * @return list<string>
+     */
+    public function positioningPropertiesFor(DOMElement $element, array $declarations): array
+    {
+        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
+            return $this->positioningCarrierProperties();
+        }
+
+        if ( ! $this->inlineDeclaresOffsets($declarations) ) {
+            return array();
+        }
+
+        return $this->authorResolvedPositionCarriesOffsets($element, $declarations) ? $this->offsetCarrierProperties() : array();
+    }
+
+    /**
+     * @param array<string, string> $declarations
+     */
+    private function inlineDeclaresOffsets(array $declarations): bool
+    {
+        foreach ( $this->offsetCarrierProperties() as $property ) {
+            if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param array<string, string> $declarations
      */
     public function inlineDeclaresPositioning(DOMElement $element, array $declarations): bool
@@ -146,6 +194,28 @@ final class InlineGeometry
         }
 
         return 'absolute' === $position && $this->hasInlinePositionedAncestor($element);
+    }
+
+    /**
+     * Class-owned `relative`/`absolute`/`sticky` keeps per-element inline
+     * insets. Inline `position` stays on the existing inlineDeclaresPositioning
+     * path so unanchored absolute and viewport-fixed layers are not pinned
+     * through the carrier.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function authorResolvedPositionCarriesOffsets(DOMElement $element, array $declarations): bool
+    {
+        $inlinePosition = CssValueInspector::comparable((string) ($declarations['position'] ?? ''));
+        if ( in_array($inlinePosition, array( 'relative', 'absolute', 'fixed', 'sticky' ), true) ) {
+            return false;
+        }
+
+        $position = CssValueInspector::comparable(
+            (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
+        );
+
+        return in_array($position, array( 'relative', 'absolute', 'sticky' ), true);
     }
 
     /**
@@ -218,9 +288,7 @@ final class InlineGeometry
         if ( $this->isNamedFragmentTarget($element) ) {
             $properties = array_merge($properties, $this->namedFragmentTargetProperties());
         }
-        if ( $this->inlineDeclaresPositioning($element, $declarations) ) {
-            $properties = array_merge($properties, $this->positioningCarrierProperties());
-        }
+        $properties = array_merge($properties, $this->positioningPropertiesFor($element, $declarations));
         if ( ($this->inlineDisplayOverridesAuthorLayout)($element, $declarations) ) {
             $inlineDisplay = strtolower(trim((string) preg_replace('/\s*!\s*important\s*$/i', '', (string) ($declarations['display'] ?? ''))));
             if ( ! in_array($inlineDisplay, array( 'flex', 'inline-flex' ), true) ) {

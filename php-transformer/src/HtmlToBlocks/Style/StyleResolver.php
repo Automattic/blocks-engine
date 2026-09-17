@@ -1451,9 +1451,7 @@ final class StyleResolver implements ElementPresentationResolver
         if ( $geometry->isNamedFragmentTarget($element) ) {
             $properties = array_merge($properties, $geometry->namedFragmentTargetProperties());
         }
-        if ( $geometry->inlineDeclaresPositioning($element, $declarations) ) {
-            $properties = array_merge($properties, $geometry->positioningCarrierProperties());
-        }
+        $properties = array_merge($properties, $geometry->positioningPropertiesFor($element, $declarations));
         foreach (array_values(array_unique(array_merge($properties, $forcedProperties))) as $property) {
             if (in_array($property, $excludedProperties, true)) {
                 continue;
