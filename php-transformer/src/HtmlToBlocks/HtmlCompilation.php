@@ -4525,6 +4525,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
+        // Whether the source author already wrote a literal `<mark>` here.
+        // When they did, they own the "this text is highlighted" semantic and
+        // it is preserved. Every other source tag (span/font, or a format tag
+        // like strong/em getting a nested carrier) is repurposed as `<mark>`
+        // purely as a mechanical RichText-safe attribute carrier — the default
+        // background/color reset just below exists precisely because no
+        // visual highlight is intended. `role="none"` below strips the
+        // matching accessible "mark" role so assistive tech does not announce
+        // ordinary styled text as highlighted/marked content it never was.
+        $sourceTagWasMark = 'mark' === strtolower($element->tagName);
+
         $declarations = $this->richTextMaterializer->inlineVisualDeclarations($element);
         $existingDeclarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
         $marker = trim((string) ($existingDeclarations['--blocks-engine-richtext-marker'] ?? ''));
@@ -4556,6 +4567,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $mark->setAttribute($name, $value);
         }
         $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
+        if ( ! $sourceTagWasMark ) {
+            $mark->setAttribute('role', 'none');
+        }
         while ( null !== $element->firstChild ) {
             $mark->appendChild($element->firstChild);
         }
