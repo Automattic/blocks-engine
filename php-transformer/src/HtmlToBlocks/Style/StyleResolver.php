@@ -2140,41 +2140,8 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function specificityResolvedPresentationStyle(DOMElement $element): string
     {
-        $cascade = array();
-        $sequence = 0;
-        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
-            $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
-            foreach ( $rule['declarations'] as $property => $value ) {
-                $this->applyMediaTextCascadeDeclaration(
-                    $cascade,
-                    (string) $property,
-                    (string) $value,
-                    false,
-                    $specificity,
-                    ++$sequence
-                );
-            }
-        }
-
-        foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
-            $this->applyMediaTextCascadeDeclaration(
-                $cascade,
-                (string) $property,
-                (string) $value,
-                true,
-                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
-                ++$sequence
-            );
-        }
-
-        $declarations = array();
-        foreach ( $cascade as $property => $entry ) {
-            $declarations[$property] = $entry['value'] . ($entry['important'] ? ' !important' : '');
-        }
-
-        return $this->cssDeclarationString($declarations);
+        return $this->resolvedCascadeStyle($element, 'static');
     }
-
     /**
      * Resolve the authored resting cascade across static AND media-conditional
      * rules that apply at the desktop reference viewport.
@@ -2190,35 +2157,39 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function controlSurfaceResolvedStyle(DOMElement $element): string
     {
+        return $this->resolvedCascadeStyle($element, 'static-conditional');
+    }
+
+    /**
+     * Resolve an element's authored resting cascade over one rule collection.
+     *
+     * The two callers above were the same thirty-five lines twice over, differing
+     * only in which collection they read. What separates them is that choice, not
+     * the resolution, so the resolution is written once and each caller is the
+     * sentence that names its collection.
+     *
+     * Rules a media query conditions are skipped unless they apply at the
+     * reference viewport. That test is a no-op for the static collection, whose
+     * rules carry no conditions by construction, so it does not need to be a
+     * parameter.
+     */
+    private function resolvedCascadeStyle(DOMElement $element, string $collection): string
+    {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
+        foreach ( $this->matchingStyleRules($element, $collection) as $rule ) {
             if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtReferenceViewport($rule['conditions']) ) {
                 continue;
             }
 
             $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
-                $this->applyMediaTextCascadeDeclaration(
-                    $cascade,
-                    (string) $property,
-                    (string) $value,
-                    false,
-                    $specificity,
-                    ++$sequence
-                );
+                $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, false, $specificity, ++$sequence);
             }
         }
 
         foreach ( $this->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
-            $this->applyMediaTextCascadeDeclaration(
-                $cascade,
-                (string) $property,
-                (string) $value,
-                true,
-                array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ),
-                ++$sequence
-            );
+            $this->applyMediaTextCascadeDeclaration($cascade, (string) $property, (string) $value, true, array( PHP_INT_MAX, PHP_INT_MAX, PHP_INT_MAX ), ++$sequence);
         }
 
         $declarations = array();
@@ -2228,7 +2199,6 @@ final class StyleResolver implements ElementPresentationResolver
 
         return $this->cssDeclarationString($declarations);
     }
-
     /**
      * Return the authored cascade winner for an inherited property. Theme and
      * user-agent defaults are deliberately absent: callers use this only when
