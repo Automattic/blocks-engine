@@ -132,6 +132,7 @@ final class NavigationPattern implements PatternRecognizerInterface
                 $presentationAttributes
             );
         $navigationAttrs = $this->withResolvedNonFlexNavigationLayout($navigationAttrs, $element, $navigationContext);
+        $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $element, $navigationContext);
         if ( $splitLandmarkOwnership ) {
             // A semantic source list is a vertical stack. Persist that intent on
             // core/navigation so responsive artifact assembly cannot discard it.
@@ -526,6 +527,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs = $cluster->isSameNode($element)
             ? array()
             : $this->navigationContainerAttributes($cluster, $presentationAttributes);
+        $navigationAttrs = $this->withCollapsedItemBand($navigationAttrs, $cluster, $navigationContext);
         $listSource = $this->navigationListSource($cluster);
         $splitLandmarkOwnership = $this->shouldSplitLandmarkOwnership($element, $listSource, $navigationContext);
         if ( $splitLandmarkOwnership ) {
@@ -701,6 +703,185 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return $attrs;
+    }
+
+    /**
+     * Keep the band an authored menu item reserved once its wrappers collapse.
+     *
+     * core/navigation takes navigation-link children, so the wrapper chain each
+     * source item sat inside cannot survive. In a mesh-authored menu that chain
+     * is where the item's vertical placement lives: a repeater stamps one
+     * template per row, and the designer's drag position inside the row cell
+     * compiles to block-axis margins on those wrappers. Dropping them does not
+     * cost padding, it costs the item's y coordinate, and the menu jumps to the
+     * top of its landmark.
+     *
+     * Restate that band as padding on the host. A repeater guarantees the rows
+     * are identical, so requiring every item to agree is a cheap way to refuse
+     * the cases where the margins mean something else.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withCollapsedItemBand(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        if ( null === $navigationContext ) {
+            return $attrs;
+        }
+
+        $band = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            if ( $this->isNavigationChromeElement($child) || $this->isSectionLabelElement($child) ) {
+                continue;
+            }
+
+            $anchor = $this->primaryNavigationAnchor($child);
+            // A directly authored anchor never had a wrapper chain to collapse.
+            if ( ! $anchor instanceof DOMElement || $anchor->isSameNode($child) ) {
+                return $attrs;
+            }
+
+            $itemBand = $this->collapsedChainBand($child, $anchor, $navigationContext);
+            if ( null === $itemBand || ( null !== $band && $band !== $itemBand ) ) {
+                return $attrs;
+            }
+            $band = $itemBand;
+        }
+
+        if ( null === $band || ( 0 >= $band['top'] && 0 >= $band['bottom'] ) ) {
+            return $attrs;
+        }
+
+        // core/navigation supports blockGap and no padding, so the band cannot
+        // ride on the block's own attributes. Project it onto the rendered host
+        // instead, behind a marker that states the band it carries: two menus
+        // that reserved the same band share one rule, and a menu that reserved
+        // none is never reached.
+        $top = max(0, $band['top']);
+        $bottom = max(0, $band['bottom']);
+        $marker = 'blocks-engine-navigation-band-t' . $top . '-b' . $bottom;
+        $declarations = array();
+        foreach ( array( 'top' => $top, 'bottom' => $bottom ) as $side => $value ) {
+            if ( 0 < $value ) {
+                $declarations[] = 'padding-' . $side . ':' . $value . 'px';
+            }
+        }
+
+        $navigationContext->projectSourceToNativeTarget(
+            $element,
+            '.wp-block-navigation.' . $marker,
+            implode(';', $declarations)
+        );
+
+        return $this->withClassName($attrs, $marker);
+    }
+
+    /**
+     * Sum the block-axis margins the collapse discards between an item and its
+     * anchor.
+     *
+     * @return array{top: int, bottom: int}|null
+     */
+    private function collapsedChainBand(DOMElement $item, DOMElement $anchor, NavigationPatternContext $navigationContext): ?array
+    {
+        $top = 0;
+        $bottom = 0;
+        for ( $node = $item; $node instanceof DOMElement && ! $node->isSameNode($anchor); ) {
+            $margins = self::blockAxisMargins($navigationContext->resolvedStyle($node));
+            if ( null === $margins ) {
+                return null;
+            }
+            $top += $margins['top'];
+            $bottom += $margins['bottom'];
+
+            $next = null;
+            foreach ( $node->childNodes as $candidate ) {
+                if ( $candidate instanceof DOMElement && ( $candidate->isSameNode($anchor) || $this->containsNode($candidate, $anchor) ) ) {
+                    $next = $candidate;
+                    break;
+                }
+            }
+            if ( ! $next instanceof DOMElement ) {
+                return null;
+            }
+            $node = $next;
+        }
+
+        return array( 'top' => $top, 'bottom' => $bottom );
+    }
+
+    /**
+     * Resolve the block-axis margins a declaration block sets, shorthand
+     * included. A band this cannot state in pixels is not one to restate at
+     * all, so an unsupported length answers null rather than zero.
+     *
+     * @return array{top: int, bottom: int}|null
+     */
+    private static function blockAxisMargins(string $style): ?array
+    {
+        $top = 0;
+        $bottom = 0;
+        $pixels = static function (string $value): ?int {
+            $value = trim($value);
+            if ( '0' === $value ) {
+                return 0;
+            }
+            return preg_match('/^(-?[0-9]*\.?[0-9]+)px$/i', $value, $match) ? (int) round((float) $match[1]) : null;
+        };
+
+        foreach ( explode(';', $style) as $declaration ) {
+            $parts = explode(':', $declaration, 2);
+            if ( 2 !== count($parts) ) {
+                continue;
+            }
+            $property = strtolower(trim($parts[0]));
+            $value = trim(preg_replace('/!important\s*$/i', '', $parts[1]) ?? $parts[1]);
+
+            if ( 'margin-top' === $property || 'margin-bottom' === $property ) {
+                $resolved = $pixels($value);
+                if ( null === $resolved ) {
+                    return null;
+                }
+                if ( 'margin-top' === $property ) {
+                    $top = $resolved;
+                    continue;
+                }
+                $bottom = $resolved;
+                continue;
+            }
+
+            if ( 'margin' !== $property ) {
+                continue;
+            }
+
+            $sides = preg_split('/\s+/', $value) ?: array();
+            if ( array() === $sides || 4 < count($sides) ) {
+                return null;
+            }
+            $resolvedTop = $pixels($sides[0]);
+            $resolvedBottom = $pixels(3 <= count($sides) ? $sides[2] : $sides[0]);
+            if ( null === $resolvedTop || null === $resolvedBottom ) {
+                return null;
+            }
+            $top = $resolvedTop;
+            $bottom = $resolvedBottom;
+        }
+
+        return array( 'top' => $top, 'bottom' => $bottom );
+    }
+
+    private function containsNode(DOMElement $ancestor, DOMElement $descendant): bool
+    {
+        for ( $node = $descendant->parentNode; $node instanceof DOMElement; $node = $node->parentNode ) {
+            if ( $node->isSameNode($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
