@@ -41,8 +41,45 @@ final class ImageDimensionResolver
         if ( '' !== $stylesheet ) {
             return $this->imageDimensionValue($stylesheet, $linked);
         }
+        if ( $this->authorResolvesDimensionToAuto($image, $property) ) {
+            // Author CSS is not silent on this axis -- it explicitly neutralises
+            // it (Tailwind's `w-auto`/`h-auto`, or a plain `width:auto`). That is
+            // a real instruction to derive this axis from the OTHER axis plus the
+            // image's own aspect ratio, not an absence of one. Falling through to
+            // the intrinsic width/height HTML attribute here would defeat it: a
+            // core/image style carrying that attribute's raw pixel value (e.g.
+            // `width:1536px` from a 1536x1024 source file) fixes this axis after
+            // all, then the OTHER, author-constrained axis is the one left to be
+            // clamped by whatever `max-width`/`max-height` box constraint the
+            // figure carries -- which is exactly backwards from what `auto` asked
+            // for. Emitting no dimension for this axis at all leaves the browser
+            // to compute it from the constrained axis and the image's real
+            // (loaded) aspect ratio, the same computation the source page itself
+            // relied on `auto` to do.
+            return '';
+        }
         $attribute = trim(SourceDom::attr($image, $property));
         return $this->imageDimensionValue($attribute, $linked);
+    }
+
+    /**
+     * Whether author CSS -- inline or a matched stylesheet rule, cascade-
+     * resolved at the desktop reference viewport the same way {@see
+     * imageStylesheetDimension()} resolves a usable length -- states this axis
+     * is `auto` (or a keyword computing to the same initial value) rather than
+     * simply never declaring it. Kept distinct from `imageStylesheetDimension()`
+     * returning '' for viewport-conditioned or absent declarations, because
+     * only an author-STATED `auto` carries the "derive me from the other axis"
+     * instruction; a property nobody declares carries no instruction and must
+     * keep falling back to the HTML attribute below.
+     */
+    private function authorResolvesDimensionToAuto(DOMElement $image, string $property): bool
+    {
+        $value = strtolower(trim(CssValueInspector::withoutImportant(
+            (string) ($this->styles->imageShapeDeclarations($image)[$property]['value'] ?? '')
+        )));
+
+        return in_array($value, array( 'auto', 'initial', 'unset' ), true);
     }
 
     /** A viewport-invariant source dimension that native core/image can carry. */

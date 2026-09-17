@@ -731,6 +731,87 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A source `<img>` box constrained by author CSS `min-width`/`max-width`/
+     * `min-height`/`max-height` — properties core/image cannot express as a
+     * native block attribute at all — or by a `width`/`height` the caller's
+     * own native width/height resolution above could not carry as one.
+     *
+     * core/image's save() puts `className` on the generated `<figure>` — or,
+     * when the source `<img>` is itself the anchor of a link, on the same
+     * figure one level further out — never on the descendant `<img>` that
+     * actually paints. An author class establishing this box therefore sizes
+     * a box nothing renders, and the image falls back to its intrinsic
+     * width/height attributes. This carries the resolved box through the
+     * same be-inline-geometry primitive {@see
+     * SvgMaterializer::inlineSvgImageAttributesFromMarkup()} already uses for
+     * a materialized inline SVG's box (see also #1624 for the analogous
+     * button-icon failure this mirrors), targeting a descendant `img`
+     * selector so it reaches the `<img>` whether or not a source `<a>`
+     * still sits between the figure and it.
+     *
+     * A `width`/`height` this resolves is a safety net only: it fires
+     * exclusively when the caller's own native attribute for that axis is
+     * still empty (and, for height, no native aspectRatio already implies
+     * it), so an already-successful native width/height/aspectRatio/scale
+     * carry is left untouched.
+     */
+    public function imageBoxConstraintClassName(DOMElement $image, string $nativeWidth, string $nativeHeight, bool $hasNativeAspectRatio): string
+    {
+        $declarations = $this->imageShapeDeclarations($image);
+        $box = array();
+        foreach (array('width', 'min-width', 'max-width') as $property) {
+            if ('width' === $property && '' !== $nativeWidth) {
+                continue;
+            }
+            $value = $this->comparableImageShapeConstraintValue($declarations, $property);
+            if ('' !== $value) {
+                $box[$property] = $value;
+            }
+        }
+        foreach (array('height', 'min-height', 'max-height') as $property) {
+            if ('height' === $property && ('' !== $nativeHeight || $hasNativeAspectRatio)) {
+                continue;
+            }
+            $value = $this->comparableImageShapeConstraintValue($declarations, $property);
+            if ('' !== $value) {
+                $box[$property] = $value;
+            }
+        }
+        if (array() === $box) {
+            return '';
+        }
+
+        ksort($box);
+        $declarationList = array();
+        foreach ($box as $property => $value) {
+            $declarationList[] = $property . ':' . $value . '!important';
+        }
+        $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
+        $className = $this->context->layoutGeometry()->allocateCarrier($signature);
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . ' img{' . implode(';', $declarationList) . '}'
+        );
+
+        return $className;
+    }
+
+    /** @param array<string, array<string, mixed>> $declarations */
+    private function comparableImageShapeConstraintValue(array $declarations, string $property): string
+    {
+        $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
+        if (
+            '' === $value
+            || in_array(strtolower($value), array('auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none'), true)
+            || preg_match('~[{}<>;]|/\*~', $value)
+        ) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    /**
      * A source document root commonly inherits `height:100%` through html and
      * body. Block content gains WordPress-owned ancestors, which makes that
      * percentage indefinite and can collapse absolute page layers to a header.
@@ -2578,7 +2659,7 @@ final class StyleResolver implements ElementPresentationResolver
             [$property, $value] = array_map('trim', explode(':', $declaration, 2));
             $property = strtolower($property);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if (in_array($property, array('width', 'height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
+            if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
         }

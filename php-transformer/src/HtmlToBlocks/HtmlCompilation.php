@@ -8509,6 +8509,25 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
+        // core/image's save() puts className on the <figure>, never the
+        // descendant <img>. A box the author established with min-width/
+        // max-width/min-height/max-height — or a width/height the native
+        // attribute resolution above could not carry — needs to reach the
+        // <img> itself or nothing renders it. Carry it through the same
+        // be-inline-geometry primitive materialized SVG artwork already uses
+        // for its own box (see SvgMaterializer), targeting a descendant `img`
+        // selector so a source anchor still wrapping the image does not
+        // matter.
+        $boxCarrier = $this->styleResolver->imageBoxConstraintClassName(
+            $image,
+            (string) ($attrs['width'] ?? ''),
+            (string) ($attrs['height'] ?? ''),
+            isset($shape['aspectRatio'])
+        );
+        if ( '' !== $boxCarrier ) {
+            $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);
+        }
+
         if ( $figure instanceof DOMElement ) {
             $caption = $this->firstChildElement($figure, 'figcaption');
             if ( $caption instanceof DOMElement ) {
