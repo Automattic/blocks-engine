@@ -34,6 +34,11 @@ final class CssSelectorMatcher
             return self::unsupported('invalid-utf8');
         }
 
+        $unwrapped = self::parseWhollyZeroedSelector($selector);
+        if ( null !== $unwrapped ) {
+            return $unwrapped;
+        }
+
         $tokens = CssSelectorTokenizer::tokenize($selector);
         if ( ! $tokens['supported'] ) {
             return self::unsupported('tokenization');
@@ -105,6 +110,13 @@ final class CssSelectorMatcher
      */
     private static function compoundSpecificity(array $compound): int
     {
+        // Everything inside a wholly-wrapping `:where()` scores zero, including
+        // the structural pseudo-classes and negations a per-simple-selector
+        // discount cannot reach.
+        if ( true === ( $compound['forced_zero_specificity'] ?? false ) ) {
+            return 0;
+        }
+
         $zero = $compound['zero_specificity'] ?? array();
 
         $ids = count($compound['ids']) - (int) ( $zero['ids'] ?? 0 );
@@ -148,6 +160,91 @@ final class CssSelectorMatcher
             'supported' => true,
             'matches' => self::matchesAt($element, $selector['compounds'], $selector['combinators'], count($selector['compounds']) - 1, $cache),
         );
+    }
+
+    /**
+     * A selector that is nothing but `:where(...)` is its argument, scored zero.
+     *
+     * `parseCompound()` reads an `:is()`/`:where()` argument as a single
+     * compound, so a complex one — anything carrying a combinator — makes the
+     * whole selector unsupported and invisible to the resolver. Tailwind v4
+     * writes every sibling-spacing utility in exactly that shape
+     * (`:where(.space-y-8>:not(:last-child))`), and losing it did not merely
+     * drop the spacing: the resolver fell back to the preflight `margin:0` and
+     * baked that zero inline, where the author's rule could no longer win it.
+     *
+     * Handling the wholly-wrapped case needs no nested matching. `:where(X)`
+     * selects exactly what `X` selects and contributes no specificity, so the
+     * argument is parsed on its own and every compound is scored zero. Spans
+     * stay measured against the original selector by shifting them past the
+     * prefix, so selector rewriting still edits the real text.
+     *
+     * @return array<string, mixed>|null
+     */
+    private static function parseWhollyZeroedSelector(string $selector): ?array
+    {
+        $trimmed = trim($selector);
+        if ( 0 !== stripos($trimmed, ':where(') || ! str_ends_with($trimmed, ')') ) {
+            return null;
+        }
+
+        $prefix = strlen(':where(');
+        $depth = 0;
+        $length = strlen($trimmed);
+        for ( $offset = $prefix - 1; $offset < $length; ++$offset ) {
+            $character = $trimmed[ $offset ];
+            if ( '(' === $character ) {
+                ++$depth;
+                continue;
+            }
+            if ( ')' !== $character ) {
+                continue;
+            }
+            --$depth;
+            if ( 0 !== $depth ) {
+                continue;
+            }
+            // The wrapper has to close on the last character. Anything else is a
+            // compound such as `:where(.a).b`, which the normal path handles.
+            if ( $offset !== $length - 1 ) {
+                return null;
+            }
+            break;
+        }
+        if ( 0 !== $depth ) {
+            return null;
+        }
+
+        $inner = substr($trimmed, $prefix, -1);
+        if ( '' === trim($inner) ) {
+            return null;
+        }
+
+        $parsed = self::parseUncached($inner);
+        if ( ! ( $parsed['supported'] ?? false ) ) {
+            return null;
+        }
+
+        $shift = strlen($selector) - strlen(ltrim($selector)) + $prefix;
+        foreach ( $parsed['compounds'] as $index => $compound ) {
+            $compound['forced_zero_specificity'] = true;
+            $parsed['compounds'][ $index ] = $compound;
+        }
+        foreach ( $parsed['type_spans'] as $index => $span ) {
+            $parsed['type_spans'][ $index ]['start'] += $shift;
+            $parsed['type_spans'][ $index ]['end'] += $shift;
+        }
+        foreach ( array( 'rightmost_compound_span', 'pseudo_state_suffix_span' ) as $key ) {
+            if ( is_array($parsed[ $key ] ?? null) ) {
+                $parsed[ $key ]['start'] += $shift;
+                $parsed[ $key ]['end'] += $shift;
+            }
+        }
+        if ( null !== ( $parsed['rightmost_rewrite_end'] ?? null ) ) {
+            $parsed['rightmost_rewrite_end'] += $shift;
+        }
+
+        return $parsed;
     }
 
     /** @return array{compound: array<string, mixed>, suffix: array{start: int, end: int}|null, type_span: array{start: int, end: int, name: string}|null}|null */

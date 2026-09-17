@@ -339,6 +339,31 @@ $assert(100 === $specificityOf('#x'), 'an id is one id-level component');
 $assert(11 === $specificityOf('a:not(.x)'), ':not() contributes its argument');
 $assert(20 === $specificityOf(':root .x'), ':root counts as a class-level component');
 
+// A wholly-wrapping :where() selects exactly what it wraps, at zero specificity.
+// Tailwind v4 writes every sibling-spacing utility that way, and reading the
+// argument as a single compound made the whole rule unsupported.
+$spacingDoc = new DOMDocument();
+$spacingDoc->loadHTML('<?xml encoding="utf-8" ?><body><ol class="space-y-8"><li id="first"><p>A</p></li><li id="middle"><p>B</p></li><li id="last"><p>C</p></li></ol></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$spacingItem = static function (string $id) use ($spacingDoc): DOMElement {
+    $element = $spacingDoc->getElementById($id);
+    if ( ! $element instanceof DOMElement ) {
+        throw new RuntimeException('Fixture item ' . $id . ' not parsed');
+    }
+    return $element;
+};
+
+$tailwindSpacing = CssSelectorMatcher::parse(':where(.space-y-8>:not(:last-child))');
+$assert($tailwindSpacing['supported'], 'a wholly-wrapped complex :where() is supported');
+$assert(CssSelectorMatcher::matches($spacingItem('first'), $tailwindSpacing)['matches'], 'it matches a non-final sibling');
+$assert(CssSelectorMatcher::matches($spacingItem('middle'), $tailwindSpacing)['matches'], 'it matches a middle sibling');
+$assert(! CssSelectorMatcher::matches($spacingItem('last'), $tailwindSpacing)['matches'], 'it still honours :not(:last-child) on the final sibling');
+$assert(0 === $specificityOf(':where(.space-y-8>:not(:last-child))'), 'everything inside the wrapper scores zero, structural pseudo-classes included');
+$assert(0 === $specificityOf(':where(#a .b > c)'), 'ids and types inside the wrapper score zero too');
+
+// The wrapper only disappears when it is the entire selector.
+$assert(10 === $specificityOf(':where(.a).b'), 'a trailing compound keeps the normal reading');
+$assert(10 === $specificityOf(':where(.a) .b'), 'a following compound keeps the normal reading');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
