@@ -107,6 +107,43 @@ $assert(
     'a subtree without images has no responsive sources'
 );
 
+// --- media: image-carrier buttons -------------------------------------------
+//
+// core/button keeps its label as inline RichText, so an image or a block-level
+// descendant cannot survive that lowering. These pin which buttons must route
+// to a preserving container instead.
+
+$assert(
+    $classifier->isImageCarrierButton($element('<button><img src="i.png" alt="Search"></button>')),
+    'an image button with no visible text is a carrier'
+);
+$assert(
+    $classifier->isImageCarrierButton($element(
+        '<button><div><img src="p.png" alt="Fjord Coffee"></div>'
+        . '<div><h3>Fjord Coffee</h3><span>Logo</span></div>'
+        . '<p>Brand identity</p></button>'
+    )),
+    'a media card button is a carrier even though it also has visible text'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element('<button><img src="i.png" alt=""> Download</button>')),
+    'an icon beside a phrasing label stays on the native control path'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element('<button>All 06</button>')),
+    'a text-only button is not a carrier'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element(
+        '<button type="submit"><div><img src="p.png" alt="Go"></div><p>Send</p></button>'
+    )),
+    'a submit control is never re-homed into a container'
+);
+$assert(
+    ! $classifier->isImageCarrierButton($element('<button><div><span>Stacked</span></div></button>')),
+    'block-level structure alone, with no image, is not an image carrier'
+);
+
 // --- identity: card-like ----------------------------------------------------
 
 $assert(
