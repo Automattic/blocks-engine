@@ -216,6 +216,7 @@
       "php tests/unit/inert-closed-state-interactions.php",
       "php tests/unit/reveal-animation-settling.php",
       "php tests/unit/geometry-chain-coalescing.php",
+      "php tests/unit/wrapper-coalescer-disposition.php",
       "php tests/unit/pattern-tree-converter.php",
       "php tests/unit/pattern-recognizer-registry.php",
       "php tests/unit/social-links-boundary.php",

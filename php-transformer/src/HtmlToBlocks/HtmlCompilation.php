@@ -92,6 +92,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementCon
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\TableElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\UnsupportedElementRecorder;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\WrapperCoalescer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RichTextElementConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\SearchBlockConversionContext;
@@ -332,6 +333,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly NativeGetFormBlockBuilder $nativeGetFormBlockBuilder;
 
     private readonly ElementConversionPrelude $elementPrelude;
+
+    private readonly WrapperCoalescer $wrapperCoalescer;
 
     private readonly PseudoFormAnalyzer $pseudoFormAnalyzer;
 
@@ -986,7 +989,18 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $recognizePatterns,
             fn (DOMElement $element): bool => $this->requiresStandaloneInlineLayoutLeaf($element),
             fn (DOMElement $element, array &$fallbacks): ?array => $this->proofBackedWrapperCoalescing($element, $fallbacks),
-            fn (DOMElement $element): ?array => $this->layoutGeometryProofFor($element)
+            fn (DOMElement $element): ?array => $this->wrapperCoalescer->layoutGeometryProofFor($element)
+        );
+        $this->wrapperCoalescer = new WrapperCoalescer(
+            $this->sourceElementClassifier,
+            $this->runtimeIslands,
+            $this->styleResolver,
+            $this,
+            $this->session,
+            fn (DOMElement $element): array => $this->structureSignals($element, array()),
+            fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
+            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): bool => $this->isImageOnlyAnchor($element)
         );
     }
 
@@ -3323,7 +3337,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $parent = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+        if ( ! $parent instanceof DOMElement || ! $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
             return false;
         }
 
@@ -3528,12 +3542,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         ));
     }
 
-    private function isStructuralLayoutElement(DOMElement $element): bool
-    {
-        $declarations = array_merge($this->styleResolver->presentationDeclarations($element), $this->authorSemanticDeclarations($element));
-        return in_array(strtolower(trim((string) ($declarations['display'] ?? ''))), array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
-    }
-
     /**
      * Author CSS owns a container's geometry when it establishes flex or grid.
      */
@@ -3566,11 +3574,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         return $element->parentNode instanceof DOMElement
             && in_array($this->authoredDisplay($element->parentNode), array( 'flex', 'inline-flex' ), true);
-    }
-
-    private function isDirectChildOfStructuralLayout(DOMElement $element): bool
-    {
-        return $element->parentNode instanceof DOMElement && $this->isStructuralLayoutElement($element->parentNode);
     }
 
     private function requiresStandaloneInlineLayoutLeaf(DOMElement $element): bool
@@ -3608,7 +3611,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
-        if ( ! $this->isDirectChildOfStructuralLayout($element) ) {
+        if ( ! $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element) ) {
             return false;
         }
 
@@ -3670,7 +3673,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement || ! $this->isStructuralLayoutElement($parent) ) {
+        if ( ! $parent instanceof DOMElement || ! $this->wrapperCoalescer->isStructuralLayoutElement($parent) ) {
             return false;
         }
 
@@ -3761,30 +3764,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $block['innerBlocks'] = $grand;
         return $block;
-    }
-
-    /**
-     * @param array<int, array<string, mixed>> $wrappers
-     * @return array<int, array<string, mixed>>
-     */
-    private function truncateWrappersAfterAuthoredGrid(array $wrappers): array
-    {
-        $trimmed = array();
-        $seenGrid = false;
-        foreach ( $wrappers as $wrapper ) {
-            $className = (string) (is_array($wrapper['attributes'] ?? null) ? ($wrapper['attributes']['class'] ?? '') : '');
-            if ( ! $seenGrid ) {
-                $trimmed[] = $wrapper;
-                $seenGrid = str_contains($className, 'blocks-engine-css-owned-grid');
-                continue;
-            }
-            if ( $this->classListHasAuthorToken($className) ) {
-                $trimmed[] = $wrapper;
-                continue;
-            }
-            break;
-        }
-        return $trimmed;
     }
 
     /** @param array<string, mixed> $block */
@@ -4038,19 +4017,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $tags[] = $this->generatedBlocks()->blockName(AuthorLayoutBlockGenerator::LOCAL_NAME) === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/group' === $name ? (string) ($attrs['tagName'] ?? 'div') : ('core/image' === $name ? 'img' : ('core/paragraph' === $name ? 'p' : ('core/heading' === $name ? 'h' . (string) ($attrs['level'] ?? 2) : ''))));
         }
         return $tags;
-    }
-
-    /** @return array<string, string> */
-    private function authorSemanticDeclarations(DOMElement $element): array
-    {
-        $declarations = array();
-        foreach ( $this->styleResolver->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->styleResolver->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = array_merge($declarations, $rule['declarations']);
-            }
-        }
-
-        return $declarations;
     }
 
     private function isRichTextInlineContext(DOMElement $element): bool
@@ -4524,33 +4490,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return array('chain' => $chain, 'terminal' => $this->normalizeWrapperChain($cursor), 'boundary' => $this->wrapperBoundaryReason($cursor));
     }
 
-    /** @param array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}> $chain @param array<string,mixed> $terminal @return array<string,mixed> */
+    /**
+     * @param array<int,array{block:array<string,mixed>,descriptor:array<string,mixed>}> $chain
+     * @param array<string,mixed> $terminal
+     * @return array<string,mixed>
+     * @see WrapperCoalescer::foldWrapperChain()
+     */
     private function foldWrapperChain(array $chain, array $terminal): array
     {
-        $terminalIsShell = $this->sourceElementClassifier->isLayoutShellBlock($terminal);
-        $terminalBlocks = $terminalIsShell ? $terminal['innerBlocks'] : (is_array($terminal['innerBlocks'] ?? null) && 'core/freeform' === ($terminal['blockName'] ?? null) ? $terminal['innerBlocks'] : array($terminal));
-        $wrappers = array_column($chain, 'descriptor');
-        if ($terminalIsShell) $wrappers = array_merge($wrappers, is_array($terminal['_layout_shell_wrappers'] ?? null) ? $terminal['_layout_shell_wrappers'] : array());
-        if ( 2 <= count($terminalBlocks) ) {
-            $wrappers = $this->truncateWrappersAfterAuthoredGrid($wrappers);
-        }
-        $opening = implode('', array_column($wrappers, 'opening'));
-        $closing = implode('', array_reverse(array_column($wrappers, 'closing')));
-        $provenanceIds = array_values(array_filter(array_map(static fn (array $entry): mixed => $entry['block']['_source_provenance_id'] ?? null, $chain), 'is_int'));
-        if ($terminalIsShell) $provenanceIds = array_merge($provenanceIds, is_array($terminal['_source_provenance_ids'] ?? null) ? $terminal['_source_provenance_ids'] : array());
-        $blockName = $this->generatedBlocks()->blockName('layout-shell');
-        $this->generatedBlocks()->register(LayoutShellBlockGenerator::class, (new LayoutShellBlockGenerator())->definition($blockName));
-        return array_filter(array(
-            'blockName' => $blockName,
-            'attrs' => array('wrappers' => array_map(static fn (array $wrapper): array => array('tagName' => $wrapper['tagName'], 'attributes' => $wrapper['attributes']), $wrappers)),
-            'innerBlocks' => $terminalBlocks,
-            'innerHTML' => $opening . $closing,
-            'innerContent' => array_merge(array($opening), array_fill(0, count($terminalBlocks), null), array($closing)),
-            '_source_provenance_ids' => $provenanceIds,
-            '_layout_shell_wrappers' => $wrappers,
-            '_editability_runtime_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_runtime_owned'])) || ($terminalIsShell && !empty($terminal['_editability_runtime_owned'])),
-            '_editability_visual_owned' => (bool) array_filter($chain, static fn (array $entry): bool => !empty($entry['block']['_editability_visual_owned'])) || ($terminalIsShell && !empty($terminal['_editability_visual_owned'])),
-        ), static fn (mixed $value): bool => false !== $value && array() !== $value);
+        return $this->wrapperCoalescer->foldWrapperChain($chain, $terminal);
     }
 
     /** @param array<string,mixed> $block */
@@ -4583,37 +4531,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             || in_array($block['blockName'] ?? null, array('core/columns', 'core/column'), true);
     }
 
-    /** @param array<string, mixed> $block @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null */
+    /**
+     * @param array<string, mixed> $block
+     * @return array{tagName: string, attributes: array<string, string>, opening: string, closing: string}|null
+     * @see WrapperCoalescer::groupWrapperDescriptor()
+     */
     private function groupWrapperDescriptor(array $block): ?array
     {
-        $content = is_array($block['innerContent'] ?? null) ? $block['innerContent'] : array();
-        $opening = is_string($content[0] ?? null) ? $content[0] : '';
-        $closing = is_string($content[array_key_last($content)] ?? null) ? $content[array_key_last($content)] : '';
-        $children = is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array();
-        if (count($content) !== count($children) + 2 || array_slice($content, 1, -1) !== array_fill(0, count($children), null)) {
-            return null;
-        }
-        if (! preg_match('/^<([a-z][a-z0-9-]*)\b/i', $opening, $match) || '' === $closing) {
-            return null;
-        }
-        $tagName = strtolower($match[1]);
-        $document = new DOMDocument();
-        $previous = libxml_use_internal_errors(true);
-        $loaded = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $opening . $closing . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-        libxml_use_internal_errors($previous);
-        $element = $loaded ? $document->getElementsByTagName($tagName)->item(0) : null;
-        if (! $element instanceof DOMElement) {
-            return null;
-        }
-        $attributes = array();
-        foreach ($element->attributes ?? array() as $attribute) {
-            $attributes[strtolower($attribute->nodeName)] = (string) $attribute->nodeValue;
-        }
-        if (!$this->sourceElementClassifier->isLayoutShellSerializableStyle((string) ($attributes['style'] ?? ''))) {
-            return null;
-        }
-        return array('tagName' => $tagName, 'attributes' => $attributes, 'opening' => $opening, 'closing' => $closing);
+        return $this->wrapperCoalescer->groupWrapperDescriptor($block);
     }
 
     /**
@@ -4771,68 +4696,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return ShellLandmarkPolicy::isWrapperPreservingTag($element->tagName) && ( $this->runtimeIslands->isRuntimeDomTarget($element) || $this->hasAuthorSemanticMarker($element) || array() !== $this->styleResolver->presentationAttributes($element) || array() !== $this->structureSignals($element, array()) );
     }
 
-    /** @param array<string, mixed> $childBlock @return array<string, mixed>|null */
+    /**
+     * @param array<string, mixed> $childBlock
+     * @return array<string, mixed>|null
+     * @see WrapperCoalescer::coalescedSingleGroupWrapper()
+     * @see WrapperCoalescer::coalescingDisposition() for the named disqualification reasons.
+     */
     private function coalescedSingleGroupWrapper(DOMElement $element, array $childBlock): ?array
     {
-        $proof = $this->layoutGeometryProofFor($element);
-        $fullWidthTransparentShell = $this->hasOnlyFullWidthTransparentInlineGeometry($element);
-        $redundantNestedLayout = $this->isRedundantNestedLayoutWrapper($element, $childBlock);
-        if ( 'div' !== strtolower($element->tagName)
-            || ! in_array($childBlock['blockName'] ?? null, array('core/group', 'core/image'), true)
-            || ($fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null))
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || (null === $proof && $this->isDirectChildOfStructuralLayout($element))
-            || '' !== trim($this->attr($element, 'id'))
-            || '' !== trim($this->attr($element, 'role'))
-            || (null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout)
-            || array() !== $this->interactiveAttributes($element)
-            || (null === $proof && array() !== $this->safeDataAttributes($element))
-            || (null === $proof && array() !== $this->structureSignals($element, array()) && ! $redundantNestedLayout)
-            || $this->sourceElementClassifier->hasMotionStructureToken($element)
-        ) {
-            return null;
-        }
-
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        if ( ! $redundantNestedLayout && array_diff(array_keys($attrs), array( 'className', 'style' )) ) {
-            return null;
-        }
-
-        $provenanceId = $childBlock['_source_provenance_id'] ?? null;
-        $sourceChild = is_int($provenanceId) ? $this->sameSourceGroupChainLeaf($element, (string) ($this->transformationProvenance()->source($provenanceId)['source_digest'] ?? '')) : null;
-        if (! $sourceChild instanceof DOMElement && 'core/image' === ($childBlock['blockName'] ?? null)) $sourceChild = $this->imageLeafInGroupChain($element);
-        if ( ! $sourceChild instanceof DOMElement
-            || ('core/image' === ($childBlock['blockName'] ?? null) && ! in_array(strtolower($sourceChild->tagName), array( 'img', 'svg' ), true) && ! str_contains($sourceChild->tagName, '-'))
-            || $this->sourceElementClassifier->hasMotionStructureToken($sourceChild)
-            || (null === $proof && ! $redundantNestedLayout && ($fullWidthTransparentShell ? ! $this->hasOnlyFullWidthTransparentBoxAffectingDeclarations($element) : ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)))
-            || (null === $proof && $fullWidthTransparentShell && ! $this->isNormalFlowFullWidthShellChild($sourceChild))
-            || ('core/image' !== ($childBlock['blockName'] ?? null) && ! $redundantNestedLayout && $this->hasContainingBlockDependentAuthorDeclarations($sourceChild))
-            || (null === $proof && ! $this->syntheticImageGeometryLeaf($childBlock) && ! $this->selectorMatchingSurvivesWrapperCoalescing($element, $sourceChild, $fullWidthTransparentShell))
-        ) {
-            return null;
-        }
-
-        $childAttrs = is_array($childBlock['attrs'] ?? null) ? $childBlock['attrs'] : array();
-        $childAttrs['className'] = null === $proof
-            ? $this->mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...$this->classNames($element))
-            : $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
-        $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
-        if (null !== $proof) $this->layoutGeometry()->recordProof($proof);
-
-        return $this->createBlock((string) $childBlock['blockName'], $childAttrs, $childBlock['innerBlocks'] ?? array(), $sourceChild);
-    }
-
-    /** @return array<string,mixed>|null */
-    private function layoutGeometryProofFor(DOMElement $element): ?array
-    {
-        foreach ($this->layoutGeometry()->proofReductions() as $proof) {
-            // The normalizer binds the document digest. This lookup uses the
-            // canonical structural selector, not a reusable author class.
-            if (!is_array($proof) || $this->elementSelector($element) !== ($proof['wrapper_selector'] ?? null)) continue;
-            $child = $this->soleElementChild($element);
-            if ($child instanceof DOMElement && $this->elementSelector($child) === ($proof['target_selector'] ?? null)) return $proof;
-        }
-        return null;
+        return $this->wrapperCoalescer->coalescedSingleGroupWrapper($element, $childBlock);
     }
 
     /**
@@ -4846,105 +4718,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function proofBackedWrapperCoalescing(DOMElement $element, array &$fallbacks): ?array
     {
-        $proof = $this->layoutGeometryProofFor($element);
+        $proof = $this->wrapperCoalescer->layoutGeometryProofFor($element);
         if (null === $proof || $this->runtimeIslands->isRuntimeDomTarget($element) || '' !== trim($this->attr($element, 'id')) || '' !== trim($this->attr($element, 'role')) || array() !== $this->interactiveAttributes($element) || $this->sourceElementClassifier->hasMotionStructureToken($element)) return null;
         $children = $this->convertChildren($element, $fallbacks, true);
         if (1 !== count($children) || !in_array($children[0]['blockName'] ?? null, array('core/group', 'core/image'), true)) return null;
         $sourceChild = $this->soleElementChild($element);
         if (!$sourceChild instanceof DOMElement || $this->elementSelector($sourceChild) !== ($proof['target_selector'] ?? null)) return null;
         $childAttrs = is_array($children[0]['attrs'] ?? null) ? $children[0]['attrs'] : array();
-        $childAttrs['className'] = $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
+        $childAttrs['className'] = $this->mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->wrapperCoalescer->layoutGeometryProofCarrier($proof));
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => !is_string($value) || '' !== trim($value));
         $this->layoutGeometry()->recordProof($proof);
         return $this->createBlock((string) $children[0]['blockName'], $childAttrs, $children[0]['innerBlocks'] ?? array(), $sourceChild);
-    }
-
-    /** @param array<string,mixed> $proof */
-    private function layoutGeometryProofCarrier(array $proof): string
-    {
-        $declarations = $proof['corrective_css']['declarations'] ?? array();
-        if (!is_array($declarations)) return '';
-        $parts = array();
-        foreach ($declarations as $declaration) if (is_array($declaration)) $parts[] = $declaration['property'] . ':' . $declaration['value'];
-        if (array() === $parts) return '';
-        $className = 'be-layout-proof-' . substr(hash('sha256', (string) $proof['source_hash'] . "\n" . (string) $proof['wrapper_selector'] . "\n" . implode(';', $parts)), 0, 32);
-        $this->layoutGeometry()->registerRule($className, ':root .' . $className . '{' . implode(';', $parts) . '}');
-        return $className;
-    }
-
-    private function sameSourceGroupChainLeaf(DOMElement $element, string $sourceDigest): ?DOMElement
-    {
-        if ( '' === $sourceDigest ) {
-            return null;
-        }
-
-        $child = $this->soleElementChild($element);
-        while ( $child instanceof DOMElement && hash('sha256', $this->safeFallbackHtml($child)) !== $sourceDigest ) {
-            // A native image block may take its source provenance from the img
-            // while retaining an image-only anchor as block attributes.
-            $anchorChild = 'a' === strtolower($child->tagName) ? $this->soleElementChild($child) : null;
-            if ( $anchorChild instanceof DOMElement
-                && 'a' === strtolower($child->tagName)
-                && ($this->isImageOnlyAnchor($child) || in_array(strtolower($anchorChild->tagName), array('img', 'picture'), true))
-            ) {
-                $child = $anchorChild;
-                continue;
-            }
-            if ( ! $this->isNeutralGroupChainWrapper($child) ) {
-                return null;
-            }
-            $child = $this->soleElementChild($child);
-        }
-
-        return $child;
-    }
-
-    /** @param array<string,mixed> $block */
-    private function syntheticImageGeometryLeaf(array $block): bool
-    {
-        $className = (string) ($block['attrs']['className'] ?? '');
-        return 'core/image' === ($block['blockName'] ?? null)
-            && str_contains($className, self::SYNTHETIC_IMAGE_FIGURE_CLASS)
-            && (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $className);
-    }
-
-    private function imageLeafInGroupChain(DOMElement $element): ?DOMElement
-    {
-        for ($child = $this->soleElementChild($element); $child instanceof DOMElement; $child = $this->soleElementChild($child)) {
-            $tagName = strtolower($child->tagName);
-            if (in_array($tagName, array('img', 'svg'), true)) return $child;
-            // Captured media exports commonly place their native image behind a
-            // passive custom-element carrier. Its own conversion already proves
-            // it has no retained block boundary. Use the carrier as the source
-            // leaf so selector survival is checked against its actual identity.
-            if (str_contains($tagName, '-')) {
-                $mediaChild = $this->soleElementChild($child);
-                if ($mediaChild instanceof DOMElement && in_array(strtolower($mediaChild->tagName), array('img', 'svg'), true)) return $child;
-            }
-            if (! in_array($tagName, array('div', 'a'), true) && ! str_contains($tagName, '-')) return null;
-        }
-        return null;
-    }
-
-    private function isNeutralGroupChainWrapper(DOMElement $element): bool
-    {
-        if ( 'div' !== strtolower($element->tagName)
-            || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->isDirectChildOfStructuralLayout($element)
-            || '' !== trim($this->attr($element, 'id'))
-            || '' !== trim($this->attr($element, 'role'))
-            || ! $this->hasOnlyRenderNeutralInlineGeometry($element)
-            || array() !== $this->interactiveAttributes($element)
-            || array() !== $this->safeDataAttributes($element)
-            || array() !== $this->structureSignals($element, array())
-            || $this->sourceElementClassifier->hasMotionStructureToken($element)
-            || ! $this->hasOnlyRenderNeutralBoxAffectingDeclarations($element)
-        ) {
-            return false;
-        }
-
-        $attrs = $this->styleResolver->presentationAttributes($element);
-        return ! array_diff(array_keys($attrs), array( 'className', 'style' )) && $this->soleElementChild($element) instanceof DOMElement;
     }
 
     private function soleElementChild(DOMElement $element): ?DOMElement
@@ -5012,151 +4796,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $evidence;
     }
 
-    /**
-     * A sole nested flex/grid wrapper is redundant when it only restates display
-     * and the child group already carries its own geometry carrier.
-     *
-     * @param array<string, mixed> $childBlock
-     */
-    private function isRedundantNestedLayoutWrapper(DOMElement $element, array $childBlock): bool
-    {
-        if ( 'core/group' !== ($childBlock['blockName'] ?? null) ) {
-            return false;
-        }
-
-        $childClass = (string) ($childBlock['attrs']['className'] ?? '');
-        if ( ! str_contains($childClass, 'blocks-engine-css-owned-layout')
-            || ! (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $childClass)
-        ) {
-            return false;
-        }
-
-        if ( '' !== trim($this->attr($element, 'class')) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
-        $display = strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['display'] ?? ''))));
-        if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-            return false;
-        }
-
-        unset($declarations['display']);
-        foreach ( $declarations as $property => $value ) {
-            if ( ! $this->isRenderNeutralGeometryDeclaration($property, $value) ) {
-                return false;
-            }
-        }
-
-        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap(
-            array_diff_key($this->matchingAuthorDeclarations($element), array( 'display' => true ))
-        );
-    }
-
-    private function hasOnlyRenderNeutralInlineGeometry(DOMElement $element): bool
-    {
-        foreach ($this->styleResolver->cssDeclarations($this->attr($element, 'style')) as $property => $value) {
-            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
-        }
-        return true;
-    }
-
-    private function hasOnlyFullWidthTransparentInlineGeometry(DOMElement $element): bool
-    {
-        $declarations = $this->styleResolver->cssDeclarations($this->attr($element, 'style'));
-        if ( '100%' !== strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')))) ) {
-            return false;
-        }
-        unset($declarations['width']);
-        foreach ($declarations as $property => $value) {
-            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private function hasOnlyFullWidthTransparentBoxAffectingDeclarations(DOMElement $element): bool
-    {
-        $declarations = $this->matchingAuthorDeclarations($element);
-        if ( '100%' !== strtolower(trim($this->cssValueWithoutImportant((string) ($declarations['width'] ?? '')))) ) {
-            return false;
-        }
-        unset($declarations['width']);
-        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($declarations);
-    }
-
-    private function isNormalFlowFullWidthShellChild(DOMElement $element): bool
-    {
-        if ( $this->hasContainingBlockDependentAuthorDeclarations($element) ) {
-            return false;
-        }
-        $declarations = $this->styleResolver->presentationDeclarations($element);
-        return ! isset($declarations['width'])
-            && ! isset($declarations['min-width'])
-            && ! isset($declarations['max-width']);
-    }
-
-    private function hasOnlyRenderNeutralBoxAffectingDeclarations(DOMElement $element): bool
-    {
-        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($this->matchingAuthorDeclarations($element));
-    }
-
-    /** @param array<string,string> $declarations */
-    private function hasOnlyRenderNeutralBoxAffectingDeclarationMap(array $declarations): bool
-    {
-        foreach ($declarations as $property => $value) {
-            if (! preg_match('/^(?:align-content|align-items|align-self|background|border|bottom|column|contain|display|filter|flex|float|gap|grid|height|inset|isolation|left|margin|max-|min-|opacity|outline|overflow|padding|perspective|position|right|row-gap|top|transform|width|z-index)/', $property)) continue;
-            if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
-        }
-        return true;
-    }
-
-    private function isRenderNeutralGeometryDeclaration(string $property, string $value): bool
-    {
-        $value = strtolower(trim($this->cssValueWithoutImportant($value)));
-        if (preg_match('/^(?:margin|padding)(?:-(?:top|right|bottom|left))?$/', $property)) return in_array($value, array('0', '0px', '0em', '0rem', '0%'), true);
-        if (str_starts_with($property, 'border') || 'outline' === $property) return in_array($value, array('0', '0 none', 'none'), true);
-        return 'text-align' === $property && 'left' === $value;
-    }
-
-    /** @param array<string,string> $declarations */
-    private function hasOnlyRenderNeutralDeclarations(array $declarations): bool
-    {
-        foreach ($declarations as $property => $value) if (! $this->isRenderNeutralGeometryDeclaration($property, $value)) return false;
-        return array() !== $declarations;
-    }
-
-    private function hasContainingBlockDependentAuthorDeclarations(DOMElement $element): bool
-    {
-        $declarations = $this->matchingAuthorDeclarations($element);
-        foreach ( array_keys($declarations) as $property ) {
-            if ( preg_match('/^(?:align-self|bottom|flex|float|grid-column|grid-row|height|inset|left|margin|max-height|max-width|min-height|min-width|order|position|right|top|transform|width)$/', $property) ) {
-                return true;
-            }
-        }
-        $display = strtolower(trim((string) ($declarations['display'] ?? '')));
-        return '' !== $display && ! in_array($display, array( 'block', 'flow-root' ), true);
-    }
-
-    /** @return array<string, string> */
-    private function matchingAuthorDeclarations(DOMElement $element): array
-    {
-        $declarations = $this->styleResolver->presentationDeclarations($element);
-        $matchedRules = array();
-        foreach ( $this->authorStyleRuleCandidates($element) as $selector ) {
-            $ruleOrder = $selector['rule_order'];
-            if ( isset($matchedRules[$ruleOrder]) || ! $selector['parsed']['supported'] ) {
-                continue;
-            }
-            if ( $this->sourceStyles()->selectorMatchCache->matches($element, $selector['selector'], $selector['parsed'], true)['matches'] ) {
-                $matchedRules[$ruleOrder] = true;
-                $declarations = $this->styleResolver->mergeCssDeclarationMaps($declarations, $selector['declarations']);
-            }
-        }
-        return $declarations;
-    }
-
     /** @return list<array{key: string, selector: string, parsed: array<string, mixed>, direct_child_parsed: array<string, mixed>, declarations: array<string, string>, rule_order: int}> */
     private function authorStyleRuleCandidates(DOMElement $element, ?CssSelectorMatchCache $selectorCache = null): array
     {
@@ -5165,74 +4804,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $selectorCache->styleRuleCandidates($element, 'author-rules', $index);
     }
 
+    /** @see WrapperCoalescer::selectorMatchingSurvivesWrapperCoalescing() */
     private function selectorMatchingSurvivesWrapperCoalescing(DOMElement $element, DOMElement $child, bool $exact = false): bool
     {
-        $parent = $element->parentNode;
-        if ( ! $parent instanceof DOMElement ) {
-            return false;
-        }
-
-        $chain = array();
-        for ( $node = $child; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-            $chain[] = $node;
-            if ( $node === $element ) {
-                break;
-            }
-        }
-        if ( $element !== end($chain) ) {
-            return false;
-        }
-
-        $beforeCandidatesByKey = array();
-        foreach ( $chain as $node ) {
-            foreach ( $this->authorStyleRuleCandidates($node) as $selector ) {
-                $beforeCandidatesByKey[$selector['key']] = $selector;
-            }
-        }
-        $beforeCandidates = array_values($beforeCandidatesByKey);
-        $matchesBefore = array();
-        foreach ( $beforeCandidates as $selector ) {
-            $matchesBefore[$selector['key']] = $selector['parsed']['supported'] && (bool) array_filter(
-                $chain,
-                fn (DOMElement $node): bool => $this->sourceStyles()->selectorMatchCache->matches($node, $selector['selector'], $selector['parsed'], true)['matches']
-            );
-        }
-
-        $childClass = $this->attr($child, 'class');
-        $chainClasses = array_map(fn (DOMElement $node): string => $this->attr($node, 'class'), $chain);
-        $childParent = $child->parentNode;
-        $childNextSibling = $child->nextSibling;
-        $parent->insertBefore($child, $element);
-        $parent->removeChild($element);
-        $child->setAttribute('class', $this->mergeClassNames(...$chainClasses));
-
-        $survives = true;
-        $temporarySelectorCache = new CssSelectorMatchCache();
-        $afterCandidates = $this->authorStyleRuleCandidates($child, $temporarySelectorCache);
-        $candidates = array();
-        foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
-            $candidates[$selector['key']] = $selector;
-        }
-        foreach ( $candidates as $key => $selector ) {
-            $matchesAfter = $selector['parsed']['supported']
-                && $temporarySelectorCache->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
-            if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
-                $survives = false;
-                break;
-            }
-        }
-
-        $parent->insertBefore($element, $child);
-        $parent->removeChild($child);
-        if ( $childParent instanceof DOMNode ) {
-            $childParent->insertBefore($child, $childNextSibling);
-        }
-        if ( '' === $childClass ) {
-            $child->removeAttribute('class');
-        } else {
-            $child->setAttribute('class', $childClass);
-        }
-        return $survives;
+        return $this->wrapperCoalescer->selectorMatchingSurvivesWrapperCoalescing($element, $child, $exact);
     }
 
     private function shouldDeferNavigationPatternToChildren(DOMElement $element): bool
@@ -5391,7 +4966,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( ! preg_match('/(?:^|[^a-z0-9])(?:search|cart)(?:[^a-z0-9]|$)/', $identity)
             || '' !== $this->renderedTextContent($element)
             || $this->runtimeIslands->isRuntimeDomTarget($element)
-            || $this->isDirectChildOfStructuralLayout($element)
+            || $this->wrapperCoalescer->isDirectChildOfStructuralLayout($element)
             || $this->hasAuthorInlineAlignment($element)
         ) {
             return false;
@@ -5414,7 +4989,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasAuthorInlineAlignment(DOMElement $element): bool
     {
-        $declarations = $this->matchingAuthorDeclarations($element);
+        $declarations = $this->wrapperCoalescer->matchingAuthorDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? '')));
         $verticalAlign = strtolower(trim((string) ($declarations['vertical-align'] ?? '')));
         return in_array($display, array( 'inline', 'inline-block', 'inline-flex', 'inline-grid', 'inline-table' ), true)
