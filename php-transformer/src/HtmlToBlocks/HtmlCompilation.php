@@ -383,6 +383,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private HtmlTransformerSession $session;
 
+    /** @var array<string, true> */
+    private array $sharedStylesheetPaths = array();
+
     private const SYNTHETIC_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS;
     private const SYNTHETIC_SVG_PARAGRAPH_CLASS = SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS;
 
@@ -1351,6 +1354,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
+        $this->sharedStylesheetPaths = array();
+        foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
+            if ( is_string($path) && '' !== $path ) {
+                $this->sharedStylesheetPaths[$path] = true;
+            }
+        }
         $staticCss = (string) ($options['static_css'] ?? '');
         $this->capturedRootTheme = $this->documentRootTheme($html);
         $styleAnalysis = $this->stylesheetAnalysisComposer->composedStyleAnalysis(
@@ -2205,7 +2214,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $projections = array();
         foreach ( $this->authorStyles()->stylesheetAssets() as $asset ) {
-            $content = $this->rewriteAuthorStylesheet($asset['content']);
+            $content = $this->rewriteAuthorStylesheet(
+                $asset['content'],
+                isset($this->sharedStylesheetPaths[$asset['path']])
+                    || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? ''])
+            );
             $hash = hash('sha256', $content);
             $projections[] = array(
                 'path'        => $asset['path'],
@@ -2254,7 +2267,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $projections;
     }
 
-    private function rewriteAuthorStylesheet(string $stylesheet): string
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false): string
     {
         return $this->authorStylesheetProjector->project(
             $stylesheet,
@@ -2262,7 +2275,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->authorStyles(),
                 $this->sourceStyles(),
                 $this->authorSelectorProjections(),
-                $this->transformationEvidence()
+                $this->transformationEvidence(),
+                $keepAuthorClassSelectors
             )
         );
     }

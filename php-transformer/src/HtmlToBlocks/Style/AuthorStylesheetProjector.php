@@ -1021,6 +1021,14 @@ final class AuthorStylesheetProjector
                 continue;
             }
             $projectedMarkers = array_merge($controls, $semanticLeaves, $richTextLeaves);
+            // Shared stylesheets are projected once per document into that
+            // document's marker namespace. Class-bound rules still address
+            // emitted markup that kept the authored class (button inner HTML,
+            // extracted chrome), so dropping the class leaves those elements
+            // unmatched in every other consuming document.
+            if ( $context->keepAuthorClassSelectors && array() !== $projectedMarkers && $this->isClassBoundSelector($parsed) ) {
+                $hasNonProjected = true;
+            }
             if ( $hasNonProjected ) {
                 $rewritten[] = $this->rewriteSourceTagTypes($selector, $parsed, $context, ':not(:where(.' . implode(',.', $projectedMarkers) . '))');
             }
@@ -1590,6 +1598,21 @@ final class AuthorStylesheetProjector
             && array() === ($rightmost['attributes'] ?? array())
             && array() === ($rightmost['not'] ?? array())
             && ( null !== ($rightmost['nth_child'] ?? null) || ($rightmost['first_child'] ?? false) || ($rightmost['last_child'] ?? false) );
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function isClassBoundSelector(array $parsed): bool
+    {
+        $compounds = $parsed['compounds'] ?? array();
+        if ( 1 !== count($compounds) ) {
+            return false;
+        }
+        $compound = $compounds[0];
+
+        return array() !== ($compound['classes'] ?? array())
+            && null === ($compound['type'] ?? null)
+            && array() === ($compound['ids'] ?? array())
+            && array() === ($compound['attributes'] ?? array());
     }
 
     /** @param array<int, array{end: int, value: string}> $replacements */

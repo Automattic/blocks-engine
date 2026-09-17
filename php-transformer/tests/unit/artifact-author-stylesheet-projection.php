@@ -281,6 +281,53 @@ $multiPageCompiledAssetPaths = array_column($multiPage['source_reports']['compil
 $assert(count($multiPageCompiledAssetPaths) === count(array_unique($multiPageCompiledAssetPaths)), 'multi-page compilation deduplicates byte-identical generated assets by source path');
 $assert(isset($multiPage['source_reports']['wordpress_site_plan']), 'multi-page generated asset aggregation remains a valid WordPress site plan');
 
+$sharedChromeHeader = static function (string $home, string $about): string {
+    return '<header id="site-chrome" class="site-header"><span class="logo-slot"><img src="logo.png" alt="Brand"></span><nav><a href="' . $home . '">Home</a><a href="' . $about . '">About</a></nav></header>';
+};
+$sharedChromeDocument = static function (string $header, string $title): string {
+    return '<!doctype html><html><head><link rel="stylesheet" href="site.css"></head><body><a class="skip-link" href="#content">Skip to content</a>'
+        . $header
+        . '<main id="content"><h1>' . $title . '</h1></main><footer><p>Footer ' . $title . '</p></footer></body></html>';
+};
+$sharedChromePng = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==');
+$sharedChrome = ( new ArtifactCompiler() )->compile(array(
+    'entrypoint' => 'index.html',
+    'files' => array(
+        array( 'path' => 'index.html', 'kind' => 'html', 'content' => $sharedChromeDocument($sharedChromeHeader('index.html', 'about.html'), 'Home') ),
+        array( 'path' => 'about.html', 'kind' => 'html', 'content' => $sharedChromeDocument($sharedChromeHeader('index.html', 'about.html'), 'About') ),
+        array( 'path' => 'team.html', 'kind' => 'html', 'content' => $sharedChromeDocument($sharedChromeHeader('index.html', 'about.html'), 'Team') ),
+        array( 'path' => 'site.css', 'kind' => 'css', 'content' => '.logo-slot{display:block;background-color:#123456}' ),
+        array( 'path' => 'logo.png', 'kind' => 'image', 'content_base64' => base64_encode($sharedChromePng), 'mime_type' => 'image/png' ),
+    ),
+) )->toArray();
+$sharedChromePlan = $sharedChrome['source_reports']['wordpress_site_plan'] ?? array();
+$sharedChromeHeaderPart = array_values(array_filter(
+    $sharedChromePlan['template_parts'] ?? array(),
+    static fn (array $part): bool => 'header' === ($part['area'] ?? null)
+))[0] ?? array();
+$sharedChromeCss = '';
+foreach ( $sharedChromePlan['assets'] ?? array() as $asset ) {
+    if ( 'css' === ($asset['kind'] ?? '') ) {
+        $sharedChromeCss .= (string) ($asset['content'] ?? '') . "\n";
+    }
+}
+$sharedChromeHeaderMarkup = (string) ($sharedChromeHeaderPart['canonical_block_markup'] ?? '');
+$sharedChromeHeaderHtml = preg_replace(
+    '/\sstyle="[^"]*"/',
+    '',
+    StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($sharedChromeHeaderMarkup)
+) ?? '';
+$sharedChromeHeaderProbes = ( new StaticStyleParityProbe() )->extract($sharedChromeHeaderHtml, $sharedChromeCss)['probes'] ?? array();
+$sharedChromeLogoPaint = '';
+foreach ( $sharedChromeHeaderProbes as $probe ) {
+    if ( in_array('logo-slot', $probe['classes'] ?? array(), true) ) {
+        $sharedChromeLogoPaint = strtolower((string) ($probe['style']['background-color'] ?? ''));
+        break;
+    }
+}
+$assert('header' === ($sharedChromeHeaderPart['slug'] ?? null) && str_contains($sharedChromeHeaderMarkup, 'logo-slot'), 'shared chrome with a class-bound logo wrapper extracts as a header template part that keeps the authored class');
+$assert(in_array($sharedChromeLogoPaint, array( '#123456', 'rgb(18, 52, 86)', 'rgb(18,52,86)' ), true), 'a shared stylesheet class rule still matches the logo wrapper in every consuming document');
+
 $siblingSettledState = ( new ArtifactCompiler() )->compile(array(
     'entrypoint' => 'index.html',
     'files' => array(
