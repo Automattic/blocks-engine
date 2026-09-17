@@ -1,0 +1,34 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-linked-image-dimension-px-unit",
+  "description": "A linked core/image (its <img> wrapped in an <a>) serializes its width/height dimensions with the `px` unit intact, matching core's own save() output. A prior fix for responsive site fidelity introduced a `$linked` special case that stripped `px` for linked images only, producing an invalid `width:1536` declaration that both drops the width in the browser and fails Gutenberg block validation (core emits `width:1536px`).",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-linked-image-dimension-px-unit.json",
+    "notes": "Regression fixture for the linked-image px-stripping defect in BlockFactory::imageDimensionCssValue()."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><figure><a href=\"/gallery/\"><img src=\"/media/photo.jpg\" alt=\"Photo\" style=\"width:1536px;height:1024px\"></a></figure></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "/media/photo.jpg", "alt": "Photo", "width": "1536px", "height": "1024px", "href": "/gallery/", "linkDestination": "custom" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "blocks.0.blockName", "assert": "equals", "value": "core/image" },
+    { "path": "blocks.0.attrs.width", "assert": "equals", "value": "1536px" },
+    { "path": "blocks.0.attrs.height", "assert": "equals", "value": "1024px" },
+    { "path": "blocks.0.attrs.href", "assert": "equals", "value": "/gallery/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:1536px;height:1024px\"" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "style=\"width:1536;height:1024\"" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
