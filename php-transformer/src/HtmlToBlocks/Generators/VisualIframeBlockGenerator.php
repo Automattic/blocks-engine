@@ -20,6 +20,25 @@ final class VisualIframeBlockGenerator
     public const LOCAL_NAME = 'visual-iframe';
 
     /**
+     * Mirrors core's `@wordpress/block-library` embed block aspect-ratio
+     * table (`ASPECT_RATIOS` in `embed/constants.js`) so a source iframe's
+     * own authored ratio can be expressed through the exact same
+     * `wp-embed-aspect-*`/`wp-has-aspect-ratio` classes and CSS core already
+     * ships. Keyed by exact fraction (not the UI's rounded 2-decimal
+     * comparison values) since these are the precise ratios core's
+     * `style.scss` bakes into each class's `padding-top` percentage.
+     */
+    private const EMBED_ASPECT_RATIO_CLASSES = array(
+        'wp-embed-aspect-21-9' => 21 / 9,
+        'wp-embed-aspect-18-9' => 18 / 9,
+        'wp-embed-aspect-16-9' => 16 / 9,
+        'wp-embed-aspect-4-3'  => 4 / 3,
+        'wp-embed-aspect-1-1'  => 1.0,
+        'wp-embed-aspect-9-16' => 9 / 16,
+        'wp-embed-aspect-1-2'  => 1 / 2,
+    );
+
+    /**
      * @param Closure(DOMElement): bool $isInertRuntimeMediaPlaceholder
      * @param Closure(DOMElement): bool $sourceElementStartsHidden
      * @param Closure(DOMElement): array{html: string, bytes: int, truncated: bool} $boundedFallbackHtml
@@ -211,11 +230,16 @@ JS;
         }
         $providerNameSlug = '' === $url ? '' : $this->embedProviderSlug($url);
         if ( '' !== $providerNameSlug ) {
-            $block = $createBlock->createBlock('core/embed', array_filter(array_merge($styleResolver->presentationAttributes($surface), array(
+            $embedAttrs = array_merge($styleResolver->presentationAttributes($surface), array(
                 'url'              => $this->canonicalEmbedUrl($url),
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
-            )), static fn ($value): bool => '' !== $value), array(), $surface);
+            ));
+            $aspectRatioClassName = $this->embedAspectRatioClassName($surface, $styleResolver);
+            if ( '' !== $aspectRatioClassName ) {
+                $embedAttrs['className'] = SourceDom::mergeClassNames((string) ($embedAttrs['className'] ?? ''), $aspectRatioClassName);
+            }
+            $block = $createBlock->createBlock('core/embed', array_filter($embedAttrs, static fn ($value): bool => '' !== $value), array(), $surface);
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
         }
 
@@ -501,6 +525,76 @@ JS;
             'referrerPolicy' => $attributes['referrerpolicy'] ?? '',
             'allowFullScreen' => array_key_exists('allowfullscreen', $attributes),
         ), static fn (mixed $value): bool => '' !== $value && false !== $value);
+    }
+
+    /**
+     * A source iframe's own authored `width`/`height` express the visual
+     * intent it was designed at (e.g. a Spotify playlist embed sized tall
+     * enough to show several tracks). oEmbed's default render for the same
+     * URL routinely ignores that intent and substitutes the provider's own
+     * default height, since core/embed's autoembed path re-fetches the
+     * embed HTML from the provider with no way to request our attributes
+     * back (`WP_Embed::autoembed_callback()` calls `shortcode()` with an
+     * empty attribute array, so nothing stored on the block can influence
+     * the provider request).
+     *
+     * The only durable lever left is core's own `wp-embed-aspect-*` /
+     * `wp-has-aspect-ratio` className pair: `@wordpress/block-library`
+     * ships CSS (`.wp-has-aspect-ratio iframe { position: absolute; inset:
+     * 0; width: 100%; height: 100% }`) that resizes *whatever* iframe
+     * autoembed() ends up injecting to fill a box shaped by these classes,
+     * independent of the provider's own returned markup. Picking the
+     * closest preset by absolute distance (rather than mirroring the
+     * embed editor's own directional `>=` tolerance check in
+     * `embed/util.js`, which would reject a source ratio like 1022x520)
+     * lets a source ratio that falls between two presets still resolve to
+     * its nearest visual match instead of losing the author's sizing
+     * intent entirely.
+     *
+     * Returns '' when the source expressed no explicit pixel geometry, so
+     * the provider default remains untouched.
+     */
+    private function embedAspectRatioClassName(DOMElement $iframe, StyleResolver $styleResolver): string
+    {
+        $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
+        $height = $this->explicitPixelIframeDimension($iframe, 'height', $styleResolver);
+        if ( null === $width || null === $height || 0.0 >= $height ) {
+            return '';
+        }
+
+        $ratio = $width / $height;
+        $closestClassName = '';
+        $closestDiff = INF;
+        foreach ( self::EMBED_ASPECT_RATIO_CLASSES as $className => $presetRatio ) {
+            $diff = abs($ratio - $presetRatio);
+            if ( $diff < $closestDiff ) {
+                $closestDiff = $diff;
+                $closestClassName = $className;
+            }
+        }
+
+        return '' === $closestClassName ? '' : $closestClassName . ' wp-has-aspect-ratio';
+    }
+
+    /**
+     * A concrete pixel value for `$dimension`, checked as an explicit HTML
+     * attribute first and then as a resolved CSS declaration. Percentage or
+     * otherwise non-absolute values return null: they cannot anchor a real
+     * aspect ratio, and the provider default should win in that case.
+     */
+    private function explicitPixelIframeDimension(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): ?float
+    {
+        $attribute = trim(SourceDom::attr($iframe, $dimension));
+        if ( $this->sourceElementClassifier->isPositiveIframeDimension($attribute) ) {
+            return (float) $attribute;
+        }
+
+        $declaration = trim((string) ($styleResolver->presentationDeclarations($iframe)[$dimension] ?? ''));
+        if ( $this->sourceElementClassifier->isPositiveIframeDimension($declaration) ) {
+            return (float) $declaration;
+        }
+
+        return null;
     }
 
     private function boundedVisualIframeDimension(DOMElement $iframe, string $dimension, StyleResolver $styleResolver): ?string
