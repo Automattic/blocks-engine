@@ -477,7 +477,7 @@ final class StaticCssCascade
         // production parser rejects outright.
         $parsed = CssSelectorMatcher::parse($selector);
         if ( $parsed['supported'] ) {
-            return $this->parsedSpecificity($parsed['compounds']);
+            return CssSelectorMatcher::specificity($parsed);
         }
 
         $ids = preg_match_all('/#[A-Za-z0-9_-]+/', $selector);
@@ -488,36 +488,6 @@ final class StaticCssCascade
         return ( (int) $ids * 100 ) + ( (int) $classes * 10 ) + (int) $elements;
     }
 
-    /**
-     * Specificity for selectors parsed by the production matcher.
-     *
-     * CssSelectorMatcher records which simple selectors came from :where() so
-     * rewriting can preserve their zero specificity. Account for that metadata
-     * here rather than maintaining a second functional-selector parser.
-     *
-     * @param list<array<string, mixed>> $compounds
-     */
-    private function parsedSpecificity(array $compounds): int
-    {
-        $specificity = 0;
-        foreach ( $compounds as $compound ) {
-            $zero = $compound['zero_specificity'] ?? array();
-            $specificity += 100 * (count($compound['ids']) - (int) ($zero['ids'] ?? 0));
-            $specificity += 10 * (
-                count($compound['classes']) - (int) ($zero['classes'] ?? 0)
-                + count($compound['attributes']) - (int) ($zero['attributes'] ?? 0)
-                + (int) (null !== $compound['nth_child'])
-                + (int) $compound['first_child']
-                + (int) $compound['last_child']
-            );
-            $specificity += (int) (null !== $compound['type']) - (int) ($zero['types'] ?? 0);
-            foreach ( $compound['not'] as $negated ) {
-                $specificity += $this->parsedSpecificity(array( $negated ));
-            }
-        }
-
-        return $specificity;
-    }
 
     /**
      * @return array<string, string>
