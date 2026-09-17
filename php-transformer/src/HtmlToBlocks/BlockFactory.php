@@ -840,7 +840,14 @@ final class BlockFactory
         $figureAttrs = $attrs;
         $figureAttrs['className'] = SourceDom::mergeClassNames(implode(' ', $classes), (string) ($attrs['className'] ?? ''));
 
-        return '<figure' . $this->blockSupportAttrs($figureAttrs) . '><div class="wp-block-embed__wrapper">' . $url . '</div></figure>';
+        // Core's save.js renders the URL as a lone text node inside the wrapper
+        // div (`{`\n${url}\n`}`), and the surrounding markup carries a newline
+        // right after the opening `<!-- wp:embed -->` comment and right before
+        // the closing one too — see packages/blocks-engine/src/embed.ts.
+        // WP_Embed::autoembed() only autoembeds a URL that sits alone on its
+        // own line (`|^(\s*)(https?://[^\s<>"]+)(\s*)$|im`), so this exact
+        // newline placement is load-bearing, not cosmetic.
+        return "\n<figure" . $this->blockSupportAttrs($figureAttrs) . '><div class="wp-block-embed__wrapper">' . "\n" . $url . "\n" . '</div></figure>' . "\n";
     }
 
     /**
