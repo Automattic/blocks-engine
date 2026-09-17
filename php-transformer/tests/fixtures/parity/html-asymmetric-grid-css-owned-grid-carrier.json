@@ -26,7 +26,7 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-css-owned-flow" },
     { "path": "assets.0.content", "assert": "contains", "value": "display:grid" },
-    { "path": "assets.0.content", "assert": "contains", "value": "grid-template-columns:260px 1fr" },
+    { "path": "assets.0.content", "assert": "contains", "value": "grid-template-columns:min(260px, 100%) 1fr" },
     { "path": "assets.0.content", "assert": "contains", "value": "gap:32px" }
   ]
 }
