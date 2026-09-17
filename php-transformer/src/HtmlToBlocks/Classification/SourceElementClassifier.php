@@ -31,6 +31,9 @@ use DOMText;
  */
 final class SourceElementClassifier
 {
+    /** Flow tags that inline RichText cannot hold, shared with the label-flattening vocabulary. */
+    private const BLOCK_LEVEL_FLOW_TAGS = 'address|article|aside|blockquote|div|dl|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|main|nav|ol|p|pre|section|table|ul';
+
     private const MAX_SVG_FRAGMENT_DEPENDENCY_CANDIDATES = 512;
 
     public function hasRepeatedDirectChildTags(DOMElement $element): bool
@@ -560,7 +563,27 @@ final class SourceElementClassifier
             return false;
         }
 
-        return '' === $this->visibleTextContent($element);
+        return '' === $this->visibleTextContent($element)
+            || $this->hasBlockLevelDescendant($element);
+    }
+
+    /**
+     * Whether the subtree carries flow content that inline RichText cannot hold.
+     *
+     * core/button stores its label as RichText, so a block-level descendant is
+     * erased on lowering. A phrasing-only subtree (an icon plus its label) is
+     * unaffected and stays on the native control path.
+     */
+    private function hasBlockLevelDescendant(DOMElement $element): bool
+    {
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && 1 === preg_match('/^(?:' . self::BLOCK_LEVEL_FLOW_TAGS . ')$/', strtolower($descendant->tagName)) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function visibleTextContent(DOMElement $element): string
