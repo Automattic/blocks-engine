@@ -9,3 +9,8 @@ figma-transformer/build/
 
 # Generated-site candidates (raw generation output; promote to fixtures/websites/ deliberately)
 fixtures/candidates/
+
+# npm's own cache, not a dependency directory. A relative `cache=./vendor/npm`
+# in a user-level ~/.npmrc makes every npm invocation write its cache into the
+# current repo, so this appears without anyone asking for it.
+vendor/
