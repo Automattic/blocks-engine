@@ -53,4 +53,34 @@ foreach ($nestedRuntimeDirectives as $directive) {
     if (($first['serialized_blocks'] ?? null) !== ($second['serialized_blocks'] ?? null) || ($first['fallbacks'] ?? null) !== ($second['fallbacks'] ?? null)) throw new RuntimeException('Nested WordPress Interactivity API directive fallback must be deterministic.');
 }
 
+// A file destination does not make an anchor a document link. core/file renders
+// its label as a bare inline link and, for a `download` anchor, adds a second
+// download link beside it, so an authored pill would materialise as two anchors
+// and lose its control presentation.
+$pillCss = '.pill{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}';
+$blockNames = static function (array $blocks) use (&$blockNames): array {
+    $names = array();
+    foreach ($blocks as $block) {
+        if (!empty($block['blockName'])) $names[] = $block['blockName'];
+        if (!empty($block['innerBlocks'])) $names = array_merge($names, $blockNames($block['innerBlocks']));
+    }
+    return $names;
+};
+
+$styledDownload = (new HtmlTransformer())->transform(
+    '<html><body><div><a download="cv.pdf" href="/cv.pdf" class="pill">Download full CV</a></div></body></html>',
+    array('static_css' => $pillCss)
+)->toArray();
+$styledMarkup = (string) ($styledDownload['serialized_blocks'] ?? '');
+if (!in_array('core/button', $blockNames($styledDownload['blocks'] ?? array()), true) || in_array('core/file', $blockNames($styledDownload['blocks'] ?? array()), true)) throw new RuntimeException('An anchor carrying its own control presentation is a button that points at a file, not a document link.');
+if (1 !== substr_count($styledMarkup, '<a ')) throw new RuntimeException('One authored control must materialise as exactly one anchor.');
+if (!str_contains($styledMarkup, 'padding')) throw new RuntimeException('A promoted download control must keep the authored padding core/file cannot hold.');
+if ('pass' !== ((new BlockValidityValidator())->validateBlocks($styledDownload['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('A promoted download control must stay editor-valid.');
+
+// The unstyled case is what core/file exists for, and stays there.
+$plainDownload = (new HtmlTransformer())->transform(
+    '<html><body><div><a download="cv.pdf" href="/cv.pdf">Ethan-Chalmers-CV.pdf</a></div></body></html>'
+)->toArray();
+if (!in_array('core/file', $blockNames($plainDownload['blocks'] ?? array()), true)) throw new RuntimeException('A plain document link must still lower to core/file.');
+
 fwrite(STDOUT, "link-bearing element lowering contract passed\n");

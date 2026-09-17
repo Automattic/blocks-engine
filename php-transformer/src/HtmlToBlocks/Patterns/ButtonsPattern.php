@@ -26,9 +26,19 @@ final class ButtonsPattern
             return null;
         }
 
-        $fileBlock = $buttons->fileBlockFromAnchor($anchor);
-        if ( null !== $fileBlock ) {
-            return new PatternRecognitionResult($fileBlock);
+        // A file destination does not make an anchor a document link. An anchor
+        // carrying its own control presentation is a button that happens to
+        // point at a file, and core/file cannot hold that presentation: its
+        // save() renders the label as a bare inline link and, for a `download`
+        // anchor, adds a second download link beside it. One authored control
+        // then materialises as two anchors, neither of them the authored pill.
+        //
+        // The recognizer already knows the difference, so ask it first.
+        if ( ! $this->hasButtonSignal($anchor, $buttons) ) {
+            $fileBlock = $buttons->fileBlockFromAnchor($anchor);
+            if ( null !== $fileBlock ) {
+                return new PatternRecognitionResult($fileBlock);
+            }
         }
 
         // A native button cannot faithfully retain nested controls or runtime
