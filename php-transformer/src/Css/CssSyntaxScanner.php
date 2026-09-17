@@ -71,6 +71,48 @@ final class CssSyntaxScanner
         return " " === $character || "\t" === $character || "\n" === $character || "\r" === $character || "\f" === $character;
     }
 
+    /**
+     * Offset of the `}` closing the block opened at $open, or null when the
+     * block never closes.
+     *
+     * Every caller that needs block structure was counting braces itself, and
+     * each copy missed something: a brace inside a quoted value, inside a
+     * comment, or — the one that bites on Tailwind output — inside an escaped
+     * identifier such as `.a\{b` or `.w-\[calc\(100\%\)\]`. Consuming through
+     * this scanner is what makes those not count as structure.
+     */
+    public static function matchingBrace(string $value, int $open): ?int
+    {
+        if ( '{' !== ($value[ $open ] ?? '') ) {
+            return null;
+        }
+
+        $length = strlen($value);
+        $state = self::state();
+        $depth = 0;
+        $offset = $open;
+
+        while ( $offset < $length ) {
+            if ( self::isTopLevel($state) ) {
+                if ( '{' === $value[ $offset ] ) {
+                    ++$depth;
+                    ++$offset;
+                    continue;
+                }
+                if ( '}' === $value[ $offset ] ) {
+                    if ( 0 === --$depth ) {
+                        return $offset;
+                    }
+                    ++$offset;
+                    continue;
+                }
+            }
+            $offset = self::consume($value, $offset, $state) ?? ( $offset + 1 );
+        }
+
+        return null;
+    }
+
     /** @param array{quote: string, comment: bool, parens: int, brackets: int} $state */
     public static function isTopLevel(array $state): bool
     {
