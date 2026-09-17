@@ -834,6 +834,18 @@ $assert(! str_contains($nestedLayoutTableMarkup, '<!-- wp:html') && 'custom/resp
 $assert('pass' === ($nestedLayoutTableResult['source_reports']['wp_block_validity']['status'] ?? null), 'nested layout table columns remain Gutenberg-valid');
 $nestedDataTableResult = ( new HtmlTransformer() )->transform('<table><tr><td><table><thead><tr><th>Name</th></tr></thead><tbody><tr><td>Ada</td></tr></tbody></table></td></tr></table>')->toArray();
 $assert('core/html' === ($nestedDataTableResult['blocks'][0]['blockName'] ?? null), 'nested data tables retain conservative HTML fallback');
+$metadataTableSource = '<table><tbody><tr><td colspan="2"><b>report.pdf</b></td></tr>'
+    . '<tr style="display: none;"><td>File Size: </td><td>1013 kb</td></tr>'
+    . '<tr style="display: none;"><td>File Type: </td><td>pdf</td></tr></tbody></table>';
+$metadataTableResult = ( new HtmlTransformer() )->transform($metadataTableSource)->toArray();
+$metadataTableMarkup = (string) ($metadataTableResult['serialized_blocks'] ?? '');
+$metadataTableCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $metadataTableResult['assets'] ?? array()));
+$assert($tablePolicy->isMetadataLayoutTable($tableElement($metadataTableSource)), 'a caption table whose only visible row spans the full width is not tabular data');
+$assert(! str_contains($metadataTableMarkup, '<!-- wp:html') && ! str_contains($metadataTableMarkup, '<!-- wp:table') && str_contains($metadataTableMarkup, 'report.pdf'), 'a caption table lowers to native blocks instead of preserved table HTML');
+$assert(1 === preg_match('/\.([a-z0-9-]*be-inline-geometry-[a-f0-9]+)\{[^}]*display:none[^}]*\}/i', $metadataTableCss), 'metadata rows the source hid stay hidden after lowering');
+$assert('pass' === ($metadataTableResult['source_reports']['wp_block_validity']['status'] ?? ''), 'a lowered caption table stays editor-valid');
+$assert('core/html' === (( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray()['blocks'][0]['blockName'] ?? null), 'a spanning cell beside visible data cells still falls back');
+
 $colspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td colspan="2">Merged</td></tr><tr><td>A</td><td>B</td></tr></table>')->toArray();
 $assert('core/html' === ($colspanTableResult['blocks'][0]['blockName'] ?? null), 'colspan table falls back to core/html');
 $rowspanTableResult = ( new HtmlTransformer() )->transform('<table><tr><td rowspan="2">Merged</td><td>A</td></tr><tr><td>B</td></tr></table>')->toArray();

@@ -121,6 +121,55 @@ final class TableClassificationPolicy
     }
 
     /**
+     * A table used to caption a thing rather than to tabulate data.
+     *
+     * Builders emit these around a file or a media item: one row states the
+     * visible label across the whole width, and any remaining rows are
+     * label/value metadata the source keeps hidden. Nothing here is tabular -
+     * there is no header, no caption, and no cell that shares a row with
+     * another visible cell - so a full-width cell is a row rather than a merge
+     * that only a spanning grid could express.
+     */
+    public function isMetadataLayoutTable(DOMElement $table): bool
+    {
+        if ( 'table' !== strtolower($table->tagName) || $this->hasDescendantTable($table) ) {
+            return false;
+        }
+
+        $signals = $this->tableSignals($table);
+        if ( true === $signals['data_signals'] || true === $signals['has_rowspan'] ) {
+            return false;
+        }
+
+        $columns = array() === $signals['column_counts'] ? 0 : max($signals['column_counts']);
+        if ( 2 > $columns ) {
+            return false;
+        }
+
+        $visibleFullWidthRows = 0;
+        foreach ( $this->rowsForTable($table) as $row ) {
+            $cells = $this->cellsForRow($row);
+            if ( array() === $cells ) {
+                continue;
+            }
+            if ( $this->isHiddenRow($row) ) {
+                continue;
+            }
+            if ( 1 !== count($cells) || $columns !== (int) ($cells[0]->getAttribute('colspan') ?: 1) ) {
+                return false;
+            }
+            ++$visibleFullWidthRows;
+        }
+
+        return 0 < $visibleFullWidthRows;
+    }
+
+    private function isHiddenRow(DOMElement $row): bool
+    {
+        return 1 === preg_match('/(?:^|;)\s*display\s*:\s*none\b/i', $row->getAttribute('style'));
+    }
+
+    /**
      * A single headerless row whose cells all declare percentage widths is a
      * layout grid, not a data table.
      */
