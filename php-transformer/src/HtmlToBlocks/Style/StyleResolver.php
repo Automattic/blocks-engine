@@ -344,25 +344,48 @@ final class StyleResolver implements ElementPresentationResolver
      */
     public function conditionalDisplayRules(DOMElement $element): array
     {
-        $rules = array();
+        return $this->declaredPresentation($element, 'display')->conditional();
+    }
+
+    /**
+     * Everything the source stylesheet declares for one property on one element.
+     *
+     * Carriers used to walk the candidate rules themselves and resolve straight
+     * to a scalar, each with its own copy of the selector match, the condition
+     * filter and the layer check. That is why the same flattening defect kept
+     * reappearing in unrelated features: a responsive `font-size` frozen at the
+     * desktop breakpoint, a `md:hidden` control frozen visible. Collecting the
+     * whole declared set once means a carrier that wants one value has to say
+     * which one it means.
+     */
+    public function declaredPresentation(DOMElement $element, string $property): DeclaredPresentation
+    {
+        $entries = array();
         foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            $declared = trim((string) ( $rule['declarations']['display'] ?? '' ));
+            $declared = trim((string) ( $rule['declarations'][ $property ] ?? '' ));
             if ( '' === $declared || ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
                 continue;
             }
+
+            $conditions = array_map('trim', $rule['conditions'] ?? array());
             // `@layer` scopes a declaration without conditioning it on the
-            // viewport, so it carries no condition to preserve.
-            $media = array_values(array_filter(
-                array_map('trim', $rule['conditions'] ?? array()),
+            // viewport, so it is carried as the entry's layer rather than as a
+            // condition the author could restate.
+            $queries = array_values(array_filter(
+                $conditions,
                 static fn (string $condition): bool => 1 !== preg_match('/^@layer\b/i', $condition)
             ));
-            if ( array() === $media ) {
-                continue;
-            }
-            $rules[implode('{', $media)] = $declared;
+
+            $entries[] = array(
+                'value' => $declared,
+                'conditions' => $conditions,
+                'queries' => $queries,
+                'layer' => $rule['layer'] ?? null,
+                'applies' => array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions),
+            );
         }
 
-        return $rules;
+        return DeclaredPresentation::fromEntries($entries);
     }
 
     /**
@@ -426,42 +449,23 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function cascadeFontSizeWinner(DOMElement $element): string
     {
-        $unlayeredDeclares             = false;
-        $applyingUnlayeredConditional  = '';
-        $layeredWinner                 = '';
-        $matchedLayeredDeclaration     = false;
-        $layeredBreakpoints            = array();
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
-                continue;
-            }
-            $declared = trim((string) ( $rule['declarations']['font-size'] ?? '' ));
-            if ( '' === $declared ) {
-                continue;
-            }
-            $conditions = $rule['conditions'] ?? array();
-            $applies    = array() === $conditions || $this->conditionsApplyAtReferenceViewport($conditions);
-            if ( null !== ($rule['layer'] ?? null) ) {
-                $matchedLayeredDeclaration = true;
-                if ( array() !== $conditions ) {
-                    $layeredBreakpoints[implode('&', $conditions)] = $declared;
-                }
-                if ( $applies ) {
-                    $layeredWinner = $declared;
-                }
-                continue;
-            }
-            $unlayeredDeclares = true;
-            if ( array() !== $conditions && $applies ) {
-                $applyingUnlayeredConditional = $declared;
-            }
+        $declared  = $this->declaredPresentation($element, 'font-size');
+        $unlayered = $declared->unlayered();
+        $layered   = $declared->layered();
+
+        // An unlayered conditional rule the desktop capture renders is the
+        // desktop truth the static base was stripped in favour of. It has to be
+        // a conditioned declaration that wins, not merely a winner alongside
+        // some unrelated breakpoint.
+        $applyingConditional = $unlayered->conditionalOnly()->resolvedValue();
+        if ( '' !== $applyingConditional ) {
+            return $applyingConditional;
         }
 
-        if ( '' !== $applyingUnlayeredConditional ) {
-            return $applyingUnlayeredConditional;
-        }
-
-        if ( $unlayeredDeclares || ! $matchedLayeredDeclaration ) {
+        // An unlayered declaration keeps cascade ownership and is never
+        // overridden, so nothing needs baking; neither does an element the
+        // stylesheet never gives a layered size.
+        if ( ! $unlayered->isEmpty() || $layered->isEmpty() ) {
             return '';
         }
 
@@ -471,11 +475,11 @@ final class StyleResolver implements ElementPresentationResolver
         // renders the desktop size. The author's own breakpoints stay in the
         // projected stylesheet and keep resolving per viewport, so responsive
         // typography is left to them.
-        if ( array() !== $layeredBreakpoints ) {
+        if ( $layered->isConditional() ) {
             return '';
         }
 
-        return $layeredWinner;
+        return $layered->resolvedValue();
     }
 
     /**
