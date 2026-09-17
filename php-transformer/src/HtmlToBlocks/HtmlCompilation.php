@@ -8093,11 +8093,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // for its own box (see SvgMaterializer), targeting a descendant `img`
         // selector so a source anchor still wrapping the image does not
         // matter.
+        //
+        // A free axis the author resolved to `auto` (Tailwind's `w-auto`/
+        // `h-auto`, or a plain `width:auto`) is the same condition that
+        // already suppressed this axis's native width/height attribute above
+        // — reuse that exact detection rather than re-deriving it, so the
+        // carrier restates the author's `auto` instead of leaving the axis
+        // to whichever `width`/`height` core's own block-library stylesheet
+        // declares for `.wp-block-image img` in the current rendering
+        // context (frontend `width:auto` vs. editor-canvas `width:100%`).
         $boxCarrier = $this->styleResolver->imageBoxConstraintClassName(
             $image,
             (string) ($attrs['width'] ?? ''),
             (string) ($attrs['height'] ?? ''),
-            isset($shape['aspectRatio'])
+            isset($shape['aspectRatio']),
+            '' === (string) ($attrs['width'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'width'),
+            '' === (string) ($attrs['height'] ?? '') && $this->imageDimensions()->authorResolvesDimensionToAuto($image, 'height')
         );
         if ( '' !== $boxCarrier ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), $boxCarrier);

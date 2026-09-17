@@ -754,14 +754,45 @@ final class StyleResolver implements ElementPresentationResolver
      * still empty (and, for height, no native aspectRatio already implies
      * it), so an already-successful native width/height/aspectRatio/scale
      * carry is left untouched.
+     *
+     * `$widthResolvesToAuto`/`$heightResolvesToAuto` cover the remaining gap
+     * on the free axis of a class-sized image (e.g. Tailwind's `h-10 w-auto
+     * max-w-[200px]`): when {@see
+     * ImageDimensionResolver::authorResolvesDimensionToAuto()} already
+     * suppressed the caller's native attribute for that axis because the
+     * author explicitly resolved it to `auto`, this box is the only place
+     * left to say so, or the axis is left unstated and falls to whichever
+     * `width`/`height` WordPress core's OWN block-library stylesheet happens
+     * to declare for `.wp-block-image img` in that rendering context —
+     * `width:auto` on the frontend (matching the author by accident) but
+     * `width:100%` in the editor canvas (stretching the image to fill the
+     * figure, then clamped by max-width instead of derived from height and
+     * the intrinsic aspect ratio). Restating the author's own `auto` here
+     * makes the box identical in both contexts instead of depending on which
+     * context-specific core default happens to agree with it. This reuses
+     * the same author-stated-auto detection the caller already ran to
+     * suppress the native attribute, rather than re-deriving it from the
+     * declarations a second time.
      */
-    public function imageBoxConstraintClassName(DOMElement $image, string $nativeWidth, string $nativeHeight, bool $hasNativeAspectRatio): string
-    {
+    public function imageBoxConstraintClassName(
+        DOMElement $image,
+        string $nativeWidth,
+        string $nativeHeight,
+        bool $hasNativeAspectRatio,
+        bool $widthResolvesToAuto = false,
+        bool $heightResolvesToAuto = false
+    ): string {
         $declarations = $this->imageShapeDeclarations($image);
         $box = array();
         foreach (array('width', 'min-width', 'max-width') as $property) {
-            if ('width' === $property && '' !== $nativeWidth) {
-                continue;
+            if ('width' === $property) {
+                if ('' !== $nativeWidth) {
+                    continue;
+                }
+                if ($widthResolvesToAuto) {
+                    $box['width'] = 'auto';
+                    continue;
+                }
             }
             $value = $this->comparableImageShapeConstraintValue($declarations, $property);
             if ('' !== $value) {
@@ -769,8 +800,14 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
         foreach (array('height', 'min-height', 'max-height') as $property) {
-            if ('height' === $property && ('' !== $nativeHeight || $hasNativeAspectRatio)) {
-                continue;
+            if ('height' === $property) {
+                if ('' !== $nativeHeight || $hasNativeAspectRatio) {
+                    continue;
+                }
+                if ($heightResolvesToAuto) {
+                    $box['height'] = 'auto';
+                    continue;
+                }
             }
             $value = $this->comparableImageShapeConstraintValue($declarations, $property);
             if ('' !== $value) {
@@ -796,7 +833,21 @@ final class StyleResolver implements ElementPresentationResolver
         return $className;
     }
 
-    /** @param array<string, array<string, mixed>> $declarations */
+    /**
+     * `auto` (and the keywords that compute to it) stays excluded here even
+     * though {@see imageBoxConstraintClassName()} now carries an author-
+     * stated `auto` explicitly on the `width`/`height` axis itself: for
+     * `min-width`/`max-width`/`min-height`/`max-height` an `auto` is simply
+     * the property's own initial value, i.e. "no constraint on this axis",
+     * not a carryable instruction the way a plain axis's `auto` is. Kept
+     * excluded for `width`/`height` too, since that case is handled by the
+     * caller passing `$widthResolvesToAuto`/`$heightResolvesToAuto` instead
+     * of this generic value comparison — {@see
+     * ImageDimensionResolver::authorResolvesDimensionToAuto()} is the single
+     * place that decides an axis is author-stated `auto`.
+     *
+     * @param array<string, array<string, mixed>> $declarations
+     */
     private function comparableImageShapeConstraintValue(array $declarations, string $property): string
     {
         $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
