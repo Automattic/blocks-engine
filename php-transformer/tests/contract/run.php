@@ -1976,6 +1976,32 @@ $assert(str_contains($flexChainButtonMarkup, 'wp-block-buttons blocks-engine-con
 $assert(str_contains($flexChainButtonCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0;width:100%!important}') && str_contains($flexChainButtonCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'), 'direct column flex-child anchor bridges wrapper sizing while only the synthetic inner wrapper has neutral margin');
 $assert('pass' === ($flexChainButton['source_reports']['wp_block_validity']['status'] ?? ''), 'direct flex-child wrapper chain remains editor-valid');
 
+// A column flex parent with a keyword `align-items` (not the stretch default)
+// does not stretch its children on the cross axis, so a content-sized source
+// anchor must keep hugging its label instead of filling the row (issue: a
+// centered hero CTA rendered 6.7x too wide -- 209px source vs 1392px import).
+$flexChainButtonCentered = ( new HtmlTransformer() )->transform(
+    '<style>.stack{display:flex;flex-direction:column;align-items:center;gap:2rem}.cta{border:1px solid #111;padding:12px 32px;text-transform:uppercase}</style><main><div class="stack"><a class="cta" href="/listen">Listen on Spotify</a></div></main>'
+)->toArray();
+$flexChainButtonCenteredMarkup = (string) ($flexChainButtonCentered['serialized_blocks'] ?? '');
+$flexChainButtonCenteredCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $flexChainButtonCentered['assets'] ?? array()));
+$assert(
+    str_contains($flexChainButtonCenteredMarkup, 'wp-block-buttons blocks-engine-control-')
+        && 1 === preg_match('/wp-block-button\b[^"]*\bblocks-engine-control-/', $flexChainButtonCenteredMarkup),
+    'centered column flex-child anchor still carries one generated marker across both synthetic wrappers',
+    $flexChainButtonCenteredMarkup
+);
+$assert(
+    str_contains($flexChainButtonCenteredCss, '.wp-block-buttons){display:block!important;gap:0!important;min-width:0}')
+        && str_contains($flexChainButtonCenteredCss, '.wp-block-button){display:block!important;margin:0!important;min-width:0}')
+        && str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box}')
+        && ! preg_match('/\.wp-block-button(?:s)?\)\{[^}]*width:100%!important/', $flexChainButtonCenteredCss)
+        && ! str_contains($flexChainButtonCenteredCss, '.wp-block-button__link){box-sizing:border-box;width:100%!important}'),
+    'a centered column flex parent does not stretch a content-sized source anchor to fill the row',
+    $flexChainButtonCenteredCss
+);
+$assert('pass' === ($flexChainButtonCentered['source_reports']['wp_block_validity']['status'] ?? ''), 'centered direct flex-child wrapper chain remains editor-valid');
+
 $flexAnchorAutoMargin = ( new HtmlTransformer() )->transform(
     '<style>.nav{display:flex;align-items:center;gap:1rem}.nav__brand{font-weight:700}.nav__cta{display:inline-flex;padding:.5rem 1rem;background:#123456;color:#fff;margin-right:auto}.nav__action{display:inline-flex;padding:.5rem 1rem;background:#456789;color:#fff}</style><main><nav class="nav"><a class="nav__brand" href="/">Brand</a><a class="nav__cta" href="/start">Start</a><button class="nav__action" type="button">Menu</button></nav></main>'
 )->toArray();
