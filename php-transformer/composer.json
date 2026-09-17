@@ -155,6 +155,7 @@
       "php tests/unit/artifact-author-stylesheet-projection.php",
       "php tests/unit/fallback-finding-normalizer.php",
             "php tests/unit/editor-anchor-attribute-id-projection.php",
+            "php tests/unit/navigation-collapsed-item-band.php",
             "php tests/unit/navigation-underline-color-resolver.php",
       "php tests/unit/navigation-brand-anchor-hoist.php",
       "php tests/unit/header-stacked-brand-lockup.php",
