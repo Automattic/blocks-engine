@@ -1447,7 +1447,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $sourceProvenance,
             $authorStylesheetProjections
         );
-        $this->navigationStyleProjector->materializeEditorStaticStateStylesheet();
+        $this->navigationStyleProjector->materializeEditorStaticStateStylesheet(
+            implode("\n\n", array_column($authorStylesheetProjections, 'content'))
+        );
         $blockValidityEvaluation = $this->runtime->evaluateBlockSerialization($blocks);
         $blockValidityReport = $blockValidityEvaluation->report();
         $semanticParityEvaluation = $this->semanticParityReporter->evaluate($body, $blocks, $sourceProvenance, $html, (string) ($options['static_css'] ?? ''));

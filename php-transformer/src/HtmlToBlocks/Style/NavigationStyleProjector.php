@@ -19,6 +19,9 @@ use DOMElement;
  */
 final class NavigationStyleProjector
 {
+    /** The editor-only host a shell block renders its inner blocks inside. */
+    private const EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+
     public function __construct(
         private readonly NavigationStyleProjectionContext $context,
         private readonly StyleResolver $styleResolver
@@ -157,10 +160,10 @@ final class NavigationStyleProjector
     }
 
 
-    public function materializeEditorStaticStateStylesheet(): void
+    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
     {
         $rules = array();
-        $anchorProjectionCss = $this->editorAnchorProjectionCss();
+        $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
             // The anchor projection restates author rules on the deterministic
@@ -214,7 +217,7 @@ final class NavigationStyleProjector
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
     }
 
-    private function editorAnchorProjectionCss(): string
+    private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string
     {
         $ids = array_fill_keys(array_filter(
             $this->context->authorStyles()->sourceElementIds(),
@@ -223,10 +226,37 @@ final class NavigationStyleProjector
         if ( array() === $ids ) {
             return '';
         }
+
+        // An authored rule reaches its target through two hooks: the ancestor it
+        // is scoped by, and the element it addresses. Projection already rewrote
+        // the ancestor — a source attribute the editor drops becomes a generated
+        // class that survives — so reading the projected stylesheet keeps that
+        // half intact while this pass restates the id half. Reading the source
+        // stylesheet keeps the spellings projection leaves alone, and a rule
+        // that lands in both is the same declaration twice.
+        $stylesheets = array($this->context->authorStyles()->combinedCss());
+        if ( '' !== trim($projectedAuthorCss) ) {
+            $stylesheets[] = $projectedAuthorCss;
+        }
+
+        $projections = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids);
+            if ( '' !== $projection ) {
+                $projections[] = $projection;
+            }
+        }
+
+        return trim(implode("\n", $projections));
+    }
+
+    /** @param array<string, bool> $ids */
+    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids): string
+    {
         $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
         return trim(( new CssStylesheetTransformer() )->transform(
-            $this->context->authorStyles()->combinedCss(),
+            $stylesheet,
             function (string $prelude, string $body) use ($ids, $stateMarkers): array {
                 $projected = array();
                 $transported = array();
@@ -239,15 +269,13 @@ final class NavigationStyleProjector
                             $selector
                         ) ?? $selector;
                     }
-                    $replacement = preg_replace_callback(
-                        '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                        static fn (array $match): string => isset($ids[$match[2]])
-                            ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
-                            : $match[0],
-                        $selector
-                    );
-                    if ( is_string($replacement) && $replacement !== $selector ) {
+                    $replacement = self::projectAnchorIds($selector, $ids);
+                    if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
+                        $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
+                        if ( null !== $throughInnerBlocks ) {
+                            $projected[] = $throughInnerBlocks;
+                        }
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
                             $transported[] = $transportSelector;
@@ -269,6 +297,75 @@ final class NavigationStyleProjector
         ));
     }
 
+    /**
+     * Restate a child combinator so it still reaches its target across the
+     * editor's inner-blocks host.
+     *
+     * A shell block renders its inner blocks inside one extra element on the
+     * canvas. That host is `display:contents`, so the child still participates
+     * in its grandparent's layout and the authored declaration is the right one
+     * to apply — but a child combinator is matched on the tree, not on the
+     * layout, so the authored `parent > child` stopped matching. Offer the same
+     * declaration through the host as an additional alternative.
+     *
+     * Only the hop into the rightmost compound is relaxed: that is the one that
+     * places the element, and widening every combinator would let an unrelated
+     * ancestor match.
+     */
+    private static function throughEditorInnerBlocks(string $selector): ?string
+    {
+        $position = strrpos($selector, '>');
+        if ( false === $position ) {
+            return null;
+        }
+
+        return substr($selector, 0, $position + 1)
+            . ':where(.' . self::EDITOR_INNER_BLOCKS_CLASS . ')>'
+            . substr($selector, $position + 1);
+    }
+
+    /**
+     * Restate an authored id target on the deterministic anchor class.
+     *
+     * The editor replaces a block wrapper's id with its own client id, so a
+     * rule that addresses a component by id matches nothing there. Mesh
+     * builders write those rules with `[id="…"]` at least as often as with
+     * `#…` — on a Wix export every child placement is the attribute spelling —
+     * so projecting only the `#` form left the container a grid while its
+     * children lost `grid-area` and stacked in source order.
+     *
+     * @param array<string, bool> $ids
+     */
+    private static function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
+    {
+        $anchor = static function (string $id) use ($ids, $keepSourceClass): ?string {
+            if ( ! isset($ids[$id]) ) {
+                return null;
+            }
+            $projected = '.blocks-engine-editor-anchor-' . $id;
+            return $keepSourceClass ? ':is(' . $projected . ',.' . $id . ')' : $projected;
+        };
+
+        $fragment = preg_replace_callback(
+            '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+            static function (array $match) use ($anchor): string {
+                $projected = $anchor($match[2]);
+                return null === $projected ? $match[0] : $match[1] . $projected;
+            },
+            $fragment
+        ) ?? $fragment;
+
+        return preg_replace_callback(
+            '/\[\s*id\s*=\s*(?:"([A-Za-z][A-Za-z0-9_-]*)"|\'([A-Za-z][A-Za-z0-9_-]*)\'|([A-Za-z][A-Za-z0-9_-]*))\s*\]/i',
+            static function (array $match) use ($anchor): string {
+                $id = '' !== ($match[1] ?? '') ? $match[1] : ('' !== ($match[2] ?? '') ? $match[2] : ($match[3] ?? ''));
+                $projected = '' === $id ? null : $anchor($id);
+                return null === $projected ? $match[0] : $projected;
+            },
+            $fragment
+        ) ?? $fragment;
+    }
+
     /** @param array<string, bool> $ids */
     private function editorTemplatePartTransportSelector(string $selector, array $ids): ?string
     {
@@ -282,24 +379,8 @@ final class NavigationStyleProjector
             return null;
         }
 
-        $projectIds = static function (string $fragment) use ($ids): string {
-            return preg_replace_callback(
-                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                static fn (array $match): string => isset($ids[$match[2]])
-                    ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
-                    : $match[0],
-                $fragment
-            ) ?? $fragment;
-        };
-        $projectTargetIds = static function (string $fragment) use ($ids): string {
-            return preg_replace_callback(
-                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                static fn (array $match): string => isset($ids[$match[2]])
-                    ? $match[1] . ':is(.blocks-engine-editor-anchor-' . $match[2] . ',.' . $match[2] . ')'
-                    : $match[0],
-                $fragment
-            ) ?? $fragment;
-        };
+        $projectIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids);
+        $projectTargetIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids, true);
 
         $start = (int) $rightmost['start'];
         $end = (int) $rightmost['end'];
