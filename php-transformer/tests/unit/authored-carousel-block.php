@@ -253,7 +253,7 @@ $assert(
     'a source that offers start and stop keeps that affordance without inventing autoplay it never declared'
 );
 $assert(
-    str_contains($playbackMarkup, 'class="blocks-engine-authored-carousel__playback"')
+    str_contains($playbackMarkup, 'class="blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--')
         && str_contains($playbackMarkup, 'data-wp-on--click="actions.toggleAutoplay"')
         && str_contains($playbackMarkup, 'data-wp-text="state.playbackLabel"')
         && str_contains($playbackMarkup, '>Play</button>'),
@@ -299,6 +299,54 @@ $assert(
 $assert(
     str_contains($playbackView, 'toggleAutoplay()') && str_contains($playbackView, 'DEFAULT_AUTOPLAY_INTERVAL'),
     'pressing play starts playback even when the source declared no interval of its own'
+);
+
+$placementCss = '.control-overlay{position:absolute;z-index:2;top:10px;left:10px}';
+$placementSource = '<style>' . $placementCss . '</style><div class="photo-slideshow"><div class="slides">'
+    . '<div class="slide"><img src="one.jpg"></div><div class="slide" style="display:none"><img src="two.jpg"></div>'
+    . '</div><div class="control-overlay"><span>Play</span><span>Pause</span></div>'
+    . '<div class="picker" style="width:75px"><a><img src="one-t.jpg"></a><a><img src="two-t.jpg"></a></div></div>';
+$placementResult = (new HtmlTransformer())->transform($placementSource)->toArray();
+$placement = $placementResult['blocks'][0] ?? array();
+$placementMarkup = (string) ($placementResult['serialized_blocks'] ?? '');
+$assert(
+    'top-left' === ($placement['attrs']['playControlPosition'] ?? null)
+        && 10 === ($placement['attrs']['playControlInset'] ?? null),
+    'the corner a source pins its playback control to is read from the declared insets of its positioned box'
+);
+$assert(
+    str_contains($placementMarkup, 'blocks-engine-authored-carousel__playback--top-left')
+        && str_contains($placementMarkup, '--blocks-engine-carousel-control-inset:10px'),
+    'the recovered corner and its distance ship on the control instead of a fixed corner'
+);
+
+$oppositeCornerSource = str_replace('top:10px;left:10px', 'bottom:20px;right:20px', $placementSource);
+$oppositeCorner = (new HtmlTransformer())->transform($oppositeCornerSource)->toArray()['blocks'][0] ?? array();
+$assert(
+    'bottom-right' === ($oppositeCorner['attrs']['playControlPosition'] ?? null)
+        && 20 === ($oppositeCorner['attrs']['playControlInset'] ?? null),
+    'the opposite corner is recovered from the same declarations rather than assumed'
+);
+
+$unpinnedSource = str_replace($placementCss, '.control-overlay{z-index:2}', $placementSource);
+$unpinned = (new HtmlTransformer())->transform($unpinnedSource)->toArray()['blocks'][0] ?? array();
+$assert(
+    true === ($unpinned['attrs']['showPlayControl'] ?? null)
+        && 'bottom-left' === ($unpinned['attrs']['playControlPosition'] ?? null)
+        && 0 === ($unpinned['attrs']['playControlInset'] ?? null),
+    'a control the source never pinned keeps the block default instead of inventing an offset'
+);
+
+$placementStyle = (string) ($placementResult['source_reports']['generated_blocks'][0]['assets']['style.css'] ?? '');
+$placementEditor = (string) ($placementResult['source_reports']['generated_blocks'][0]['assets']['index.js'] ?? '');
+$assert(
+    str_contains($placementStyle, '__playback--top-left{top:var(--blocks-engine-carousel-control-inset,0);left:var(--blocks-engine-carousel-control-inset,0)}')
+        && str_contains($placementStyle, '__playback--bottom-right{bottom:var(--blocks-engine-carousel-control-inset,0);right:var(--blocks-engine-carousel-control-inset,0)}'),
+    'every corner is expressed through the same inset property so the placement stays one parameter'
+);
+$assert(
+    str_contains($placementEditor, "label: 'Play control position'"),
+    'the corner is handed back to the editor as an ordinary control'
 );
 
 fwrite(STDOUT, "Authored carousel companion tests passed\n");
