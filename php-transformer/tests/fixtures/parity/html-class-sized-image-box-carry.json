@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-class-sized-image-box-carry",
-  "description": "A source <img> sized by author CSS classes (height/max-width utility classes, not its intrinsic width/height attributes) carries that box through the be-inline-geometry primitive onto the descendant <img> instead of only landing on the generated <figure> wrapper's className, which core/image's save() cannot express onto the image itself. Covers a bare <img> and one wrapped in an <a>, since the be-inline-geometry rule must reach the <img> through an intervening link.",
+  "description": "A source <img> sized by author CSS classes (height/max-width utility classes, not its intrinsic width/height attributes) carries that box through the be-inline-geometry primitive onto the descendant <img> instead of only landing on the generated <figure> wrapper's className, which core/image's save() cannot express onto the image itself. Covers a bare <img> and one wrapped in an <a>, since the be-inline-geometry rule must reach the <img> through an intervening link. Both images also carry an author `w-auto` (`width:auto`) alongside a mismatched intrinsic `width`/`height` attribute pair (1536x1024 / 1200x800, neither 200/160 nor the fixed 40/32 the author height resolves to): the resolved core/image `width` attribute must be suppressed rather than falling back to the intrinsic attribute, or the browser fixes this axis to the wrong pixel value instead of deriving it from the author-constrained height and the image's real aspect ratio.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-class-sized-image-box-carry.json",
@@ -16,8 +16,8 @@
     "content": "<html><head><style>.h-10{height:2.5rem}.w-auto{width:auto}.max-w-\\[200px\\]{max-width:200px}.object-contain{object-fit:contain}.h-8{height:2rem}.max-w-\\[160px\\]{max-width:160px}</style></head><body><figure><img src=\"https://example.com/logo.png\" width=\"1536\" height=\"1024\" alt=\"Logo\" class=\"h-10 w-auto max-w-[200px] object-contain\"></figure><figure><a href=\"/\"><img src=\"https://example.com/footer-logo.png\" width=\"1200\" height=\"800\" alt=\"Footer logo\" class=\"h-8 w-auto max-w-[160px] object-contain\"></a></figure></body></html>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] object-contain is-resized be-inline-geometry-1c1c49f8196c10abac57819e2185c848a1f2bbbd29c6730ed3fb1f5e885e6a69", "url": "https://example.com/logo.png", "alt": "Logo" } },
-    { "path": "blocks.1", "name": "core/image", "attrs": { "className": "h-8 w-auto max-w-[160px] object-contain is-resized be-inline-geometry-e5de179c64b213c1d674929548489816b62fada7fa8e1dacc5abf7b3495daed3", "url": "https://example.com/footer-logo.png", "alt": "Footer logo", "href": "/", "linkDestination": "custom" } }
+    { "path": "blocks.0", "name": "core/image", "attrs": { "className": "h-10 w-auto max-w-[200px] object-contain is-resized be-inline-geometry-1c1c49f8196c10abac57819e2185c848a1f2bbbd29c6730ed3fb1f5e885e6a69", "url": "https://example.com/logo.png", "alt": "Logo", "height": "2.5rem" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "className": "h-8 w-auto max-w-[160px] object-contain is-resized be-inline-geometry-e5de179c64b213c1d674929548489816b62fada7fa8e1dacc5abf7b3495daed3", "url": "https://example.com/footer-logo.png", "alt": "Footer logo", "href": "/", "linkDestination": "custom", "height": "2rem" } }
   ],
   "expected_fallbacks": [],
   "expect": [
@@ -29,6 +29,12 @@
     { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-image is-resized h-8 w-auto max-w-[160px] object-contain be-inline-geometry-" },
     { "path": "assets.0.content", "assert": "contains", "value": "be-inline-geometry-1c1c49f8196c10abac57819e2185c848a1f2bbbd29c6730ed3fb1f5e885e6a69 img{max-width:200px!important}" },
     { "path": "assets.0.content", "assert": "contains", "value": "be-inline-geometry-e5de179c64b213c1d674929548489816b62fada7fa8e1dacc5abf7b3495daed3 img{max-width:160px!important}" },
-    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "blocks.0.attrs.width", "assert": "equals", "value": null },
+    { "path": "blocks.1.attrs.width", "assert": "equals", "value": null },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "width:1536px" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "width:1200px" },
+    { "path": "blocks.0.innerHTML", "assert": "contains_style_declarations", "value": "height:2.5rem" },
+    { "path": "blocks.1.innerHTML", "assert": "contains_style_declarations", "value": "height:2rem" }
   ]
 }
