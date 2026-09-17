@@ -90,6 +90,32 @@ $many = '';
 for ($index = 0; $index < 200; ++$index) $many .= '@layer l' . $index . ';';
 $assert(64 === count($names($many)), 'layer collection is bounded');
 
+// A selector may legally escape the characters that delimit a block, and
+// Tailwind arbitrary-value utilities do it constantly. Counting raw braces
+// desynchronised the block depth, so one escaped brace above the `@layer`
+// statement hid it entirely and the order pin silently stopped being emitted —
+// on precisely the stylesheets whose layers need pinning.
+$assert(
+    array( 'base', 'utilities' ) === $names('.a\\{b{color:red}@layer base, utilities;'),
+    'an escaped brace in a selector does not hide a later layer statement'
+);
+$assert(
+    array( 'base', 'utilities' ) === $names('.w-\\[calc\\(100\\%\\)\\]{width:1px}@layer base, utilities;'),
+    'an escaped arbitrary-value utility does not hide a later layer statement'
+);
+$assert(
+    array( 'base', 'utilities' ) === $names('a{background:url(x\\{.png)}@layer base, utilities;'),
+    'an escaped brace inside a url() does not hide a later layer statement'
+);
+$assert(
+    array( 'base', 'utilities' ) === $names('a{content:"}"}@layer base, utilities;'),
+    'a brace inside a quoted value does not close its block'
+);
+$assert(
+    '@layer theme,base,components,utilities;' === ( new AuthorCascadeLayerOrder() )->statement('.w-\\[calc\\(100\\%\\)\\]{width:1px}@layer theme,base,components,utilities;'),
+    'a Tailwind-shaped stylesheet still yields its order statement'
+);
+
 if ($failures > 0) {
     fwrite(STDERR, "Author cascade layer order unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);
