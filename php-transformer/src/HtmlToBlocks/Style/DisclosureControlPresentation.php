@@ -105,12 +105,7 @@ final class DisclosureControlPresentation
     {
         $summary = $control;
         $declarations = $this->styles->safeVisualDeclarations(
-            $this->styles->cssDeclarations(
-                $this->styles->resolveCssVariablesInValue(
-                    $this->styles->specificityResolvedPresentationStyle($summary),
-                    $summary
-                )
-            )
+            $this->styles->resolvedPresentationDeclarations($summary)
         );
         // core renders `<summary>` with no box of its own, so the toggle's own
         // box is carried here alongside its paint and type. Position and margin
@@ -163,12 +158,7 @@ final class DisclosureControlPresentation
         }
 
         $declarations = $this->styles->safeVisualDeclarations(
-            $this->styles->cssDeclarations(
-                $this->styles->resolveCssVariablesInValue(
-                    $this->styles->specificityResolvedPresentationStyle($label),
-                    $label
-                )
-            )
+            $this->styles->resolvedPresentationDeclarations($label)
         );
 
         return array_filter(

@@ -71,10 +71,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             return '';
         }
 
-        $resolved = $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->specificityResolvedPresentationStyle($toggle)
-        );
-        $sourceDeclarations = $this->styleResolver->cssDeclarations($resolved);
+        $sourceDeclarations = $this->styleResolver->resolvedPresentationDeclarations($toggle);
         $declarations = array();
         $hasUsableWidth = false;
         $hasUsableHeight = false;
@@ -174,10 +171,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     private function nativeNavigationToggleDropdownCss(string $host, DOMElement $navigation): string
     {
         $panel = $navigation->parentNode instanceof DOMElement ? $navigation->parentNode : $navigation;
-        $resolved = $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->specificityResolvedPresentationStyle($panel)
-        );
-        $declarations = $this->styleResolver->cssDeclarations($resolved);
+        $declarations = $this->styleResolver->resolvedPresentationDeclarations($panel);
         $background = '#fff';
         $maxHeight = CssValueInspector::withoutImportant(trim((string) ($declarations['max-height'] ?? '')));
         if ( '' === $maxHeight || 'none' === strtolower($maxHeight) || '0' === $maxHeight || '0px' === $maxHeight ) {
@@ -270,10 +264,7 @@ final class ProjectedNavigationConverter implements ElementConverter
             'line-height' => 'normal',
         );
         if ( $anchor instanceof DOMElement ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($anchor)
-            );
-            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($anchor);
             foreach ( array( 'font-size', 'font-weight', 'text-transform', 'letter-spacing', 'color', 'line-height' ) as $property ) {
                 $value = CssValueInspector::withoutImportant(trim((string) ($declarations[$property] ?? '')));
                 if ( '' !== $value && ! preg_match('/[{}<>]/', $value) ) {
@@ -346,10 +337,7 @@ final class ProjectedNavigationConverter implements ElementConverter
     {
         $node = $toggle->parentNode;
         while ( $node instanceof DOMElement ) {
-            $resolved = $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($node)
-            );
-            $declarations = $this->styleResolver->cssDeclarations($resolved);
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($node);
             if ( array() === $declarations ) {
                 $declarations = $this->styleResolver->structuralPresentationDeclarations($node);
             }

@@ -3028,6 +3028,30 @@ final class StyleResolver implements ElementPresentationResolver
      * custom-property resolution and already depends on this resolver's own
      * structural declarations.
      */
+    /**
+     * The element's resolved presentation declarations, as a property map.
+     *
+     * Reading presentation took a three-call incantation —
+     * `cssDeclarations(resolveCssVariablesInValue(specificityResolvedPresentationStyle($el), $el))`
+     * — written out at nine call sites across the converters, the pattern
+     * contexts and the projectors.
+     *
+     * They did not agree: some passed the element when expanding `var()` and
+     * some did not, which is the difference between resolving a custom property
+     * in the element's own cascade and resolving it against the document's
+     * global scope. Two readings of the same question, chosen per call site by
+     * whoever wrote it. This is the element-scoped one, which is the reading
+     * that can see a property an ancestor rebound.
+     *
+     * @return array<string, string>
+     */
+    public function resolvedPresentationDeclarations(DOMElement $element): array
+    {
+        return $this->cssDeclarations(
+            $this->resolveCssVariablesInValue($this->specificityResolvedPresentationStyle($element), $element)
+        );
+    }
+
     public function resolveCssVariablesInValue(string $value, ?DOMElement $element = null): string
     {
         if ( false === strpos($value, 'var(') ) {

@@ -10009,10 +10009,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function resolvedDeclaration(DOMElement $element, string $property): string
     {
-        $resolved = $this->styleResolver->resolveCssVariablesInValue(
-            $this->styleResolver->specificityResolvedPresentationStyle($element)
-        );
-        $declarations = $this->styleResolver->cssDeclarations($resolved);
+        $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
 
         return strtolower(trim($this->cssValueWithoutImportant((string) ($declarations[ $property ] ?? ''))));
     }
