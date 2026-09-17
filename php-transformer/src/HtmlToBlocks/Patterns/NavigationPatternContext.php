@@ -176,11 +176,7 @@ final class NavigationPatternContext
             return '';
         }
 
-        $declarations = $this->styleResolver->cssDeclarations(
-            $this->styleResolver->resolveCssVariablesInValue(
-                $this->styleResolver->specificityResolvedPresentationStyle($svg)
-            )
-        );
+        $declarations = $this->styleResolver->resolvedPresentationDeclarations($svg);
         $dimensions = array();
         foreach ( array( 'width', 'height' ) as $property ) {
             $value = trim((string) ($declarations[$property] ?? ''));
