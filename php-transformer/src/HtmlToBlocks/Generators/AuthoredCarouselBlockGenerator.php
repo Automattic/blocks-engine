@@ -57,6 +57,8 @@ final class AuthoredCarouselBlockGenerator
             'stageMaxWidth' => array('type' => 'number', 'default' => 0),
             'transitionStyle' => array('type' => 'string', 'default' => 'fade'),
             'showPlayControl' => array('type' => 'boolean', 'default' => false),
+            'playControlPosition' => array('type' => 'string', 'default' => 'bottom-left'),
+            'playControlInset' => array('type' => 'number', 'default' => 0),
         );
         $editor = <<<'JS'
 ( function( blocks, blockEditor, element, components ) {
@@ -67,6 +69,7 @@ final class AuthoredCarouselBlockGenerator
     function normalizedCount( value ) { return Math.max( 0, Math.round( Number( value ) || 0 ) ); }
     function normalizedThumbnails( value ) { return Array.isArray( value ) ? value.filter( function( thumbnail ) { return thumbnail && thumbnail.url; } ) : []; }
     function normalizedPosition( value ) { return 'bottom' === value ? 'bottom' : 'right'; }
+    function normalizedPlacement( value ) { return -1 !== [ 'top-left', 'top-right', 'bottom-left', 'bottom-right' ].indexOf( value ) ? value : 'bottom-left'; }
     function normalizedTransition( value ) { return 'slide' === value ? 'slide' : 'fade'; }
     function normalizedAspect( value ) { return 'string' === typeof value && /^[0-9]+(?:\.[0-9]+)?\/[0-9]+(?:\.[0-9]+)?$/.test( value ) ? value : ''; }
     function rootProps( attributes ) {
@@ -113,6 +116,18 @@ final class AuthoredCarouselBlockGenerator
                             onChange: set( 'autoplayInterval' ),
                             __nextHasNoMarginBottom: true
                         } ),
+                        createElement( components.SelectControl, {
+                            label: 'Play control position',
+                            value: normalizedPlacement( props.attributes.playControlPosition ),
+                            options: [
+                                { label: 'Top left', value: 'top-left' },
+                                { label: 'Top right', value: 'top-right' },
+                                { label: 'Bottom left', value: 'bottom-left' },
+                                { label: 'Bottom right', value: 'bottom-right' }
+                            ],
+                            onChange: set( 'playControlPosition' ),
+                            __nextHasNoMarginBottom: true
+                        } ),
                         createElement( components.ToggleControl, {
                             label: 'Show play control',
                             checked: !! props.attributes.showPlayControl,
@@ -133,7 +148,7 @@ final class AuthoredCarouselBlockGenerator
                 createElement( 'div', { className: 'blocks-engine-authored-carousel__viewport', tabIndex: 0, 'data-wp-on--keydown': 'actions.keydown' }, createElement( 'div', { className: 'blocks-engine-authored-carousel__track' }, createElement( InnerBlocks.Content ) ) ),
                 createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__next', 'data-carousel-next': 'true', 'data-wp-on--click': 'actions.next', 'data-wp-bind--disabled': 'state.atEnd' }, 'Next' ),
                 dotCount > 0 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__dots', role: 'group', 'aria-label': 'Choose slide' }, dots ) : null,
-                props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback', 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
+                props.attributes.showPlayControl ? createElement( 'button', { type: 'button', className: 'blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' + normalizedPlacement( props.attributes.playControlPosition ), style: { '--blocks-engine-carousel-control-inset': Math.max( 0, Math.min( 64, Math.round( Number( props.attributes.playControlInset ) || 0 ) ) ) + 'px' }, 'data-wp-on--click': 'actions.toggleAutoplay', 'data-wp-bind--aria-pressed': 'state.playing', 'data-wp-text': 'state.playbackLabel' }, 'Play' ) : null,
                 thumbnails.length > 1 ? createElement( 'div', { className: 'blocks-engine-authored-carousel__thumbnails', role: 'group', 'aria-label': 'Choose slide' }, thumbnails.map( function( thumbnail, index ) {
                     return createElement( 'button', { key: index, type: 'button', className: 'blocks-engine-authored-carousel__thumbnail', 'aria-label': 'Show slide ' + ( index + 1 ), 'data-carousel-index': String( index ), 'data-wp-on--click': 'actions.goTo' }, createElement( 'img', { src: thumbnail.url, alt: thumbnail.alt || '', loading: 'lazy', decoding: 'async' } ) );
                 } ) ) : null,
@@ -332,7 +347,11 @@ JS;
             . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(100%)}'
             . '.blocks-engine-authored-carousel--transition-slide[data-direction="backward"] .blocks-engine-authored-carousel__track>:not(.blocks-engine-authored-carousel__slide--active){transform:translateX(-100%)}'
             . '.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>.blocks-engine-authored-carousel__slide--active{transform:translateX(0)}'
-            . '.blocks-engine-authored-carousel__playback{position:absolute;left:0;bottom:0;z-index:3;padding:.35rem .75rem;border:0;background:rgba(0,0,0,.32);color:#fff;font:inherit;cursor:pointer}'
+            . '.blocks-engine-authored-carousel__playback{position:absolute;z-index:3;padding:.35rem .75rem;border:0;background:rgba(0,0,0,.32);color:#fff;font:inherit;cursor:pointer}'
+            . '.blocks-engine-authored-carousel__playback--top-left{top:var(--blocks-engine-carousel-control-inset,0);left:var(--blocks-engine-carousel-control-inset,0)}'
+            . '.blocks-engine-authored-carousel__playback--top-right{top:var(--blocks-engine-carousel-control-inset,0);right:var(--blocks-engine-carousel-control-inset,0)}'
+            . '.blocks-engine-authored-carousel__playback--bottom-left{bottom:var(--blocks-engine-carousel-control-inset,0);left:var(--blocks-engine-carousel-control-inset,0)}'
+            . '.blocks-engine-authored-carousel__playback--bottom-right{bottom:var(--blocks-engine-carousel-control-inset,0);right:var(--blocks-engine-carousel-control-inset,0)}'
             . '.blocks-engine-authored-carousel--slideshow .blocks-engine-authored-carousel__playback{pointer-events:auto}'
             . '@media(prefers-reduced-motion:reduce){.blocks-engine-authored-carousel--transition-slide .blocks-engine-authored-carousel__track>*{transition:none}}';
 
@@ -445,8 +464,14 @@ JS;
             $dots .= '</div>';
         }
 
+        $playbackPosition = in_array($attributes['playControlPosition'] ?? '', array( 'top-left', 'top-right', 'bottom-left', 'bottom-right' ), true)
+            ? (string) $attributes['playControlPosition']
+            : 'bottom-left';
+        $playbackInset = max(0, min(64, (int) ($attributes['playControlInset'] ?? 0)));
         $playback = $showPlayControl
-            ? '<button type="button" class="blocks-engine-authored-carousel__playback" data-wp-on--click="actions.toggleAutoplay" data-wp-bind--aria-pressed="state.playing" data-wp-text="state.playbackLabel">'
+            ? '<button type="button" class="blocks-engine-authored-carousel__playback blocks-engine-authored-carousel__playback--' . $playbackPosition . '"'
+                . ' style="--blocks-engine-carousel-control-inset:' . $playbackInset . 'px"'
+                . ' data-wp-on--click="actions.toggleAutoplay" data-wp-bind--aria-pressed="state.playing" data-wp-text="state.playbackLabel">'
                 . ( 0 < $autoplayInterval ? 'Pause' : 'Play' ) . '</button>'
             : '';
         $rail = '';
@@ -646,6 +671,7 @@ JS;
             ? 'bottom'
             : $this->thumbnailPagerPosition($this->commonAncestor($pagerItems), $element, $styleResolver);
 
+        $playbackPlacement = $this->playbackControlPlacement($element, $styleResolver);
         $stageBox = 'slideshow' === $presentation && 0 === $viewportHeight
             ? $this->stageBoxForItems($items, $styleResolver)
             : array('ratio' => '', 'width' => 0);
@@ -669,6 +695,8 @@ JS;
             'stageMaxWidth' => $stageBox['width'],
             'transitionStyle' => 'slideshow' === $presentation ? $this->sourceTransitionStyle($items, $styleResolver) : 'fade',
             'showPlayControl' => 'slideshow' === $presentation && $this->hasPlaybackToggle($element),
+            'playControlPosition' => $playbackPlacement['position'],
+            'playControlInset' => $playbackPlacement['inset'],
         );
         $shell = $this->shell($attributes);
         $innerContent = array($shell['opening']);
@@ -695,7 +723,14 @@ JS;
      */
     private function hasPlaybackToggle(DOMElement $root): bool
     {
-        $found = array();
+        return $this->playbackToggleElement($root) instanceof DOMElement;
+    }
+
+    /** The source's own start control, when it ships a start and stop pair. */
+    private function playbackToggleElement(DOMElement $root): ?DOMElement
+    {
+        $start = null;
+        $stopped = false;
         foreach ( $root->getElementsByTagName('*') as $candidate ) {
             if ( ! $candidate instanceof DOMElement ) {
                 continue;
@@ -704,12 +739,53 @@ JS;
             if ( '' === $label ) {
                 $label = strtolower(trim(SourceDom::attr($candidate, 'aria-label')));
             }
-            if ( 'play' === $label || 'pause' === $label ) {
-                $found[$label] = true;
+            if ( 'play' === $label && ! $start instanceof DOMElement ) {
+                $start = $candidate;
             }
+            $stopped = $stopped || 'pause' === $label;
         }
 
-        return isset($found['play'], $found['pause']);
+        return $stopped ? $start : null;
+    }
+
+    /**
+     * Where the source pinned its playback control.
+     *
+     * The control sits in a positioned box whose declared insets say which
+     * corner of the stage it belongs to and how far in it sits. Reading those
+     * declarations keeps the placement the source's own rather than a corner
+     * this block picks for every site.
+     *
+     * @return array{position: string, inset: int}
+     */
+    private function playbackControlPlacement(DOMElement $root, StyleResolver $styleResolver): array
+    {
+        $placement = array('position' => 'bottom-left', 'inset' => 0);
+        $control = $this->playbackToggleElement($root);
+        if ( ! $control instanceof DOMElement ) {
+            return $placement;
+        }
+
+        for ( $node = $control; $node instanceof DOMElement && $node !== $root; $node = $node->parentNode ) {
+            $declarations = $styleResolver->structuralPresentationDeclarations($node);
+            if ( ! in_array(strtolower(trim((string) ($declarations['position'] ?? ''))), array( 'absolute', 'fixed' ), true) ) {
+                continue;
+            }
+            $top = $this->pixelLength((string) ($declarations['top'] ?? ''));
+            $bottom = $this->pixelLength((string) ($declarations['bottom'] ?? ''));
+            $left = $this->pixelLength((string) ($declarations['left'] ?? ''));
+            $right = $this->pixelLength((string) ($declarations['right'] ?? ''));
+            if ( null === $top && null === $bottom && null === $left && null === $right ) {
+                continue;
+            }
+            $vertical = null !== $top && ( null === $bottom || $top <= $bottom ) ? 'top' : 'bottom';
+            $horizontal = null !== $left && ( null === $right || $left <= $right ) ? 'left' : 'right';
+            $inset = max(0.0, min(64.0, max($top ?? 0.0, $bottom ?? 0.0, $left ?? 0.0, $right ?? 0.0)));
+
+            return array('position' => $vertical . '-' . $horizontal, 'inset' => (int) round($inset));
+        }
+
+        return $placement;
     }
 
     /**
