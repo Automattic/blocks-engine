@@ -27,6 +27,27 @@ $transformer = new HtmlTransformer();
 $boxResult = $transformer->transform('<form method="post"><input name="name"><button type="submit">Send</button></form>', array('static_css' => 'form{max-width:500px;margin:0 auto;text-align:left}@media (max-width:600px){form{max-width:100%}}'))->toArray();
 $box = $boxResult['fallbacks'][0]['form']['container_presentation'] ?? array();
 $assert('500px' === ($box['styles']['max_width'] ?? null) && '0 auto' === ($box['styles']['margin'] ?? null) && 'left' === ($box['styles']['text_align'] ?? null) && '100%' === ($box['variants'][0]['styles']['max_width'] ?? null), 'form container owns base and responsive presentation independently of controls');
+
+// A cascade-layered stylesheet (Tailwind v4's own default output shape) must
+// resolve container and control presentation exactly like an unlayered one -
+// a cascade layer only reorders precedence, it does not gate whether its
+// declarations are analyzed at all. The two-value logical padding shorthand
+// (`padding-inline`/`padding-block`) is as common as the margin equivalent
+// this analyzer already carried and must resolve the same way.
+$layeredCss = '@layer base, utilities; @layer base { input { box-sizing: border-box } } @layer utilities { .card { background-color: #fff; padding-inline: 14px; padding-block: 10px } }';
+$layeredResult = $transformer->transform('<form method="post" class="card"><input name="name"><button type="submit">Send</button></form>', array('static_css' => $layeredCss))->toArray();
+$layeredBox = $layeredResult['fallbacks'][0]['form']['container_presentation'] ?? array();
+$assert(
+    '#fff' === ($layeredBox['styles']['background_color'] ?? null) && '14px' === ($layeredBox['styles']['padding_inline'] ?? null) && '10px' === ($layeredBox['styles']['padding_block'] ?? null),
+    'form container presentation resolves through a cascade layer and carries the padding-inline/padding-block shorthand',
+    json_encode($layeredBox)
+);
+$layeredControl = $layeredResult['fallbacks'][0]['presentation_graph']['controls'][0]['control']['styles'] ?? array();
+$assert(
+    'border-box' === ($layeredControl['box_sizing'] ?? null),
+    'control presentation resolves through a cascade layer',
+    json_encode($layeredControl)
+);
 $statusResult = $transformer->transform('<form method="post"><input name="name"><button>Send</button><p id="result" role="status" style="margin-top:0.5rem"></p></form>')->toArray();
 $assert(array('role' => 'status', 'id' => 'result', 'margin_top' => '0.5rem') === ($statusResult['fallbacks'][0]['form']['trailing_status'] ?? null), 'empty trailing status preserves identity and authored margin');
 foreach (array('<p role="status">Existing message</p>', '<p role="alert"></p>', '<p role="status" aria-live="assertive"></p>', '<p role="status"><span></span></p>') as $unsupportedStatus) {

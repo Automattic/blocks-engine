@@ -138,6 +138,32 @@ $commentGraph = (new HtmlTransformer())->transform('<form method="post"><div cla
 $commentGraphNodes = array_column($commentGraph['nodes'] ?? array(), null, 'id');
 $assert('flex-start' === ($commentGraphNodes['control-0']['layout']['align_self'] ?? null), 'form layout graphs retain CSS comment selector boundaries');
 
+// Cascade layers (Tailwind v4's own output shape) gate cascade priority, not
+// whether their declarations apply. Their contents must be analyzed exactly
+// like an unconditional top-level rule, including a layer nested inside a
+// media query and the no-op statement form that only declares layer order.
+$layerAnalysis = (new CssRuleAnalyzer())->analyze(
+    array(
+        array(
+            'content' => '@layer theme, base, utilities; @layer theme { .field { display:grid } } @layer utilities { @media (min-width: 40rem) { .field { display:flex } } } @layer { .anonymous { display:block } }',
+            'source_path' => 'layers.css',
+            'source_hash' => hash('sha256', 'layers.css'),
+        ),
+    ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4
+);
+$layerRules = $layerAnalysis['rules'];
+$assert(false === $layerAnalysis['truncated'] && array() === $layerAnalysis['diagnostics'], 'cascade layer statements and blocks are not reported as malformed');
+$assert(3 === count($layerRules), 'a named layer, a layer nested inside a media query, and an anonymous layer are all traversed');
+$assert('.field' === ($layerRules[0]['selector'] ?? null) && array_key_exists('condition', $layerRules[0]) && null === $layerRules[0]['condition'], 'a named cascade layer rule carries no condition of its own');
+$assert('.field' === ($layerRules[1]['selector'] ?? null) && 'media' === ($layerRules[1]['condition']['kind'] ?? null), 'a media query nested inside a cascade layer keeps its own condition');
+$assert('.anonymous' === ($layerRules[2]['selector'] ?? null), 'an anonymous cascade layer block is traversed');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssRuleAnalyzer unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

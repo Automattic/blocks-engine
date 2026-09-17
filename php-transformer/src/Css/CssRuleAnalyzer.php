@@ -111,6 +111,15 @@ final class CssRuleAnalyzer
                     if ( $scanLimitReached ) {
                         return;
                     }
+                } elseif ( 'layer' === $atRule['name'] ) {
+                    // A cascade layer block gates cascade priority, not whether its
+                    // declarations apply at all - unlike media/container/supports it
+                    // is not a condition, so its contents are analyzed at the same
+                    // condition depth and without adding a condition gate.
+                    $this->analyzeStylesheet($body, $path, $hash, $condition, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $conditionDepth);
+                    if ( $scanLimitReached ) {
+                        return;
+                    }
                 }
                 $offset = $end + 1;
                 continue;
@@ -218,10 +227,15 @@ final class CssRuleAnalyzer
     private function atRule(string $prelude): ?array
     {
         $prelude = $this->normalizeAtRuleComments($prelude);
-        if ( ! preg_match('/^@(media|container|supports)\s+(.+)$/i', $prelude, $match) ) {
-            return null;
+        if ( preg_match('/^@(media|container|supports)\s+(.+)$/i', $prelude, $match) ) {
+            return array( 'name' => strtolower($match[1]), 'query' => trim($match[2]) );
         }
-        return array( 'name' => strtolower($match[1]), 'query' => trim($match[2]) );
+        // A cascade layer block's name is optional (an anonymous layer is valid
+        // CSS) and, unlike media/container/supports, carries no required query.
+        if ( preg_match('/^@layer\b\s*(.*)$/i', $prelude, $match) ) {
+            return array( 'name' => 'layer', 'query' => trim($match[1]) );
+        }
+        return null;
     }
 
     private function combineCondition(?array $left, array $right): array
