@@ -14,6 +14,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_SVG_PARAGRAPH_CLASS = 'blocks-engine-synthetic-svg-paragraph';
     public const HIDDEN_RICH_TEXT_MARKER_CLASS = 'blocks-engine-hidden-richtext-marker';
     public const SYNTHETIC_ANCHOR_UNDECORATED_CLASS = 'blocks-engine-synthetic-anchor-undecorated';
+    public const SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS = 'blocks-engine-synthetic-anchor-block-display';
     public const SYNTHETIC_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure';
     public const SYNTHETIC_INLINE_IMAGE_FIGURE_CLASS = 'blocks-engine-synthetic-image-figure-inline';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
@@ -54,6 +55,9 @@ final class SourceBlockAttributeProjector
             $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
             if ( 'a' === $sourceTagName && $this->sourceAnchorHasNoTextDecoration($sourceElement) ) {
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_UNDECORATED_CLASS);
+            }
+            if ( 'a' === $sourceTagName && $this->sourceAnchorResolvesToBlockDisplay($sourceElement) ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS);
             }
             if ( 'a' === $sourceTagName ) {
                 $attrs = $this->withSyntheticHeaderAnchorCarrier($attrs, $sourceElement, $context->generatedStyles);
@@ -397,6 +401,39 @@ final class SourceBlockAttributeProjector
         // `revert`/`revert-layer` resolve against the UA/previous-layer
         // cascade, which this resolver cannot evaluate generically.
         return '';
+    }
+
+    /**
+     * Whether a plain anchor's outer display resolves to a block-level box
+     * even though nothing authored ever says so on the anchor itself.
+     *
+     * A source anchor with its own authored `display` (however it resolves)
+     * reaches the materialized markup through the ordinary author-stylesheet
+     * projection, which still matches the anchor's retained class/tag
+     * selector once it is promoted into a synthetic paragraph carrier -- so
+     * there is nothing invisible to reproduce there. An anchor with NO
+     * authored `display` of its own, however, computes to the UA
+     * stylesheet's `inline` default only when it stays an inline-level box;
+     * CSS blockifies it to a block-level box when its parent establishes
+     * flex or grid layout, independent of any single selector. That
+     * blockification is real geometry (measured on harrykahanhai's "Listen"
+     * section: 16px vs 14px line height) with no authored rule of its own
+     * to survive the carrier, so it must be reproduced here the same way
+     * #1899 reproduces a resolved-`none` text-decoration.
+     */
+    private function sourceAnchorResolvesToBlockDisplay(DOMElement $anchor): bool
+    {
+        $ownDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($anchor)['display'] ?? ''));
+        if ( '' !== $ownDisplay ) {
+            return false;
+        }
+
+        $parent = $anchor->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+        $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
+        return in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */

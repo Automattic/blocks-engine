@@ -231,6 +231,40 @@ $assert(2 === substr_count($inheritedAnchorMarkup, 'blocks-engine-synthetic-anch
     && 'pass' === ($inheritedAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''),
     'an inherited text-decoration reset that resolves to none through a plain ancestor is marked undecorated, while the same reset resolving to underline through an explicitly-underlined ancestor is not');
 
+// A flex or grid container BLOCKIFIES its inline-level children: a plain <a>
+// with no authored `display` of its own resolves to a block-level box as a
+// flex/grid item, invisibly to any single selector -- exactly the "Listen"
+// section socials on harrykahanhai.lovable.app (measured height 16px source
+// vs 14px import, from the UA `inline` default winning on the synthetic
+// carrier). #1899 fixed the sibling defect where these same three anchors'
+// resolved text-decoration was lost the same way; this extends that
+// mechanism to resolved display. A bare anchor outside any flex/grid parent
+// must keep its ordinary inline resolution (no marker, no override).
+$blockifiedAnchorCarriers = ( new ArtifactCompiler() )->compile(array( 'files' => array(
+    array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="layout.css"><div class="social-row"><a href="/spotify">Open in Spotify</a><a href="/apple">Apple Music</a></div><div class="grid-row"><a href="/grid">Grid child</a></div><div class="prose-row"><a href="/plain">Plain link</a></div>' ),
+    array( 'path' => 'layout.css', 'kind' => 'css', 'content' => '.social-row{display:flex;gap:1rem}.grid-row{display:grid}' ),
+) ) )->toArray();
+$blockifiedAnchorMarkup = (string) ($blockifiedAnchorCarriers['serialized_blocks'] ?? '');
+$blockifiedAnchorCss = implode("\n", array_column(array_filter($blockifiedAnchorCarriers['assets'] ?? array(), static fn (array $asset): bool => 'css' === ($asset['kind'] ?? '')), 'content'));
+$blockifiedAnchorCandidate = StaticStyleParityRunner::candidateHtmlFromSerializedBlocks($blockifiedAnchorMarkup);
+$blockifiedAnchorProbes = ( new StaticStyleParityProbe() )->extract($blockifiedAnchorCandidate, $blockifiedAnchorCss)['probes'] ?? array();
+$blockifiedAnchorDisplays = array();
+foreach ( $blockifiedAnchorProbes as $probe ) {
+    if ( 'a' === ($probe['tag'] ?? '') ) {
+        $blockifiedAnchorDisplays[(string) ($probe['text'] ?? '')] = (string) ($probe['style']['display'] ?? '');
+    }
+}
+$blockifiedAnchorValidity = ( new HtmlTransformer() )->transform('<style>.social-row{display:flex;gap:1rem}.grid-row{display:grid}</style><div class="social-row"><a href="/spotify">Open in Spotify</a><a href="/apple">Apple Music</a></div><div class="grid-row"><a href="/grid">Grid child</a></div><div class="prose-row"><a href="/plain">Plain link</a></div>')->toArray();
+$assert(str_contains($blockifiedAnchorCss, ':where(p.blocks-engine-synthetic-paragraph.blocks-engine-synthetic-anchor-block-display)>a{display:block}')
+    && 6 === substr_count($blockifiedAnchorMarkup, 'blocks-engine-synthetic-anchor-block-display')
+    && str_contains($blockifiedAnchorMarkup, '<p class="blocks-engine-synthetic-paragraph"><a href="/plain">Plain link</a></p>')
+    && 'block' === ($blockifiedAnchorDisplays['Open in Spotify'] ?? '')
+    && 'block' === ($blockifiedAnchorDisplays['Apple Music'] ?? '')
+    && 'block' === ($blockifiedAnchorDisplays['Grid child'] ?? '')
+    && '' === ($blockifiedAnchorDisplays['Plain link'] ?? '')
+    && 'pass' === ($blockifiedAnchorValidity['source_reports']['wp_block_validity']['status'] ?? ''),
+    'a flex or grid parent blockifies its plain anchor children to resolved display:block on the synthetic carrier, while a bare anchor outside any flex/grid parent keeps its ordinary unmarked inline resolution');
+
 $multiPage = ( new ArtifactCompiler() )->compile(array(
     'files' => array(
         array( 'path' => 'index.html', 'kind' => 'html', 'content' => '<link rel="stylesheet" href="site.css"><main><p>Home</p></main>' ),
