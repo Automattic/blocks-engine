@@ -622,10 +622,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     public function hasConditionalStyleFamily(DOMElement $element, string $family): bool
     {
-        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             foreach (array_keys($rule['declarations']) as $property) {
                 if ($family === $this->responsivePropertyFamily($property)) {
                     return true;
@@ -732,10 +729,7 @@ final class StyleResolver implements ElementPresentationResolver
             return true;
         }
 
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             if ( '' !== $this->authorDisplayValue($rule) ) {
                 // An author rule supplies `display` and agrees with the inline
                 // value, so the materialized stylesheet already carries it.
@@ -760,10 +754,7 @@ final class StyleResolver implements ElementPresentationResolver
             return false;
         }
 
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             $authorDisplay = $this->authorDisplayValue($rule);
             if ( '' !== $authorDisplay && $inlineDisplay !== $authorDisplay ) {
                 return true;
@@ -933,10 +924,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         $wanted = array_fill_keys($properties, true);
         $declared = array();
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             foreach ( $rule['declarations'] as $property => $value ) {
                 $property = strtolower((string) $property);
                 if ( isset($wanted[ $property ]) ) {
@@ -987,10 +975,7 @@ final class StyleResolver implements ElementPresentationResolver
         sort($properties, SORT_STRING);
         $wanted = array_fill_keys($properties, true);
         $declared = array();
-        foreach ( $this->styleRuleCandidates($element, 'conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             foreach ( $rule['declarations'] as $property => $value ) {
                 if ( isset($wanted[ strtolower((string) $property) ]) ) {
                     $declared[ strtolower((string) $property) ][] = $this->context->cssComparableValue((string) $value);
@@ -1214,10 +1199,7 @@ final class StyleResolver implements ElementPresentationResolver
             }
         }
 
-        foreach ( $this->styleRuleCandidates($image, 'conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($image, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($image, 'conditional') as $rule ) {
             foreach ( array( 'height', 'min-height' ) as $property ) {
                 if ( $this->isCssPercentageValue((string) ($rule['declarations'][$property] ?? '')) ) {
                     return true;
@@ -1313,10 +1295,7 @@ final class StyleResolver implements ElementPresentationResolver
 
         $consumed = array();
         $inspect = function (DOMElement $target) use (&$consumed, $declared): void {
-            foreach ($this->styleRuleCandidates($target, 'static-conditional-pseudo') as $rule) {
-                if (! $this->matchesCssSelector($target, $rule['selector'])) {
-                    continue;
-                }
+            foreach ( $this->matchingStyleRules($target, 'static-conditional-pseudo') as $rule ) {
                 $consumed += array_intersect_key($this->customPropertiesReferencedByValues($rule['declarations']), $declared);
             }
         };
@@ -1460,10 +1439,8 @@ final class StyleResolver implements ElementPresentationResolver
         ++$this->analysisCache->sourceStructuralDeclarationBuilds;
 
         $declarations = array();
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
-            }
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }
 
         return $cache->structuralDeclarations[$cacheKey] = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
@@ -1502,10 +1479,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $cascade = array();
         $sequence = 0;
-        foreach ($this->styleRuleCandidates($element, 'static') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             foreach ($rule['mediaTextDeclarations'] ?? array() as $entry) {
                 $this->applyMediaTextCascadeDeclaration(
                     $cascade,
@@ -1883,10 +1857,7 @@ final class StyleResolver implements ElementPresentationResolver
 
     private function hasConditionalVisibleDisplay(DOMElement $element): bool
     {
-        foreach ($this->styleRuleCandidates($element, 'conditional') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'conditional') as $rule ) {
             $display = CssValueInspector::comparable((string) ($rule['declarations']['display'] ?? ''));
             if ( '' !== $display && 'none' !== $display ) {
                 return true;
@@ -1998,10 +1969,8 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $resolved = array();
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $resolved = $this->mergeCssDeclarationMaps($resolved, $rule['declarations']);
-            }
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            $resolved = $this->mergeCssDeclarationMaps($resolved, $rule['declarations']);
         }
         $resolved = $this->mergeCssDeclarationMaps($resolved, $this->cssDeclarations(SourceDom::attr($element, 'style')));
         $resolved = $this->mergeCssDeclarationMaps($resolved, $declarations);
@@ -2024,10 +1993,8 @@ final class StyleResolver implements ElementPresentationResolver
                 continue;
             }
             $declarations = array();
-            foreach ( $this->styleRuleCandidates($element, 'hidden-state') as $rule ) {
-                if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                    $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
-                }
+            foreach ( $this->matchingStyleRules($element, 'hidden-state') as $rule ) {
+                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
             }
             $declarations = $this->mergeCssDeclarationMaps($declarations, $this->cssDeclarations(SourceDom::attr($element, 'style')));
             $this->stripFrozenHiddenState($element, $declarations);
@@ -2117,10 +2084,8 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         $declarations = array();
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
-            }
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }
 
         if ( array() === $declarations ) {
@@ -2146,11 +2111,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
-
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
             foreach ( $rule['declarations'] as $property => $value ) {
                 $this->applyMediaTextCascadeDeclaration(
@@ -2200,10 +2161,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->styleRuleCandidates($element, 'static-conditional') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             if ( ! empty($rule['conditions']) && ! $this->conditionsApplyAtReferenceViewport($rule['conditions']) ) {
                 continue;
             }
@@ -2295,11 +2253,7 @@ final class StyleResolver implements ElementPresentationResolver
     {
         $cascade = array();
         $sequence = 0;
-        foreach ( $this->styleRuleCandidates($element, 'static') as $rule ) {
-            if ( ! $this->matchesCssSelector($element, $rule['selector']) ) {
-                continue;
-            }
-
+        foreach ( $this->matchingStyleRules($element, 'static') as $rule ) {
             $specificity = $this->mediaTextSelectorSpecificity($rule['selector']);
             $entries = $rule['mediaTextDeclarations'] ?? array();
             foreach ( $rule['declarations'] ?? array() as $property => $value ) {
@@ -2418,10 +2372,7 @@ final class StyleResolver implements ElementPresentationResolver
             return false;
         }
 
-        foreach ($this->styleRuleCandidates($element, 'static-conditional') as $rule) {
-            if (! $this->matchesCssSelector($element, $rule['selector'])) {
-                continue;
-            }
+        foreach ( $this->matchingStyleRules($element, 'static-conditional') as $rule ) {
             if (array_intersect(array('aspect-ratio', 'object-fit', 'object-position'), array_keys($rule['declarations']))) {
                 return true;
             }
@@ -2920,6 +2871,29 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /** @return list<array<string, mixed>> */
+    /**
+     * Rules from a collection that actually match an element.
+     *
+     * styleRuleCandidates() returns an indexed *superset* — everything sharing a
+     * tag, class, id or attribute with the element — which still has to be
+     * confirmed against the real selector. Every caller remembered to do that,
+     * each with its own copy of the guard, so the distinction between "might
+     * match" and "does match" lived in eighteen places instead of a name.
+     *
+     * Generating rather than collecting keeps the superset from being
+     * materialised twice on a hot path.
+     *
+     * @return iterable<array<string, mixed>>
+     */
+    private function matchingStyleRules(DOMElement $element, string $collection): iterable
+    {
+        foreach ( $this->styleRuleCandidates($element, $collection) as $rule ) {
+            if ( $this->matchesCssSelector($element, (string) ( $rule['selector'] ?? '' )) ) {
+                yield $rule;
+            }
+        }
+    }
+
     public function styleRuleCandidates(DOMElement $element, string $collection): array
     {
         $cache = $this->context->sourceStyles();
@@ -3115,10 +3089,8 @@ final class StyleResolver implements ElementPresentationResolver
     public function matchedCascadedDeclarations(DOMElement $element): array
     {
         $declarations = array();
-        foreach ( $this->styleRuleCandidates($element, 'cascaded-values') as $rule ) {
-            if ( $this->matchesCssSelector($element, $rule['selector']) ) {
-                $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
-            }
+        foreach ( $this->matchingStyleRules($element, 'cascaded-values') as $rule ) {
+            $declarations = $this->mergeCssDeclarationMaps($declarations, $rule['declarations']);
         }
 
         return $this->mergeCssDeclarationMaps(
@@ -3163,10 +3135,7 @@ final class StyleResolver implements ElementPresentationResolver
             $ancestors[] = $current;
         }
         foreach ( array_reverse($ancestors) as $ancestor ) {
-            foreach ( $this->styleRuleCandidates($ancestor, 'conditional') as $rule ) {
-                if ( ! $this->matchesCssSelector($ancestor, (string) ($rule['selector'] ?? '')) ) {
-                    continue;
-                }
+            foreach ( $this->matchingStyleRules($ancestor, 'conditional') as $rule ) {
                 foreach ( $rule['cascadedDeclarations'] ?? array() as $name => $value ) {
                     if ( str_starts_with((string) $name, '--') ) {
                         $customProperties[(string) $name] = (string) $value;
