@@ -72,8 +72,14 @@ final class ImageDimensionResolver
      * only an author-STATED `auto` carries the "derive me from the other axis"
      * instruction; a property nobody declares carries no instruction and must
      * keep falling back to the HTML attribute below.
+     *
+     * Public so {@see StyleResolver::imageBoxConstraintClassName()} can reuse
+     * this exact detection to decide whether the be-inline-geometry carrier
+     * rule needs to restate the same axis as `auto` for the descendant
+     * `<img>` -- rather than re-deriving "did the author say auto" a second
+     * time from the same declarations.
      */
-    private function authorResolvesDimensionToAuto(DOMElement $image, string $property): bool
+    public function authorResolvesDimensionToAuto(DOMElement $image, string $property): bool
     {
         $value = strtolower(trim(CssValueInspector::withoutImportant(
             (string) ($this->styles->imageShapeDeclarations($image)[$property]['value'] ?? '')
