@@ -788,7 +788,7 @@ final class BlockFactory
         // aspectRatio/scale-only image carries no width/height styles at all.
         if ( array_key_exists('width', $attrs) || array_key_exists('height', $attrs) ) {
             if ( array_key_exists('width', $attrs) && null !== $attrs['width'] ) {
-                $style[] = 'width:' . $this->imageDimensionCssValue((string) $attrs['width'], ! empty($attrs['href']));
+                $style[] = 'width:' . $this->imageDimensionCssValue((string) $attrs['width']);
             }
 
             if ( ! array_key_exists('height', $attrs) || null === $attrs['height'] ) {
@@ -798,22 +798,16 @@ final class BlockFactory
                     $style[] = 'height:auto';
                 }
             } else {
-                $style[] = 'height:' . $this->imageDimensionCssValue((string) $attrs['height'], ! empty($attrs['href']));
+                $style[] = 'height:' . $this->imageDimensionCssValue((string) $attrs['height']);
             }
         }
 
         return implode(';', $style);
     }
 
-    private function imageDimensionCssValue(string $value, bool $linked): string
+    private function imageDimensionCssValue(string $value): string
     {
         $value = trim($value);
-        if ( $linked && preg_match('/^(\d+(?:\.\d+)?)px$/', $value, $matches) ) {
-            return $matches[1];
-        }
-        if ( $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ) {
-            return $value;
-        }
         return preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
     }
 
