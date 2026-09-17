@@ -1,11 +1,11 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-media-query-rules-not-inlined-desktop",
-  "description": "Keeps properties with responsive variants under stylesheet ownership so conditional declarations can override their base values.",
+  "description": "Keeps properties with responsive variants under stylesheet ownership so conditional declarations can override their base values, while a declaration behind a known-supported @supports condition resolves like any other resting rule.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-media-query-rules-not-inlined-desktop.json",
-    "notes": "Regression coverage for static style extraction applying nested @media rules unconditionally."
+    "notes": "Regression coverage for static style extraction applying nested @media rules unconditionally. @supports is deliberately not treated as a responsive variant: the condition resolves the same way for every reader, so its declaration is resting."
   },
   "legacy_comparison": {
     "skip": true,
@@ -16,10 +16,30 @@
     "content": "<!doctype html><html><head><style>.hero-title{font-size:clamp(5rem, 13vw, 13rem);line-height:0.92}@media (max-width: 768px){.hero-title{font-size:clamp(4rem, 18vw, 7rem)}}@supports (display: grid){.hero-title{letter-spacing:-0.04em}}</style></head><body><section class=\"hero\"><h1 class=\"hero-title\">Mara<br>Vale</h1></section></body></html>"
   },
   "expect": [
-    { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "font-size:clamp(5rem, 13vw, 13rem)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "line-height:0.92" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "font-size:clamp(4rem, 18vw, 7rem)" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "letter-spacing:-0.04em" }
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "font-size:clamp(5rem, 13vw, 13rem)"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "line-height:0.92"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "font-size:clamp(4rem, 18vw, 7rem)"
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "contains",
+      "value": "letter-spacing:-0.04em"
+    }
   ]
 }
