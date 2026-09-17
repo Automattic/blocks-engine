@@ -2466,8 +2466,22 @@ final class StyleResolver implements ElementPresentationResolver
                     $layers[$name] ??= count($layers);
                     $layer = $name;
                 }
+                // A rule is static when every condition wrapping it resolves the
+                // same way for every reader. `@layer` always does. So does an
+                // `@supports` condition the engine knows to be true: the browser
+                // rendering the output will take that branch unconditionally, so
+                // the resting cascade has to see it too.
+                //
+                // Tailwind v4 writes each opacity-modified colour as an opaque
+                // fallback plus the real translucent value behind
+                // `@supports (color: color-mix(...))`. Leaving that branch out of
+                // the resting rules resolved every such colour to the fallback
+                // the framework only emits for browsers without the feature.
+                //
+                // `@media` stays conditional: it depends on the viewport, which
+                // is exactly what the conditional stream exists to model.
                 $isStaticLayerRule = array() !== $conditions
-                    && array_reduce($conditions, static fn (bool $static, string $condition): bool => $static && 1 === preg_match('/^@layer\b/i', trim($condition)), true);
+                    && array_reduce($conditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
 
                 foreach (explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
@@ -2576,6 +2590,25 @@ final class StyleResolver implements ElementPresentationResolver
             ));
         }
         return $facts;
+    }
+
+    /**
+     * Whether one at-rule condition holds identically for every reader.
+     *
+     * `@layer` only orders the cascade, so a layered rule is always resting.
+     * An `@supports` condition the allowlist knows to be true is resting too —
+     * the browser takes that branch unconditionally. An unknown `@supports`
+     * term, or any `@media` query, stays conditional.
+     */
+    private function conditionResolvesStatically(string $condition): bool
+    {
+        $condition = trim($condition);
+        if (1 === preg_match('/^@layer\b/i', $condition)) {
+            return true;
+        }
+
+        return 1 === preg_match('/^@supports\b/i', $condition)
+            && CssCascade::supportsConditionApplies((string) preg_replace('/^@supports\s*/i', '', $condition));
     }
 
     /** @param list<string> $conditions */

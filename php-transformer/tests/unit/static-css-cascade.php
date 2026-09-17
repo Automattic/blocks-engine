@@ -12,6 +12,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\StaticCssCascade;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisCache;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
@@ -442,6 +443,79 @@ $assert('9px' === ( $result['font-size'] ?? '' ), 'a rule following an escaped b
 $assert(
     'red' === $layered('@keyframes spin{from{color:blue}to{color:blue}}@font-face{font-family:x;src:url(a.woff2)}.card.wide{color:red}'),
     'keyframe stops and @font-face descriptors are not element rules'
+);
+
+// A known-supported `@supports` condition is not a responsive variant. It
+// resolves the same way for every reader, so its declaration is a resting rule
+// and reaches the block the way an unconditional declaration does. Reading it
+// as conditional resolved every Tailwind v4 opacity-modified colour to the
+// opaque fallback the framework only emits for browsers without color-mix().
+$serialized = static function (string $css): string {
+    $page = '<html><body><section class="hero"><h1 class="hero-title">Mara</h1></section></body></html>';
+    return (string) ( ( new HtmlTransformer() )->transform($page, array( 'static_css' => $css ))->toArray()['serialized_blocks'] ?? '' );
+};
+
+$assert(
+    str_contains(
+        $serialized('.hero-title{line-height:0.92}@supports (display: grid){.hero-title{letter-spacing:-0.04em}}'),
+        'letter-spacing:-0.04em'
+    ),
+    'a declaration behind a known-supported @supports condition is a resting rule'
+);
+// The invariant that keeps the above safe: a viewport-varying property stays
+// stylesheet-owned so the conditional declaration can still win, even when the
+// same property is also declared behind a true `@supports`.
+$assert(
+    ! str_contains(
+        $serialized(
+            '.hero-title{line-height:0.92}'
+            . '@supports (display: grid){.hero-title{letter-spacing:-0.04em}}'
+            . '@media (max-width: 768px){.hero-title{letter-spacing:-0.01em}}'
+        ),
+        'letter-spacing:-0.04em'
+    ),
+    'a property with a @media variant stays stylesheet-owned even under a true @supports'
+);
+$assert(
+    ! str_contains(
+        $serialized('.hero-title{line-height:0.92}@supports (color: some-nonexistent-fn(1)){.hero-title{letter-spacing:-0.09em}}'),
+        'letter-spacing:-0.09em'
+    ),
+    'an @supports condition the allowlist cannot decide stays conditional'
+);
+
+// The end-to-end shape this fixes: the translucent colour reaches the block
+// attribute instead of the fallback, and survives value mapping.
+$pill = ( new HtmlTransformer() )->transform(
+    '<html><body><div><button class="pill">All 06</button></div></body></html>',
+    array(
+        'static_css' => ':root{--foreground:oklch(0.24 0.031 254.5)}'
+            . '.pill{background:#fff;padding:8px 16px;color:var(--foreground)}'
+            . '@supports (color:color-mix(in lab, red, red)){'
+            . '.pill{color:color-mix(in oklab, var(--foreground) 70%, transparent)}}',
+    )
+)->toArray();
+$pillColor = static function (array $blocks) use (&$pillColor): string {
+    foreach ( $blocks as $block ) {
+        if ( 'core/button' === ( $block['blockName'] ?? '' ) ) {
+            return (string) ( $block['attrs']['style']['color']['text'] ?? '' );
+        }
+        if ( ! empty($block['innerBlocks']) ) {
+            $found = $pillColor($block['innerBlocks']);
+            if ( '' !== $found ) {
+                return $found;
+            }
+        }
+    }
+    return '';
+};
+$assert(
+    'color-mix(in oklab, oklch(0.24 0.031 254.5) 70%, transparent)' === $pillColor($pill['blocks'] ?? array()),
+    'a button keeps the @supports-gated translucent colour as its native attribute'
+);
+$assert(
+    'pass' === ( $pill['source_reports']['wp_block_validity']['status'] ?? '' ),
+    'a color-mix() button colour stays editor-valid'
 );
 
 if ( $failures > 0 ) {

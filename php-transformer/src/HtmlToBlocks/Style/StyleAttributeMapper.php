@@ -739,7 +739,12 @@ final class StyleAttributeMapper
             }
         }
 
-        if ( preg_match('/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\(/i', $value) ) {
+        // `color-mix()` and `color()` belong here with the other functional
+        // notations. Tailwind v4 writes every opacity-modified colour as
+        // `color-mix(in oklab, var(--x) 70%, transparent)`, so rejecting the
+        // notation dropped the declaration, and the cascade fell back to the
+        // opaque value the framework only emits for browsers without it.
+        if ( preg_match('/^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color-mix|color)\s*\(/i', $value) ) {
             return $value;
         }
         if ( preg_match('/^var\s*\(\s*--[a-z0-9_-]+/i', $value) ) {
