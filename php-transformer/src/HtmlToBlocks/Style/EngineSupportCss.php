@@ -58,6 +58,17 @@ final class EngineSupportCss
                 // SourceBlockAttributeProjector::sourceAnchorResolvesToBlockDisplay()).
                 . "\n" . ':where(p.' . SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS . '.' . SourceBlockAttributeProjector::SYNTHETIC_ANCHOR_BLOCK_DISPLAY_CLASS . ')>a{display:block}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS) ) {
+            // core/embed's save() always wraps its content in a <figure> the
+            // source never had — a WordPress block-structure artifact, not an
+            // authored wrapper. That figure's own default margin therefore has
+            // no source counterpart. Zero specificity, exactly like the
+            // synthetic-paragraph reset above: a genuinely authored margin
+            // reaching this same figure through the ordinary author-stylesheet
+            // projection is already reset-resistant (boosted above the
+            // block-library default it must beat) and so still outranks this.
+            $parts[] = ':root :where(.' . SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS . '){margin-top:0;margin-bottom:0}';
+        }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::SYNTHETIC_SVG_PARAGRAPH_CLASS) ) {
             // A standalone SVG becomes valid RichText image markup inside a
             // paragraph. Its source was a block box, so remove the paragraph's

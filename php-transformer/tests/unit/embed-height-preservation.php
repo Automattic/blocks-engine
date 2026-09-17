@@ -56,7 +56,7 @@ $assert(
     'an authored absolute height mints a generated-stylesheet carrier class on the figure'
 );
 $assert(
-    str_contains($authoredHeightMarkup, '<figure class="wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify block w-full border-0 ' . $carrierMatch[0] . ' wp-has-aspect-ratio">'),
+    str_contains($authoredHeightMarkup, '<figure class="wp-block-embed is-type-rich is-provider-spotify wp-block-embed-spotify block w-full border-0 ' . $carrierMatch[0] . ' wp-has-aspect-ratio blocks-engine-synthetic-embed-figure">'),
     'the carrier and wp-has-aspect-ratio classes land on the saved <figure>, which autoembed() never touches'
 );
 $assert(
@@ -137,6 +137,51 @@ $percentageDimensionsBlock = $percentageDimensions['blocks'][0] ?? array();
 $assert(
     ! array_key_exists('className', $percentageDimensionsBlock['attrs'] ?? array()),
     'percentage-only iframe geometry does not fabricate a fixed height or an aspect-ratio class'
+);
+
+/**
+ * The reported bug: https://harrykahanhai.lovable.app/ wraps its sized
+ * Spotify iframe in an authored bordered div with no margin of its own.
+ * core/embed's saved <figure> carries a default bottom margin the source
+ * has no equivalent for — a WordPress block-structure artifact, not an
+ * authored wrapper — which made the containing section render 16px too
+ * tall. Marking the figure once an authored sizing intent exists (#1918's
+ * ratio or #1923's absolute height) lets engine-support CSS neutralize
+ * that unauthored margin, the same primitive already used for a
+ * synthesized paragraph's own unauthored margin.
+ */
+$inAuthoredContainer = ( new HtmlTransformer() )->transform(
+    '<main><div class="overflow-hidden rounded-sm border border-ink/10"><iframe title="Harrykahanhai on Spotify" src="https://open.spotify.com/embed/artist/46aKqTxrSund2Ccj4oPRsq" width="1022" height="520" class="block w-full border-0"></iframe></div></main>'
+)->toArray();
+$inAuthoredContainerMarkup = (string) ($inAuthoredContainer['serialized_blocks'] ?? '');
+$inAuthoredContainerCss = $combinedAssetCss($inAuthoredContainer);
+$assert(
+    1 === preg_match('/<figure class="wp-block-embed[^"]*\bblocks-engine-synthetic-embed-figure\b[^"]*"/', $inAuthoredContainerMarkup),
+    'an embed sized inside an authored container marks its unauthored figure margin for neutralization'
+);
+$assert(
+    str_contains($inAuthoredContainerCss, ':root :where(.blocks-engine-synthetic-embed-figure){margin-top:0;margin-bottom:0}'),
+    'engine-support CSS carries the zero-specificity reset for the marked embed figure, ordered before author CSS'
+);
+$assert(
+    str_contains($inAuthoredContainerMarkup, '<!-- wp:group {"className":"overflow-hidden rounded-sm border border-ink/10"} -->'),
+    'the authored bordered wrapper survives as its own group around the embed (unaffected by the margin fix)'
+);
+
+/**
+ * Nuance: neutralize only where the block structure introduced the margin.
+ * A margin the source genuinely authored right on the iframe is captured as
+ * core/embed's own native spacing support and renders as an inline style on
+ * the same <figure> — which any class-based reset cannot outrank — so it
+ * must still win.
+ */
+$authoredMargin = ( new HtmlTransformer() )->transform(
+    '<main><div class="overflow-hidden rounded-sm border border-ink/10"><iframe title="Harrykahanhai on Spotify" src="https://open.spotify.com/embed/artist/46aKqTxrSund2Ccj4oPRsq" width="1022" height="520" style="margin-bottom:24px" class="block w-full border-0"></iframe></div></main>'
+)->toArray();
+$authoredMarginMarkup = (string) ($authoredMargin['serialized_blocks'] ?? '');
+$assert(
+    1 === preg_match('/<figure class="wp-block-embed[^"]*\bblocks-engine-synthetic-embed-figure\b[^"]*" style="margin-bottom:24px">/', $authoredMarginMarkup),
+    'a genuinely authored embed margin still renders as an inline style on the marked figure and keeps winning over the reset'
 );
 
 echo "Embed height preservation tests passed ({$assertions} assertions)\n";
