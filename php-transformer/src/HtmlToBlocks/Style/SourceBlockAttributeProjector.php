@@ -342,20 +342,61 @@ final class SourceBlockAttributeProjector
 
     private function sourceAnchorHasNoTextDecoration(DOMElement $anchor): bool
     {
-        $decorationLine = null;
-        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($anchor)) as $property => $value ) {
-            $value = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
-            if ( 'text-decoration' === $property ) {
-                $decorationLine = preg_match('/\b(?:underline|overline|line-through)\b/', $value)
-                    ? 'line'
-                    : (! in_array($value, array( 'inherit', 'revert', 'revert-layer' ), true) ? 'none' : $decorationLine);
-            } elseif ( 'text-decoration-line' === $property ) {
-                $decorationLine = preg_match('/\b(?:underline|overline|line-through)\b/', $value)
-                    ? 'line'
-                    : (in_array($value, array( 'none', 'initial', 'unset' ), true) ? 'none' : $decorationLine);
+        return 'none' === $this->resolvedTextDecorationLine($anchor, true);
+    }
+
+    /**
+     * Resolves the computed `text-decoration-line` an element's authored
+     * cascade produces, following an explicit `inherit` keyword up the
+     * ancestor chain the way a browser would.
+     *
+     * `text-decoration-line` is NOT an inherited property: an element with no
+     * authored declaration for it computes to the initial value `none`
+     * regardless of its ancestors' values. The one exception is the anchor
+     * LEAF itself — a plain `<a>` with no authored declaration at all still
+     * renders underlined because of the user-agent stylesheet's `a { text-
+     * decoration: underline }` rule, which this resolver has no visibility
+     * into, so an undeclared leaf is left unresolved (conservative "has
+     * decoration").
+     *
+     * This is what makes Tailwind Preflight's `a { text-decoration: inherit }`
+     * reset actually resolve to `none`: the keyword sends resolution to the
+     * anchor's parent, which is ordinarily a plain, undeclared element whose
+     * computed value is the non-anchor initial `none` — not an unresolved
+     * inheritance in need of a grandparent's value.
+     *
+     * @return string 'line', 'none', or '' when the authored cascade never
+     *                resolves (an undeclared leaf, or an unresolvable
+     *                revert/revert-layer keyword) — callers treat '' as "has
+     *                decoration".
+     */
+    private function resolvedTextDecorationLine(DOMElement $element, bool $isLeaf): string
+    {
+        $declared = null;
+        foreach ( $this->styleResolver->cssDeclarations($this->styleResolver->mergedPresentationStyle($element)) as $property => $value ) {
+            if ( 'text-decoration' === $property || 'text-decoration-line' === $property ) {
+                $declared = CssValueInspector::comparable($this->styleResolver->resolveCssVariablesInValue($value));
             }
         }
-        return 'none' === $decorationLine;
+
+        if ( null === $declared ) {
+            return $isLeaf ? '' : 'none';
+        }
+        if ( preg_match('/\b(?:underline|overline|line-through)\b/', $declared) ) {
+            return 'line';
+        }
+        if ( 'inherit' === $declared ) {
+            return $element->parentNode instanceof DOMElement
+                ? $this->resolvedTextDecorationLine($element->parentNode, false)
+                : 'none';
+        }
+        if ( in_array($declared, array( 'none', 'initial', 'unset' ), true) ) {
+            return 'none';
+        }
+
+        // `revert`/`revert-layer` resolve against the UA/previous-layer
+        // cascade, which this resolver cannot evaluate generically.
+        return '';
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
