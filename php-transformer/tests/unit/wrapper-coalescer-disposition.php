@@ -25,6 +25,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformerAnalysisC
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysis;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
@@ -67,6 +68,7 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         throw new RuntimeException('No source body parsed');
     }
     $session->installAuthorStyleAnalysis(new AuthorStyleAnalysis('', '', array(), $sourceBody));
+    $session->installLayoutGeometryState(new LayoutGeometryState());
 
     $sourceElementClassifier = new SourceElementClassifier();
     $metadataBuilder = new FormControlMetadataBuilder(static fn (DOMElement $e): string => strtolower($e->tagName));
@@ -107,22 +109,17 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         'innerBlocks' => $innerBlocks,
     ), static fn (mixed $v): bool => array() !== $v));
 
+    // Registered so `_source_provenance_id => 1` resolves to a digest that
+    // matches the fixed `safeFallbackHtml` default below, letting
+    // `sameSourceGroupChainLeaf()`'s real digest walk find the DOM child
+    // without a test needing to fake the whole method.
+    $session->transformationProvenanceState()->registerSource(array('source_digest' => hash('sha256', 'source-child')), false);
+
     $defaults = array(
-        'isDirectChildOfStructuralLayout' => static fn (DOMElement $e): bool => false,
         'structureSignals' => static fn (DOMElement $e): array => array(),
-        'hasOnlyRenderNeutralInlineGeometry' => static fn (DOMElement $e): bool => true,
-        'hasOnlyFullWidthTransparentInlineGeometry' => static fn (DOMElement $e): bool => false,
-        'hasOnlyFullWidthTransparentBoxAffectingDeclarations' => static fn (DOMElement $e): bool => true,
-        'hasOnlyRenderNeutralBoxAffectingDeclarations' => static fn (DOMElement $e): bool => true,
-        'isNormalFlowFullWidthShellChild' => static fn (DOMElement $e): bool => true,
-        'hasContainingBlockDependentAuthorDeclarations' => static fn (DOMElement $e): bool => false,
-        'isRedundantNestedLayoutWrapper' => static fn (DOMElement $e, array $c): bool => false,
-        'sameSourceGroupChainLeaf' => static fn (DOMElement $e, string $digest): ?DOMElement => $e->firstElementChild,
-        'imageLeafInGroupChain' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
-        'layoutGeometryProofFor' => static fn (DOMElement $e): ?array => null,
-        'layoutGeometryProofCarrier' => static fn (array $p): string => '',
-        'truncateWrappersAfterAuthoredGrid' => static fn (array $w): array => $w,
-        'hasOnlyRenderNeutralDeclarations' => static fn (array $d): bool => true,
+        'soleElementChild' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
+        'safeFallbackHtml' => static fn (DOMElement $e): string => 'source-child',
+        'isImageOnlyAnchor' => static fn (DOMElement $e): bool => false,
     );
     $c = array_merge($defaults, $overrides);
 
@@ -132,21 +129,10 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         $styleResolver,
         $createBlock,
         $session,
-        $c['isDirectChildOfStructuralLayout'],
         $c['structureSignals'],
-        $c['hasOnlyRenderNeutralInlineGeometry'],
-        $c['hasOnlyFullWidthTransparentInlineGeometry'],
-        $c['hasOnlyFullWidthTransparentBoxAffectingDeclarations'],
-        $c['hasOnlyRenderNeutralBoxAffectingDeclarations'],
-        $c['isNormalFlowFullWidthShellChild'],
-        $c['hasContainingBlockDependentAuthorDeclarations'],
-        $c['isRedundantNestedLayoutWrapper'],
-        $c['sameSourceGroupChainLeaf'],
-        $c['imageLeafInGroupChain'],
-        $c['layoutGeometryProofFor'],
-        $c['layoutGeometryProofCarrier'],
-        $c['truncateWrappersAfterAuthoredGrid'],
-        $c['hasOnlyRenderNeutralDeclarations']
+        $c['soleElementChild'],
+        $c['safeFallbackHtml'],
+        $c['isImageOnlyAnchor']
     );
 };
 
@@ -196,10 +182,9 @@ $structureSignalReason = $makeCoalescer(array(), array(
 ))->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_structure_signals_without_proof' === $structureSignalReason, 'structure-signal-names-reason', $structureSignalReason);
 
-$missingChildReason = $makeCoalescer(array(), array(
-    'sameSourceGroupChainLeaf' => static fn (DOMElement $e, string $digest): ?DOMElement => null,
-    'imageLeafInGroupChain' => static fn (DOMElement $e): ?DOMElement => null,
-))->coalescingDisposition($elementFrom('<div><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
+// No `_source_provenance_id` and not a `core/image` child, so
+// `matchingSourceChild()` never has a leaf to find — no override needed.
+$missingChildReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('missing_matching_source_child' === $missingChildReason, 'missing-source-child-names-reason', $missingChildReason);
 
 $motionTokenReason = $makeCoalescer()->coalescingDisposition($elementFrom('<div class="slider"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
