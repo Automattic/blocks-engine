@@ -24,10 +24,16 @@ final class NavigationStyleProjector
         private readonly StyleResolver $styleResolver
     ) {
     }
-    public function directNavigationSupportCss(string $serializedBlocks): string
+    /**
+     * Colour repairs for a "direct" (not promoted to a list) navigation —
+     * tagged {@see CascadeLayer::DIRECT_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
+     */
+    public function directNavigationSupportCss(string $serializedBlocks): array
     {
         if ( ! str_contains($serializedBlocks, 'blocks-engine-direct-navigation') ) {
-            return '';
+            return array();
         }
 
         $rules = array();
@@ -61,7 +67,9 @@ final class NavigationStyleProjector
             }
         }
 
-        return implode("\n", array_values($rules));
+        $css = implode("\n", array_values($rules));
+
+        return '' === $css ? array() : array( new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css) );
     }
 
     /**
@@ -69,6 +77,10 @@ final class NavigationStyleProjector
      * authored class-only display state on the same host, including its media
      * or layer conditions, so a desktop navigation can remain hidden while its
      * separate mobile trigger is visible.
+     *
+     * Tagged {@see CascadeLayer::DIRECT_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
     public function directNavigationDisplayRules(string $serializedBlocks): array
     {
@@ -115,7 +127,10 @@ final class NavigationStyleProjector
             $rules[] = $css;
         }
 
-        return array_values(array_unique($rules));
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::DIRECT_NAVIGATION_REPAIR, $css),
+            array_values(array_unique($rules))
+        );
     }
 
     /** @return array<string, true> */
@@ -326,7 +341,9 @@ final class NavigationStyleProjector
      * Only `auto` is carried. An authored length is left to the author rule,
      * which core does not contest on the host.
      *
-     * @return array<int, string>
+     * Part of the list-navigation repair set — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
      */
     public function listNavigationInlineMarginRules(string $serializedBlocks): array
     {
@@ -369,10 +386,17 @@ final class NavigationStyleProjector
             $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
         }
 
-        return array_values($rules);
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css),
+            array_values($rules)
+        );
     }
 
-    /** @return array<int, string> */
+    /**
+     * Part of the list-navigation repair set — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
+     *
+     * @return list<CascadeRule>
+     */
     public function listNavigationPaddingRules(string $serializedBlocks): array
     {
         if ( ! preg_match_all('/<!--\s*wp:navigation\s*(\{.*?\})\s*-->/s', $serializedBlocks, $matches, PREG_SET_ORDER) ) {
@@ -430,7 +454,8 @@ final class NavigationStyleProjector
         }
 
         $selector = 'nav.wp-block-group>.wp-block-navigation.blocks-engine-list-navigation';
-        return array( $selector . '{' . array_key_first($paddingSets) . '}' );
+
+        return array( new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $selector . '{' . array_key_first($paddingSets) . '}') );
     }
 
     /**
@@ -463,8 +488,10 @@ final class NavigationStyleProjector
      * This prevents the stronger compatibility selector from promoting a losing
      * authored declaration over the rule that beat it in the design.
      *
+     * Part of the list-navigation repair set — tagged {@see CascadeLayer::LIST_NAVIGATION_REPAIR}.
+     *
      * @param array<int, array<string, mixed>> $sourceProvenance
-     * @return array<int, string>
+     * @return list<CascadeRule>
      */
     public function listNavigationItemAnchorRules(string $serializedBlocks, array $sourceProvenance): array
     {
@@ -621,7 +648,10 @@ final class NavigationStyleProjector
             }
         }
 
-        return $rules;
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::LIST_NAVIGATION_REPAIR, $css),
+            $rules
+        );
     }
 
     /**
@@ -635,8 +665,10 @@ final class NavigationStyleProjector
      * rules fail closed: their active cascade also includes unconditional rules,
      * so comparing an isolated condition stack cannot prove a global winner.
      *
+     * Tagged {@see CascadeLayer::NAVIGATION_STATE_REPAIR}.
+     *
      * @param array<int, array<string, mixed>> $sourceProvenance
-     * @return array<int, string>
+     * @return list<CascadeRule>
      */
     public function navigationItemStateAnchorRules(string $serializedBlocks, array $sourceProvenance): array
     {
@@ -731,7 +763,10 @@ final class NavigationStyleProjector
             $rules[$selectorText] = $selectorText . '{' . implode(';', $declarations) . '}';
         }
 
-        return array_values($rules);
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::NAVIGATION_STATE_REPAIR, $css),
+            array_values($rules)
+        );
     }
 
     /**
@@ -1169,20 +1204,14 @@ final class NavigationStyleProjector
     }
 
     /**
-     * Carry each navigation-link's resolved resting colour to the anchor core
-     * renders. core/navigation-link does not consume style.color.text, while
-     * adaptive header chrome can target the rendered anchor directly and beat
-     * an inherited parent navigation colour.
-     *
-     * @return array<int, string>
-     */
-    /**
      * Restore icon-only navigation artwork core/navigation-link cannot save.
      *
      * The block keeps the accessible name as its label, so the recovered source
      * icon replaces that label visually while the name stays in the document.
      *
-     * @return array<int, string>
+     * Tagged {@see CascadeLayer::SOURCE_STYLE_PROJECTION}.
+     *
+     * @return list<CascadeRule>
      */
     public function navigationLinkIconRules(string $serializedBlocks): array
     {
@@ -1213,9 +1242,22 @@ final class NavigationStyleProjector
             }
         }
 
-        return array_values($rules);
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
     }
 
+    /**
+     * Carry each navigation-link's resolved resting colour to the anchor core
+     * renders. core/navigation-link does not consume style.color.text, while
+     * adaptive header chrome can target the rendered anchor directly and beat
+     * an inherited parent navigation colour.
+     *
+     * Tagged {@see CascadeLayer::SOURCE_STYLE_PROJECTION}.
+     *
+     * @return list<CascadeRule>
+     */
     public function navigationLinkTextColorRules(string $serializedBlocks): array
     {
         $prefix = 'blocks-engine-navigation-link-color-';
@@ -1305,7 +1347,10 @@ final class NavigationStyleProjector
             }
         }
 
-        return array_values($rules);
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
     }
 
     /** @param list<string> $classes */

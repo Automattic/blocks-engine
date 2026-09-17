@@ -11,6 +11,8 @@ require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonLinkDispatcher;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeRule;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
@@ -27,14 +29,29 @@ $assert = static function (bool $condition, string $message) use (&$failures, &$
     fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
 };
 
+/** @param list<CascadeRule> $rules @return list<string> */
+$css_of = static fn (array $rules): array => array_map(static fn (CascadeRule $rule): string => $rule->css, $rules);
+
+/** @param list<CascadeRule> $rules */
+$assertLayer = static function (array $rules, CascadeLayer $layer, string $message) use (&$failures, &$passes): void {
+    foreach ( $rules as $rule ) {
+        if ( $layer !== $rule->layer ) {
+            ++$failures;
+            fwrite(STDERR, 'FAIL: ' . $message . PHP_EOL);
+            return;
+        }
+    }
+    ++$passes;
+};
+
 $css = new EngineSupportCss();
 
 $assert(array() === $css->beforeAuthorCss('', 'blocks-engine/layout-shell'), 'empty serialized blocks emit no before-author marker CSS');
-$assert(array() === $css->afterAuthorEarlyCss(''), 'empty serialized blocks emit no after-author early CSS');
+$assert(array() === $css->generatedMarkupRepairCss(''), 'empty serialized blocks emit no generated-markup repair CSS');
 $assert(array() === $css->socialLinkCss(''), 'empty serialized blocks emit no social-link CSS');
-$assert(array() === $css->listNavigationAfterAuthorPrefixCss('', ''), 'empty serialized blocks emit no list-navigation prefix CSS');
-$assert(array() === $css->listNavigationAfterAuthorSuffixCss('', '#111'), 'empty serialized blocks emit no list-navigation suffix CSS');
-$assert(array() === $css->afterAuthorLateCss(''), 'empty serialized blocks emit no after-author late CSS');
+$assert(array() === $css->listNavigationHostRepairCss('', ''), 'empty serialized blocks emit no list-navigation host repair CSS');
+$assert(array() === $css->listNavigationOverlayRepairCss('', '#111'), 'empty serialized blocks emit no list-navigation overlay repair CSS');
+$assert(array() === $css->secondaryBlockRenderRepairCss(''), 'empty serialized blocks emit no secondary block-render repair CSS');
 
 $synthetic = $css->beforeAuthorCss(SourceBlockAttributeProjector::SYNTHETIC_PARAGRAPH_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($synthetic), 'synthetic paragraph emits one before-author rule group');
@@ -52,8 +69,10 @@ $fragment = $css->beforeAuthorCss(ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK
 $assert(1 === count($fragment), 'positioned fragment link emits one before-author rule');
 $assert(':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}' === $fragment[0], 'positioned fragment link reuses ButtonLinkDispatcher constant');
 
-$listNav = $css->listNavigationAfterAuthorPrefixCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
-$assert(2 === count($listNav), 'list-navigation prefix emits responsive host and brand-carrier rules');
+$listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
+$assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');
+$listNav = $css_of($listNavRules);
+$assert(2 === count($listNav), 'list-navigation host repair emits responsive host and brand-carrier rules');
 $assert('.wp-block-navigation.blocks-engine-list-navigation.blocks-engine-native-responsive-navigation{display:flex!important}' === $listNav[0], 'native-responsive list-navigation host is display:flex');
 
 $compilation = new ReflectionClass(HtmlCompilation::class);

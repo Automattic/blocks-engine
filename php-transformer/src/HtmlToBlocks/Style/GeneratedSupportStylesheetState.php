@@ -162,7 +162,12 @@ final class GeneratedSupportStylesheetState
         return implode("\n", $this->nativeSearchTriggerRules);
     }
 
-    /** @return list<string> */
+    /**
+     * Captured per-component styling restated onto the descendant element
+     * core generates to hold it — tagged {@see CascadeLayer::COMPONENT_STYLE_RESTATEMENT}.
+     *
+     * @return list<CascadeRule>
+     */
     public function conditionalAfterAuthorCss(string $serializedBlocks): array
     {
         $parts = array();
@@ -227,16 +232,30 @@ final class GeneratedSupportStylesheetState
                 $parts[] = $rule;
             }
         }
-        return $parts;
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::COMPONENT_STYLE_RESTATEMENT, $css),
+            $parts
+        );
     }
 
-    /** @return list<string> */
+    /**
+     * Repairs specific to native/direct-flex/width-carrying button markup —
+     * tagged {@see CascadeLayer::BUTTON_REPAIR}.
+     *
+     * @return list<CascadeRule>
+     */
     public function buttonAfterAuthorCss(): array
     {
-        return array_values(array_filter(array(
+        $parts = array_values(array_filter(array(
             implode("\n", $this->nativeButtonRules),
             implode("\n", $this->directFlexButtonRules),
             implode("\n", $this->buttonWidthRules),
         ), static fn (string $rules): bool => '' !== $rules));
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::BUTTON_REPAIR, $css),
+            $parts
+        );
     }
 }
