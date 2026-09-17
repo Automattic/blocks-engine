@@ -56,10 +56,14 @@ $attribute = $editorCss(
     . '[data-mesh-id=secinlineContent-gridContainer] > [id="comp-aaa"]{grid-area:1 / 1 / 2 / 2;left:20px;position:relative}'
     . '[data-mesh-id=secinlineContent-gridContainer] > [id="comp-bbb"]{grid-area:2 / 1 / 3 / 2;position:relative}'
 );
-$assert(
-    2 === preg_match_all('/blocks-engine-editor-anchor-comp-(?:aaa|bbb)[^{}]*\{[^}]*grid-area/', $attribute),
-    'Attribute-addressed child placement reaches the editor anchor class.'
-);
+// Both the source and the projected stylesheet are read, so a rule can land
+// twice. The same declaration repeated is inert; reaching zero is the defect.
+foreach (array('comp-aaa', 'comp-bbb') as $id) {
+    $assert(
+        0 < preg_match_all('/blocks-engine-editor-anchor-' . $id . '[^{}]*\{[^}]*grid-area/', $attribute),
+        'Attribute-addressed placement for ' . $id . ' reaches the editor anchor class.'
+    );
+}
 
 // Unquoted and single-quoted spellings are the same target.
 foreach (array("[id=comp-aaa]", "[id='comp-aaa']") as $spelling) {

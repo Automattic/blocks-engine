@@ -157,10 +157,10 @@ final class NavigationStyleProjector
     }
 
 
-    public function materializeEditorStaticStateStylesheet(): void
+    public function materializeEditorStaticStateStylesheet(string $projectedAuthorCss = ''): void
     {
         $rules = array();
-        $anchorProjectionCss = $this->editorAnchorProjectionCss();
+        $anchorProjectionCss = $this->editorAnchorProjectionCss($projectedAuthorCss);
         if ( '' !== $anchorProjectionCss ) {
             $rules[] = $anchorProjectionCss;
             // The anchor projection restates author rules on the deterministic
@@ -214,7 +214,7 @@ final class NavigationStyleProjector
         $this->context->materializeStylesheetAsset($rules, 'editor-static-state', 'after-author', 'editor-static-state', 'editor');
     }
 
-    private function editorAnchorProjectionCss(): string
+    private function editorAnchorProjectionCss(string $projectedAuthorCss = ''): string
     {
         $ids = array_fill_keys(array_filter(
             $this->context->authorStyles()->sourceElementIds(),
@@ -223,10 +223,37 @@ final class NavigationStyleProjector
         if ( array() === $ids ) {
             return '';
         }
+
+        // An authored rule reaches its target through two hooks: the ancestor it
+        // is scoped by, and the element it addresses. Projection already rewrote
+        // the ancestor — a source attribute the editor drops becomes a generated
+        // class that survives — so reading the projected stylesheet keeps that
+        // half intact while this pass restates the id half. Reading the source
+        // stylesheet keeps the spellings projection leaves alone, and a rule
+        // that lands in both is the same declaration twice.
+        $stylesheets = array($this->context->authorStyles()->combinedCss());
+        if ( '' !== trim($projectedAuthorCss) ) {
+            $stylesheets[] = $projectedAuthorCss;
+        }
+
+        $projections = array();
+        foreach ( $stylesheets as $stylesheet ) {
+            $projection = $this->projectEditorAnchorStylesheet($stylesheet, $ids);
+            if ( '' !== $projection ) {
+                $projections[] = $projection;
+            }
+        }
+
+        return trim(implode("\n", $projections));
+    }
+
+    /** @param array<string, bool> $ids */
+    private function projectEditorAnchorStylesheet(string $stylesheet, array $ids): string
+    {
         $stateMarkers = $this->context->selectorProjections()->attributeNegationMarkers();
 
         return trim(( new CssStylesheetTransformer() )->transform(
-            $this->context->authorStyles()->combinedCss(),
+            $stylesheet,
             function (string $prelude, string $body) use ($ids, $stateMarkers): array {
                 $projected = array();
                 $transported = array();
