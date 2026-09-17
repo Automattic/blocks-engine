@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\Css;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
+
 /**
  * Reads the cascade-layer order an author stylesheet establishes for itself.
  *
@@ -46,36 +48,48 @@ final class AuthorCascadeLayerOrder
     {
         $css = preg_replace('#/\*.*?\*/#s', '', $stylesheet) ?? $stylesheet;
         $length = strlen($css);
+        // Block nesting is tracked through the shared scanner so quoted strings,
+        // parentheses, brackets and CSS escapes cannot be mistaken for structure.
+        // A selector may legally escape the very characters that delimit a block
+        // — Tailwind arbitrary-value utilities do it constantly
+        // (`.w-\[calc\(100\%\)\]`, `.a\{b`) — and counting raw braces desynchronised
+        // the depth, so a single escaped brace anywhere above the `@layer`
+        // statement hid it completely. names() then returned nothing, statement()
+        // emitted nothing, and the layer-order pin this class exists to produce
+        // silently stopped applying to exactly the stylesheets that need it.
+        $state = CssSyntaxScanner::state();
         $depth = 0;
         $names = array();
+        $cursor = 0;
 
-        for ($index = 0; $index < $length; ++$index) {
-            $character = $css[$index];
+        while ($cursor < $length) {
+            $character = $css[$cursor];
 
-            if ('"' === $character || "'" === $character) {
-                $index = $this->skipString($css, $index, $character);
-                continue;
-            }
-            if ('{' === $character) {
-                ++$depth;
-                continue;
-            }
-            if ('}' === $character) {
-                $depth = max(0, $depth - 1);
-                continue;
-            }
-            if (0 !== $depth || '@' !== $character || 0 !== substr_compare($css, '@layer', $index, 6, true)) {
-                continue;
-            }
-
-            $span = strcspn($css, '{;', $index);
-            foreach ($this->preludeNames(substr($css, $index + 6, $span - 6)) as $name) {
-                if (count($names) < self::MAX_LAYERS && ! in_array($name, $names, true)) {
-                    $names[] = $name;
+            if (CssSyntaxScanner::isTopLevel($state)) {
+                if ('{' === $character) {
+                    ++$depth;
+                    ++$cursor;
+                    continue;
+                }
+                if ('}' === $character) {
+                    $depth = max(0, $depth - 1);
+                    ++$cursor;
+                    continue;
+                }
+                if (0 === $depth && '@' === $character && 0 === substr_compare($css, '@layer', $cursor, 6, true)) {
+                    $span = strcspn($css, '{;', $cursor);
+                    foreach ($this->preludeNames(substr($css, $cursor + 6, $span - 6)) as $name) {
+                        if (count($names) < self::MAX_LAYERS && ! in_array($name, $names, true)) {
+                            $names[] = $name;
+                        }
+                    }
+                    // Land on the terminator so `{` still opens a block for the depth counter.
+                    $cursor += $span;
+                    continue;
                 }
             }
-            // Land on the terminator so `{` still opens a block for the depth counter.
-            $index += $span - 1;
+
+            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ($cursor + 1);
         }
 
         return $names;
@@ -109,22 +123,5 @@ final class AuthorCascadeLayerOrder
         }
 
         return $names;
-    }
-
-    /** The index of a string's closing quote, honouring backslash escapes. */
-    private function skipString(string $css, int $index, string $quote): int
-    {
-        $length = strlen($css);
-        for ($cursor = $index + 1; $cursor < $length; ++$cursor) {
-            if ('\\' === $css[$cursor]) {
-                ++$cursor;
-                continue;
-            }
-            if ($css[$cursor] === $quote) {
-                return $cursor;
-            }
-        }
-
-        return $length;
     }
 }
