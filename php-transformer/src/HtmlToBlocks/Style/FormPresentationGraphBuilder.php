@@ -48,6 +48,10 @@ final class FormPresentationGraphBuilder
         'margin-block-start', 'margin-block-end', 'margin-inline-start', 'margin-inline-end',
         'max-width', 'min-height', 'min-width', 'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
         'padding-block-start', 'padding-block-end', 'padding-inline-start', 'padding-inline-end',
+        // Padding carries the same two-value logical shorthand margin already
+        // reports, so a source that spaces an element with `padding-inline` or
+        // `padding-block` keeps that box instead of losing it to the allowlist.
+        'padding-block', 'padding-inline',
         'text-align', 'text-decoration', 'text-indent', 'text-transform', 'vertical-align', 'width',
         'align-self', 'bottom', 'flex', 'flex-basis', 'flex-grow', 'flex-shrink', 'inset', 'justify-self',
         'left', 'margin-block', 'margin-inline', 'order', 'position', 'right', 'top', 'transform', 'z-index',
