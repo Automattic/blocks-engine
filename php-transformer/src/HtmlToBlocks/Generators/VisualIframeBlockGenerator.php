@@ -235,9 +235,9 @@ JS;
                 'type'             => $this->embedTypeForSlug($providerNameSlug),
                 'providerNameSlug' => $providerNameSlug,
             ));
-            $aspectRatioClassName = $this->embedAspectRatioClassName($surface, $styleResolver);
-            if ( '' !== $aspectRatioClassName ) {
-                $embedAttrs['className'] = SourceDom::mergeClassNames((string) ($embedAttrs['className'] ?? ''), $aspectRatioClassName);
+            $sizingClassName = $this->embedSizingClassName($surface, $styleResolver);
+            if ( '' !== $sizingClassName ) {
+                $embedAttrs['className'] = SourceDom::mergeClassNames((string) ($embedAttrs['className'] ?? ''), $sizingClassName);
             }
             $block = $createBlock->createBlock('core/embed', array_filter($embedAttrs, static fn ($value): bool => '' !== $value), array(), $surface);
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
@@ -528,41 +528,49 @@ JS;
     }
 
     /**
-     * A source iframe's own authored `width`/`height` express the visual
-     * intent it was designed at (e.g. a Spotify playlist embed sized tall
-     * enough to show several tracks). oEmbed's default render for the same
-     * URL routinely ignores that intent and substitutes the provider's own
+     * A source iframe's own authored sizing expresses the visual intent it
+     * was designed at (e.g. a Spotify playlist embed sized tall enough to
+     * show several tracks). oEmbed's default render for the same URL
+     * routinely ignores that intent and substitutes the provider's own
      * default height, since core/embed's autoembed path re-fetches the
      * embed HTML from the provider with no way to request our attributes
      * back (`WP_Embed::autoembed_callback()` calls `shortcode()` with an
      * empty attribute array, so nothing stored on the block can influence
      * the provider request).
      *
-     * The only durable lever left is core's own `wp-embed-aspect-*` /
-     * `wp-has-aspect-ratio` className pair: `@wordpress/block-library`
-     * ships CSS (`.wp-has-aspect-ratio iframe { position: absolute; inset:
-     * 0; width: 100%; height: 100% }`) that resizes *whatever* iframe
-     * autoembed() ends up injecting to fill a box shaped by these classes,
-     * independent of the provider's own returned markup. Picking the
-     * closest preset by absolute distance (rather than mirroring the
-     * embed editor's own directional `>=` tolerance check in
-     * `embed/util.js`, which would reject a source ratio like 1022x520)
-     * lets a source ratio that falls between two presets still resolve to
-     * its nearest visual match instead of losing the author's sizing
-     * intent entirely.
-     *
-     * Returns '' when the source expressed no explicit pixel geometry, so
-     * the provider default remains untouched.
+     * An ABSOLUTE authored height (see {@see StyleResolver::
+     * embedWrapperHeightClassName()}) wins first and is carried exactly,
+     * since it's the author's literal, unambiguous intent. A bare RATIO
+     * (an authored CSS `aspect-ratio` with no concrete height at all) is
+     * only a proportional approximation of that intent and is kept as the
+     * fallback #1918 already established, via core's own seven
+     * `wp-embed-aspect-*` presets. Returns '' when the source expressed no
+     * sizing signal at all, so the provider default remains untouched.
      */
-    private function embedAspectRatioClassName(DOMElement $iframe, StyleResolver $styleResolver): string
+    private function embedSizingClassName(DOMElement $iframe, StyleResolver $styleResolver): string
     {
-        $width = $this->explicitPixelIframeDimension($iframe, 'width', $styleResolver);
         $height = $this->explicitPixelIframeDimension($iframe, 'height', $styleResolver);
-        if ( null === $width || null === $height || 0.0 >= $height ) {
-            return '';
+        if ( null !== $height && 0.0 < $height ) {
+            $carrier = $styleResolver->embedWrapperHeightClassName($iframe, $this->cssPixelValue($height));
+
+            return '' === $carrier ? '' : $carrier . ' wp-has-aspect-ratio';
         }
 
-        $ratio = $width / $height;
+        $ratio = $this->embedAspectRatioCssValue($iframe, $styleResolver);
+
+        return null === $ratio ? '' : $this->nearestEmbedAspectRatioClassName($ratio);
+    }
+
+    /**
+     * Core's `@wordpress/block-library` embed editor picks its own nearest
+     * preset with a directional `>=` tolerance check (`embed/util.js`),
+     * which would reject a real-world ratio like 1022:520. Picking by
+     * absolute distance instead lets a source ratio that falls between two
+     * presets still resolve to its nearest visual match instead of losing
+     * the author's sizing intent entirely.
+     */
+    private function nearestEmbedAspectRatioClassName(float $ratio): string
+    {
         $closestClassName = '';
         $closestDiff = INF;
         foreach ( self::EMBED_ASPECT_RATIO_CLASSES as $className => $presetRatio ) {
@@ -574,6 +582,34 @@ JS;
         }
 
         return '' === $closestClassName ? '' : $closestClassName . ' wp-has-aspect-ratio';
+    }
+
+    /**
+     * A bare ratio, expressed the same way a source stylesheet would
+     * express "I know my proportions but not my absolute size": the CSS
+     * `aspect-ratio` shorthand (`16/9`, `16 / 9`, or a bare number). Unlike
+     * an explicit pixel `height`, this never resolves to an ABSOLUTE box —
+     * only ever to the closest of core's seven presets.
+     */
+    private function embedAspectRatioCssValue(DOMElement $iframe, StyleResolver $styleResolver): ?float
+    {
+        $value = trim((string) ($styleResolver->presentationDeclarations($iframe)['aspect-ratio'] ?? ''));
+        if ( '' === $value || 1 !== preg_match('/^(\d+(?:\.\d+)?)\s*(?:\/\s*(\d+(?:\.\d+)?))?$/', $value, $matches) ) {
+            return null;
+        }
+
+        $width = (float) $matches[1];
+        $height = isset($matches[2]) && '' !== $matches[2] ? (float) $matches[2] : 1.0;
+
+        return 0.0 < $width && 0.0 < $height ? $width / $height : null;
+    }
+
+    /** A trimmed CSS pixel length for a positive value, e.g. `520` -> `'520px'`. */
+    private function cssPixelValue(float $value): string
+    {
+        $formatted = rtrim(rtrim(sprintf('%.3f', $value), '0'), '.');
+
+        return $formatted . 'px';
     }
 
     /**
