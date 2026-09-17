@@ -239,14 +239,8 @@ final class NavigationStyleProjector
                             $selector
                         ) ?? $selector;
                     }
-                    $replacement = preg_replace_callback(
-                        '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                        static fn (array $match): string => isset($ids[$match[2]])
-                            ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
-                            : $match[0],
-                        $selector
-                    );
-                    if ( is_string($replacement) && $replacement !== $selector ) {
+                    $replacement = self::projectAnchorIds($selector, $ids);
+                    if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
@@ -269,6 +263,48 @@ final class NavigationStyleProjector
         ));
     }
 
+    /**
+     * Restate an authored id target on the deterministic anchor class.
+     *
+     * The editor replaces a block wrapper's id with its own client id, so a
+     * rule that addresses a component by id matches nothing there. Mesh
+     * builders write those rules with `[id="…"]` at least as often as with
+     * `#…` — on a Wix export every child placement is the attribute spelling —
+     * so projecting only the `#` form left the container a grid while its
+     * children lost `grid-area` and stacked in source order.
+     *
+     * @param array<string, bool> $ids
+     */
+    private static function projectAnchorIds(string $fragment, array $ids, bool $keepSourceClass = false): string
+    {
+        $anchor = static function (string $id) use ($ids, $keepSourceClass): ?string {
+            if ( ! isset($ids[$id]) ) {
+                return null;
+            }
+            $projected = '.blocks-engine-editor-anchor-' . $id;
+            return $keepSourceClass ? ':is(' . $projected . ',.' . $id . ')' : $projected;
+        };
+
+        $fragment = preg_replace_callback(
+            '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
+            static function (array $match) use ($anchor): string {
+                $projected = $anchor($match[2]);
+                return null === $projected ? $match[0] : $match[1] . $projected;
+            },
+            $fragment
+        ) ?? $fragment;
+
+        return preg_replace_callback(
+            '/\[\s*id\s*=\s*(?:"([A-Za-z][A-Za-z0-9_-]*)"|\'([A-Za-z][A-Za-z0-9_-]*)\'|([A-Za-z][A-Za-z0-9_-]*))\s*\]/i',
+            static function (array $match) use ($anchor): string {
+                $id = '' !== ($match[1] ?? '') ? $match[1] : ('' !== ($match[2] ?? '') ? $match[2] : ($match[3] ?? ''));
+                $projected = '' === $id ? null : $anchor($id);
+                return null === $projected ? $match[0] : $projected;
+            },
+            $fragment
+        ) ?? $fragment;
+    }
+
     /** @param array<string, bool> $ids */
     private function editorTemplatePartTransportSelector(string $selector, array $ids): ?string
     {
@@ -282,24 +318,8 @@ final class NavigationStyleProjector
             return null;
         }
 
-        $projectIds = static function (string $fragment) use ($ids): string {
-            return preg_replace_callback(
-                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                static fn (array $match): string => isset($ids[$match[2]])
-                    ? $match[1] . '.blocks-engine-editor-anchor-' . $match[2]
-                    : $match[0],
-                $fragment
-            ) ?? $fragment;
-        };
-        $projectTargetIds = static function (string $fragment) use ($ids): string {
-            return preg_replace_callback(
-                '/(^|[\s>+~,(])#([A-Za-z][A-Za-z0-9_-]*)/',
-                static fn (array $match): string => isset($ids[$match[2]])
-                    ? $match[1] . ':is(.blocks-engine-editor-anchor-' . $match[2] . ',.' . $match[2] . ')'
-                    : $match[0],
-                $fragment
-            ) ?? $fragment;
-        };
+        $projectIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids);
+        $projectTargetIds = static fn (string $fragment): string => self::projectAnchorIds($fragment, $ids, true);
 
         $start = (int) $rightmost['start'];
         $end = (int) $rightmost['end'];
