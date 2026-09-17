@@ -718,6 +718,13 @@ final class AuthorStylesheetProjector
                 'grid-area', 'grid-column', 'grid-row',
                 'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
                 'align-self', 'justify-self', 'order',
+                // Flex sizing is item participation, like the `align-self` and
+                // `order` above it: it describes how the box behaves inside the
+                // author's flex container. The wrapper is the box that stands in
+                // the source element's place there, so a `flex-shrink:0` left on
+                // the inner link is inert and the control grows or shrinks
+                // against the author's intent.
+                'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
             );
             if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
