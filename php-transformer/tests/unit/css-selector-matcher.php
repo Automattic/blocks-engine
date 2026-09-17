@@ -320,6 +320,25 @@ $rootAttribute = CssSelectorMatcher::parse(':root[data-theme="light"] .lead');
 $assert(true === $rootAttribute['supported'], ':root carrying an attribute filter is supported');
 $assert(false === CssSelectorMatcher::matches($paragraph, $rootAttribute)['matches'], 'a :root attribute filter is honoured against the document element');
 
+// `:where()` matches without contributing specificity. The engine emits it when
+// projecting author rules precisely so the author's own ranking survives the
+// rewrite, so reading it as though it counted made a projected rule outrank the
+// rule it was derived from. The tokenizer already recorded which simple
+// selectors came from inside it; specificity() now honours that record.
+// Each expectation matches Chromium's own cascade for the same rules.
+$specificityOf = static fn (string $selector): int => CssSelectorMatcher::specificity(CssSelectorMatcher::parse($selector));
+
+$assert(0 === $specificityOf(':where(.a.b)'), ':where() contributes no specificity at all');
+$assert(0 === $specificityOf(':where(div)'), ':where() zeroes a type selector too');
+$assert(10 === $specificityOf('.a:where(.b)'), 'only the part outside :where() counts');
+$assert(11 === $specificityOf('.a :where(.b) a'), ':where() is discounted across a descendant chain');
+
+// The surrounding readings must not drift while that discount is applied.
+$assert(10 === $specificityOf('.a'), 'a class is one class-level component');
+$assert(100 === $specificityOf('#x'), 'an id is one id-level component');
+$assert(11 === $specificityOf('a:not(.x)'), ':not() contributes its argument');
+$assert(20 === $specificityOf(':root .x'), ':root counts as a class-level component');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssSelectorMatcher unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

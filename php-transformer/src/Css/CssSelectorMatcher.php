@@ -82,12 +82,7 @@ final class CssSelectorMatcher
 
         $specificity = 0;
         foreach ( $selector['compounds'] as $compound ) {
-            $specificity += 100 * count($compound['ids']);
-            $specificity += 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child'] + (int) ($compound['root'] ?? false) + ($compound['resting_state_negations'] ?? 0));
-            $specificity += null === $compound['type'] ? 0 : 1;
-            foreach ( $compound['not'] as $negated ) {
-                $specificity += self::compoundSpecificity($negated);
-            }
+            $specificity += self::compoundSpecificity($compound);
         }
         if ( null !== $selector['pseudo_state_suffix_span'] ) {
             $specificity += 10;
@@ -95,14 +90,38 @@ final class CssSelectorMatcher
         return $specificity;
     }
 
-    /** @param array<string, mixed> $compound */
+    /**
+     * Specificity of one compound, discounting everything `:where()` contributed.
+     *
+     * `:where()` matches without adding specificity — that is the whole reason
+     * the engine emits it when projecting author rules, so the author's own
+     * ranking survives the rewrite. The tokenizer already records which simple
+     * selectors came from inside it, under `zero_specificity`, and this is the
+     * reading that honours it: without the discount `:where(.a.b)` scored 20
+     * where CSS says 0, and a projected rule outranked the author rule it was
+     * derived from.
+     *
+     * @param array<string, mixed> $compound
+     */
     private static function compoundSpecificity(array $compound): int
     {
-        $specificity = 100 * count($compound['ids']) + 10 * (count($compound['classes']) + count($compound['attributes']) + (null !== $compound['nth_child'] ? 1 : 0) + (int) $compound['first_child'] + (int) $compound['last_child'] + (int) ($compound['root'] ?? false) + ($compound['resting_state_negations'] ?? 0));
-        $specificity += null === $compound['type'] ? 0 : 1;
+        $zero = $compound['zero_specificity'] ?? array();
+
+        $ids = count($compound['ids']) - (int) ( $zero['ids'] ?? 0 );
+        $classes = count($compound['classes']) - (int) ( $zero['classes'] ?? 0 )
+            + count($compound['attributes']) - (int) ( $zero['attributes'] ?? 0 )
+            + ( null !== $compound['nth_child'] ? 1 : 0 )
+            + (int) $compound['first_child']
+            + (int) $compound['last_child']
+            + (int) ( $compound['root'] ?? false )
+            + ( $compound['resting_state_negations'] ?? 0 );
+        $types = ( null === $compound['type'] ? 0 : 1 ) - (int) ( $zero['types'] ?? 0 );
+
+        $specificity = 100 * $ids + 10 * $classes + $types;
         foreach ( $compound['not'] as $negated ) {
             $specificity += self::compoundSpecificity($negated);
         }
+
         return $specificity;
     }
 
