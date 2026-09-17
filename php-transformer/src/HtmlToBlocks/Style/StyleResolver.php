@@ -655,6 +655,37 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * `core/embed`'s save() is a rigid, two-level `<figure><div
+     * class="wp-block-embed__wrapper">` shape with no attribute path onto
+     * that inner wrapper div at all — `customClassName` only ever reaches
+     * the outer `<figure>`. An authored ABSOLUTE height therefore can't be
+     * carried the way {@see inlineGeometryClassName()} carries other exact
+     * dimensions (which puts the generated class directly on the box that
+     * needs the declaration): the box that needs `height` here is the
+     * wrapper, not the figure the transform is allowed to add a class to.
+     *
+     * This registers a descendant-selector rule instead — `.<carrier>
+     * .wp-block-embed__wrapper{height:<value>}` — in the same generated
+     * stylesheet {@see inlineGeometryClassName()} feeds, keyed off a carrier
+     * class landing on the figure. Paired with core's own
+     * `wp-has-aspect-ratio` (`.wp-has-aspect-ratio iframe{position:absolute;
+     * inset:0;width:100%;height:100%}`), the wrapper's own fixed height —
+     * not a proportional `wp-embed-aspect-*` padding-top — becomes the box
+     * the eventual oEmbed-injected iframe stretches to fill.
+     */
+    public function embedWrapperHeightClassName(DOMElement $iframe, string $heightValue): string
+    {
+        $signature = $this->geometryStructuralPath($iframe) . "\nembed-wrapper-height\n" . $heightValue;
+        $className = $this->context->layoutGeometry()->allocateCarrier($signature);
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . ' .wp-block-embed__wrapper{height:' . $heightValue . '!important}'
+        );
+
+        return $className;
+    }
+
+    /**
      * A source document root commonly inherits `height:100%` through html and
      * body. Block content gains WordPress-owned ancestors, which makes that
      * percentage indefinite and can collapse absolute page layers to a header.
