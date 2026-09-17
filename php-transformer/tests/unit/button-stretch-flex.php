@@ -71,4 +71,86 @@ if ( preg_match('/wp-block-button__link\)\{height:auto!important/', $competeCss)
     exit(1);
 }
 
+// Flex sizing is item participation: it describes how the box behaves inside
+// the author's flex container. The core/buttons wrapper is the box standing in
+// the source element's place there, so the declaration has to land on the
+// wrapper. Left on the inner link it is inert, and the control sizes against
+// the author's intent — a `shrink-0` pill grew to fill its row and squeezed the
+// heading beside it onto an extra line.
+//
+// Assert the selector, not the declaration: the declaration is emitted either
+// way, and only the target box distinguishes the bug from the fix.
+$participation = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.row{display:flex;flex-direction:row;gap:24px;justify-content:space-between;align-items:flex-end}'
+    . '.pill{flex-shrink:0;border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}'
+    . '</style>'
+    . '<div class="row"><div><h2>Experience, skills &amp; education.</h2></div>'
+    . '<a href="/cv" class="pill">Download full CV</a></div>'
+)->toArray();
+$participationCss = $cssOf($participation);
+
+$shrinkOnWrapper = false;
+$shrinkOnLink = false;
+foreach ( preg_split('/(?<=\})/', $participationCss) ?: array() as $rule ) {
+    if ( ! str_contains($rule, 'flex-shrink') ) {
+        continue;
+    }
+    $selector = substr($rule, 0, (int) strpos($rule, '{'));
+    if ( str_contains($selector, 'wp-block-button__link') ) {
+        $shrinkOnLink = true;
+    } elseif ( str_contains($selector, 'wp-block-buttons') ) {
+        $shrinkOnWrapper = true;
+    }
+}
+if ( ! $shrinkOnWrapper ) {
+    fwrite(STDERR, "FAIL: authored flex sizing must land on the core/buttons wrapper that participates in the author's row\n" . $participationCss . "\n");
+    exit(1);
+}
+if ( $shrinkOnLink ) {
+    fwrite(STDERR, "FAIL: authored flex sizing must not be stranded on the inner link, where it is inert\n" . $participationCss . "\n");
+    exit(1);
+}
+
+// Which axis the parent lays out on has to be read at the reference viewport.
+// A `flex-col md:flex-row` container is a column only below the breakpoint; at
+// the width being rendered it is a row, and its children are not cross-axis
+// stretched. Reading the resting value sees the mobile column and pins a
+// content-sized control to the full row.
+$responsiveRow = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.row{display:flex;flex-direction:column;gap:24px}'
+    . '@media (min-width:768px){.row{flex-direction:row;align-items:flex-end;justify-content:space-between}}'
+    . '.pill{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}'
+    . '</style>'
+    . '<div class="row"><div><h2>Experience</h2></div><a href="/cv" class="pill">Download full CV</a></div>'
+)->toArray();
+if ( str_contains($cssOf($responsiveRow), 'width:100%!important') ) {
+    fwrite(STDERR, "FAIL: a control in a row-at-desktop container must not be pinned to the column stretch width\n" . $cssOf($responsiveRow) . "\n");
+    exit(1);
+}
+
+// A genuine column still stretches its children, which is why the branch exists.
+$trueColumn = ( new HtmlTransformer() )->transform(
+    '<style>'
+    . '.col{display:flex;flex-direction:column;gap:24px}'
+    . '.pill{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}'
+    . '</style>'
+    . '<div class="col"><div><h2>Experience</h2></div><a href="/cv" class="pill">Download full CV</a></div>'
+)->toArray();
+if ( ! str_contains($cssOf($trueColumn), 'width:100%!important') ) {
+    fwrite(STDERR, "FAIL: a control in a real flex column must still fill the cross axis\n" . $cssOf($trueColumn) . "\n");
+    exit(1);
+}
+
+// A control with no authored flex participation must gain none.
+$plain = ( new HtmlTransformer() )->transform(
+    '<style>.plain{border-radius:9999px;background:#1b2a3a;color:#fff;padding:8px 16px;display:inline-block}</style>'
+    . '<div><a href="/cv" class="plain">Download full CV</a></div>'
+)->toArray();
+if ( str_contains($cssOf($plain), 'flex-shrink') ) {
+    fwrite(STDERR, "FAIL: a control without authored flex sizing must not gain any\n" . $cssOf($plain) . "\n");
+    exit(1);
+}
+
 fwrite(STDOUT, "button stretch flex tests: passed\n");
