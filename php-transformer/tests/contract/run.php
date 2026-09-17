@@ -2427,7 +2427,7 @@ $editRuntimeClock = static function (array &$blocks) use (&$editRuntimeClock): v
         if (is_array($block['innerContent'] ?? null)) {
             foreach ($block['innerContent'] as &$content) {
                 if (is_string($content)) {
-                    $content = str_replace('id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">12</mark>', 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>', $content);
+                    $content = str_replace('id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit" role="none">12</mark>', 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit" role="none">13</mark>', $content);
                 }
             }
             unset($content);
@@ -2441,7 +2441,7 @@ $editRuntimeClock = static function (array &$blocks) use (&$editRuntimeClock): v
 $editRuntimeClock($runtimeClockEdited);
 $runtimeClockEditedMarkup = $runtimeClockRoundTrip->serializeBlocks($runtimeClockEdited);
 $runtimeClockRendered = $runtimeClockRoundTrip->renderBlocks($runtimeClockEdited);
-$assert(str_contains($runtimeClockEditedMarkup, 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit">13</mark>') && str_contains($runtimeClockRendered, 'id="minutes"') && ! str_contains($runtimeClockEditedMarkup, '<!-- wp:html'), 'native runtime RichText survives parse, edit, serialize, and render without becoming Custom HTML', $runtimeClockEditedMarkup);
+$assert(str_contains($runtimeClockEditedMarkup, 'id="hours" style="margin:0;padding:0;background-color:transparent;color:inherit" role="none">13</mark>') && str_contains($runtimeClockRendered, 'id="minutes"') && ! str_contains($runtimeClockEditedMarkup, '<!-- wp:html'), 'native runtime RichText survives parse, edit, serialize, and render without becoming Custom HTML', $runtimeClockEditedMarkup);
 
 $runtimeGroup = ( new HtmlTransformer() )->transform(
     '<section id="scoreboard"><p>Score: <span id="score">0</span></p></section>',
