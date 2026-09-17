@@ -243,7 +243,11 @@ final class GeneratedBlockStyleProjector
                     $wrapperDeclarations[] = 'height:100%';
                     $declarations[] = 'height:100%!important';
                 }
-            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex' ), true) ) {
+            // An inline-level control sizes to its content, so the wrapper
+            // standing in its place has to do the same. A block-level wrapper
+            // stretches to its container instead, which both moves the control
+            // and steals the width its siblings were sharing.
+            } elseif ( ! $hasAuthoredWidth && in_array(CssValueInspector::comparable((string) ($sourceDeclarations['display'] ?? '')), array( 'flex', 'inline-flex', 'inline-block', 'inline-grid', 'inline-table' ), true) ) {
                 $outerWrapperDeclarations[] = 'width:max-content';
                 $outerWrapperDeclarations[] = 'max-width:100%';
                 $intrinsicWrapperDeclarations[] = 'width:max-content';
