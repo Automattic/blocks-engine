@@ -555,6 +555,18 @@ final class StyleResolver implements ElementPresentationResolver
      */
     private function classOwnedBackgroundPaintDeclarations(DOMElement $element, array $declarations): array
     {
+        if ( $this->isSolitaryBackgroundColorDeclaration($declarations) ) {
+            // A single, plain `background-color` with no accompanying image,
+            // gradient, or positioning is exactly the shape `color` already
+            // promotes to native text-color support: nothing about it depends
+            // on the author's own selector to keep painting correctly. Baking
+            // it inline the same way wins the cascade unconditionally instead
+            // of depending on the projected author stylesheet out-ranking an
+            // unlayered theme default (#1894, #1896) -- the defect behind a
+            // solid authored button fill losing to `wp-element-button`.
+            return $declarations;
+        }
+
         $inline = $this->cssDeclarations(SourceDom::attr($element, 'style'));
         foreach ( array(
             'background',
@@ -574,6 +586,39 @@ final class StyleResolver implements ElementPresentationResolver
         }
 
         return $declarations;
+    }
+
+    /**
+     * Whether the captured declarations describe nothing more than a flat,
+     * single-layer background color -- no shorthand, image, gradient, or
+     * positioning that would need the author's own class to keep owning the
+     * paint. Layered/positioned paint (the case {@see classOwnedBackgroundPaintDeclarations()}
+     * exists for) still stays class-owned.
+     *
+     * @param array<string, string> $declarations
+     */
+    private function isSolitaryBackgroundColorDeclaration(array $declarations): bool
+    {
+        if ( ! isset($declarations['background-color']) || '' === trim((string) $declarations['background-color']) ) {
+            return false;
+        }
+        foreach ( array(
+            'background',
+            'background-image',
+            'background-position',
+            'background-size',
+            'background-repeat',
+            'background-attachment',
+            'background-origin',
+            'background-clip',
+            'background-blend-mode',
+        ) as $property ) {
+            if ( isset($declarations[ $property ]) && '' !== trim((string) $declarations[ $property ]) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function responsivePropertyFamily(string $property): string
