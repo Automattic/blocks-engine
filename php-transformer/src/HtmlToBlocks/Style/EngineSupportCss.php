@@ -154,7 +154,29 @@ final class EngineSupportCss
             // carried grid geometry (gap) owns the spacing between items. Native
             // headings retain their source browser-default margins unless the
             // author stylesheet overrides them.
-            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}';
+            $parts[] = ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>:where(:not(h1,h2,h3,h4,h5,h6)){margin-block-start:0;margin-block-end:0}'
+                // A grid item's automatic minimum size defaults to its content's
+                // min-content size, not zero (CSS Grid section 6.6). A source
+                // track that collapses to an unauthored, implicit single column
+                // at a narrow viewport (e.g. a Tailwind `grid` base with a
+                // `sm:`/`md:` column count) relies on the *item* being safely
+                // shrinkable so that implicit `auto` track can size to the
+                // container instead of the item's intrinsic content. The source
+                // usually gets that for free from an `overflow` other than
+                // `visible` somewhere in the item's own subtree (CSS Sizing
+                // section 4.1's "automatic minimum size" carve-out), commonly on
+                // a wrapper around a large or aspect-ratio'd
+                // image. Coalescing that wrapper into its parent block (an
+                // accepted, already-diagnosed topology change — see
+                // WrapperCoalescer) can carry the wrapper's visual properties
+                // without carrying this load-bearing sizing side effect, and the
+                // grid item is then free to force its track — and so itself —
+                // wider than the container. A zero-specificity `min-width:0`
+                // restores the same safe default the source had, without a
+                // viewport check: the item still sizes to its full authored track
+                // whenever that track has room, and only stops forcing the track
+                // wider than the container when it does not.
+                . "\n" . ':root :where(.' . self::CSS_OWNED_GRID_CLASS . ')>*{min-width:0}';
         }
         if ( str_contains($serializedBlocks, '<!-- wp:code') ) {
             // Core makes the inner code element a full-width break-spaces block.

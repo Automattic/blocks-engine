@@ -104,7 +104,7 @@ $gridSerialized = (string) ($gridResult['serialized_blocks'] ?? '');
 $gridCss = $cssFor($gridResult, 'engine-support');
 preg_match('/\b(be-inline-geometry-[a-f0-9-]+)\b/', $gridSerialized, $gridCarrierMatch);
 $gridCarrier = (string) ($gridCarrierMatch[1] ?? '');
-$gridRule = '.' . $gridCarrier . '{display:grid !important;grid-template-columns:260px 1fr !important;align-items:center !important;justify-content:space-between !important;gap:32px !important}';
+$gridRule = '.' . $gridCarrier . '{display:grid !important;grid-template-columns:min(260px, 100%) 1fr !important;align-items:center !important;justify-content:space-between !important;gap:32px !important}';
 
 $assert(str_contains($gridSerialized, 'blocks-engine-css-owned-grid') && '' !== $gridCarrier, 'grid control: legitimate inline grid remains on the existing css-owned-grid carrier path', $gridSerialized);
 $assert(str_contains($gridCss, $gridRule), 'grid control: existing grid display and companion declaration bytes remain unchanged', $gridCss);

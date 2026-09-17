@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\CssUrlRewriter;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\GeneratedGutenbergClassPolicy;
 use Closure;
@@ -274,6 +275,9 @@ final class InlineGeometry
             }
             if ( in_array($property, array( 'background', 'background-image', 'list-style', 'list-style-image' ), true) ) {
                 $value = CssUrlRewriter::rewrite($value, fn (string $url): string => $this->context->resolvedAssetImageUrl($url));
+            }
+            if ('grid-template-columns' === $property) {
+                $value = $this->containerSafeGridTemplateColumns($value);
             }
             if ('' !== $value && ! preg_match('~[{}<>;]|/\*~', $value)) {
                 $geometry[$property] = $value;
@@ -603,6 +607,57 @@ final class InlineGeometry
     {
         $value = strtolower(trim($value));
         return in_array($value, array( 'wrap', 'nowrap' ), true) ? $value : '';
+    }
+
+    /**
+     * A carried `grid-template-columns` value is a measurement, not authored
+     * responsive CSS: it rides in on an element's inline `style` attribute
+     * (see CSS_OWNED_GRID_CARRIER_PROPERTIES in HtmlCompilation), most often a
+     * single viewport's resolved pixel width. Carried unconditionally, a fixed
+     * track never shrinks with its container and a grid child can end up wider
+     * than the container that holds it (Automattic/blocks-engine#1895,
+     * Automattic/blocks-engine#1898).
+     *
+     * Each bare absolute-length track (`px`, `rem`, `em`, `ch`, `ex`, `cm`,
+     * `mm`, `in`, `pt`, `pc`, `q`, or a viewport unit) is wrapped in
+     * `min(<track>, 100%)` — the same idiom core already uses to keep a fixed
+     * `minimumColumnWidth` container-safe (see autoRepeatMinimumColumnWidth()
+     * below: `repeat(auto-fill, minmax(min(<width>, 100%), 1fr))`). The
+     * desktop measurement is preserved up to the container's available width,
+     * so nothing changes until the container is actually narrower than the
+     * carried track, at which point the track — and so the grid child —
+     * clamps to the container instead of overflowing it.
+     *
+     * Tracks that are already container- or content-relative (`fr`, `%`,
+     * `auto`, `min-content`, `max-content`, `minmax(...)`, `repeat(...)`,
+     * `fit-content(...)`, `calc(...)`, `var(...)`, named line groups) are left
+     * untouched: they already adapt, and wrapping a `%` track in `min(x, 100%)`
+     * would be a no-op at best and change intent at worst.
+     */
+    private function containerSafeGridTemplateColumns(string $value): string
+    {
+        $trimmed = trim($value);
+        if (in_array(strtolower($trimmed), array( '', 'none', 'masonry', 'subgrid' ), true)) {
+            return $value;
+        }
+
+        $tracks = CssValueSplitter::splitTopLevelWhitespace($trimmed);
+        if (array() === $tracks) {
+            return $value;
+        }
+
+        $safeTracks = array_map(static function (string $track): string {
+            if (1 === preg_match(
+                '/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:px|rem|em|ch|ex|cm|mm|in|pt|pc|q|vw|vh|vmin|vmax)$/i',
+                $track
+            )) {
+                return 'min(' . $track . ', 100%)';
+            }
+
+            return $track;
+        }, $tracks);
+
+        return implode(' ', $safeTracks);
     }
 
     /**
