@@ -182,15 +182,57 @@ final class WordPressCompatCss
 
     private function navigationAnchorCompatCss(string $css): string
     {
+        $rules = $this->navigationAnchorCompatRules($css);
+        if ( array() === $rules ) {
+            return '';
+        }
+
+        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+    }
+
+    /**
+     * A responsive menu states its compact anchor box inside a breakpoint, so
+     * the replay has to follow the source into its conditional groups.
+     *
+     * A selector that names the source list is the structure pass's to map:
+     * that pass rewrites `li` and `a` against core's container. Mapping it here
+     * as a bare anchor would fuse `.wp-block-navigation` onto the list item
+     * instead of the menu.
+     *
+     * @return array<int, string>
+     */
+    private function navigationAnchorCompatRules(string $css): array
+    {
         $rules = array();
-        foreach ( $this->topLevelCssRules($css) as $rule ) {
+        foreach ( $this->topLevelCssRules($css, true) as $rule ) {
+            // The rule scanner keeps preceding comments on the selector, so an
+            // at-rule introduced by a section banner still has to be recognized
+            // as one.
+            $selectorList = trim($this->selectorWithoutComments($rule['selector']));
             $body = $rule['body'];
-            if ( '' === $body || str_contains(strtolower($body), 'url(') ) {
+            if ( '' === $body ) {
+                continue;
+            }
+
+            if ( str_starts_with($selectorList, '@') ) {
+                if ( ! preg_match('/^@(media|supports|container|layer)\b/i', $selectorList) ) {
+                    continue;
+                }
+                $nested = $this->navigationAnchorCompatRules($body);
+                if ( array() !== $nested ) {
+                    $rules[] = $selectorList . ' {' . implode('', $nested) . '}';
+                }
+                continue;
+            }
+            if ( str_contains(strtolower($body), 'url(') ) {
                 continue;
             }
 
             $mappedSelectors = array();
-            foreach ( $this->splitSelectorList($rule['selector']) as $selector ) {
+            foreach ( $this->splitSelectorList($selectorList) as $selector ) {
+                if ( array() !== $this->mapNavigationStructureSelector($selector, $body) ) {
+                    continue;
+                }
                 foreach ( $this->mapNavigationAnchorSelector($selector) as $mappedSelector ) {
                     $mappedSelectors[$mappedSelector] = true;
                 }
@@ -201,11 +243,7 @@ final class WordPressCompatCss
             }
         }
 
-        if ( array() === $rules ) {
-            return '';
-        }
-
-        return "\n\n/* wp-compat: replay source nav anchor selectors against core/navigation wrapper markup */\n" . implode("\n", $rules);
+        return $rules;
     }
 
     private function navigationStructureCompatCss(string $css): string
