@@ -19,6 +19,9 @@ use DOMElement;
  */
 final class NavigationStyleProjector
 {
+    /** The editor-only host a shell block renders its inner blocks inside. */
+    private const EDITOR_INNER_BLOCKS_CLASS = 'blocks-engine-layout-shell-editor-inner-blocks';
+
     public function __construct(
         private readonly NavigationStyleProjectionContext $context,
         private readonly StyleResolver $styleResolver
@@ -269,6 +272,10 @@ final class NavigationStyleProjector
                     $replacement = self::projectAnchorIds($selector, $ids);
                     if ( $replacement !== $selector ) {
                         $projected[] = $replacement;
+                        $throughInnerBlocks = self::throughEditorInnerBlocks($replacement);
+                        if ( null !== $throughInnerBlocks ) {
+                            $projected[] = $throughInnerBlocks;
+                        }
                         $transportSelector = $this->editorTemplatePartTransportSelector($selector, $ids);
                         if ( null !== $transportSelector ) {
                             $transported[] = $transportSelector;
@@ -288,6 +295,33 @@ final class NavigationStyleProjector
                 return $rules;
             }
         ));
+    }
+
+    /**
+     * Restate a child combinator so it still reaches its target across the
+     * editor's inner-blocks host.
+     *
+     * A shell block renders its inner blocks inside one extra element on the
+     * canvas. That host is `display:contents`, so the child still participates
+     * in its grandparent's layout and the authored declaration is the right one
+     * to apply — but a child combinator is matched on the tree, not on the
+     * layout, so the authored `parent > child` stopped matching. Offer the same
+     * declaration through the host as an additional alternative.
+     *
+     * Only the hop into the rightmost compound is relaxed: that is the one that
+     * places the element, and widening every combinator would let an unrelated
+     * ancestor match.
+     */
+    private static function throughEditorInnerBlocks(string $selector): ?string
+    {
+        $position = strrpos($selector, '>');
+        if ( false === $position ) {
+            return null;
+        }
+
+        return substr($selector, 0, $position + 1)
+            . ':where(.' . self::EDITOR_INNER_BLOCKS_CLASS . ')>'
+            . substr($selector, $position + 1);
     }
 
     /**
