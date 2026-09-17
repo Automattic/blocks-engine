@@ -193,6 +193,39 @@ $ordinary = '<html><body><a class="ordinary" href="#">Ordinary</a></body></html>
 $result = $resolve($ordinary, $guardSpecificity, '//a', array( 'font-size' ));
 $assert('1rem' === ( $result['font-size'] ?? '' ), ':not(:where()) adds zero specificity');
 
+// Selector shapes this resolver used to accept from no author stylesheet. The
+// local grammar recognised `#id`, `.class`, `tag`, `tag.class…` and combinator
+// chains of those, so each of the following matched nothing and the property it
+// declares was reported as absent from the source — a parity finding blaming the
+// transformer for a declaration the author had written and the probe could not
+// read.
+$utility = '<html><body><div class="card wide md:hidden" data-variant="promo">Card</div></body></html>';
+
+$result = $resolve($utility, '.card.wide { color: #101010; }', '//div', array( 'color' ));
+$assert('#101010' === ( $result['color'] ?? '' ), 'a tagless compound class selector matches');
+
+$result = $resolve($utility, '.card[data-variant="promo"] { color: #202020; }', '//div', array( 'color' ));
+$assert('#202020' === ( $result['color'] ?? '' ), 'an attribute selector matches');
+
+// Every Tailwind variant utility is an escaped identifier. Without this the
+// probe is blind to the whole utility layer of a Tailwind build, which is the
+// author CSS that #1865 and #1879 were about.
+$result = $resolve($utility, '.md\\:hidden { display: none; }', '//div', array( 'display' ));
+$assert('none' === ( $result['display'] ?? '' ), 'an escaped identifier matches the class the author wrote');
+
+// Matching and specificity must read the same grammar. The escaped identifier is
+// one class (0,1,0); the old heuristic scored it 11 by counting `.md` plus a
+// phantom `hidden` type, which let it beat a genuinely more specific rule.
+$escapedSpecificity = '.md\\:hidden { color: #303030; } div.card { color: #404040; }';
+$result = $resolve($utility, $escapedSpecificity, '//div', array( 'color' ));
+$assert('#404040' === ( $result['color'] ?? '' ), 'an escaped identifier is ranked as a single class');
+
+// `:root` reaches the resolver through the production matcher now rather than a
+// local special case, both bare and as a descendant scope.
+$rooted = ':root { --ink: #505050; } :root .card { color: var(--ink); }';
+$result = $resolve($utility, $rooted, '//div', array( 'color' ));
+$assert('#505050' === ( $result['color'] ?? '' ), ':root declares custom properties and scopes descendants');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "StaticCssCascade unit tests: {$failures} failed, {$passes} passed\n");
     exit(1);

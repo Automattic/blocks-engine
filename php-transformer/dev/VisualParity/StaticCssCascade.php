@@ -338,12 +338,18 @@ final class StaticCssCascade
     {
         $selector = trim(preg_replace('/::?(hover|focus|active|visited|before|after)\b[^ ]*/', '', $selector) ?? $selector);
         $selector = $this->normalizeGeneratedFunctionalGuard($selector, true);
-        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
-            $parsed = CssSelectorMatcher::parse($selector);
-            if ( $parsed['supported'] ) {
-                return $this->parsedSpecificity($parsed['compounds']);
-            }
+
+        // Read specificity off the same parse that decides matching, so a
+        // selector cannot be ranked by one grammar and matched by another. The
+        // regex heuristic below miscounts every shape the local matcher used to
+        // reject anyway — `.md\:hidden` scored 11 (a class plus a phantom
+        // `hidden` element) where CSS says 10 — and now only covers selectors the
+        // production parser rejects outright.
+        $parsed = CssSelectorMatcher::parse($selector);
+        if ( $parsed['supported'] ) {
+            return $this->parsedSpecificity($parsed['compounds']);
         }
+
         $ids = preg_match_all('/#[A-Za-z0-9_-]+/', $selector);
         $classes = preg_match_all('/\.[A-Za-z0-9_-]+|\[[^\]]+\]/', $selector);
         $bare = preg_replace('/[#.][A-Za-z0-9_-]+|\[[^\]]+\]|[>+~]/', ' ', $selector) ?? $selector;
@@ -428,62 +434,25 @@ final class StaticCssCascade
 
         $selector = $this->normalizeGeneratedFunctionalGuard($selector, false);
 
-        // `:is()`, `:where()` and `:not()` are the grammar the transformer's own
-        // author-stylesheet projection emits to preserve author specificity, e.g.
-        // `.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`. Without
-        // support here the probe cannot match the candidate's own generated rules,
-        // so it reports the inherited value and blames the transformer for a
-        // declaration it carried correctly.
-        if ( preg_match('/:(?:is|where|not)\s*\(/i', $selector) ) {
-            $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
-            return $match['supported'] && $match['matches'];
-        }
+        // Matching is delegated to the production selector engine rather than
+        // re-derived here. The previous local grammar accepted only `#id`,
+        // `.class`, `tag`, `tag.class…` and combinator chains of those, so three
+        // shapes silently matched nothing: a tagless compound (`.card.wide`), an
+        // attribute selector (`.card[data-x]`), and — decisively — an escaped
+        // identifier (`.md\:hidden`). Every Tailwind variant utility is escaped,
+        // so the probe was blind to the entire utility layer of a Tailwind build:
+        // the exact CSS that #1865 and #1879 were about. Delegating also keeps
+        // matching and specificity reading one grammar instead of two.
+        //
+        // `:is()`/`:where()`/`:not()` come along for free, which the transformer's
+        // own author-stylesheet projection emits to preserve author specificity
+        // (`.footer-col ul :where(.be-source-li-…):not(be-specificity-…) a`).
+        //
+        // Unsupported selectors fail closed: not matching is a missing
+        // declaration, while matching wrongly invents one the author never wrote.
+        $match = CssSelectorMatcher::matches($element, CssSelectorMatcher::parse($selector));
 
-        if ( '' === $selector || str_contains($selector, '+') || str_contains($selector, '~') || str_contains($selector, '[') ) {
-            return false;
-        }
-
-        if ( str_contains($selector, '>') ) {
-            return $this->matchesChildSelector($element, $selector);
-        }
-
-        if ( str_contains($selector, ' ') ) {
-            return $this->matchesDescendantSelector($element, $selector);
-        }
-
-        if ( '*' === $selector ) {
-            return true;
-        }
-
-        if ( preg_match('/^#([A-Za-z0-9_-]+)$/', $selector, $match) ) {
-            return $element->hasAttribute('id') && $element->getAttribute('id') === $match[1];
-        }
-
-        if ( preg_match('/^\.([A-Za-z0-9_-]+)$/', $selector, $match) ) {
-            return in_array($match[1], $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : ''), true);
-        }
-
-        if ( preg_match('/^([A-Za-z0-9_-]+)(\.[A-Za-z0-9_-]+)+$/', $selector) ) {
-            $parts = explode('.', $selector);
-            $tag = array_shift($parts);
-            if ( strtolower((string) $tag) !== strtolower($element->tagName) ) {
-                return false;
-            }
-            $classes = $this->tokens($element->hasAttribute('class') ? $element->getAttribute('class') : '');
-            foreach ( $parts as $class ) {
-                if ( ! in_array($class, $classes, true) ) {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        if ( ! preg_match('/^[A-Za-z][A-Za-z0-9_-]*$/', $selector) ) {
-            return false;
-        }
-
-        return strtolower($selector) === strtolower($element->tagName);
+        return $match['supported'] && $match['matches'];
     }
 
     /**
@@ -533,54 +502,4 @@ final class StaticCssCascade
         );
     }
 
-    private function matchesChildSelector(DOMElement $element, string $selector): bool
-    {
-        $parts = array_values(array_filter(array_map('trim', preg_split('/\s*>\s*/', trim($selector)) ?: array())));
-        if ( count($parts) < 2 || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
-            if ( ! $current instanceof DOMElement || ! $this->matchesSimpleSelector($current, $parts[$index]) ) {
-                return false;
-            }
-            $current = $current->parentNode instanceof DOMElement ? $current->parentNode : null;
-        }
-
-        return true;
-    }
-
-    private function matchesDescendantSelector(DOMElement $element, string $selector): bool
-    {
-        $parts = preg_split('/\s+/', trim($selector)) ?: array();
-        if ( array() === $parts || ! $this->matchesSimpleSelector($element, array_pop($parts)) ) {
-            return false;
-        }
-
-        $current = $element->parentNode instanceof DOMElement ? $element->parentNode : null;
-        for ( $index = count($parts) - 1; $index >= 0; --$index ) {
-            $matched = false;
-            for ( $node = $current; $node instanceof DOMElement; $node = $node->parentNode instanceof DOMElement ? $node->parentNode : null ) {
-                if ( $this->matchesSimpleSelector($node, $parts[$index]) ) {
-                    $matched = true;
-                    $current = $node->parentNode instanceof DOMElement ? $node->parentNode : null;
-                    break;
-                }
-            }
-            if ( ! $matched ) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function tokens(string $value): array
-    {
-        return array_values(array_filter(preg_split('/\s+/', trim($value)) ?: array(), static fn (string $token): bool => '' !== $token));
-    }
 }
