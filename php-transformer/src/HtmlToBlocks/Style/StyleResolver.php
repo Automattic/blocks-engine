@@ -686,6 +686,75 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * A source `<img>` box constrained by author CSS `min-width`, `max-width`,
+     * `min-height`, or `max-height` — properties core/image cannot express as
+     * a native block attribute at all (it serializes only a single width/
+     * height pair, or an aspectRatio/scale crop). core/image's save() puts
+     * `className` on the generated `<figure>` — or, when the source `<img>`
+     * is itself the anchor of a link, on that same figure one level further
+     * out — never on the descendant `<img>` that actually paints. An author
+     * class establishing this constraint therefore sizes a box nothing
+     * renders, and the image is free to render at whatever its intrinsic
+     * width/height attributes (or an unconstrained native width/height carry)
+     * resolve to instead.
+     *
+     * This reaches the same be-inline-geometry primitive {@see
+     * SvgMaterializer::inlineSvgImageAttributesFromMarkup()} already uses to
+     * carry a materialized inline SVG's own box (see also #1624 for the
+     * analogous button-icon failure this mirrors), targeting a descendant
+     * `img` selector so it reaches the `<img>` whether or not a source `<a>`
+     * still sits between the figure and it. `!important` is required: the
+     * generic per-class figure-to-image bridge {@see
+     * AuthorStylesheetProjector::imageProjectionBridgeDeclarations()} already
+     * restates a blanket `max-width:100%` at higher selector specificity for
+     * every author class merged onto the figure, which would otherwise mask
+     * this narrower, author-intended constraint.
+     */
+    public function imageBoxConstraintClassName(DOMElement $image): string
+    {
+        $declarations = $this->imageShapeDeclarations($image);
+        $box = array();
+        foreach (array('min-width', 'max-width', 'min-height', 'max-height') as $property) {
+            $value = $this->comparableImageShapeConstraintValue($declarations, $property);
+            if ('' !== $value) {
+                $box[$property] = $value;
+            }
+        }
+        if (array() === $box) {
+            return '';
+        }
+
+        ksort($box);
+        $declarationList = array();
+        foreach ($box as $property => $value) {
+            $declarationList[] = $property . ':' . $value . '!important';
+        }
+        $signature = $this->geometryStructuralPath($image) . "\nimage-box-constraint\n" . implode(';', $declarationList);
+        $className = $this->context->layoutGeometry()->allocateCarrier($signature);
+        $this->context->layoutGeometry()->registerRule(
+            $className,
+            '.' . $className . ' img{' . implode(';', $declarationList) . '}'
+        );
+
+        return $className;
+    }
+
+    /** @param array<string, array<string, mixed>> $declarations */
+    private function comparableImageShapeConstraintValue(array $declarations, string $property): string
+    {
+        $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
+        if (
+            '' === $value
+            || in_array(strtolower($value), array('auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none'), true)
+            || preg_match('~[{}<>;]|/\*~', $value)
+        ) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    /**
      * A source document root commonly inherits `height:100%` through html and
      * body. Block content gains WordPress-owned ancestors, which makes that
      * percentage indefinite and can collapse absolute page layers to a header.
@@ -2563,7 +2632,7 @@ final class StyleResolver implements ElementPresentationResolver
             [$property, $value] = array_map('trim', explode(':', $declaration, 2));
             $property = strtolower($property);
             $value = preg_replace('/\s+/', ' ', $value) ?? $value;
-            if (in_array($property, array('width', 'height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
+            if (in_array($property, array('width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio', 'object-fit', 'object-position'), true) && '' !== $value) {
                 $entries[] = array('property' => $property, 'value' => $value);
             }
         }
