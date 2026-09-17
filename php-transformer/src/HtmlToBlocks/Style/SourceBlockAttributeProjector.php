@@ -20,6 +20,7 @@ final class SourceBlockAttributeProjector
     public const SYNTHETIC_EMBED_FIGURE_CLASS = 'blocks-engine-synthetic-embed-figure';
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
+    public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
 
@@ -197,10 +198,16 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
-                    if ( $facts->isDirectChildOfAuthorFlexLayout ) {
+                    $childOwnedOffsets = $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl);
+                    if ( $facts->isDirectChildOfAuthorFlexLayout && ! $childOwnedOffsets ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
-                    $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
+                    if ( ! $childOwnedOffsets ) {
+                        $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
+                    }
+                }
+                if ( 'core/buttons' === $name && $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl) ) {
+                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTONS_CLASS);
                 }
             }
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {

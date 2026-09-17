@@ -122,6 +122,11 @@ final class StyleResolver implements ElementPresentationResolver
         return $this->inlineGeometry()->geometryProperties();
     }
 
+    public function hasChildOwnedPositionedOffsets(DOMElement $element): bool
+    {
+        return $this->inlineGeometry()->hasChildOwnedPositionedOffsets($element);
+    }
+
     public function styleAttributeMapper(): StyleAttributeMapper
     {
         return $this->styleAttributeMapper ??= new StyleAttributeMapper();
