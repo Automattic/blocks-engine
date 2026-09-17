@@ -289,6 +289,19 @@ $assert(
     'a media block that does not apply contributes nothing, layer or not'
 );
 
+// Escaped identifiers can contain the very characters that delimit CSS blocks.
+// Tailwind arbitrary-value utilities do exactly this, so the stylesheet walk
+// reads escapes, quotes, parens and brackets through the shared
+// CssSyntaxScanner rather than counting raw braces: an escaped `{` must not
+// open a block and desynchronise every rule after it.
+$arbitrary = '<html><body><div class="w-[calc(100%-1rem)] content-{x}">T</div></body></html>';
+$result = $resolve($arbitrary, '.w-\\[calc\\(100\\%-1rem\\)\\]{color:red}', '//div', array( 'color' ));
+$assert('red' === ( $result['color'] ?? '' ), 'an escaped bracket-and-paren utility matches');
+
+$result = $resolve($arbitrary, '.content-\\{x\\}{color:blue}div{font-size:9px}', '//div', array( 'color', 'font-size' ));
+$assert('blue' === ( $result['color'] ?? '' ), 'an escaped brace does not open a block');
+$assert('9px' === ( $result['font-size'] ?? '' ), 'a rule following an escaped brace is still read');
+
 // At-rules that declare no element rules must not leak declarations.
 $assert(
     'red' === $layered('@keyframes spin{from{color:blue}to{color:blue}}@font-face{font-family:x;src:url(a.woff2)}.card.wide{color:red}'),

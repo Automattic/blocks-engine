@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\VisualParity;
 use Automattic\BlocksEngine\PhpTransformer\Css\AuthorCascadeLayerOrder;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
+use Automattic\BlocksEngine\PhpTransformer\Css\CssSyntaxScanner;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use DOMDocument;
 use DOMElement;
@@ -329,36 +330,35 @@ final class StaticCssCascade
     {
         $items = array();
         $length = strlen($css);
+        $state = CssSyntaxScanner::state();
         $preludeStart = 0;
+        $cursor = 0;
 
-        for ( $cursor = 0; $cursor < $length; ++$cursor ) {
+        while ( $cursor < $length ) {
             $character = $css[ $cursor ];
 
-            if ( '"' === $character || "'" === $character ) {
-                $cursor = $this->skipString($css, $cursor, $character);
-                continue;
-            }
-
-            if ( ';' === $character ) {
-                $prelude = trim(substr($css, $preludeStart, $cursor - $preludeStart));
-                if ( '' !== $prelude ) {
-                    $items[] = array( 'prelude' => $prelude, 'body' => null );
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                if ( ';' === $character ) {
+                    $prelude = trim(substr($css, $preludeStart, $cursor - $preludeStart));
+                    if ( '' !== $prelude ) {
+                        $items[] = array( 'prelude' => $prelude, 'body' => null );
+                    }
+                    $preludeStart = ++$cursor;
+                    continue;
                 }
-                $preludeStart = $cursor + 1;
-                continue;
+
+                if ( '{' === $character ) {
+                    $end = $this->matchingBrace($css, $cursor);
+                    $items[] = array(
+                        'prelude' => trim(substr($css, $preludeStart, $cursor - $preludeStart)),
+                        'body' => substr($css, $cursor + 1, $end - $cursor - 1),
+                    );
+                    $preludeStart = $cursor = $end + 1;
+                    continue;
+                }
             }
 
-            if ( '{' !== $character ) {
-                continue;
-            }
-
-            $end = $this->matchingBrace($css, $cursor);
-            $items[] = array(
-                'prelude' => trim(substr($css, $preludeStart, $cursor - $preludeStart)),
-                'body' => substr($css, $cursor + 1, $end - $cursor - 1),
-            );
-            $cursor = $end;
-            $preludeStart = $cursor + 1;
+            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
         }
 
         return $items;
@@ -373,15 +373,13 @@ final class StaticCssCascade
 
         $out = '';
         $length = strlen($body);
+        $state = CssSyntaxScanner::state();
         $keepFrom = 0;
+        $cursor = 0;
 
-        for ( $cursor = 0; $cursor < $length; ++$cursor ) {
-            $character = $body[ $cursor ];
-            if ( '"' === $character || "'" === $character ) {
-                $cursor = $this->skipString($body, $cursor, $character);
-                continue;
-            }
-            if ( '{' !== $character ) {
+        while ( $cursor < $length ) {
+            if ( '{' !== $body[ $cursor ] || ! CssSyntaxScanner::isTopLevel($state) ) {
+                $cursor = CssSyntaxScanner::consume($body, $cursor, $state) ?? ( $cursor + 1 );
                 continue;
             }
             // Drop back to the declaration boundary so the nested rule's own
@@ -389,8 +387,8 @@ final class StaticCssCascade
             $preludeStart = strrpos(substr($body, 0, $cursor), ';');
             $preludeStart = false === $preludeStart ? $keepFrom : $preludeStart + 1;
             $out .= substr($body, $keepFrom, max(0, $preludeStart - $keepFrom));
-            $cursor = $this->matchingBrace($body, $cursor);
-            $keepFrom = $cursor + 1;
+            $cursor = $this->matchingBrace($body, $cursor) + 1;
+            $keepFrom = $cursor;
         }
 
         return $out . substr($body, $keepFrom);
@@ -400,41 +398,30 @@ final class StaticCssCascade
     private function matchingBrace(string $css, int $open): int
     {
         $length = strlen($css);
+        $state = CssSyntaxScanner::state();
         $depth = 0;
+        $cursor = $open;
 
-        for ( $cursor = $open; $cursor < $length; ++$cursor ) {
+        while ( $cursor < $length ) {
             $character = $css[ $cursor ];
-            if ( '"' === $character || "'" === $character ) {
-                $cursor = $this->skipString($css, $cursor, $character);
-                continue;
+            if ( CssSyntaxScanner::isTopLevel($state) ) {
+                if ( '{' === $character ) {
+                    ++$depth;
+                    ++$cursor;
+                    continue;
+                }
+                if ( '}' === $character ) {
+                    if ( 0 === --$depth ) {
+                        return $cursor;
+                    }
+                    ++$cursor;
+                    continue;
+                }
             }
-            if ( '{' === $character ) {
-                ++$depth;
-                continue;
-            }
-            if ( '}' === $character && 0 === --$depth ) {
-                return $cursor;
-            }
+            $cursor = CssSyntaxScanner::consume($css, $cursor, $state) ?? ( $cursor + 1 );
         }
 
         // Unbalanced input: treat the remainder as the block rather than guessing.
-        return $length - 1;
-    }
-
-    /** Index of a string's closing quote, honouring backslash escapes. */
-    private function skipString(string $css, int $index, string $quote): int
-    {
-        $length = strlen($css);
-        for ( $cursor = $index + 1; $cursor < $length; ++$cursor ) {
-            if ( '\\' === $css[ $cursor ] ) {
-                ++$cursor;
-                continue;
-            }
-            if ( $css[ $cursor ] === $quote ) {
-                return $cursor;
-            }
-        }
-
         return $length - 1;
     }
 
