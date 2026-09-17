@@ -8,6 +8,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\FallbackDiag
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Closure;
@@ -237,7 +238,17 @@ JS;
             ));
             $sizingClassName = $this->embedSizingClassName($surface, $styleResolver);
             if ( '' !== $sizingClassName ) {
-                $embedAttrs['className'] = SourceDom::mergeClassNames((string) ($embedAttrs['className'] ?? ''), $sizingClassName);
+                // Only once the source has committed to an exact sizing intent
+                // (#1918's ratio or #1923's absolute height) does the figure's
+                // own unauthored default margin become a measurable surplus
+                // against that intent — see SourceBlockAttributeProjector::
+                // SYNTHETIC_EMBED_FIGURE_CLASS. An unsized, unstyled embed
+                // expressed no such opinion and keeps ordinary block spacing.
+                $embedAttrs['className'] = SourceDom::mergeClassNames(
+                    (string) ($embedAttrs['className'] ?? ''),
+                    $sizingClassName,
+                    SourceBlockAttributeProjector::SYNTHETIC_EMBED_FIGURE_CLASS
+                );
             }
             $block = $createBlock->createBlock('core/embed', array_filter($embedAttrs, static fn ($value): bool => '' !== $value), array(), $surface);
             return $customHost instanceof DOMElement ? $this->customVisualIframeHostBlock($customHost, $surface, $block, $styleResolver, $createBlock) : $block;
