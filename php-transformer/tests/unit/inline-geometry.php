@@ -122,6 +122,49 @@ foreach ( file((string) $resolver->getFileName()) as $line ) {
 $assert($layoutCall, 'StyleResolver presentation attributes delegate layoutAttribute');
 $assert(false === $resolver->hasMethod('layoutAttribute'), 'layoutAttribute left StyleResolver');
 
+$hasExplicit = new ReflectionMethod(InlineGeometry::class, 'hasExplicitGridClass');
+$hasGridLike = new ReflectionMethod(InlineGeometry::class, 'hasGridLikeClass');
+$classFrom = static function (string $className) use ($elementFrom): DOMElement {
+    return $elementFrom('<div class="' . $className . '"><p>a</p><p>b</p></div>');
+};
+
+$explicitTrue = array(
+    'grid grid-cols-3 gap-4',
+    'grid',
+    'grid-2',
+    'grid-cols',
+    'grid-cols-3',
+    'grid-columns',
+    'card-grid',
+    'footer-grid',
+    'mission_grid',
+    'card-grid/50',
+);
+foreach ( $explicitTrue as $className ) {
+    $assert((bool) $hasExplicit->invoke($geometry, $classFrom($className)), 'explicit-grid-token:' . $className);
+    $assert(array( 'type' => 'grid' ) === $geometry->layoutAttribute($classFrom($className)), 'explicit-grid-layout:' . $className);
+}
+
+$explicitFalse = array(
+    'mt-16 p-8 border border-grid-line bg-white rounded-sm',
+    'grid-pattern absolute inset-0 opacity-20',
+    'text-grid-500 bg-slate-50',
+    'pt-4 mt-4 border-t border-grid-line space-y-4',
+    'flex items-center',
+    'border-grid-line/50',
+    'grid-area-x',
+);
+foreach ( $explicitFalse as $className ) {
+    $assert(! $hasExplicit->invoke($geometry, $classFrom($className)), 'not-explicit-grid-token:' . $className);
+    $assert(array() === $geometry->layoutAttribute($classFrom($className)), 'not-explicit-grid-layout:' . $className);
+}
+
+$assert((bool) $hasGridLike->invoke($geometry, $classFrom('cards')), 'grid-like-token:cards');
+$assert((bool) $hasGridLike->invoke($geometry, $classFrom('grid-3')), 'grid-like-token:grid-3');
+foreach ( array( 'border-grid-line', 'grid-pattern', 'text-grid-500', 'border-grid-line/50', 'flex items-center' ) as $className ) {
+    $assert(! $hasGridLike->invoke($geometry, $classFrom($className)), 'not-grid-like-token:' . $className);
+}
+
 if ( $failures ) {
     fwrite(STDERR, $failures . " inline geometry test(s) failed\n");
     exit(1);
