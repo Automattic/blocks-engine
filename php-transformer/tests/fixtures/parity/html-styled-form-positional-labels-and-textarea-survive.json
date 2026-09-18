@@ -1,0 +1,130 @@
+{
+    "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+    "name": "html-styled-form-positional-labels-and-textarea-survive",
+    "description": "A styled form whose labels are associated by field-wrapper position (no `for`/`id`) keeps every label, its textarea control, and the `<form>` element in the degraded (non-native) representation instead of dropping them.",
+    "source_reference": {
+        "repo": "php-transformer",
+        "path": "tests/fixtures/parity/html-styled-form-positional-labels-and-textarea-survive.json",
+        "notes": "Regression fixture for a lossy form fallback: a client-rendered contact form (label and control as div-wrapped siblings, no `for`/`id`, authored presentation classes) lost all labels, its textarea control, and the `<form>` element when degraded because ReadableFormBlockBuilder/ReadableFormControlBlockConverter did not resolve or pass the field-wrapper label into the authored control converter, AuthoredFormControlBlockConverter had no textarea generator, and the degraded wrapper did not keep `tagName: form`."
+    },
+    "legacy_comparison": {
+        "skip": true,
+        "reason": "This is a regression fixture for an upstream primitive with no downstream legacy comparison."
+    },
+    "operation": "html_transformer.transform",
+    "input": {
+        "content": "<main><form class=\"space-y-6\"><div class=\"row\"><div><label class=\"field-label\">Name *</label><input type=\"text\" class=\"field\" required></div><div><label class=\"field-label\">Phone *</label><input type=\"tel\" class=\"field\" required></div></div><div><label class=\"field-label\">Project Type</label><select class=\"field\"><option value=\"\">Choose</option><option>Kitchen</option></select></div><div><label class=\"field-label\">Project Details *</label><textarea class=\"field\" rows=\"5\" placeholder=\"Tell us about your project...\" required></textarea></div><button type=\"submit\" class=\"field\">Submit</button></form></main>",
+        "options": {
+            "static_css": ".field{border:1px solid #ccc;padding:8px;background:#fff;}"
+        }
+    },
+    "expected_blocks": [
+        {
+            "path": "blocks.0",
+            "name": "core/group",
+            "attrs": {
+                "className": "space-y-6",
+                "tagName": "form"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "text",
+                "label": "Name *",
+                "labelClassName": "field-label"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "tel",
+                "label": "Phone *",
+                "labelClassName": "field-label"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.2.innerBlocks.0",
+            "name": "custom/authored-select",
+            "attrs": {
+                "label": "Project Type",
+                "labelClassName": "field-label"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.3",
+            "name": "custom/authored-textarea",
+            "attrs": {
+                "label": "Project Details *",
+                "labelClassName": "field-label",
+                "rows": "5",
+                "placeholder": "Tell us about your project..."
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.4",
+            "name": "core/buttons"
+        }
+    ],
+    "expected_fallbacks": [
+        {
+            "type": "html",
+            "reason": "form_requires_runtime",
+            "diagnostic_code": "html_form_fallback"
+        }
+    ],
+    "expect": [
+        {
+            "path": "status",
+            "assert": "equals",
+            "value": "success"
+        },
+        {
+            "path": "fallbacks",
+            "assert": "count",
+            "count": 1
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<form class=\"wp-block-group space-y-6\">"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Name *<input type=\"text\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Phone *<input type=\"tel\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Project Type<select"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Project Details *<textarea placeholder=\"Tell us about your project...\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<!-- wp:custom/authored-textarea"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "Tell us about your project...: Tell us about your project..."
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "Submit"
+        }
+    ]
+}

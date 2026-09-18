@@ -18,7 +18,7 @@ final class BlockFactory
      *
      * @var array<int, string>
      */
-    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'ul', 'ol', 'li' );
+    private const GROUP_TAG_NAMES = array( 'div', 'header', 'nav', 'section', 'article', 'aside', 'footer', 'main', 'ul', 'ol', 'li', 'form' );
 
     private ?StyleAttributeMapper $styleMapper = null;
 
