@@ -77,6 +77,27 @@ if (1 !== substr_count($styledMarkup, '<a ')) throw new RuntimeException('One au
 if (!str_contains($styledMarkup, 'padding')) throw new RuntimeException('A promoted download control must keep the authored padding core/file cannot hold.');
 if ('pass' !== ((new BlockValidityValidator())->validateBlocks($styledDownload['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('A promoted download control must stay editor-valid.');
 
+// A synthetic paragraph carrier saves its anchor verbatim, so a margin the
+// author wrote on that anchor arrives with it. Restating the same margin as a
+// block attribute on the carrier applies it twice — once on the host box and
+// once on the link inside it — which stretched a case-study column by exactly
+// the authored margin at the viewport where the column stacks.
+$carriedMargin = (new HtmlTransformer())->transform(
+    '<html><body><div><a class="cta" href="/project">Ask me about this project</a></div></body></html>',
+    array('static_css' => '.cta{display:inline-block;margin-top:28px;color:#333}')
+)->toArray();
+$carrierMarkup = (string) ($carriedMargin['serialized_blocks'] ?? '');
+if (!str_contains($carrierMarkup, 'class="cta"')) throw new RuntimeException('The synthetic carrier must save the authored anchor verbatim.');
+if (preg_match('/<p[^>]*style="[^"]*margin-top:28px/', $carrierMarkup)) throw new RuntimeException('The carrier must not restate a margin the saved anchor already carries.');
+
+// Spacing the anchor never authored has no source to arrive from, so a carrier
+// that owns its own geometry keeps it.
+$ownedGeometry = (new HtmlTransformer())->transform(
+    '<html><body><div><a href="/project">Ask me about this project</a></div></body></html>',
+    array('static_css' => 'div>a{display:inline-block;margin-top:28px}')
+)->toArray();
+if (!str_contains((string) ($ownedGeometry['serialized_blocks'] ?? ''), '28px')) throw new RuntimeException('A margin the anchor carries no class for must still reach the output.');
+
 // A run of sibling anchors that all address files is a document listing. A
 // cluster mixing a file link with ordinary destinations is a set of links, and
 // core/file cannot represent one of them: it empties the author's anchor of its

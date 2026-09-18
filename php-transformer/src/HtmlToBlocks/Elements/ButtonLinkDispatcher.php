@@ -165,6 +165,19 @@ final class ButtonLinkDispatcher
             $attrs['className'] = implode(' ', $classes);
         }
 
+        // The same reasoning covers the presentation those classes resolve to.
+        // The host saves the anchor verbatim, so a margin the author wrote on
+        // the anchor still arrives with it; restating that margin as a block
+        // attribute applies it a second time, once on the host box and once on
+        // the link inside it. Spacing the author never wrote on the anchor has
+        // no source to arrive from, so only the duplicated half is dropped.
+        if ( '' !== trim(SourceDom::attr($anchor, 'class')) && is_array($attrs['style']['spacing'] ?? null) ) {
+            unset($attrs['style']['spacing']);
+            if ( array() === $attrs['style'] ) {
+                unset($attrs['style']);
+            }
+        }
+
         return $attrs;
     }
 
