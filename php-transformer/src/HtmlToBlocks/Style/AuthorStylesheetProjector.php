@@ -1126,7 +1126,12 @@ final class AuthorStylesheetProjector
                 $rewritten[] = $this->projectInlineLayoutCarrierSelector($selector, $parsed);
             }
         }
-        return implode(',', $rewritten);
+        $projected = implode(',', $rewritten);
+        if ( $projected !== $prelude && 1 === preg_match('/blocks-engine-(?:semantic|richtext|control|attribute(?:-state)?|root-child|table|native-button|source-[a-z0-9]+)-[a-f0-9]+-\d+/', $projected) ) {
+            $context->bindings->record($prelude, $projected);
+        }
+
+        return $projected;
     }
 
     /**

@@ -13,6 +13,7 @@ final class AuthorStylesheetProjectionContext
         public readonly SourceStyleResolutionState $sourceStyles,
         public readonly AuthorSelectorProjectionState $selectorProjections,
         public readonly TransformationEvidenceState $evidence,
-        public readonly bool $keepAuthorClassSelectors = false
+        public readonly bool $keepAuthorClassSelectors = false,
+        public readonly ProjectedSelectorBindings $bindings = new ProjectedSelectorBindings()
     ) {}
 }

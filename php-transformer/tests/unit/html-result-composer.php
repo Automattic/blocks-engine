@@ -148,6 +148,8 @@ $successInput = array(
     'block_validity_report' => array('status' => 'passed'),
     'semantic_parity_report' => array('status' => 'passed'),
     'content_round_trip_report' => array('status' => 'passed'),
+    'source_media_retention_report' => array('status' => 'pass'),
+    'dead_projected_selectors_report' => array('status' => 'pass', 'findings' => array()),
     'presentation_signals' => array(),
     'frozen_hidden_state' => array(),
     'dropped_link_wrappers' => array(),

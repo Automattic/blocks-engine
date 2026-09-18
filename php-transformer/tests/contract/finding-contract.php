@@ -207,6 +207,7 @@ $walk = static function (array $result, string $context) use ($assert, $assertCl
     $reportFindingPaths = array(
         'semantic_parity'           => $sourceReports['semantic_parity'] ?? null,
         'runtime_dependency_parity' => $sourceReports['runtime_dependency_parity'] ?? null,
+        'dead_projected_selectors'  => $sourceReports['dead_projected_selectors'] ?? null,
     );
     foreach ( $reportFindingPaths as $name => $report ) {
         if ( ! is_array($report) ) {
