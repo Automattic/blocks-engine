@@ -154,4 +154,27 @@ $pageInheritedBaseline = (new HtmlTransformer())->transform('<style>main{dominan
 $pageInheritedBaselineContent = (string) ($inlineSvgAssets($pageInheritedBaseline)[0]['content'] ?? '');
 $assert(str_contains($pageInheritedBaselineContent, 'dominant-baseline:hanging'), 'Baseline inheritance from outside the SVG is baked into the standalone text node.');
 
+$quotedFontFamily = (new HtmlTransformer())->transform(
+    '<style>:root{--font-mono:"JetBrains Mono", ui-monospace, monospace}.plan{width:100%;height:auto;display:block}</style>'
+    . '<main><svg class="plan" viewBox="0 0 100 84" style="font-family: var(--font-mono);">'
+    . '<rect width="100" height="84" fill="#E2E8F0"></rect>'
+    . '<text x="50" y="42" text-anchor="middle">FR1</text>'
+    . '</svg></main>'
+)->toArray();
+$quotedFontAssets = $inlineSvgAssets($quotedFontFamily);
+$quotedFontContent = (string) ($quotedFontAssets[0]['content'] ?? '');
+$assert(1 === count($quotedFontAssets) && 'core/image' === ($quotedFontFamily['blocks'][0]['blockName'] ?? null), 'A resolved root-style font-family custom property remains an editor-native materialized image.');
+$assert(
+    str_contains($quotedFontContent, 'font-family:&quot;JetBrains Mono&quot;, ui-monospace, monospace')
+        && preg_match('/<svg\b[^>]*\sstyle\s*=\s*"([^"]*)"/i', $quotedFontContent, $quotedFontStyle) === 1
+        && str_contains($quotedFontStyle[1], 'JetBrains Mono')
+        && ! str_contains($quotedFontStyle[1], '"'),
+    'The resolved quoted font stack is HTML-escaped inside the standalone SVG style attribute.'
+);
+$assert(
+    str_contains($quotedFontStyle[1] ?? '', 'display:block') && str_contains($quotedFontStyle[1] ?? '', 'height:auto') && str_contains($quotedFontStyle[1] ?? '', 'width:100%'),
+    'Box geometry composed onto the root SVG shares the escaped style attribute with the resolved font stack.'
+);
+$assert(! str_contains($quotedFontContent, 'var(--font-mono)'), 'The standalone SVG asset does not retain the unresolved font-family custom property.');
+
 fwrite(STDOUT, 'SVG materialized paint cascade tests: ' . $assertions . " passed\n");
