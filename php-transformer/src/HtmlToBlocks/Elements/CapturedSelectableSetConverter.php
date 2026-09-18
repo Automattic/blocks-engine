@@ -12,14 +12,24 @@ use DOMElement;
 /** Materializes a captured selectable set into the core/tabs family. */
 final class CapturedSelectableSetConverter implements ElementConverter
 {
+    public const VISUALLY_HIDDEN_TABLIST_CLASS = 'blocks-engine-tablist-visually-hidden';
+
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
+     * @param Closure(): string $visuallyHiddenClassName
      */
     public function __construct(
         private readonly SourceBlockCreator $createBlock,
         private readonly ElementPresentationResolver $presentation,
-        private readonly Closure $convertChildren
+        private readonly Closure $convertChildren,
+        private readonly Closure $visuallyHiddenClassName
     ) {
+    }
+
+    public static function visuallyHiddenTabListCss(string $className = self::VISUALLY_HIDDEN_TABLIST_CLASS): string
+    {
+        return '.' . $className . '{border:0;clip:rect(0,0,0,0);clip-path:inset(50%);height:1px;margin:-1px;overflow:hidden;padding:0;position:absolute;white-space:nowrap;width:1px}'
+            . '.editor-styles-wrapper .' . $className . ',.block-editor-iframe__body .' . $className . '{clip:auto;clip-path:none;height:auto;margin:0;overflow:visible;position:static;white-space:normal;width:auto}';
     }
 
     /** @param array<int, array<string, mixed>> $fallbacks */
@@ -100,6 +110,12 @@ final class CapturedSelectableSetConverter implements ElementConverter
         $ariaLabel = trim(SourceDom::attr($tabList, 'aria-label'));
         if ('' !== $ariaLabel) {
             $tabListAttributes['ariaLabel'] = $ariaLabel;
+        }
+        if ('hidden' === strtolower(trim(SourceDom::attr($tabList, 'data-blocks-engine-tablist-presentation')))) {
+            $hiddenClass = trim(($this->visuallyHiddenClassName)());
+            if ('' !== $hiddenClass) {
+                $tabListAttributes['className'] = trim((string) ($tabListAttributes['className'] ?? '') . ' ' . $hiddenClass);
+            }
         }
 
         return $this->createBlock->createBlock('core/tabs', $this->presentation->presentationAttributes($element), array(

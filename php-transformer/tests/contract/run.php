@@ -5730,6 +5730,52 @@ $assert(! str_contains($selectableMarkup, 'Select an item to view details'), 'th
 $assert(! str_contains($selectableMarkup, 'Gamma'), 'click-failed members do not become tabs');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($capturedSelectableSet['blocks'] ?? array()), 'captured selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($capturedSelectableSet['blocks'] ?? array())['status'] ?? ''), 'captured selectable-set tabs remain Gutenberg-valid');
+$assert(! str_contains($selectableMarkup, 'blocks-engine-tablist-visually-hidden'), 'a distinct source trigger row keeps a visible tab list');
+
+$graphicAlpha = '<div><h2>FR1</h2><p>Flower Room 1 specification</p></div>';
+$graphicBeta = '<div><h2>FR2</h2><p>Flower Room 2 specification</p></div>';
+$graphicSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Graphic Selectable Set Site', 'slug' => 'captured-graphic-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div:nth-of-type(1) > svg > g:nth-of-type(1)', 'tag' => 'g', 'label' => 'FR11,530 ft²', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $graphicAlpha, 'htmlBytes' => strlen($graphicAlpha), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2, 'index' => 0),
+                    ),
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div:nth-of-type(1) > svg > g:nth-of-type(2)', 'tag' => 'g', 'label' => 'FR21,530 ft²', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $graphicBeta, 'htmlBytes' => strlen($graphicBeta), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2, 'index' => 1),
+                    ),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$graphicSelectableMarkup = (string) ($graphicSelectableSet['serialized_blocks'] ?? '');
+$graphicSelectableCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $graphicSelectableSet['assets'] ?? array()));
+$assert(str_contains($graphicSelectableMarkup, '<!-- wp:tabs') && str_contains($graphicSelectableMarkup, '<!-- wp:tab-list'), 'graphic-host selectable sets still serialize as native core/tabs');
+$assert(str_contains($graphicSelectableMarkup, 'blocks-engine-tablist-visually-hidden'), 'graphic-host triggers hide the projected tab list without removing it');
+$assert(str_contains($graphicSelectableCss, '.blocks-engine-tablist-visually-hidden{') && str_contains($graphicSelectableCss, 'clip:rect(0,0,0,0)') && ! str_contains($graphicSelectableCss, 'display:none'), 'the hidden tab list uses the visually-hidden clip pattern');
+$assert(str_contains($graphicSelectableMarkup, 'FR1 1,530 ft') && str_contains($graphicSelectableMarkup, 'FR2 1,530 ft') && ! str_contains($graphicSelectableMarkup, 'FR11,530'), 'graphic-host tab labels keep element-separated source text');
+$assert(str_contains($graphicSelectableMarkup, 'Flower Room 1 specification') && str_contains($graphicSelectableMarkup, 'Flower Room 2 specification'), 'graphic-host member panels remain editable block content');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($graphicSelectableSet['blocks'] ?? array()), 'graphic-host selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($graphicSelectableSet['blocks'] ?? array())['status'] ?? ''), 'graphic-host selectable-set tabs remain Gutenberg-valid');
 
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream

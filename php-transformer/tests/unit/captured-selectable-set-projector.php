@@ -23,11 +23,11 @@ $project = static function (array $files): array {
 $codes = static function (array $result): array {
     return array_values(array_filter(array_map(static fn(array $row): string => (string) ($row['code'] ?? ''), $result['diagnostics'] ?? array())));
 };
-$member = static function (int $index, string $label, string $html, string $status = 'captured', bool $truncated = false): array {
+$member = static function (int $index, string $label, string $html, string $status = 'captured', bool $truncated = false, array $trigger = array(), array $set = array()): array {
     return array(
         'status' => $status,
         'kind' => 'selectable-set',
-        'trigger' => array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()),
+        'trigger' => array_merge(array('selector' => 'body > main > div > button:nth-of-type(' . ($index + 1) . ')', 'tag' => 'button', 'label' => $label, 'ariaHaspopup' => '', 'dataBindings' => array()), $trigger),
         'dialog' => array(
             'selector' => 'body > main > div:nth-of-type(2)',
             'tag' => 'div',
@@ -35,7 +35,7 @@ $member = static function (int $index, string $label, string $html, string $stat
             'htmlBytes' => strlen($html),
             'htmlTruncated' => $truncated,
         ),
-        'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => $index),
+        'set' => array_merge(array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => $index), $set),
     );
 };
 $files = static function (string $html, array $states): array {
@@ -57,6 +57,7 @@ $markup = (string) ($captured['files'][0]['content'] ?? '');
 $assert(1 === ($captured['projected_count'] ?? 0), 'two captured members project one selectable set');
 $assert(str_contains($markup, 'data-blocks-engine-captured-selectable-set="true"'), 'the shared region is marked as a captured selectable set');
 $assert(str_contains($markup, 'role="tablist"') && str_contains($markup, 'aria-label="Items"'), 'the projection emits an accessible tablist');
+$assert(! str_contains($markup, 'data-blocks-engine-tablist-presentation="hidden"'), 'a distinct source trigger row keeps a visible tablist');
 $assert(str_contains($markup, 'role="tab"') && str_contains($markup, '>Alpha<') && str_contains($markup, '>Beta<'), 'member labels become tab names');
 $assert(str_contains($markup, 'Alpha specification') && str_contains($markup, 'Beta specification'), 'each captured region is inlined as a tab panel');
 $assert(! str_contains($markup, 'Select an item'), 'the frozen placeholder is replaced');
@@ -131,6 +132,29 @@ $unmatchedMarkup = (string) ($unmatched['files'][0]['content'] ?? '');
 $assert(1 === ($unmatched['projected_count'] ?? 0), 'an unmatched region still projects by appending');
 $assert(str_contains($unmatchedMarkup, 'Alpha specification'), 'appended tabs still carry captured content');
 $assert(in_array('captured_selectable_set_region_appended', $codes($unmatched), true), 'unmatched regions emit an append diagnostic');
+
+$graphicSource = '<html><body><main><div><svg><g><text>FR1</text><text>1,530 ft²</text></g><g><text>FR2</text><text>1,530 ft²</text></g></svg></div><div><p>Select a zone</p></div></main></body></html>';
+$graphicTrigger = static function (int $index, string $label): array {
+    return array(
+        'selector' => 'body > main > div:nth-of-type(1) > svg > g:nth-of-type(' . ($index + 1) . ')',
+        'tag' => 'g',
+        'label' => $label,
+        'ariaHaspopup' => '',
+        'dataBindings' => array(),
+    );
+};
+$graphicSet = array('selector' => 'body > main > div:nth-of-type(1) > svg', 'size' => 2);
+$graphic = $project($files($graphicSource, array(
+    $member(0, 'FR11,530 ft²', $alphaHtml, 'captured', false, $graphicTrigger(0, 'FR11,530 ft²'), $graphicSet),
+    $member(1, 'FR21,530 ft²', $betaHtml, 'captured', false, $graphicTrigger(1, 'FR21,530 ft²'), $graphicSet),
+)));
+$graphicMarkup = (string) ($graphic['files'][0]['content'] ?? '');
+$assert(1 === ($graphic['projected_count'] ?? 0), 'graphic-host members still project one selectable set');
+$assert(str_contains($graphicMarkup, 'data-blocks-engine-tablist-presentation="hidden"'), 'triggers inside a graphic host hide the projected tablist');
+$assert(! str_contains($graphicMarkup, 'display:none') && ! str_contains($graphicMarkup, 'display: none'), 'the hidden tablist does not use display:none');
+$assert(str_contains($graphicMarkup, 'role="tablist"') && 2 === substr_count($graphicMarkup, 'role="tab"'), 'the hidden tablist remains an accessible tab control');
+$assert(str_contains($graphicMarkup, '>FR1 1,530 ft') && str_contains($graphicMarkup, '>FR2 1,530 ft'), 'graphic-host labels keep element-separated text');
+$assert(! str_contains($graphicMarkup, '>FR11,530'), 'run-together graphic-host labels are not kept');
 
 if (0 !== $failures) {
     fwrite(STDERR, "captured-selectable-set-projector failed: {$failures} failure(s), {$passes} pass(es)\n");

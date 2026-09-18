@@ -988,6 +988,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $this->styleResolver,
                 function (DOMElement $element, array &$fallbacks) use ($convertChildren): array {
                     return $convertChildren($element, $fallbacks, true);
+                },
+                function (): string {
+                    $className = CapturedSelectableSetConverter::VISUALLY_HIDDEN_TABLIST_CLASS;
+                    $this->layoutGeometry()->registerRule($className, CapturedSelectableSetConverter::visuallyHiddenTabListCss($className));
+
+                    return $className;
                 }
             ),
             new ScrollStateConverter(

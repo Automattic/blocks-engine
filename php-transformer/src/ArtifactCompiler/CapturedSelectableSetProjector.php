@@ -20,6 +20,10 @@ final class CapturedSelectableSetProjector
     private const MAX_MEMBERS_PER_SET = 32;
     private const MAX_REGION_BYTES = 65536;
     private const MAX_SET_INLINE_BYTES = 262144;
+    private const GRAPHIC_HOST_TAGS = array(
+        'svg', 'g', 'path', 'text', 'tspan', 'rect', 'circle', 'ellipse',
+        'polygon', 'polyline', 'line', 'use', 'image', 'foreignobject', 'canvas', 'area',
+    );
 
     /**
      * @param array<int, array<string, mixed>> $files
@@ -110,7 +114,7 @@ final class CapturedSelectableSetProjector
     /**
      * @param array<int, mixed> $states
      * @param array<int, array<string, mixed>> $diagnostics
-     * @return array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string}>}>
+     * @return array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>}>
      */
     private function groupedSets(array $states, string $sourceUrl, array &$diagnostics): array
     {
@@ -155,6 +159,8 @@ final class CapturedSelectableSetProjector
             $sets[$setSelector]['members'][$index] = array(
                 'label' => $this->memberLabel($state, $index),
                 'html' => $sanitized,
+                'tag' => is_string($state['trigger']['tag'] ?? null) ? strtolower($state['trigger']['tag']) : '',
+                'selector' => is_string($state['trigger']['selector'] ?? null) ? trim($state['trigger']['selector']) : '',
             );
         }
 
@@ -192,7 +198,7 @@ final class CapturedSelectableSetProjector
     }
 
     /**
-     * @param array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string}>}> $sets
+     * @param array<string, array{selector:string, region_selector:string, members:array<int, array{label:string, html:string, tag:string, selector:string}>}> $sets
      * @return array{html:string, diagnostics:array<int, array<string, mixed>>, projected_count:int}
      */
     private function projectPage(string $html, array $sets, string $sourcePath): array
@@ -227,8 +233,10 @@ final class CapturedSelectableSetProjector
                 $targets = array($fallback);
                 $diagnostics[] = $this->diagnostic('captured_selectable_set_region_appended', 'warning', 'A captured selectable-set region was unmatched; the tabs were appended to the document.', array('source_path' => $sourcePath, 'selector' => $set['region_selector']));
             }
+            $members = $this->withSourceLabels($document, $set['members']);
+            $hideTabList = ! $this->hasDistinctVisibleTriggerRow($members);
             foreach ($targets as $scopeIndex => $region) {
-                $this->fillRegion($document, $region, $set['members'], $identity . '-' . ($scopeIndex + 1));
+                $this->fillRegion($document, $region, $members, $identity . '-' . ($scopeIndex + 1), $hideTabList);
             }
             ++$projected;
         }
@@ -239,9 +247,9 @@ final class CapturedSelectableSetProjector
     }
 
     /**
-     * @param array<int, array{label:string, html:string}> $members
+     * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
      */
-    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity): void
+    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList): void
     {
         while ($region->firstChild) {
             $region->removeChild($region->firstChild);
@@ -251,6 +259,9 @@ final class CapturedSelectableSetProjector
         $tabList = $document->createElement('div');
         $tabList->setAttribute('role', 'tablist');
         $tabList->setAttribute('aria-label', 'Items');
+        if ($hideTabList) {
+            $tabList->setAttribute('data-blocks-engine-tablist-presentation', 'hidden');
+        }
         foreach ($members as $index => $member) {
             $tabId = 'blocks-engine-set-' . $identity . '-tab-' . $index;
             $panelId = 'blocks-engine-set-' . $identity . '-panel-' . $index;
@@ -399,6 +410,101 @@ final class CapturedSelectableSetProjector
         }
 
         return $label;
+    }
+
+    /**
+     * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
+     * @return array<int, array{label:string, html:string, tag:string, selector:string}>
+     */
+    private function withSourceLabels(DOMDocument $document, array $members): array
+    {
+        foreach ($members as $index => $member) {
+            $element = $this->triggerElement($document, $member['selector']);
+            if (! $element instanceof DOMElement) {
+                continue;
+            }
+            $label = $this->labelFromTriggerElement($element);
+            if ('' !== $label) {
+                $members[$index]['label'] = $label;
+            }
+        }
+
+        return $members;
+    }
+
+    private function triggerElement(DOMDocument $document, string $selector): ?DOMElement
+    {
+        if ('' === $selector) {
+            return null;
+        }
+        foreach ($this->documentScopes($document) as $scope) {
+            $matched = $this->selectorMatches($scope, $selector);
+            if (1 === count($matched)) {
+                return $matched[0];
+            }
+        }
+
+        return null;
+    }
+
+    private function labelFromTriggerElement(DOMElement $element): string
+    {
+        $named = trim($element->getAttribute('aria-label'));
+        if ('' !== $named) {
+            return trim(preg_replace('/\s+/', ' ', $named) ?? '');
+        }
+        $title = trim($element->getAttribute('title'));
+        if ('' !== $title) {
+            return trim(preg_replace('/\s+/', ' ', $title) ?? '');
+        }
+
+        return trim(implode(' ', $this->labelParts($element)));
+    }
+
+    /** @return array<int, string> */
+    private function labelParts(DOMElement $element): array
+    {
+        $parts = array();
+        foreach ($element->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                if (in_array(strtolower($child->tagName), array('script', 'style', 'desc'), true)) {
+                    continue;
+                }
+                $parts = array_merge($parts, $this->labelParts($child));
+                continue;
+            }
+            if (XML_TEXT_NODE === $child->nodeType) {
+                $text = trim(preg_replace('/\s+/', ' ', $child->textContent ?? '') ?? '');
+                if ('' !== $text) {
+                    $parts[] = $text;
+                }
+            }
+        }
+
+        return $parts;
+    }
+
+    /**
+     * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
+     */
+    private function hasDistinctVisibleTriggerRow(array $members): bool
+    {
+        foreach ($members as $member) {
+            if (! $this->isGraphicEmbeddedTrigger($member['tag'], $member['selector'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isGraphicEmbeddedTrigger(string $tag, string $selector): bool
+    {
+        if (in_array($tag, self::GRAPHIC_HOST_TAGS, true)) {
+            return true;
+        }
+
+        return 1 === preg_match('/(?:^|>)\s*(?:svg|canvas|map)(?:\s*[>#.:\[]|\s*$)/i', $selector);
     }
 
     private function safeRegionHtml(string $html): ?string
