@@ -23,6 +23,16 @@ interface RichTextMaterialization
 
     public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string;
 
+    /**
+     * When every `<button>` descendant of `$element` is inline-safe (see
+     * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier::isInlineSafeButton()}),
+     * lowers each into a RichText-legal `<mark>` carrier — the same mechanical
+     * attribute carrier already used for a class-bearing span/font — instead of
+     * leaving a `<button>` tag that neither RichText's format library nor the
+     * engine's editability policy recognizes. Returns null when unchanged.
+     */
+    public function contentWithInlineSafeButtonsLowered(DOMElement $element, string $content): ?string;
+
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool;
 
     public function containsNativeSvgImageObject(string $content): bool;

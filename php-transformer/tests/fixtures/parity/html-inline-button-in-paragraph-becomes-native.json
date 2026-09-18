@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-button-in-paragraph-becomes-native",
+  "description": "A paragraph carrying one text-only inline <button> with no form or runtime-behavior semantics converts to editable core/paragraph RichText instead of freezing the whole line as core/html. The button lowers into a <mark> RichText carrier — legal under both RichText's format library and the engine's own editability policy — with its resolved presentation baked into the mark's own style attribute and role=\"button\"/tabindex=\"0\" keeping it labelled and keyboard-reachable, instead of leaving a class-bearing <button> tag neither recognizes.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-button-in-paragraph-becomes-native.json",
+    "notes": "Regression fixture for a base44 React SPA import (posts/page-sellerregister.post_content, selector p.text-center.text-xs.text-muted-foreground): 'Already a seller? <button>Sign in</button>' degraded to core/html, the only quality-gate failure on that source (fallback_count: 0, core_html_block_count: 1). A first attempt (#1992) rode the literal <button> tag through into RichText content and was reverted (#1993) because the engine's own editability policy rejects a structural rich-text attribute tag it does not recognize."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New native inline-button-in-paragraph behavior has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><p class=\"text-center text-xs text-muted-foreground mt-4\">Already a seller? <button class=\"text-primary hover:underline\">Sign in</button></p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph", "attrs": { "className": "text-center text-xs text-muted-foreground mt-4", "content": "Already a seller? <mark style=\"background-color:transparent;color:inherit\" role=\"button\" tabindex=\"0\">Sign in</mark>" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph {\"className\":\"text-center text-xs text-muted-foreground mt-4\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p class=\"text-center text-xs text-muted-foreground mt-4\">Already a seller? <mark style=\"background-color:transparent;color:inherit\" role=\"button\" tabindex=\"0\">Sign in</mark></p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<button" }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-button-in-paragraph-submit-semantics-fallback",
+  "description": "Negative guard for inline-button-in-paragraph promotion: a typeless button with pseudo-form submit semantics (its own text reads as a submit action) still forces the paragraph to core/html, even though it has no <form> ancestor. HTML defaults a typeless button to submit, and text like \"Subscribe\" is real submit-intent evidence that must not be flattened into plain RichText.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-button-in-paragraph-submit-semantics-fallback.json",
+    "notes": "Adjacent to FormControlClassifier::isPseudoFormSubmitControl(), which already treats a typeless button's submit-like text as real submit evidence outside a form (add-to-cart steppers vs. newsletter/contact submits)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative guard for new inline-button-in-paragraph promotion."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><p>Get updates from us. <button class=\"cta\">Subscribe</button></p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>Get updates from us. <button class=\"cta\">Subscribe</button></p>" }
+  ]
+}
