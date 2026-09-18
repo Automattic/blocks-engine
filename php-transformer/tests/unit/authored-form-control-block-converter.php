@@ -6,6 +6,7 @@ require __DIR__ . '/../../vendor/autoload.php';
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\AuthoredFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormControlMetadataBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -91,6 +92,19 @@ $echoes = array();
 $emptySelect = $elementFrom('<select></select>', 'select');
 $assert(null === $converter->select($emptySelect), 'select-without-options-declines-block');
 $assert(array( 'Select option' ) === $echoes, 'select-without-options-still-registers-label-echo');
+
+$plainButton = $elementFrom('<button type="submit">Send</button>', 'button');
+$assert(null === $converter->button($plainButton), 'unstyled-button-declines-authored-block');
+$forcedButton = $converter->button($plainButton, true);
+$assert($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($forcedButton['blockName'] ?? ''), 'force-native-button-uses-authored-button-block');
+$assert('<button type="submit">Send</button>' === ($forcedButton['innerHTML'] ?? ''), 'force-native-button-emits-native-markup');
+
+$styledButton = $elementFrom('<button data-styled type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>', 'button');
+$buttonBlock = $converter->button($styledButton);
+$assert($registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($buttonBlock['blockName'] ?? ''), 'styled-button-uses-authored-button-block');
+$assert('submit' === ($buttonBlock['attrs']['type'] ?? '') && 'send' === ($buttonBlock['attrs']['className'] ?? '') && 'letter-spacing:0.1em' === ($buttonBlock['attrs']['style'] ?? ''), 'styled-button-retains-type-class-and-inline-style');
+$assert('<button type="submit" class="send" style="letter-spacing:0.1em">Join &amp; Go</button>' === ($buttonBlock['innerHTML'] ?? ''), 'styled-button-emits-native-markup');
+$assert($registry->has(AuthoredButtonBlockGenerator::class), 'styled-button-registers-generated-definition');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");

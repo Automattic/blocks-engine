@@ -18,8 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "signup-form" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Email: you@example.com (required)" } },
-    { "path": "blocks.0.innerBlocks.1", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.1.innerBlocks.0", "name": "core/button", "attrs": { "text": "Subscribe" } }
+    { "path": "blocks.0.innerBlocks.1", "name": "custom/authored-button", "attrs": { "type": "submit", "text": "Subscribe" } }
   ],
   "expected_fallbacks": [
     { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }

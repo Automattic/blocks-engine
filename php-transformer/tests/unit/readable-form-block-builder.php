@@ -9,6 +9,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\FormRuntimeIsla
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlockBuilder;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -101,7 +102,6 @@ $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
     $runtimeRecorder,
-    new Runtime(),
     $eventMetadata,
     $isRuntimeDomTarget,
     $presentationAttributes,
@@ -128,14 +128,20 @@ $assert('core/paragraph' === ($plain['innerBlocks'][0]['blockName'] ?? ''), 'pla
 $assert('Email: a&amp;b (required)' === ($plain['innerBlocks'][0]['attrs']['content'] ?? ''), 'plain-control-summary-is-retained');
 $assert(array( 'Email: a&b (required)' ) === $echoes, 'plain-control-registers-echo');
 
-$submit = $builder->build($formFrom('<form><button type="submit">Join &amp; Go</button></form>'));
-$buttons = $submit['innerBlocks'][0] ?? array();
-$assert('core/buttons' === ($buttons['blockName'] ?? ''), 'submit-controls-build-buttons-container');
-$assert('Join &amp; Go' === ($buttons['innerBlocks'][0]['attrs']['text'] ?? ''), 'submit-text-is-escaped');
-$assert('presented-button' === ($buttons['innerBlocks'][0]['attrs']['className'] ?? ''), 'submit-presentation-is-retained');
+$submit = $builder->build($formFrom('<form><button type="submit" class="send">Join &amp; Go</button></form>'));
+$submitButton = $submit['innerBlocks'][0] ?? array();
+$assert($authoredRegistry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($submitButton['blockName'] ?? ''), 'submit-control-uses-authored-button');
+$assert('submit' === ($submitButton['attrs']['type'] ?? '') && 'Join & Go' === ($submitButton['attrs']['text'] ?? ''), 'submit-type-and-text-are-retained');
+$assert('send' === ($submitButton['attrs']['className'] ?? ''), 'submit-source-class-is-retained');
+$assert('<button type="submit" class="send">Join &amp; Go</button>' === ($submitButton['innerHTML'] ?? ''), 'submit-emits-native-button-markup');
 
 $combined = $builder->build($formFrom('<form><input aria-label="Email"><button type="submit">Join</button></form>'));
-$assert('core/paragraph' === ($combined['innerBlocks'][0]['blockName'] ?? '') && 'core/buttons' === ($combined['innerBlocks'][1]['blockName'] ?? ''), 'submit-buttons-follow-fields');
+$assert('core/paragraph' === ($combined['innerBlocks'][0]['blockName'] ?? '') && $authoredRegistry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME) === ($combined['innerBlocks'][1]['blockName'] ?? ''), 'submit-buttons-follow-fields');
+
+$inputSubmit = $builder->build($formFrom('<form><input type="submit" value="Send" class="go"></form>'));
+$inputSubmitBlock = $inputSubmit['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($inputSubmitBlock['blockName'] ?? ''), 'input-submit-uses-authored-input');
+$assert('submit' === ($inputSubmitBlock['attrs']['type'] ?? '') && 'Send' === ($inputSubmitBlock['attrs']['value'] ?? ''), 'input-submit-keeps-type-and-value');
 
 $styled = $builder->build($formFrom('<form><label for="email">Email</label><input data-styled id="email" name="email"></form>'));
 $assert('form' === ($styled['attrs']['tagName'] ?? ''), 'degraded-form-keeps-the-form-element');

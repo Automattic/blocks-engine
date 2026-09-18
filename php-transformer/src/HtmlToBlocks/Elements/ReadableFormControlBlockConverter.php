@@ -38,7 +38,7 @@ final class ReadableFormControlBlockConverter
      * @param DOMElement|null $label The element the source uses to label this control, when one was resolved.
      * @return array<string, mixed>|null
      */
-    public function convert(DOMElement $element, ?DOMElement $label = null): ?array
+    public function convert(DOMElement $element, ?DOMElement $label = null, bool $forceNative = false): ?array
     {
         $tagName = strtolower($element->tagName);
 
@@ -80,23 +80,30 @@ final class ReadableFormControlBlockConverter
         }
 
         if ( 'select' === $tagName ) {
-            $selectBlock = $this->authoredBlockConverter->select($element, false, $label);
+            $selectBlock = $this->authoredBlockConverter->select($element, $forceNative, $label);
             if ( null !== $selectBlock ) {
                 return $selectBlock;
             }
         }
 
         if ( 'input' === $tagName ) {
-            $inputBlock = $this->authoredBlockConverter->input($element, $label);
+            $inputBlock = $this->authoredBlockConverter->input($element, $label, false, $forceNative);
             if ( null !== $inputBlock ) {
                 return $inputBlock;
             }
         }
 
         if ( 'textarea' === $tagName ) {
-            $textareaBlock = $this->authoredBlockConverter->textarea($element, $label);
+            $textareaBlock = $this->authoredBlockConverter->textarea($element, $label, $forceNative);
             if ( null !== $textareaBlock ) {
                 return $textareaBlock;
+            }
+        }
+
+        if ( 'button' === $tagName ) {
+            $buttonBlock = $this->authoredBlockConverter->button($element, $forceNative);
+            if ( null !== $buttonBlock ) {
+                return $buttonBlock;
             }
         }
 

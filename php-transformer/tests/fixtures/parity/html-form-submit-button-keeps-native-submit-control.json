@@ -1,0 +1,103 @@
+{
+    "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+    "name": "html-form-submit-button-keeps-native-submit-control",
+    "description": "A degraded form's explicit submit button remains a native `<button type=\"submit\">` inside the restored `<form>` instead of becoming a `core/button` anchor, and keeps its authored class and inline style.",
+    "source_reference": {
+        "repo": "php-transformer",
+        "path": "tests/fixtures/parity/html-form-submit-button-keeps-native-submit-control.json",
+        "notes": "Regression fixture for submit-semantics loss in the form-degrade path: ReadableFormBlockBuilder emitted core/buttons → core/button, which Gutenberg saves as an <a>. The restored <form> from #1959 therefore had no submit control. A submit control belongs in the authored-control family (AuthoredButtonBlockGenerator), not core/button. Adjacent to #1701 (preserve explicit button type) and #1698 (native GET forms already keep button type)."
+    },
+    "legacy_comparison": {
+        "skip": true,
+        "reason": "This is a regression fixture for an upstream primitive with no downstream legacy comparison."
+    },
+    "operation": "html_transformer.transform",
+    "input": {
+        "content": "<main><form class=\"space-y-6\"><div><label class=\"field-label\">Name *</label><input type=\"text\" class=\"field\" required></div><div><label class=\"field-label\">Project Details *</label><textarea class=\"field\" rows=\"5\" placeholder=\"Tell us about your project...\" required></textarea></div><button type=\"submit\" class=\"send\" style=\"letter-spacing:0.1em\">Submit</button></form></main>",
+        "options": {
+            "static_css": ".field{border:1px solid #ccc;padding:8px;background:#fff;}.send{background:#111;color:#fff;padding:16px 32px;font-weight:600;text-transform:uppercase;letter-spacing:0.1em;}"
+        }
+    },
+    "expected_blocks": [
+        {
+            "path": "blocks.0",
+            "name": "core/group",
+            "attrs": {
+                "className": "space-y-6",
+                "tagName": "form"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "text",
+                "label": "Name *",
+                "labelClassName": "field-label"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1",
+            "name": "custom/authored-textarea",
+            "attrs": {
+                "label": "Project Details *",
+                "labelClassName": "field-label",
+                "rows": "5"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.2",
+            "name": "custom/authored-button",
+            "attrs": {
+                "type": "submit",
+                "className": "send",
+                "style": "letter-spacing:0.1em",
+                "text": "Submit"
+            }
+        }
+    ],
+    "expected_fallbacks": [
+        {
+            "type": "html",
+            "reason": "form_requires_runtime",
+            "diagnostic_code": "html_form_fallback"
+        }
+    ],
+    "expect": [
+        {
+            "path": "status",
+            "assert": "equals",
+            "value": "success"
+        },
+        {
+            "path": "fallbacks",
+            "assert": "count",
+            "count": 1
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<form class=\"wp-block-group space-y-6\">"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<button type=\"submit\" class=\"send\" style=\"letter-spacing:0.1em\">Submit</button>"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<!-- wp:custom/authored-button"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "<!-- wp:buttons"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "wp-element-button"
+        }
+    ]
+}

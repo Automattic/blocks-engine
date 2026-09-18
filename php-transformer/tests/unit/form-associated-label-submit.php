@@ -92,8 +92,8 @@ $assert(
     $serialized
 );
 $assert(
-    str_contains($serialized, '<!-- wp:button') && str_contains($serialized, 'Claim My Spot'),
-    '1b: submit copy lives on a core/button',
+    str_contains($serialized, '<button type="button">Claim My Spot</button>') && str_contains($serialized, 'authored-button'),
+    '1b: submit copy lives on a native button control',
     $serialized
 );
 $assert(
@@ -114,8 +114,8 @@ $assert(
 
 $nativeSubmit = $serialize('<main><form method="post" action="#"><label for="e">Email</label><input id="e" type="email" required><button type="submit">Send</button></form></main>');
 $assert(
-    str_contains($nativeSubmit, 'Send') && str_contains($nativeSubmit, '<!-- wp:button'),
-    '4: type=submit still becomes a core/button',
+    str_contains($nativeSubmit, 'Send') && str_contains($nativeSubmit, '<button type="submit">Send</button>'),
+    '4: type=submit remains a native submit control',
     $nativeSubmit
 );
 
