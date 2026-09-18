@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\RuntimeSelectorS
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationEvidenceState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\TransformationProvenanceState;
 use Automattic\BlocksEngine\PhpTransformer\Contract\BlockCompilationOutput;
+use Automattic\BlocksEngine\PhpTransformer\Contract\ConversionFindingContract;
 use Automattic\BlocksEngine\PhpTransformer\Contract\EditabilityReport;
 use Automattic\BlocksEngine\PhpTransformer\Support\ShellLandmarkPolicy;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CoreBlockCapabilityMatrix;
@@ -23,6 +24,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EmittedCoreBlockContracts;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\DeadProjectedSelectorReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
@@ -135,6 +137,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleRuleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjectionContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStylesheetProjector;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\ProjectedSelectorBindings;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssCascade;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayeredCssCollector;
@@ -380,6 +383,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private readonly ContentRoundTripReporter $contentRoundTripReporter;
     private readonly SourceMediaRetentionReporter $sourceMediaRetentionReporter;
+    private readonly DeadProjectedSelectorReporter $deadProjectedSelectorReporter;
+
+    /** @var list<array{authored: string, projected: string, stylesheet: string, scope: string}> */
+    private array $projectedSelectorBindings = array();
+
+    private string $currentSourcePath = 'html';
 
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
@@ -503,6 +512,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
         $this->sourceMediaRetentionReporter = new SourceMediaRetentionReporter();
+        $this->deadProjectedSelectorReporter = new DeadProjectedSelectorReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
@@ -1365,6 +1375,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $this->runtimeBehavior()->installRuntimeProjectionScriptAssets(
             is_array($options['runtime_projection_script_assets'] ?? null) ? $options['runtime_projection_script_assets'] : array()
         );
+        $this->projectedSelectorBindings = array();
+        $this->currentSourcePath = (string) ($options['source'] ?? 'html');
         $this->sharedStylesheetPaths = array();
         foreach ( is_array($options['shared_stylesheet_paths'] ?? null) ? $options['shared_stylesheet_paths'] : array() as $path ) {
             if ( is_string($path) && '' !== $path ) {
@@ -1505,6 +1517,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 )
             )
         )->report();
+        $deadProjectedSelectorHaystack = $serializedBlocks;
+        foreach ( $shellArtifacts as $shellArtifact ) {
+            foreach ( array('block_markup', 'inner_block_markup', 'template_part_block_markup') as $markupKey ) {
+                $deadProjectedSelectorHaystack .= "\n" . (string) ( $shellArtifact[$markupKey] ?? '' );
+            }
+        }
+        $deadProjectedSelectorEvaluation = $this->deadProjectedSelectorReporter->evaluate(
+            $this->projectedSelectorBindings,
+            array($this->currentSourcePath => $deadProjectedSelectorHaystack)
+        );
+        $deadProjectedSelectorsReport = $deadProjectedSelectorEvaluation->report();
         $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
             $blockValidityEvaluation->status,
             $blockValidityEvaluation->findings,
@@ -1522,6 +1545,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->runtimeDom()->fallbacks(),
             $validationOutcome
         );
+        foreach ( $deadProjectedSelectorEvaluation->findings as $finding ) {
+            $diagnostics[] = ConversionFindingContract::withClassification(array_merge($finding, array(
+                'source'  => HtmlTransformer::class,
+                'message' => (string) ($finding['summary'] ?? ''),
+            )));
+        }
         $headMetadata = $this->headMetadataReport($html);
         $authorLayoutTopologyFindings = $this->transformationEvidence()->authorLayoutTopologyFindings();
         $this->styleResolver->recordSourceSelectorMatchWork();
@@ -1574,6 +1603,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'semantic_parity_report' => $semanticParityReport,
             'content_round_trip_report' => $contentRoundTripReport,
             'source_media_retention_report' => $sourceMediaRetentionReport,
+            'dead_projected_selectors_report' => $deadProjectedSelectorsReport,
             'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
             'frozen_hidden_state' => $this->transformationEvidence()->frozenHiddenStateFindings(),
             'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
@@ -2102,7 +2132,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss = new LayeredCssCollector();
         $authorCss = '';
         if ( $includeAuthorStyles && '' !== $this->authorStyles()->combinedCss() ) {
-            $authorCss = $this->rewriteAuthorStylesheet($this->authorStyles()->combinedCss());
+            $authorCss = $this->rewriteAuthorStylesheet(
+                $this->authorStyles()->combinedCss(),
+                false,
+                '',
+                array() === $this->authorStyles()->stylesheetAssets()
+            );
             $split = ( new CssStylesheetTransformer() )->splitLeadingAtRulePreamble($authorCss);
             if ( array() === $this->authorStyles()->stylesheetAssets() ) {
                 if ( '' !== trim($split['preamble']) ) {
@@ -2244,7 +2279,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $content = $this->rewriteAuthorStylesheet(
                 $asset['content'],
                 isset($this->sharedStylesheetPaths[$asset['path']])
-                    || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? ''])
+                    || isset($this->sharedStylesheetPaths[$asset['source_path'] ?? '']),
+                (string) $asset['path']
             );
             $hash = hash('sha256', $content);
             $projections[] = array(
@@ -2294,18 +2330,32 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return $projections;
     }
 
-    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false): string
+    private function rewriteAuthorStylesheet(string $stylesheet, bool $keepAuthorClassSelectors = false, string $stylesheetPath = '', bool $recordBindings = true): string
     {
-        return $this->authorStylesheetProjector->project(
+        $bindings = new ProjectedSelectorBindings();
+        $projected = $this->authorStylesheetProjector->project(
             $stylesheet,
             new AuthorStylesheetProjectionContext(
                 $this->authorStyles(),
                 $this->sourceStyles(),
                 $this->authorSelectorProjections(),
                 $this->transformationEvidence(),
-                $keepAuthorClassSelectors
+                $keepAuthorClassSelectors,
+                $bindings
             )
         );
+        if ( $recordBindings ) {
+            foreach ( $bindings->all() as $binding ) {
+                $this->projectedSelectorBindings[] = array(
+                    'authored'    => $binding['authored'],
+                    'projected'   => $binding['projected'],
+                    'stylesheet'  => $stylesheetPath,
+                    'scope'       => $this->currentSourcePath,
+                );
+            }
+        }
+
+        return $projected;
     }
 
     /** @return array<string, mixed> */

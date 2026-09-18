@@ -288,6 +288,7 @@ final class ConversionFindingContract
             'html_static_script_metadata'       => 'static_script_metadata',
             'html_to_blocks_core_slice'         => 'conversion_summary',
             'wordpress_site_plan_not_self_contained' => 'site_plan_document',
+            'dead_projected_author_selector'    => 'projected_author_selector',
             default                             => '' !== $tag ? 'html_' . $tag : ( '' !== $code ? $code : 'html_fallback' ),
         };
     }
@@ -348,6 +349,7 @@ final class ConversionFindingContract
             'inline_svg'                    => 'materialize_static_asset',
             'conversion_summary'            => 'no_repair_needed',
             'site_plan_document'            => 'restore_compiled_document_identity',
+            'projected_author_selector'     => 'restore_projected_selector_binding',
             default                         => str_starts_with($patternFamily, 'unsupported_')
                 ? 'add_generic_pattern_recognizer'
                 : 'review_generic_mapping',
