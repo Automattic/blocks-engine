@@ -28,6 +28,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\AuthorStyleAnalysi
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutGeometryState;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolutionContext;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 
@@ -110,15 +111,14 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
     ), static fn (mixed $v): bool => array() !== $v));
 
     // Registered so `_source_provenance_id => 1` resolves to a digest that
-    // matches the fixed `safeFallbackHtml` default below, letting
-    // `sameSourceGroupChainLeaf()`'s real digest walk find the DOM child
-    // without a test needing to fake the whole method.
-    $session->transformationProvenanceState()->registerSource(array('source_digest' => hash('sha256', 'source-child')), false);
+    // matches `WrapperCoalescer`'s real `SourceDom::safeFallbackHtml()` call
+    // against the `<p>Copy</p>` child every test wrapper below uses, letting
+    // `sameSourceGroupChainLeaf()`'s real digest walk find the DOM child.
+    $session->transformationProvenanceState()->registerSource(array('source_digest' => hash('sha256', SourceDom::safeFallbackHtml($elementFrom('<p>Copy</p>')))), false);
 
     $defaults = array(
         'structureSignals' => static fn (DOMElement $e): array => array(),
         'soleElementChild' => static fn (DOMElement $e): ?DOMElement => $e->firstElementChild,
-        'safeFallbackHtml' => static fn (DOMElement $e): string => 'source-child',
         'isImageOnlyAnchor' => static fn (DOMElement $e): bool => false,
     );
     $c = array_merge($defaults, $overrides);
@@ -131,7 +131,6 @@ $makeCoalescer = static function (array $runtimeDomSelectors = array(), array $o
         $session,
         $c['structureSignals'],
         $c['soleElementChild'],
-        $c['safeFallbackHtml'],
         $c['isImageOnlyAnchor']
     );
 };

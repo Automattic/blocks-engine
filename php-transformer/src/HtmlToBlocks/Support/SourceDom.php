@@ -26,8 +26,10 @@ use DOMNode;
  * context objects, copy-pasted private duplicates, and independent
  * reimplementations that were free to disagree.
  *
- * Operations needing transform state (source-tag markers, fallback
- * sanitization, the WordPress runtime) are not part of this vocabulary and
+ * Operations needing transform state accept it as an explicit argument
+ * instead of reading it off an instance ({@see self::safeFallbackHtml()}
+ * takes its tag-marker map as a parameter, for example), so they stay pure
+ * functions too. Only genuinely stateful concerns (the WordPress runtime)
  * remain on {@see DomHelpersTrait}.
  */
 final class SourceDom
@@ -318,6 +320,41 @@ final class SourceDom
             $html .= $element->ownerDocument->saveHTML($child);
         }
         return trim($html);
+    }
+
+    /**
+     * Serialize an element as safe fallback HTML: unsafe URLs/attributes
+     * stripped, missing image sources recovered from host metadata, and
+     * (when the caller supplies them) projected author tag-selector markers
+     * materialized onto matching tags so rewritten author CSS still targets
+     * the fallback markup.
+     *
+     * @param array<string, string> $tagMarkers Lowercased tag name => marker class name.
+     */
+    public static function safeFallbackHtml(DOMElement $element, array $tagMarkers = array()): string
+    {
+        $clone = $element->cloneNode(true);
+        if ( $clone instanceof DOMElement ) {
+            self::materializeMissingImageSources($clone);
+            self::materializeFallbackSourceTagMarker($clone, $tagMarkers);
+            foreach ( $clone->getElementsByTagName('*') as $descendant ) {
+                if ( $descendant instanceof DOMElement ) {
+                    self::materializeFallbackSourceTagMarker($descendant, $tagMarkers);
+                }
+            }
+            return self::safeFallbackHtmlString(trim($clone->ownerDocument->saveHTML($clone) ?: ''));
+        }
+
+        return self::safeFallbackHtmlString(self::outerHtml($element));
+    }
+
+    /** @param array<string, string> $tagMarkers */
+    private static function materializeFallbackSourceTagMarker(DOMElement $element, array $tagMarkers): void
+    {
+        $marker = $tagMarkers[strtolower($element->tagName)] ?? '';
+        if ( '' !== $marker ) {
+            $element->setAttribute('class', self::mergeClassNames(self::attr($element, 'class'), $marker));
+        }
     }
 
     public static function safeFallbackHtmlString(string $html): string
