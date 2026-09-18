@@ -3268,6 +3268,28 @@ $assert(str_contains($bodyStateSerialized, 'wrapper fixed-shell no-header-page')
 $assert(str_contains($bodyStateCss, '.no-header-page .main-wrap{padding-top:80px}'), 'body-state descendant selectors continue matching beneath the projected root block state');
 $assert(str_contains($bodyStateCss, '.fixed-shell .main-wrap{background:#fff}') && ! str_contains($bodyStateCss, 'body.fixed-shell'), 'explicit body-state selectors retarget the projected root state while retaining descendant structure');
 
+// Webflow-style `<body class="body">` with `.body{background}`: body paint
+// propagates to the canvas behind negative z-index layers, so it must stay on
+// the rendered body rather than painting every projected root block.
+$bodySubjectProjection = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="body"><div class="main-wrapper"><section class="hero"><figure class="hero-bg" style="position:absolute;inset:0;z-index:-2"><img src="hero.jpg" alt=""></figure><div class="gradient-bg" style="position:absolute;inset:0;z-index:-1"></div><h1>Hero</h1></section></div></body></html>',
+    array( 'static_css' => '.body{background-color:#f0f0f0;color:#333}body.body{font-size:16px}.body .hero{position:relative}' )
+)->toArray();
+$bodySubjectSerialized = (string) ($bodySubjectProjection['serialized_blocks'] ?? '');
+$bodySubjectCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $bodySubjectProjection['assets'] ?? array()));
+$assert(str_contains($bodySubjectSerialized, 'main-wrapper body'), 'body classes still project onto root blocks for descendant matching');
+$assert(str_contains($bodySubjectCss, '.body .hero{position:relative}'), 'body-class descendant selectors keep matching beneath the projected root block');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{background-color:#f0f0f0;color:#333\}/', $bodySubjectCss), 'body-subject class rules retarget the rendered body and keep their class specificity');
+$assert(1 === preg_match('/(?:^|[}\s])body:not\(\.blocks-engine-specificity-class-[a-f0-9]+-\d+\)\{font-size:16px\}/', $bodySubjectCss), 'type-qualified body-subject class rules retarget the rendered body');
+$assert(! str_contains($bodySubjectCss, '.body{'), 'body-subject paint does not land on projected root blocks');
+
+$sharedBodyClassProjection = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><body class="body"><div class="card"><div class="body">Card body</div></div></body></html>',
+    array( 'static_css' => '.body{padding:4px}' )
+)->toArray();
+$sharedBodyClassCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), $sharedBodyClassProjection['assets'] ?? array()));
+$assert(str_contains($sharedBodyClassCss, '.body{padding:4px}'), 'body classes shared with content elements keep their class subject');
+
 $styledLogo = ( new HtmlTransformer() )->transform(
     '<style>#wordmark{font-family:Fjalla One,sans-serif;font-size:36px}</style><a class="logo" href="/"><span id="wordmark">Brand Name</span></a>'
 )->toArray();

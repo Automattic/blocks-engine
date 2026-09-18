@@ -786,7 +786,37 @@ final class AuthorStylesheetProjector
             return $selector;
         }
         $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $classes));
-        return preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
+        $selector = preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
+        return $this->projectSourceBodySubjectSelector($selector, $classes, $context);
+    }
+
+    /**
+     * Body classes are projected onto root blocks so descendant selectors keep
+     * matching, but a rule whose subject is the body itself paints the canvas
+     * in the source (body backgrounds propagate behind negative z-index
+     * layers). Retarget such rules to the rendered body instead of the root
+     * blocks that carry the projected class. A plain `body` type keeps the
+     * selector recognizable to editor-style scoping.
+     */
+    private function projectSourceBodySubjectSelector(string $selector, string $classPattern, AuthorStylesheetProjectionContext $context): string
+    {
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
+            return $selector;
+        }
+        $start = (int) $parsed['rightmost_compound_span']['start'];
+        $end = (int) $parsed['rightmost_rewrite_end'];
+        $subject = substr($selector, $start, $end - $start);
+        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
+            return $selector;
+        }
+        // Matching indexes body descendants only; any match means the class is
+        // shared with a content element and the rule must keep its subject.
+        if ( array() !== $this->matchingSourceElements($selector, $parsed, $context) ) {
+            return $selector;
+        }
+        $shims = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.'));
+        return substr($selector, 0, $start) . 'body' . $shims . substr($selector, $end);
     }
 
     /** @return array{string, string} */
