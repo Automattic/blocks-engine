@@ -318,9 +318,9 @@ $assert(str_starts_with((string) ($tagAttrs['className'] ?? ''), 'tag be-inline-
 $assert('1px' === ($tagAttrs['style']['border']['width'] ?? '') && 'solid' === ($tagAttrs['style']['border']['style'] ?? '') && '#6b4f2d' === ($tagAttrs['style']['border']['color'] ?? '') && '100px' === ($tagAttrs['style']['border']['radius'] ?? ''), '25aa: pill retains its border and radius on the paragraph', json_encode($tagAttrs));
 $assert(str_contains($labelMarkup, '<p class="has-background has-border-color tag be-inline-geometry-') && str_contains($labelMarkup, 'border-radius:100px') && str_contains($labelGeometryCss, 'width:137px !important') && str_contains($labelGeometryCss, 'height:28px !important') && ! str_contains($labelMarkup, '<div class="wp-block-group tag') && ! preg_match('/<!-- wp:paragraph[^>]*"className":"tag"[^>]*-->\s*<p[^>]*>[^<]*<\/p>\s*<!-- \/wp:paragraph -->/', $labelMarkup), '25b: pill chrome and dimensions are serialized on its sole paragraph instead of a group plus nested paragraph', $labelMarkup . "\n" . $labelGeometryCss);
 $assert('pass' === ($labelResult['source_reports']['wp_block_validity']['status'] ?? ''), '25c: single-paragraph pill serialization is Gutenberg-valid', json_encode($labelResult['source_reports']['wp_block_validity'] ?? array()));
-$assert(str_contains($labelMarkup, '<p class="tier-name">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
+$assert(str_contains($labelMarkup, '<p class="tier-name blocks-engine-synthetic-paragraph">Team</p>'), '26: typography-only card tier label collapses to a styled paragraph so its font scale applies', $labelMarkup);
 $assert(str_contains($labelMarkup, '<div class="wp-block-group tier-price blocks-engine-css-owned-layout'), '27: CSS-owned card price row uses the marked core group wrapper', $labelMarkup);
-$assert(str_contains($labelMarkup, '<p class="use-case-result">Launch faster</p>'), '28: pure-text card result row carries its box chrome on one paragraph', $labelMarkup);
+$assert(str_contains($labelMarkup, '<p class="use-case-result blocks-engine-synthetic-paragraph">Launch faster</p>'), '28: pure-text card result row carries its box chrome on one paragraph', $labelMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"tier-name"/', $labelMarkup), '29: typography-only tier label does not round-trip as a group wrapping a default paragraph', $labelMarkup);
 
 // A universal reset (`* { margin: 0; padding: 0 }`) sets zero-valued box
@@ -333,7 +333,7 @@ $resetHtml = '<header class="page-header"><div class="eyebrow">The Shop</div><h1
 $resetCss = '*,*::before,*::after{margin:0;padding:0}.eyebrow{display:inline-flex;align-items:center;gap:0.8rem;font-size:0.68rem;letter-spacing:0.22em;text-transform:uppercase}.eyebrow::before{content:"";display:block;width:2.2rem;height:1px}';
 $resetResult = ( new HtmlTransformer() )->transform($resetHtml, array('static_css' => $resetCss))->toArray();
 $resetMarkup = (string) ($resetResult['serialized_blocks'] ?? '');
-$assert(str_contains($resetMarkup, '<p class="eyebrow">The Shop</p>'), '29b: a pure-text eyebrow under a universal zero reset collapses to a styled paragraph', $resetMarkup);
+$assert(str_contains($resetMarkup, '<p class="eyebrow blocks-engine-synthetic-paragraph">The Shop</p>'), '29b: a pure-text eyebrow under a universal zero reset collapses to a styled paragraph', $resetMarkup);
 $assert(! preg_match('/<!-- wp:group[^>]*"className":"eyebrow"/', $resetMarkup), '29c: the zero-reset eyebrow does not round-trip as a one-child group', $resetMarkup);
 
 $stackHtml = '<div class="hero-content"><p>Eyebrow</p><h1>Low Tide Table</h1><div></div><p>Local shrimp.</p><div><p>Next Run</p></div><div><a href="#reserve">Reserve</a></div></div>';

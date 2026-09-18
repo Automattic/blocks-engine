@@ -199,6 +199,10 @@ final class WrapperCoalescer
         $childAttrs['className'] = null === $proof
             ? SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), (string) ($childAttrs['className'] ?? ''), ...SourceDom::classNames($element))
             : SourceDom::mergeClassNames((string) ($childAttrs['className'] ?? ''), $this->layoutGeometryProofCarrier($proof));
+        $transferredTag = $this->transferableGroupTag(strtolower($element->tagName));
+        if ( null !== $transferredTag && 'core/group' === ($childBlock['blockName'] ?? null) && ! isset($childAttrs['tagName']) ) {
+            $childAttrs['tagName'] = $transferredTag;
+        }
         $childAttrs = array_filter($childAttrs, static fn (mixed $value): bool => ! is_string($value) || '' !== trim($value));
         if (null !== $proof) $this->session->layoutGeometryState()->recordProof($proof);
 
@@ -242,12 +246,12 @@ final class WrapperCoalescer
 
     /**
      * The original gate: is this even the shape wrapper coalescing applies
-     * to (a plain `div` around a single supported child, with no id/role/
-     * interactivity/data/structure signal of its own — unless a layout-
-     * geometry proof or a redundant-nested-layout finding already accounts
-     * for it)? Each disjunct of the original boolean expression is named
-     * here in the same order, so the first one that matches is the reason
-     * the wrapper is preserved.
+     * to (a representable wrapper around a single supported child, with no
+     * id/role/interactivity/data/structure signal of its own — unless a
+     * layout-geometry proof or a redundant-nested-layout finding already
+     * accounts for it)? Each disjunct of the original boolean expression is
+     * named here in the same order, so the first one that matches is the
+     * reason the wrapper is preserved.
      *
      * @param array<string, mixed> $childBlock
      * @param array<string, mixed>|null $proof
@@ -256,17 +260,17 @@ final class WrapperCoalescer
     private function eligibilityDisqualifications(DOMElement $element, array $childBlock, ?array $proof, bool $fullWidthTransparentShell, bool $redundantNestedLayout): array
     {
         return array(
-            array('not_a_div_element', fn (): bool => 'div' !== strtolower($element->tagName)),
+            array('unrepresentable_wrapper_tag', fn (): bool => ! $this->wrapperTagIsRepresentableOnChild($element, $childBlock)),
             array('unsupported_child_block_name', fn (): bool => ! in_array($childBlock['blockName'] ?? null, array( 'core/group', 'core/image' ), true)),
             array('full_width_shell_requires_group_child', fn (): bool => $fullWidthTransparentShell && 'core/group' !== ($childBlock['blockName'] ?? null)),
             array('runtime_dom_target', fn (): bool => $this->runtimeIslands->isRuntimeDomTarget($element)),
-            array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element)),
+            array('structural_layout_child_without_proof', fn (): bool => null === $proof && $this->isDirectChildOfStructuralLayout($element) && ! $redundantNestedLayout),
             array('has_id_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'id'))),
             array('has_role_attribute', fn (): bool => '' !== trim(SourceDom::attr($element, 'role'))),
             array('non_neutral_geometry_without_proof', fn (): bool => null === $proof && ! $fullWidthTransparentShell && ! $this->hasOnlyRenderNeutralInlineGeometry($element) && ! $redundantNestedLayout),
             array('has_interactive_attributes', fn (): bool => array() !== $this->interactiveAttributes($element)),
             array('has_data_attributes_without_proof', fn (): bool => null === $proof && array() !== $this->safeDataAttributes($element)),
-            array('has_structure_signals_without_proof', fn (): bool => null === $proof && array() !== ($this->structureSignals)($element) && ! $redundantNestedLayout),
+            array('has_structure_signals_without_proof', fn (): bool => null === $proof && $this->hasBlockingStructureSignals($element, $childBlock) && ! $redundantNestedLayout),
             array('has_motion_structure_token', fn (): bool => $this->sourceElementClassifier->hasMotionStructureToken($element)),
         );
     }
@@ -376,32 +380,61 @@ final class WrapperCoalescer
 
         $childClass = SourceDom::attr($child, 'class');
         $chainClasses = array_map(fn (DOMElement $node): string => SourceDom::attr($node, 'class'), $chain);
+        $mergedClass = SourceDom::mergeClassNames(...$chainClasses);
         $childParent = $child->parentNode;
         $childNextSibling = $child->nextSibling;
-        $parent->insertBefore($child, $element);
-        $parent->removeChild($element);
-        $child->setAttribute('class', SourceDom::mergeClassNames(...$chainClasses));
+        $promotedTag = $this->transferableGroupTag(strtolower($element->tagName));
+        $standIn = null;
+        $matchNode = $child;
+        if ( null !== $promotedTag && $promotedTag !== strtolower($child->tagName) && $child->ownerDocument instanceof DOMDocument ) {
+            $standIn = $child->ownerDocument->createElement($promotedTag);
+            foreach ( $child->attributes ?? array() as $attribute ) {
+                $standIn->setAttribute($attribute->nodeName, (string) $attribute->nodeValue);
+            }
+            $standIn->setAttribute('class', $mergedClass);
+            while ( null !== $child->firstChild ) {
+                $standIn->appendChild($child->firstChild);
+            }
+            $parent->insertBefore($standIn, $element);
+            $parent->removeChild($element);
+            $matchNode = $standIn;
+        } else {
+            $parent->insertBefore($child, $element);
+            $parent->removeChild($element);
+            $child->setAttribute('class', $mergedClass);
+        }
 
         $survives = true;
         $temporarySelectorCache = new CssSelectorMatchCache();
-        $afterCandidates = $this->authorStyleRuleCandidates($child, $temporarySelectorCache);
+        $afterCandidates = $this->authorStyleRuleCandidates($matchNode, $temporarySelectorCache);
         $candidates = array();
         foreach ( array_merge($beforeCandidates, $afterCandidates) as $selector ) {
             $candidates[$selector['key']] = $selector;
         }
         foreach ( $candidates as $key => $selector ) {
             $matchesAfter = $selector['parsed']['supported']
-                && $temporarySelectorCache->matches($child, $selector['selector'], $selector['parsed'], true)['matches'];
+                && $temporarySelectorCache->matches($matchNode, $selector['selector'], $selector['parsed'], true)['matches'];
             if ( ($matchesBefore[$key] ?? false) !== $matchesAfter && ($exact || ! $this->hasOnlyRenderNeutralDeclarations($selector['declarations'])) ) {
                 $survives = false;
                 break;
             }
         }
 
-        $parent->insertBefore($element, $child);
-        $parent->removeChild($child);
-        if ( $childParent instanceof DOMNode ) {
-            $childParent->insertBefore($child, $childNextSibling);
+        if ( $standIn instanceof DOMElement ) {
+            $parent->insertBefore($element, $standIn);
+            while ( null !== $standIn->firstChild ) {
+                $child->appendChild($standIn->firstChild);
+            }
+            if ( $child->parentNode !== $element ) {
+                $element->appendChild($child);
+            }
+            $parent->removeChild($standIn);
+        } else {
+            $parent->insertBefore($element, $child);
+            $parent->removeChild($child);
+            if ( $childParent instanceof DOMNode ) {
+                $childParent->insertBefore($child, $childNextSibling);
+            }
         }
         if ( '' === $childClass ) {
             $child->removeAttribute('class');
@@ -578,32 +611,92 @@ final class WrapperCoalescer
         }
 
         $childClass = (string) ($childBlock['attrs']['className'] ?? '');
-        if ( ! str_contains($childClass, 'blocks-engine-css-owned-layout')
-            || ! (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $childClass)
+        if ( ! str_contains($childClass, 'blocks-engine-css-owned-layout') ) {
+            return false;
+        }
+
+        $declarations = $this->matchingAuthorDeclarations($element);
+        $display = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? ''))));
+        if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true)
+            || ! $this->childGroupOwnsDisplay($element, $childClass, $display)
         ) {
             return false;
         }
 
-        if ( '' !== trim(SourceDom::attr($element, 'class')) ) {
-            return false;
-        }
-
-        $declarations = $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style'));
-        $display = strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations['display'] ?? ''))));
-        if ( ! in_array($display, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true) ) {
-            return false;
-        }
-
         unset($declarations['display']);
-        foreach ( $declarations as $property => $value ) {
-            if ( ! $this->isRenderNeutralGeometryDeclaration($property, $value) ) {
-                return false;
+        $child = ($this->soleElementChild)($element);
+        if ( $child instanceof DOMElement ) {
+            $childDeclarations = $this->matchingAuthorDeclarations($child);
+            foreach ( $declarations as $property => $value ) {
+                if ( isset($childDeclarations[$property]) && $childDeclarations[$property] === $value ) {
+                    unset($declarations[$property]);
+                }
             }
         }
 
-        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap(
-            array_diff_key($this->matchingAuthorDeclarations($element), array( 'display' => true ))
-        );
+        return $this->hasOnlyRenderNeutralBoxAffectingDeclarationMap($declarations);
+    }
+
+    /** @param array<string, mixed> $childBlock */
+    private function wrapperTagIsRepresentableOnChild(DOMElement $element, array $childBlock): bool
+    {
+        $tag = strtolower($element->tagName);
+        if ( 'div' === $tag ) {
+            return true;
+        }
+
+        return 'core/group' === ($childBlock['blockName'] ?? null) && null !== $this->transferableGroupTag($tag);
+    }
+
+    private function transferableGroupTag(string $tag): ?string
+    {
+        return in_array($tag, array( 'li', 'ul', 'ol' ), true) ? $tag : null;
+    }
+
+    private function childGroupOwnsDisplay(DOMElement $wrapper, string $childClass, string $display): bool
+    {
+        $flex = in_array($display, array( 'flex', 'inline-flex' ), true);
+        $grid = in_array($display, array( 'grid', 'inline-grid' ), true);
+        if ( $grid && ( str_contains($childClass, 'blocks-engine-css-owned-grid') || $this->classListHasExactToken($childClass, 'grid') ) ) {
+            return true;
+        }
+        if ( $flex && ( $this->classListHasExactToken($childClass, 'flex') || $this->classListHasExactToken($childClass, 'inline-flex') ) ) {
+            return true;
+        }
+        if ( (bool) preg_match('/(?:^|\s)be-inline-geometry-[a-f0-9-]+(?:\s|$)/', $childClass) ) {
+            return true;
+        }
+        $child = ($this->soleElementChild)($wrapper);
+        if ( ! $child instanceof DOMElement ) {
+            return false;
+        }
+        $childDisplay = strtolower(trim(CssValueInspector::withoutImportant(
+            (string) ($this->matchingAuthorDeclarations($child)['display'] ?? '')
+        )));
+
+        return $childDisplay === $display;
+    }
+
+    private function classListHasExactToken(string $className, string $token): bool
+    {
+        foreach ( preg_split('/\s+/', trim($className)) ?: array() as $class ) {
+            if ( $token === $class ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $childBlock */
+    private function hasBlockingStructureSignals(DOMElement $element, array $childBlock): bool
+    {
+        $signals = ($this->structureSignals)($element);
+        if ( 'core/image' === ($childBlock['blockName'] ?? null) ) {
+            unset($signals['card_like'], $signals['grid_like'], $signals['section_container_like']);
+        }
+
+        return array() !== $signals;
     }
 
     /**

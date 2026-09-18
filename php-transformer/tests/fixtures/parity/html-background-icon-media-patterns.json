@@ -20,8 +20,7 @@
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "hero-copy" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/heading", "attrs": { "content": "Care that meets you", "level": 1 } },
     { "path": "blocks.1", "name": "core/group", "attrs": { "className": "feature-card" } },
-    { "path": "blocks.1.innerBlocks.0", "name": "core/group", "attrs": { "className": "feature-icon" } },
-    { "path": "blocks.1.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "width": "24px", "height": "24px" } },
+    { "path": "blocks.1.innerBlocks.0", "name": "core/image", "attrs": { "width": "24px", "height": "24px" } },
     { "path": "blocks.1.innerBlocks.1", "name": "core/heading", "attrs": { "content": "Fast booking", "level": 3 } }
   ],
   "expected_fallbacks": [],
@@ -31,7 +30,7 @@
     { "path": "fallbacks", "assert": "count", "count": 0 },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:cover" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
-    { "path": "blocks.1.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.1.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
     { "path": "assets.0.content", "assert": "contains", "value": "stroke=\"#000000\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
     { "path": "source_reports.conversion_report.metrics.fallback_count", "assert": "equals", "value": 0 }

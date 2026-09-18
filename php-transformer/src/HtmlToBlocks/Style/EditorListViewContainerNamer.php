@@ -68,7 +68,7 @@ final class EditorListViewContainerNamer
             return null;
         }
 
-        $tag  = strtolower($sourceElement->tagName);
+        $tag  = strtolower((string) ($attrs['tagName'] ?? $sourceElement->tagName));
         $role = strtolower(SourceDom::attr($sourceElement, 'role'));
         $landmark = ShellLandmarkPolicy::landmarkKind($tag, $role);
         if ( isset(self::LANDMARK_LABELS[ $landmark ]) ) {
@@ -78,7 +78,7 @@ final class EditorListViewContainerNamer
             return 'Aside';
         }
 
-        $isSectioningContainer = in_array($tag, array( 'section', 'article' ), true) || 'core/cover' === $blockName;
+        $isSectioningContainer = in_array($tag, array( 'section', 'article', 'li' ), true) || 'core/cover' === $blockName;
         if ( ! $isSectioningContainer ) {
             return null;
         }

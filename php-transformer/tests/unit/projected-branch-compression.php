@@ -159,7 +159,7 @@ $mediaBlocks = (string) ($mediaResult['serialized_blocks'] ?? '');
 $assert('passed' === ($mediaPolicy['status'] ?? null) && 20 >= ($mediaMetrics['max_nesting_depth'] ?? PHP_INT_MAX), 'A generic media branch passes the unchanged editability depth policy.');
 $assert(1 === substr_count($mediaBlocks, '<!-- wp:custom/layout-shell'), 'A generic media branch uses one bounded layout shell without producer markers.');
 $assert(2 === ($mediaMetrics['max_nesting_depth'] ?? null), 'Merging the generic outer wrapper into its projected shell removes the extra List View level.');
-$assert(str_contains($mediaBlocks, 'class="wp-block-group generic-shell"') && str_contains($mediaBlocks, 'id="projected-media-shell-2"') && str_contains($mediaBlocks, 'id="media-caption"') && str_contains($mediaBlocks, 'id="media-leaf"'), 'The generic layout shell preserves wrapper identities and sibling media topology.');
+$assert(str_contains($mediaBlocks, 'generic-shell') && str_contains($mediaBlocks, 'id="projected-media-shell-2"') && str_contains($mediaBlocks, 'id="media-caption"') && str_contains($mediaBlocks, 'id="media-leaf"'), 'The generic layout shell preserves wrapper identities and sibling media topology.');
 
 // Neutral wrapper structure is sufficient for folding: no producer classes or
 // responsive markers participate in the structural decision.
