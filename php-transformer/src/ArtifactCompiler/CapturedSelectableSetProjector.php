@@ -236,7 +236,9 @@ final class CapturedSelectableSetProjector
             $members = $this->withSourceLabels($document, $set['members']);
             $hideTabList = ! $this->hasDistinctVisibleTriggerRow($members);
             foreach ($targets as $scopeIndex => $region) {
-                $this->fillRegion($document, $region, $members, $identity . '-' . ($scopeIndex + 1), $hideTabList);
+                $rowIdentity = $identity . '-' . ($scopeIndex + 1);
+                $triggerRow = $hideTabList ? null : $this->triggerRowForRegion($region, $members, $set['selector']);
+                $this->fillRegion($document, $region, $members, $rowIdentity, $hideTabList, $triggerRow);
             }
             ++$projected;
         }
@@ -249,8 +251,10 @@ final class CapturedSelectableSetProjector
     /**
      * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
      */
-    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList): void
+    private function fillRegion(DOMDocument $document, DOMElement $region, array $members, string $identity, bool $hideTabList, ?DOMElement $triggerRow): void
     {
+        $rowClass = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('class')) : '';
+        $rowStyle = $triggerRow instanceof DOMElement ? trim($triggerRow->getAttribute('style')) : '';
         while ($region->firstChild) {
             $region->removeChild($region->firstChild);
         }
@@ -261,6 +265,17 @@ final class CapturedSelectableSetProjector
         $tabList->setAttribute('aria-label', 'Items');
         if ($hideTabList) {
             $tabList->setAttribute('data-blocks-engine-tablist-presentation', 'hidden');
+        } elseif ($triggerRow instanceof DOMElement) {
+            if ('' !== $rowClass) {
+                $tabList->setAttribute('class', $rowClass);
+            }
+            if ('' !== $rowStyle) {
+                $tabList->setAttribute('style', $rowStyle);
+            }
+            $tabList->setAttribute('data-blocks-engine-tablist-row', $identity);
+            if ($triggerRow->parentNode) {
+                $triggerRow->setAttribute('data-blocks-engine-tablist-row', $identity);
+            }
         }
         foreach ($members as $index => $member) {
             $tabId = 'blocks-engine-set-' . $identity . '-tab-' . $index;
@@ -482,6 +497,81 @@ final class CapturedSelectableSetProjector
         }
 
         return $parts;
+    }
+
+    /**
+     * Closest ancestor that actually laid the triggers out — not the shared
+     * region the tab-list is inserted into.
+     *
+     * @param array<int, array{label:string, html:string, tag:string, selector:string}> $members
+     */
+    private function triggerRowForRegion(DOMElement $region, array $members, string $setSelector): ?DOMElement
+    {
+        $scope = $this->scopeRoot($region);
+        $triggers = array();
+        foreach ($members as $member) {
+            $matched = $this->selectorMatches($scope, $member['selector']);
+            if (1 !== count($matched)) {
+                $triggers = array();
+                break;
+            }
+            $triggers[] = $matched[0];
+        }
+        $row = array() === $triggers ? null : $this->commonAncestor($triggers);
+        if (! $row instanceof DOMElement) {
+            $matched = $this->selectorMatches($scope, $setSelector);
+            $row = 1 === count($matched) ? $matched[0] : null;
+        }
+        if (! $row instanceof DOMElement || $row->isSameNode($region) || $this->elementContains($row, $region)) {
+            return null;
+        }
+
+        return $row;
+    }
+
+    private function scopeRoot(DOMElement $element): DOMElement
+    {
+        $document = $element->ownerDocument;
+        if ($document instanceof DOMDocument) {
+            foreach ($this->documentScopes($document) as $scope) {
+                if ($this->elementContains($scope, $element)) {
+                    return $scope;
+                }
+            }
+        }
+
+        return $element;
+    }
+
+    /** @param array<int, DOMElement> $elements */
+    private function commonAncestor(array $elements): ?DOMElement
+    {
+        $first = $elements[0] ?? null;
+        if (! $first instanceof DOMElement) {
+            return null;
+        }
+        for ($ancestor = $first->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode) {
+            foreach ($elements as $element) {
+                if (! $this->elementContains($ancestor, $element)) {
+                    continue 2;
+                }
+            }
+
+            return $ancestor;
+        }
+
+        return null;
+    }
+
+    private function elementContains(DOMElement $container, DOMElement $element): bool
+    {
+        for ($node = $element; $node instanceof DOMElement; $node = $node->parentNode) {
+            if ($node->isSameNode($container)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
