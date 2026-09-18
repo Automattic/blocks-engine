@@ -8223,9 +8223,8 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         if ( null !== $picture && ! $figure instanceof DOMElement ) {
             $attrs = array_merge($this->styleResolver->presentationAttributes($picture), $attrs);
         }
-        $linked = $link instanceof DOMElement;
-        $width = $this->imageDimensions()->imageDisplayDimension($image, 'width', $linked);
-        $height = $this->imageDimensions()->imageDisplayDimension($image, 'height', $linked);
+        $width = $this->imageDimensions()->imageDisplayDimension($image, 'width');
+        $height = $this->imageDimensions()->imageDisplayDimension($image, 'height');
         if ( '' !== $width || '' !== $height ) {
             $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), 'is-resized');
         }
