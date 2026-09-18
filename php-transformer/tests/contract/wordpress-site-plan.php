@@ -392,6 +392,58 @@ $projectedLayoutGraph = $layoutDeclaration['payload']['entities'][0]['layout_gra
 $assert(is_array($projectedLayoutGraph) && RuntimeDeclarations::hash($projectedLayoutGraph) === RuntimeDeclarations::hash($layoutFallback['layout_graph'] ?? null), 'Artifact compiler and WordPress site plan project the generic form layout graph unchanged.');
 $layoutNodes = array_column($projectedLayoutGraph['nodes'] ?? array(), null, 'id');
 $assert('grid' === ($layoutNodes['form']['layout']['display'] ?? null) && '1fr 1fr' === ($layoutNodes['wrapper-0']['layout']['columns'] ?? null) && 'flex' === ($layoutNodes['wrapper-1']['layout']['display'] ?? null) && 'css/style.css' === ($layoutNodes['form']['provenance'][0]['source_path'] ?? null), 'Linked stylesheets retain form, row, and field layout facts with source-path provenance.');
+// A div pseudo-form is never replaced by the readable block synthesized for it,
+// so its entity must bind to the converted subtree the page actually emits.
+$pseudoFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><div class="signup"><div class="field"><input type="email" name="email"></div><button>Subscribe</button></div></main>')))->toArray();
+$pseudoFormFallback = current(array_filter($pseudoFormResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$assert(is_array($pseudoFormFallback) && 'div' === ($pseudoFormFallback['tag'] ?? null) && isset($pseudoFormFallback['form_boundary']) && 2 === count($pseudoFormFallback['controls'] ?? array()) && 1 === count($pseudoFormFallback['readable_blocks'] ?? array()), 'A div pseudo-form reports a generic form fallback with extracted controls and readable blocks.');
+$pseudoFormPlan = $pseudoFormResult['source_reports']['wordpress_site_plan'] ?? array();
+$assert(array() !== $pseudoFormPlan && !isset($pseudoFormResult['source_reports']['wordpress_site_plan_diagnostics']), 'A div pseudo-form artifact still compiles to a self-contained WordPress site plan: ' . json_encode($pseudoFormResult['source_reports']['wordpress_site_plan_diagnostics'] ?? array()));
+$pseudoFormDeclaration = current(array_filter($pseudoFormPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? null) && 'forms' === ($declaration['type'] ?? null)));
+$pseudoFormDependency = current(array_filter($pseudoFormPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'dependency' === ($declaration['kind'] ?? null) && 'form' === ($declaration['capability'] ?? null)));
+$assert(is_array($pseudoFormDeclaration) && 'generic/forms/v1' === ($pseudoFormDeclaration['payload']['schema'] ?? null) && 1 === count($pseudoFormDeclaration['payload']['entities'] ?? array()) && is_array($pseudoFormDependency) && array('entity_collection:forms') === ($pseudoFormDependency['required_for'] ?? array()), 'A div pseudo-form reaches runtime_declarations as a generic/forms/v1 entity collection with its form-capability dependency.');
+$pseudoFormEntity = $pseudoFormDeclaration['payload']['entities'][0] ?? array();
+$assert(RuntimeDeclarations::hash($pseudoFormEntity['controls'] ?? null) === RuntimeDeclarations::hash($pseudoFormFallback['controls'] ?? null) && RuntimeDeclarations::hash($pseudoFormEntity['control_topology'] ?? null) === RuntimeDeclarations::hash($pseudoFormFallback['control_topology'] ?? null) && ($pseudoFormFallback['selector'] ?? null) === ($pseudoFormEntity['selector'] ?? null), 'Div pseudo-form metadata, controls, and bounded control topology survive unchanged into generic/forms/v1.');
+$pseudoFormBinding = $pseudoFormEntity['bindings'][0] ?? array();
+$pseudoFormMarkup = (string) ($pseudoFormPlan['pages'][0]['canonical_block_markup'] ?? '');
+$assert('generic/block-binding/v1' === ($pseudoFormBinding['schema'] ?? null) && 'form' === ($pseudoFormBinding['role'] ?? null) && 1 === ($pseudoFormBinding['occurrence'] ?? null) && 'index.html' === ($pseudoFormBinding['source_path'] ?? null) && 1 === substr_count($pseudoFormMarkup, (string) ($pseudoFormBinding['search_block_markup'] ?? 'missing')), 'A div pseudo-form binding is an exact, page-owned anchor in the canonical block markup.');
+$assert(str_contains((string) ($pseudoFormBinding['search_block_markup'] ?? ''), '"className":"signup"') && str_contains((string) ($pseudoFormBinding['search_block_markup'] ?? ''), 'Subscribe'), 'A div pseudo-form binding anchors the whole converted pseudo-form subtree, not a synthesized replacement.');
+
+// A prepared form declaration is never dropped silently: a failed contract is
+// named so a consumer can see which check declined the metadata.
+$truncatedFormFields = ''; for ($index = 0; $index < 70; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
+$truncatedFormResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply">' . $truncatedFormFields . '<button type="submit">Send</button></form></main>')))->toArray();
+$truncatedFormFallback = current(array_filter($truncatedFormResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$truncatedFormPlan = $truncatedFormResult['source_reports']['wordpress_site_plan'] ?? array();
+$declinedFormDiagnostics = array_values(array_filter($truncatedFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null)));
+$assert(true === ($truncatedFormFallback['control_topology']['truncated'] ?? null) && array() === array_filter($truncatedFormPlan['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)), 'A truncated control topology still declines the generic form entity declaration.');
+$assert(1 === count($declinedFormDiagnostics) && 'control_topology_truncated' === ($declinedFormDiagnostics[0]['failed_check'] ?? null) && 'warning' === ($declinedFormDiagnostics[0]['severity'] ?? null) && 'generic/forms/v1' === ($declinedFormDiagnostics[0]['entity_schema'] ?? null) && ($truncatedFormFallback['selector'] ?? null) === ($declinedFormDiagnostics[0]['selector'] ?? null) && 'index.html' === ($declinedFormDiagnostics[0]['source_path'] ?? null) && count($truncatedFormFallback['controls'] ?? array()) === ($declinedFormDiagnostics[0]['control_count'] ?? null) && 'materialize_form_provider' === ($declinedFormDiagnostics[0]['repair_bucket'] ?? null), 'A declined form declaration names the failed check, its source anchor, and the entity schema it was prepared for.');
+$assert(array() === array_filter($pseudoFormResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null)) && array() === array_filter($layoutResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null)), 'A declared form entity reports no decline diagnostic.');
+// Every extracted form is accounted for: it either reaches generic/forms/v1 or
+// a diagnostic names the check that declined it. Silence is never an option.
+$formAccountabilityArtifacts = array(
+    'real form' => '<main><form method="post" action="/join"><input type="email" name="email"><button type="submit">Join</button></form></main>',
+    'div pseudo-form' => '<main><div class="signup"><div class="field"><input type="email" name="email"></div><button>Subscribe</button></div></main>',
+    'coalescible wrappers' => '<main><div><div><div class="signup"><input type="email" name="email"><button>Subscribe</button></div></div></div></main>',
+    'disclosure subtree' => '<main><details><summary>More</summary><div class="signup"><input type="email" name="email"><button>Subscribe</button></div></details></main>',
+    'inline behavior script' => '<main><div class="signup"><input type="email" id="signup-email" name="email"><button>Subscribe</button><script>document.getElementById("signup-email");</script></div></main>',
+    'sibling pseudo-forms' => '<main><div class="a"><input type="email" name="email"><button>Subscribe</button></div><div class="b"><input type="text" name="name"><button>Subscribe</button></div></main>',
+    'truncated topology' => '<main><form method="post" action="/apply">' . $truncatedFormFields . '<button type="submit">Send</button></form></main>',
+);
+foreach ($formAccountabilityArtifacts as $label => $accountabilityHtml) {
+    $accountabilityResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => $accountabilityHtml)))->toArray();
+    $accountabilityDeclaration = current(array_filter($accountabilityResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'forms' === ($declaration['type'] ?? null)));
+    $accountedSelectors = array_merge(
+        is_array($accountabilityDeclaration) ? array_column($accountabilityDeclaration['payload']['entities'] ?? array(), 'selector') : array(),
+        array_column(array_values(array_filter($accountabilityResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'runtime_form_declaration_declined' === ($diagnostic['code'] ?? null))), 'selector')
+    );
+    $accountabilityFallbacks = array_values(array_filter($accountabilityResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+    $assert(array() !== $accountabilityFallbacks, 'The ' . $label . ' artifact still extracts a generic form fallback.');
+    foreach ($accountabilityFallbacks as $accountabilityFallback) {
+        $assert(in_array($accountabilityFallback['selector'] ?? null, $accountedSelectors, true), 'Extracted form metadata for the ' . $label . ' artifact is either declared as a runtime form entity or declined by a named diagnostic.');
+    }
+}
+
 $sharedFormArtifact = array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><header class="site-header"><p>Shared header</p></header><main><h1>Home</h1></main><footer class="site-footer"><form method="post"><input type="email" name="email"><button type="submit">Join</button></form></footer></body></html>', 'about.html' => '<!doctype html><html><body><header class="site-header"><p>Shared header</p></header><main><h1>About</h1></main><footer class="site-footer"><form method="post"><input type="email" name="email"><button type="submit">Join</button></form></footer></body></html>'));
 $sharedFormResult = (new ArtifactCompiler())->compile($sharedFormArtifact)->toArray();
 $sharedFormPlan = $sharedFormResult['source_reports']['wordpress_site_plan'] ?? array();

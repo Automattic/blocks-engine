@@ -46,6 +46,15 @@ final class FormFallbackFindingBuilder
         if ( $replacesRuntimeIsland ) {
             $supersededRuntimeSelectors[] = SourceDom::runtimeIslandSelector($element);
         }
+        // A real `<form>`, and any explicit replacement block, is the block the
+        // page emits for the element, so it anchors on itself. A div pseudo-form
+        // is not replaced by the readable block built for it: the page emits its
+        // own converted subtree instead. Anchor that binding on the source
+        // element so the form entity keeps an exact anchor the page still owns.
+        $pageOwnedAnchor = ! $replacesRuntimeIsland && 'form' !== strtolower($element->tagName) ? $element : null;
+        $binding = null !== $pageOwnedAnchor
+            ? $this->context->blockBinding(array(), 'form', $supersededRuntimeSelectors, $pageOwnedAnchor)
+            : ( null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array() );
 
         $finding = array(
             'type'             => 'html',
@@ -62,7 +71,7 @@ final class FormFallbackFindingBuilder
             'classification'   => $this->context->classifyFallbackSubtree($element),
             'events'           => SourceDom::eventMetadata($element),
             'readable_blocks'  => null !== $readableFormBlock ? array( $readableFormBlock ) : array(),
-            'binding'          => null !== $bindingBlock ? $this->context->blockBinding($bindingBlock, 'form', $supersededRuntimeSelectors) : array(),
+            'binding'          => $binding,
             'controls'         => $controls,
             'control_topology' => $controlTopology,
             'sibling_relations' => (new FormControlTopologyBuilder())->directLabelControlPairs($element),

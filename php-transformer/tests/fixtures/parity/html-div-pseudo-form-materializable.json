@@ -5,7 +5,7 @@
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-div-pseudo-form-materializable.json",
-    "notes": "Newsletter/signup widgets are frequently built without a <form> element (a div holding an email input and a Subscribe button). The issue #315 form-detection path keys off the <form> element, so such pseudo-forms are missed entirely; this extends detection to the structural input+submit pairing."
+    "notes": "Newsletter/signup widgets are frequently built without a <form> element (a div holding an email input and a Subscribe button). The issue #315 form-detection path keys off the <form> element, so such pseudo-forms are missed entirely; this extends detection to the structural input+submit pairing. Issue #718: the binding anchors on the converted subtree the page emits rather than on the readable block synthesized alongside it, so the generic form entity keeps a page-owned anchor into the WordPress site plan."
   },
   "legacy_comparison": {
     "skip": true,
@@ -40,6 +40,13 @@
     { "path": "fallbacks.0.control_topology.nodes.0.control", "assert": "equals", "value": 0 },
     { "path": "fallbacks.0.control_topology.nodes.1.control", "assert": "equals", "value": 1 },
     { "path": "serialized_blocks", "assert": "contains", "value": "Email address: you@example.com (required)" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" }
+    { "path": "serialized_blocks", "assert": "contains", "value": "Subscribe" },
+    { "path": "fallbacks.0.binding.schema", "assert": "equals", "value": "generic/block-binding/v1" },
+    { "path": "fallbacks.0.binding.role", "assert": "equals", "value": "form" },
+    { "path": "fallbacks.0.binding.occurrence", "assert": "equals", "value": 1 },
+    { "path": "fallbacks.0.binding.position.schema", "assert": "equals", "value": "blocks-engine/runtime-binding-position/v1" },
+    { "path": "fallbacks.0.binding.position.block_index", "assert": "equals", "value": 0 },
+    { "path": "fallbacks.0.binding.search_block_markup", "assert": "equals", "value": "<!-- wp:group {\"className\":\"signup\"} --><div class=\"wp-block-group signup\"><!-- wp:paragraph {\"className\":\"blocks-engine-synthetic-paragraph\"} --><p class=\"blocks-engine-synthetic-paragraph\">Email address</p><!-- /wp:paragraph --><!-- wp:paragraph {\"anchor\":\"nl\",\"className\":\"blocks-engine-synthetic-paragraph\"} --><p id=\"nl\" class=\"blocks-engine-synthetic-paragraph\">Email address: you@example.com (required)</p><!-- /wp:paragraph --><!-- wp:buttons --><div class=\"wp-block-buttons\"><!-- wp:button {\"tagName\":\"button\"} --><div class=\"wp-block-button\"><button type=\"button\" class=\"wp-block-button__link wp-element-button\">Subscribe</button></div><!-- /wp:button --></div><!-- /wp:buttons --></div><!-- /wp:group -->" },
+    { "path": "serialized_blocks", "assert": "equals", "value": "<!-- wp:group {\"className\":\"signup\"} --><div class=\"wp-block-group signup\"><!-- wp:paragraph {\"className\":\"blocks-engine-synthetic-paragraph\"} --><p class=\"blocks-engine-synthetic-paragraph\">Email address</p><!-- /wp:paragraph --><!-- wp:paragraph {\"anchor\":\"nl\",\"className\":\"blocks-engine-synthetic-paragraph\"} --><p id=\"nl\" class=\"blocks-engine-synthetic-paragraph\">Email address: you@example.com (required)</p><!-- /wp:paragraph --><!-- wp:buttons --><div class=\"wp-block-buttons\"><!-- wp:button {\"tagName\":\"button\"} --><div class=\"wp-block-button\"><button type=\"button\" class=\"wp-block-button__link wp-element-button\">Subscribe</button></div><!-- /wp:button --></div><!-- /wp:buttons --></div><!-- /wp:group -->" }
   ]
 }

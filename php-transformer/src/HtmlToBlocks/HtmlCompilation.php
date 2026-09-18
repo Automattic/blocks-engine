@@ -694,7 +694,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-                fn (array $block, string $role, array $supersededRuntimeSelectors): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors),
+                fn (array $block, string $role, array $supersededRuntimeSelectors, ?DOMElement $anchorElement): array => $this->blockBinding($block, $role, $supersededRuntimeSelectors, $anchorElement),
                 fn (DOMElement $element, string $value): string => $this->styleResolver->resolveCssVariablesInValue($value, $element),
                 fn (DOMElement $element): string => $this->svgMaterializer->restoreSvgCasing($this->sanitizeInlineSvgMarkup($element))
             ),
@@ -6228,15 +6228,26 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return null;
     }
 
-    /** @return array<string,mixed> */
-    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array()): array
+    /**
+     * A binding resolves against the emitted block tree in
+     * `finalizeFallbackBindings()`. `$block` is the preferred anchor when the
+     * caller owns a block that the page actually emits. `$anchorElement` is the
+     * source element whose own emitted block anchors the binding when the
+     * caller only has a separately synthesized representation of the subtree.
+     *
+     * @return array<string,mixed>
+     */
+    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array(), ?DOMElement $anchorElement = null): array
     {
         $provenanceId = $block['_source_provenance_id'] ?? null;
-        $markup = $this->runtime->serializeBlocks(array($block));
-        if ( '' === trim($markup) || ! is_int($provenanceId) ) {
+        $markup = array() !== $block ? $this->runtime->serializeBlocks(array($block)) : '';
+        $anchorSelector = null !== $anchorElement ? $this->elementSelector($anchorElement) : '';
+        if ( ( '' === trim($markup) || ! is_int($provenanceId) ) && '' === $anchorSelector ) {
             return array();
         }
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role, '_binding_provenance_id' => $provenanceId);
+        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
+        if ( is_int($provenanceId) ) $binding['_binding_provenance_id'] = $provenanceId;
+        if ( '' !== $anchorSelector ) $binding['_binding_anchor_selector'] = $anchorSelector;
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
         return $binding;
@@ -6247,10 +6258,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $provenanceIndexes = array(); $index = 0;
         $this->bindingProvenanceIndexes($blocks, $provenanceIndexes, $index);
+        $anchorIndexes = $this->bindingAnchorSelectorIndexes($provenanceIndexes);
         $ranges = $this->serializedBlockRanges($markup);
-        $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $ranges): void {
+        $finalize = function (array &$binding) use ($markup, $provenanceIndexes, $anchorIndexes, $ranges): void {
             $provenanceId = $binding['_binding_provenance_id'] ?? null;
             $blockIndex = is_int($provenanceId) ? ($provenanceIndexes[$provenanceId] ?? null) : null;
+            $anchorSelector = $binding['_binding_anchor_selector'] ?? null;
+            if ( ! is_int($blockIndex) && is_string($anchorSelector) ) $blockIndex = $anchorIndexes[$anchorSelector] ?? null;
             $range = is_int($blockIndex) ? ($ranges[$blockIndex] ?? null) : null;
             if (is_array($range)) {
                 $search = substr($markup, $range['offset'], $range['length']);
@@ -6264,7 +6278,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             } else {
                 $binding = array();
             }
-            unset($binding['_binding_provenance_id']);
+            unset($binding['_binding_provenance_id'], $binding['_binding_anchor_selector']);
         };
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
@@ -6294,6 +6308,27 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ++$index;
             $this->bindingProvenanceIndexes(is_array($block['innerBlocks'] ?? null) ? $block['innerBlocks'] : array(), $provenanceIndexes, $index);
         }
+    }
+
+    /**
+     * Maps a source selector onto the outermost emitted block converted from
+     * that element. `$provenanceIndexes` is populated in document pre-order, so
+     * the first entry for a selector is the block that owns the whole converted
+     * subtree. A selector whose outermost block is itself ambiguous stays
+     * unresolved rather than anchoring on an arbitrary sibling.
+     *
+     * @param array<int,int|null> $provenanceIndexes
+     * @return array<string,int|null>
+     */
+    private function bindingAnchorSelectorIndexes(array $provenanceIndexes): array
+    {
+        $anchorIndexes = array();
+        foreach ( $provenanceIndexes as $provenanceId => $blockIndex ) {
+            $selector = $this->transformationProvenance()->source($provenanceId)['selector'] ?? null;
+            if ( ! is_string($selector) || '' === $selector || array_key_exists($selector, $anchorIndexes) ) continue;
+            $anchorIndexes[$selector] = $blockIndex;
+        }
+        return $anchorIndexes;
     }
 
     /** @return array<int,array{offset:int,length:int}> */

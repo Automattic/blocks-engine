@@ -60,9 +60,13 @@ $context = new FormFallbackFindingContext(
     static fn (DOMElement $element): array => array( '#existing-runtime' ),
     static fn (DOMElement $element): array => array( 'source' => 'fixture' ),
     static fn (DOMElement $element): array => array( 'kind' => 'interactive' ),
-    static function (array $block, string $role, array $selectors) use (&$bindingCalls): array {
-        $bindingCalls[] = compact('block', 'role', 'selectors');
-        return array( 'role' => $role, 'selectors' => $selectors, 'blockName' => $block['blockName'] ?? '' );
+    static function (array $block, string $role, array $selectors, ?DOMElement $anchorElement = null) use (&$bindingCalls, $selector): array {
+        $anchor = null !== $anchorElement ? $selector($anchorElement) : null;
+        $bindingCalls[] = compact('block', 'role', 'selectors', 'anchor');
+        return array_filter(
+            array( 'role' => $role, 'selectors' => $selectors, 'blockName' => $block['blockName'] ?? '', 'anchor' => $anchor ),
+            static fn (mixed $value): bool => null !== $value
+        );
     }
 );
 $builder = new FormFallbackFindingBuilder($context, $metadataBuilder, $successBuilder, $pseudoAnalyzer);
@@ -84,6 +88,9 @@ $assert('button base size hover wrap provider upgrade responsive typography widt
 $assert(array( $readable ) === ($finding['readable_blocks'] ?? array()), 'readable-blocks');
 $assert('form' === ($finding['binding']['role'] ?? ''), 'readable-block-defaults-to-binding');
 $assert(array( '#existing-runtime' ) === ($finding['binding']['selectors'] ?? array()), 'default-binding-retains-runtime-selectors');
+// A real `<form>` is replaced by the block it binds, so it never needs a
+// separate source-element anchor. See #700 for real-form scope.
+$assert(! isset($finding['binding']['anchor']), 'real-form-binding-has-no-source-element-anchor');
 $assert('<safe-form>' === ($finding['html'] ?? ''), 'bounded-html');
 $assert(11 === ($finding['html_bytes'] ?? 0) && true === ($finding['html_truncated'] ?? false), 'bounded-html-metadata');
 $assert(array( 'source' => 'fixture' ) === ($finding['context'] ?? array()), 'source-context');
@@ -95,13 +102,30 @@ $preserved = array( 'blockName' => 'core/html' );
 $replacement = $builder->build($form, $readable, $preserved);
 $assert('core/html' === ($replacement['binding']['blockName'] ?? ''), 'explicit-binding-is-used');
 $assert(array( '#existing-runtime', '#signup' ) === ($replacement['binding']['selectors'] ?? array()), 'replacement-binding-supersedes-form-island');
+$assert(! isset($replacement['binding']['anchor']), 'real-form-replacement-binding-has-no-source-element-anchor');
 
+// A div pseudo-form keeps its own converted subtree in the page, so its
+// binding anchors on that source element instead of on a block the page
+// never emits. See #718.
 $pseudo = $elementFrom('<div id="signup-shell"><input name="email"><button>Join</button></div>');
+$bindingCalls = array();
 $pseudoFinding = $builder->build($pseudo, null);
 $assert('div' === ($pseudoFinding['tag'] ?? ''), 'pseudo-form-tag');
 $assert(isset($pseudoFinding['form_boundary']), 'pseudo-form-boundary');
 $assert(array() === ($pseudoFinding['readable_blocks'] ?? null), 'null-readable-blocks');
-$assert(array() === ($pseudoFinding['binding'] ?? null), 'null-binding');
+$assert('form' === ($pseudoFinding['binding']['role'] ?? ''), 'pseudo-form-retains-binding');
+$assert('#signup-shell' === ($pseudoFinding['binding']['anchor'] ?? ''), 'pseudo-form-binding-anchors-on-source-element');
+$assert(1 === count($bindingCalls) && array() === ($bindingCalls[0]['block'] ?? null), 'pseudo-form-binding-does-not-synthesize-an-unemitted-block');
+
+$pseudoWithReadable = $builder->build($pseudo, $readable);
+$assert('#signup-shell' === ($pseudoWithReadable['binding']['anchor'] ?? ''), 'pseudo-form-binds-source-element-not-the-synthesized-readable-block');
+$assert(array( $readable ) === ($pseudoWithReadable['readable_blocks'] ?? array()), 'pseudo-form-readable-output-unchanged');
+
+// An explicit replacement block is emitted by the page, so it still anchors on
+// itself even when the source element is not a real `<form>`.
+$pseudoReplacement = $builder->build($pseudo, $readable, $preserved);
+$assert('core/html' === ($pseudoReplacement['binding']['blockName'] ?? ''), 'pseudo-form-replacement-block-is-used');
+$assert(! isset($pseudoReplacement['binding']['anchor']), 'pseudo-form-replacement-binding-has-no-source-element-anchor');
 
 if ( $failures ) {
     fwrite(STDERR, implode("\n", $failures) . "\n");
