@@ -58,11 +58,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        $html = $this->cssOwnsMediaBox($element)
-            ? $this->ensureInlineSvgBoxStyle($html, $element)
-            : $this->ensureInlineSvgSizing($html, $element);
-        $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
-        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
+        $html = $this->materializeSanitizedSvgMarkup($html, $element);
         $imageBlock = $this->inlineSvgImageBlockFromMarkup($element, $html);
         if ( null !== $imageBlock ) {
             return $imageBlock;
@@ -76,6 +72,74 @@ final class SvgMaterializer implements SvgElementMaterializer
         // core/html, with viewBox-derived dimensions to avoid unbounded rendering.
         $this->recordGutenbergIncompatibility($element, 'svg_requires_inline_document_context', 'SVG uses behavior or external document features that cannot be represented as a static editable core/image asset.');
         return $this->context->createBlock('core/html', array( 'content' => $html ), array(), $element);
+    }
+
+    /**
+     * Size, paint and case sanitized SVG markup for emission.
+     */
+    private function materializeSanitizedSvgMarkup(string $html, DOMElement $element): string
+    {
+        $html = $this->cssOwnsMediaBox($element)
+            ? $this->ensureInlineSvgBoxStyle($html, $element)
+            : $this->ensureInlineSvgSizing($html, $element);
+        $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
+
+        return $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
+    }
+
+    /**
+     * A standalone SVG image cannot see the page stylesheet, and sanitization
+     * drops the SVG's own `<style>` (which the page cascade already owns). Bake
+     * each descendant's author-cascaded paint (e.g. an exported `.cls-1{fill}`
+     * rule) onto that element's inline style so the image keeps its colors.
+     * Only the standalone asset gets this; inline SVG still inherits page CSS,
+     * including state rules an inline style would override.
+     */
+    private function withStandaloneDescendantPaint(DOMElement $element, string $html): string
+    {
+        $clone = $element->cloneNode(true);
+        if ( ! $clone instanceof DOMElement ) {
+            return $html;
+        }
+
+        $sources = $element->getElementsByTagName('*');
+        $targets = $clone->getElementsByTagName('*');
+        $baked = false;
+        for ( $index = 0, $count = $sources->length; $index < $count; ++$index ) {
+            $source = $sources->item($index);
+            $target = $targets->item($index);
+            if ( ! $source instanceof DOMElement || ! $target instanceof DOMElement ) {
+                continue;
+            }
+
+            $matched = $this->styleResolver->matchedCascadedDeclarations($source);
+            $declarations = array();
+            foreach ( array( 'fill', 'fill-opacity', 'stroke', 'stroke-opacity', 'stroke-width' ) as $property ) {
+                $value = trim(preg_replace('/\s*!\s*important\s*$/i', '', (string) ($matched[$property] ?? '')) ?? '');
+                // The cascade parser already drops url()/expression() values;
+                // also refuse var() (an isolated image has no custom properties)
+                // and markup or escape characters. An identical presentation
+                // attribute already carries the value.
+                if ( '' === $value || $value === trim(SourceDom::attr($source, $property)) || preg_match('/var\s*\(|[<>@\\\\]/i', $value) ) {
+                    continue;
+                }
+                $declarations[$property] = $value;
+            }
+            if ( array() === $declarations ) {
+                continue;
+            }
+
+            $style = $this->styleResolver->cssDeclarationString(array_merge($this->styleResolver->cssDeclarations(SourceDom::attr($target, 'style')), $declarations));
+            $target->setAttribute('style', $style);
+            $baked = true;
+        }
+        if ( ! $baked ) {
+            return $html;
+        }
+
+        $bakedHtml = $this->context->sanitizeInlineSvgMarkup($clone);
+
+        return SourceDom::isSafeSvgContent($bakedHtml) ? $this->materializeSanitizedSvgMarkup($bakedHtml, $element) : $html;
     }
 
     /**
@@ -101,6 +165,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         if ( ! $this->isNativeImageCompatibleSvg($element, $html) ) {
             return null;
         }
+        $html = $this->withStandaloneDescendantPaint($element, $html);
 
         $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
         if ( $this->cssOwnsMediaBox($element) && ! $this->cssDefinesMediaSize($element) ) {
@@ -243,11 +308,7 @@ final class SvgMaterializer implements SvgElementMaterializer
             return null;
         }
 
-        $html = $this->cssOwnsMediaBox($element)
-            ? $this->ensureInlineSvgBoxStyle($html, $element)
-            : $this->ensureInlineSvgSizing($html, $element);
-        $html = $this->bakeCascadedSvgTextLayout($this->resolveMaterializedSvgColors($html, $element), $element);
-        $html = $this->restoreSvgCasing($this->inlineSvgMaterializationMarkup($html, $element));
+        $html = $this->materializeSanitizedSvgMarkup($html, $element);
         $attrs = $this->inlineSvgImageAttributesFromMarkup($element, $html, true);
         if ( null === $attrs ) {
             return null;

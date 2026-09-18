@@ -1,0 +1,51 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-internal-style-paint-baked",
+  "description": "Class-based paint from an inline SVG's own <style> is baked onto the matching elements of the standalone materialized SVG asset, because the sanitizer drops the <style> element and an <img> cannot see page CSS.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-internal-style-paint-baked.json",
+    "notes": "Distilled from gameover.ai (r12): an Illustrator-exported logo painted by <defs><style>.cls-1{fill:rgba(255,255,255,.9)}</style> rendered black after import."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"container has-text-centered\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 260 511.59\"><defs><style>.cls-1{fill:rgba(255,255,255,0.9);}.outline path{stroke:#123456;stroke-width:2}</style></defs><title>White Vert</title><g class=\"outline\"><path class=\"cls-1\" d=\"M0 0h260v260H0z\"/><path d=\"M0 300h260v211.59H0z\"/></g></svg></div></main>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/image"
+    }
+  ],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.attrs.url",
+      "assert": "contains",
+      "value": "assets/materialized-svg/"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "<path class=\"cls-1\" d=\"M0 0h260v260H0z\" style=\"fill:rgba(255,255,255,0.9);stroke:#123456;stroke-width:2\">"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "<path d=\"M0 300h260v211.59H0z\" style=\"stroke:#123456;stroke-width:2\">"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "not_contains",
+      "value": "<style"
+    }
+  ]
+}
