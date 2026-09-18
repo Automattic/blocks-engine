@@ -11,6 +11,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
 $failures = 0;
@@ -98,7 +99,7 @@ $assert(
     $inFlowMarkup
 );
 $assert(
-    str_contains($inFlowCss, ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}'),
+    str_contains($inFlowCss, ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'),
     '8: inline in-flow buttons transfer participation onto the link, not the positioned shrink-to-fit rule',
     $inFlowCss
 );

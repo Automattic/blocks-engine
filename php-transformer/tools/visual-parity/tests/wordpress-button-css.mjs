@@ -11,4 +11,8 @@ export const wordpressButtonCss = [
     '.wp-block-buttons{box-sizing:border-box;display:flex;flex-wrap:wrap;gap:.5em}',
     '.wp-block-button{box-sizing:border-box;display:inline-block}',
     '.wp-block-button__link{box-sizing:border-box;cursor:pointer;display:inline-block;min-height:10px;padding:calc(.667em + 2px) calc(1.333em + 2px);text-align:center;word-break:break-word}',
+    // Core still matches this after display:contents on the wrappers — contents
+    // does not remove .wp-block-buttons from the tree. Geometry tests must
+    // include it; omitting it is how #1986 and #1989 shipped green.
+    '.wp-block-buttons .wp-block-button__link{width:100%}',
 ].join('');

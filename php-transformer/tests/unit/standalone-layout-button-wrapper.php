@@ -10,6 +10,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
 $failures = 0;
@@ -80,7 +81,7 @@ $assert(
     $rowCss
 );
 $assert(
-    str_contains($rowCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}')
+    str_contains($rowCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}')
         && str_contains($rowCss, ':where(.' . $neutralButtons . ')>.wp-block-button:not(.' . $neutralButton . ')>.wp-block-button__link{display:block;word-break:normal}'),
     'neutralizing the inner wrapper transfers shrink-to-fit onto the control that becomes the flex item, without min-content collapse',
     $rowCss

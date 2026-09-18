@@ -143,6 +143,22 @@ final class LayoutParticipation
         return self::BOX_BUTTONS_WRAPPER;
     }
 
+    /**
+     * Layout-participating declarations a neutralized inner save wrapper can
+     * no longer hold. Applied to the first descendant that still generates a
+     * box — the control ({@see self::BOX_LINK}).
+     *
+     * `display: contents` does not remove the ancestor from the tree, so
+     * core's `.wp-block-buttons .wp-block-button__link { width: 100% }` still
+     * matches. `:where()` cannot outrank that descendant selector; these
+     * declarations are therefore important. Author `!important` widths that
+     * arrive later still win.
+     */
+    public static function transferredItemDeclarations(): string
+    {
+        return 'display:inline!important;width:fit-content!important;word-break:normal!important';
+    }
+
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
         $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));
