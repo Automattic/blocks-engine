@@ -3756,6 +3756,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        // A lone styled inline in a flow wrapper is still inline in the source.
+        // Converting it to a paragraph host adds the host's line box and block
+        // spacing on top of the wrapper that already owns the source geometry.
+        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+            && $this->isLoneStyledInlineInFlowWrapper($element)
+        ) {
+            return true;
+        }
+
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( 'block' === $display ) {
@@ -3814,6 +3823,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
+    }
+
+    private function isLoneStyledInlineInFlowWrapper(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || $this->isRichTextInlineContext($element)
+            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+            || ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)
+            || ! $this->hasBoxChromeWrapperStyling($parent)
+            || ( ! $this->hasAuthorSemanticMarker($element) && '' === $this->richTextMarker($element) )
+        ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child === $element ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
