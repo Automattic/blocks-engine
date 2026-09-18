@@ -43,8 +43,11 @@ $talks = $transform(
     . '<span class="talk__body"><em>Why attention drifts.</em> Keynote.</span></li></ul>'
 );
 
-$assert(str_contains($talks['markup'], '<p class="talk__body">'), 'a card fragment hoists its styling hook onto the paragraph');
+$assert(str_contains($talks['markup'], 'talk__body') && str_contains($talks['markup'], '<p class="'), 'a card fragment hoists its styling hook onto the paragraph');
 $assert(! str_contains($talks['markup'], 'blocks-engine-inline-layout-carrier'), 'card lowering emits no inline-layout carrier for the hoisted fragment');
+$assert(str_contains($talks['markup'], 'tagName":"ul"') && str_contains($talks['markup'], 'tagName":"li"'), 'card lowering keeps semantic list tags');
+$assert(str_contains($talks['markup'], 'blocks-engine-css-owned-layout'), 'card lowering marks CSS-owned layout so core flow does not own the stack');
+$assert(str_contains($talks['markup'], 'blocks-engine-synthetic-paragraph'), 'card fragments use margin-neutral synthetic paragraphs');
 $assert(
     str_contains($talks['css'], '.talk__body{font-size:0.97rem;line-height:1.7}')
         || str_contains($talks['css'], '.talk__body {font-size:0.97rem;line-height:1.7}'),
@@ -65,7 +68,23 @@ $assert(! str_contains($single['css'], 'p.blocks-engine-inline-layout-carrier > 
 // The observed academic CV corpus case.
 $cvDirectory = dirname(__DIR__, 3) . '/fixtures/websites/31-personal-cv-academic';
 $cv = $transform((string) file_get_contents($cvDirectory . '/index.html'));
-$assert(str_contains($cv['markup'], '<p class="talk__body">'), 'academic CV talks hoist their body fragment onto the paragraph');
+$assert(str_contains($cv['markup'], 'talk__body') && str_contains($cv['markup'], '<p class="'), 'academic CV talks hoist their body fragment onto the paragraph');
+
+$postIndex = $transform(
+    '<style>.grid{display:grid}.gap-2{gap:.5rem}.flex{display:flex}.flex-col{flex-direction:column}'
+    . '@media(min-width:640px){.sm\:flex-row{flex-direction:row}}</style>'
+    . '<ul class="grid gap-2"><li class="flex flex-col sm:flex-row">'
+    . '<span class="date">Jun 4, 2025</span>'
+    . '<a class="title" href="/post">How to switch apps</a></li>'
+    . '<li class="flex flex-col sm:flex-row">'
+    . '<span class="date">Jan 26, 2025</span>'
+    . '<a class="title" href="/office">Office setup</a></li></ul>'
+);
+$assert(str_contains($postIndex['markup'], 'tagName":"ul"') && str_contains($postIndex['markup'], 'tagName":"li"'), 'a grid post index keeps ul/li tags');
+$assert(str_contains($postIndex['markup'], 'blocks-engine-css-owned-grid'), 'a grid post index stays CSS-owned so gap, not core flow, sets row rhythm');
+$assert(str_contains($postIndex['markup'], 'blocks-engine-synthetic-paragraph'), 'post-index date/title fragments are margin-neutral');
+$assert(str_contains($postIndex['markup'], '<p class="date') && str_contains($postIndex['markup'], '<p class="title'), 'post-index fragments still hoist their styling hooks');
+$assert(! str_contains($postIndex['markup'], '<!-- wp:list'), 'a structured post index does not fall back to core/list');
 
 if ( 0 < $failures ) {
     fwrite(STDERR, "Card fragment author rule tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);

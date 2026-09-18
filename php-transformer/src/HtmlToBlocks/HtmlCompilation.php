@@ -7517,8 +7517,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      * hoisted styling hook, so the result is fully valid (group/paragraph
      * round-trip and store a custom className) while the per-fragment styling
      * hooks and the working link survive — which a single core/list-item cannot
-     * represent. The outer group inherits the list's presentation, each inner
-     * group inherits its `<li>`'s presentation.
+     * represent. The outer group inherits the list's CSS-owned layout (grid/flex
+     * and its gap) and keeps the source list tag; each inner group inherits its
+     * `<li>`'s layout. Core flow spacing is neutralized so WordPress does not
+     * double the source vertical rhythm with default block/paragraph margins.
      *
      * @param array<int, array<string, mixed>> $fallbacks
      * @return array<string, mixed>|null
@@ -7541,7 +7543,42 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($list), $itemGroups, $list);
+        return $this->createBlock(
+            'core/group',
+            array_merge(
+                $this->withStructuredCardFlowNeutralization($this->cssOwnedGroupAttributes($list, true)),
+                array( 'tagName' => strtolower($list->tagName) )
+            ),
+            $itemGroups,
+            $list
+        );
+    }
+
+    /**
+     * Structured card lowering replaces inline fragments with blocks, so core
+     * flow spacing is never part of the source contract. Grid containers already
+     * neutralize child margins; remaining flex/flow lists need the same.
+     *
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withStructuredCardFlowNeutralization(array $attrs): array
+    {
+        $className = (string) ($attrs['className'] ?? '');
+        if ( str_contains($className, self::CSS_OWNED_GRID_CLASS) || str_contains($className, self::CSS_OWNED_FLOW_CLASS) ) {
+            return $attrs;
+        }
+
+        $attrs['className'] = $this->mergeClassNames($className, self::CSS_OWNED_FLOW_CLASS);
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        if ( ! isset($spacing['blockGap']) ) {
+            $spacing['blockGap'] = '0';
+            $style['spacing'] = $spacing;
+            $attrs['style'] = $style;
+        }
+
+        return $attrs;
     }
 
     /**
@@ -7559,7 +7596,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             if ( XML_TEXT_NODE === $child->nodeType ) {
                 $text = trim($child->textContent ?? '');
                 if ( '' !== $text ) {
-                    $fragmentBlocks[] = $this->createBlock('core/paragraph', array( 'content' => $this->runtime->escapeHtml($text) ));
+                    $fragmentBlocks[] = $this->createBlock('core/paragraph', array(
+                        'content' => $this->runtime->escapeHtml($text),
+                        'className' => self::SYNTHETIC_PARAGRAPH_CLASS,
+                    ));
                 }
                 continue;
             }
@@ -7586,7 +7626,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        return $this->createBlock('core/group', $this->styleResolver->presentationAttributes($item), $fragmentBlocks, $item);
+        return $this->createBlock(
+            'core/group',
+            array_merge(
+                $this->withStructuredCardFlowNeutralization($this->cssOwnedGroupAttributes($item)),
+                array( 'tagName' => 'li' )
+            ),
+            $fragmentBlocks,
+            $item
+        );
     }
 
     /**
@@ -7616,7 +7664,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->createBlock('core/paragraph', array_merge(
                 $this->hoistedStylingAttributes($element),
                 array( 'content' => $content )
-            ));
+            ), array(), $element);
         }
 
         if ( 'span' === $tag && $this->isStylingHookSpan($element) ) {
@@ -7628,7 +7676,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return $this->createBlock('core/paragraph', array_merge(
                 $this->hoistedStylingAttributes($element),
                 array( 'content' => $content )
-            ));
+            ), array(), $element);
         }
 
         $content = $this->outerHtml($element);
@@ -7636,7 +7684,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        return $this->createBlock('core/paragraph', array( 'content' => $content ));
+        return $this->createBlock('core/paragraph', array( 'content' => $content ), array(), $element);
     }
 
     /**
