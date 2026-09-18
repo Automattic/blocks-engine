@@ -147,11 +147,12 @@ final class EngineSupportCss
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS) ) {
             // core/button always saves a .wp-block-button box around the control.
             // Flatten it when it is extra relative to the source, and transfer
-            // shrink-to-fit plus inline participation onto the link — the box
-            // that actually becomes the flex/grid/inline item.
+            // every layout-participating declaration onto the link — the first
+            // descendant that still generates a box. See
+            // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
             $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
-                . ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}';
+                . ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';

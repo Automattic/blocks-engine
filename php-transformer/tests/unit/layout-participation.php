@@ -9,6 +9,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
 $failures = 0;
@@ -47,7 +48,7 @@ $assert(
     $inlineMarkup
 );
 $assert(
-    str_contains($inlineCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}'),
+    str_contains($inlineCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'),
     '2: neutralizing the inner wrapper transfers inline participation onto the link',
     $inlineCss
 );
@@ -64,7 +65,7 @@ $assert(
     $flexMarkup
 );
 $assert(
-    str_contains($flexCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}'),
+    str_contains($flexCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'),
     '4: neutralizing both wrappers transfers shrink-to-fit onto the link, not the contents box',
     $flexCss
 );

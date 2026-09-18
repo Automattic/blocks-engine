@@ -14,6 +14,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlCompilation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeLayer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CascadeRule;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\SourceBlockAttributeProjector;
 
 $failures = 0;
@@ -83,9 +84,9 @@ $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEU
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
     === $neutralButton[0],
-    'neutralizing the inner wrapper transfers shrink-to-fit and inline participation onto the link'
+    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, beating core width:100%'
 );
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
