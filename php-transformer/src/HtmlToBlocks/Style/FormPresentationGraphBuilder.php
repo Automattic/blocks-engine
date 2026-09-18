@@ -160,6 +160,7 @@ final class FormPresentationGraphBuilder
                     }
                 }
             }
+            $this->carryFieldGroupGapOntoLabel($row, $control, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             $container = $this->controlContainer($index, $exclusiveAncestors[$index] ?? array(), $analysis['rules'], $customPropertyAnalysis['rules']);
             if ( null !== $container ) {
                 $controlContainers[] = $container['container'];
@@ -280,6 +281,68 @@ final class FormPresentationGraphBuilder
         if ( ! is_array($role) || count($role) !== 2 || array_diff(array_keys($role), array( 'styles', 'provenance' )) || ! is_array($role['styles'] ?? null) || (! $allowEmpty && array() === $role['styles']) || ! is_array($role['provenance'] ?? null) ) throw new InvalidArgumentException('Form presentation role is invalid.');
         self::assertStyles($role['styles']);
         self::assertProvenance($role['provenance'], $role['styles'], $condition);
+    }
+
+    /**
+     * A provider field flattens the exclusive label/control wrapper. Carry that
+     * wrapper's authored gap onto the label as margin-block-end so the Jetpack
+     * field shell keeps the intra-field spacing.
+     *
+     * @param array<string, mixed> $row
+     * @param list<DOMElement> $ancestors
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function carryFieldGroupGapOntoLabel(array &$row, DOMElement $control, array $ancestors, array $rules, array $customPropertyRules): void
+    {
+        if ( isset($row['label']['styles']['margin_block_end']) || isset($row['label']['styles']['margin_bottom']) ) {
+            return;
+        }
+        if ( ! FormControlClassifier::isDataEntryControl($control) || ! $this->label($control) instanceof DOMElement ) {
+            return;
+        }
+        $parent = $control->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return;
+        }
+        $wrapper = null;
+        foreach ( $ancestors as $ancestor ) {
+            if ( $ancestor->isSameNode($parent) ) {
+                $wrapper = $ancestor;
+                break;
+            }
+        }
+        if ( ! $wrapper instanceof DOMElement ) {
+            return;
+        }
+        $matched = $this->matched($wrapper, $rules);
+        $gapFacts = array_intersect_key($matched['base'], array_flip(array( 'gap' )));
+        $gapStyles = $this->styles($gapFacts, $wrapper, null, $customPropertyRules);
+        $gap = $gapStyles['gap'] ?? null;
+        if ( ! is_string($gap) || '' === trim($gap) ) {
+            return;
+        }
+        $gap = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $gap) ?? $gap;
+        $facts = array();
+        foreach ( $gapFacts as $fact ) {
+            $facts['margin-block-end'] = $fact;
+        }
+        if ( array() === $facts ) {
+            return;
+        }
+        $styles = is_array($row['label']['styles'] ?? null) ? $row['label']['styles'] : array();
+        $styles['margin_block_end'] = $gap;
+        ksort($styles);
+        $provenance = is_array($row['label']['provenance'] ?? null) ? $row['label']['provenance'] : array();
+        $row['label'] = array(
+            'styles' => $styles,
+            'provenance' => array_merge($provenance, $this->provenance($facts, null)),
+        );
+        if ( count($row['label']['provenance']) > self::MAX_PROVENANCE ) {
+            $row['label']['provenance'] = array_slice($row['label']['provenance'], 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
     }
 
     /** @param list<DOMElement> $ancestors @return array{container:array<string,mixed>,variants:list<array<string,mixed>}|null */
