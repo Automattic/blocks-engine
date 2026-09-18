@@ -71,7 +71,13 @@ $assert(':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLAS
 
 $neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
-$assert(':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}' === $neutralButtons[0], 'layout-neutral buttons wrapper reuses SourceBlockAttributeProjector constant');
+$assert(
+    ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button{width:fit-content}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}'
+    === $neutralButtons[0],
+    'layout-neutral buttons wrapper flattens and restores shrink-to-fit on the positioned button box'
+);
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
 $assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');

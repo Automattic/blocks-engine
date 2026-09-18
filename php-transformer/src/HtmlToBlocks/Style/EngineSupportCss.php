@@ -134,7 +134,15 @@ final class EngineSupportCss
             // A synthesized core/buttons wrapper is required for validity, but it
             // did not exist in the source. Flatten it so positioned children keep
             // the authored containing block instead of a collapsed wrapper box.
-            $parts[] = ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}';
+            // core/button's inner link is inline-block with word-break:break-word.
+            // Inside an abspos shrink-to-fit parent that is cyclic, that link's
+            // available width is 0 and auto width collapses to min-content.
+            // A source abspos control is a block box that shrink-to-fits against
+            // its containing block; restore that on the positioned button box.
+            $neutral = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS;
+            $parts[] = ':where(.' . $neutral . '){display:contents!important}'
+                . ':where(.' . $neutral . ')>.wp-block-button{width:fit-content}'
+                . ':where(.' . $neutral . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';

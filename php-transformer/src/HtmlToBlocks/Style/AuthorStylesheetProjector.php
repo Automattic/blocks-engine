@@ -683,7 +683,16 @@ final class AuthorStylesheetProjector
         return $this->directButtonWrapperPrelude(
             $prelude,
             $context,
-            fn (string $selector, array $parsed, string $marker): string => $this->projectControlSelector($selector, $parsed, $marker, $context, true)
+            function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
+                // A layout-neutral buttons wrapper generates no box. Geometry
+                // that describes the source control must land on the
+                // wp-block-button that remains in the containing block.
+                if ( $this->styleResolver->hasChildOwnedPositionedOffsets($element) ) {
+                    return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
+                }
+
+                return $this->projectControlSelector($selector, $parsed, $marker, $context, true);
+            }
         );
     }
 
@@ -696,7 +705,7 @@ final class AuthorStylesheetProjector
         );
     }
 
-    /** @param callable(string, array<string, mixed>, string): string $project */
+    /** @param callable(string, array<string, mixed>, string, DOMElement): string $project */
     private function directButtonWrapperPrelude(string $prelude, AuthorStylesheetProjectionContext $context, callable $project): string
     {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
@@ -720,7 +729,7 @@ final class AuthorStylesheetProjector
                 if ( '' === $marker || $context->selectorProjections->isButtonPresentationPath($path) ) {
                     continue;
                 }
-                $rewritten[] = $project($selector, $parsed, $marker);
+                $rewritten[] = $project($selector, $parsed, $marker, $element);
             }
         }
         return implode(',', array_values(array_unique($rewritten)));
@@ -841,8 +850,14 @@ final class AuthorStylesheetProjector
         $hasMinimumHeight = CssValueInspector::hasAuthoredMinimumHeight($layoutCss);
         if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
-            $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
-            $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
+            $targetsButtonBox = str_contains($wrapperPrelude, '.wp-block-button)') && ! str_contains($wrapperPrelude, '.wp-block-buttons)');
+            if ( $targetsButtonBox ) {
+                $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector), $selectors));
+                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button__link)', $selectors));
+            } else {
+                $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)', $selectors));
+                $link = implode(',', array_map(static fn (string $selector): string => rtrim($selector) . '> :where(.wp-block-button)> :where(.wp-block-button__link)', $selectors));
+            }
             if ( $hasDefiniteWidth ) {
                 $css .= $button . '{width:100%!important}'
                     . $link . '{width:100%!important;max-width:100%!important}';

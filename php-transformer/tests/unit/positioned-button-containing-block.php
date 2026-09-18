@@ -58,6 +58,12 @@ $assert(
     $positionedCss
 );
 $assert(
+    str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button{width:fit-content}')
+        && str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}'),
+    'a positioned converted button shrink-to-fits against its containing block instead of collapsing to min-content',
+    $positionedCss
+);
+$assert(
     str_contains($positionedCss, 'left:50%') && str_contains($positionedCss, 'top:6%')
         && str_contains($positionedCss, 'left:88%') && str_contains($positionedCss, 'top:28%')
         && str_contains($positionedCss, 'left:12%') && str_contains($positionedCss, 'top:72%'),
