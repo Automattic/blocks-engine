@@ -25,9 +25,9 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.1.content", "assert": "contains", "value": "background-color:#13314f!important" },
-    { "path": "assets.1.content", "assert": "contains", "value": "border-radius:6px!important" },
-    { "path": "assets.1.content", "assert": "contains", "value": "padding-top:12px!important" },
+    { "path": "assets.1.content", "assert": "contains", "value": "background:#13314f" },
+    { "path": "assets.1.content", "assert": "contains", "value": "border-radius:6px" },
+    { "path": "assets.1.content", "assert": "contains", "value": "padding:12px 24px!important" },
     { "path": "serialized_blocks", "assert": "contains", "value": "style=\"padding-top:40px;padding-right:36px;padding-bottom:40px;padding-left:36px\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "#f0ac22" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "border-radius:2px" },

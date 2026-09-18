@@ -73,19 +73,19 @@ $neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NE
 $assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button{width:fit-content}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){width:fit-content}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:block;word-break:normal}'
     === $neutralButtons[0],
-    'layout-neutral buttons wrapper flattens and restores shrink-to-fit on the positioned button box'
+    'layout-neutral buttons wrapper flattens and keeps shrink-to-fit on the inner box that still generates a box'
 );
 
 $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{width:fit-content}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}'
     === $neutralButton[0],
-    'layout-neutral inner button wrapper flattens and restores shrink-to-fit on the control that becomes the layout item'
+    'neutralizing the inner wrapper transfers shrink-to-fit and inline participation onto the link'
 );
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');

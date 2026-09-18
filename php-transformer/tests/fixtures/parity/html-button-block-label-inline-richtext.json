@@ -23,8 +23,8 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
-    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "primary-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "primary-button blocks-engine-layout-child-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button primary-button blocks-engine-layout-child-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"wp-block-button__link has-background wp-element-button\"" },
     { "path": "blocks.0.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#135e96" },
     { "path": "assets.0.content", "assert": "contains", "value": "background-color:#135e96 !important" },

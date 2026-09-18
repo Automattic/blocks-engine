@@ -50,7 +50,7 @@
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons){display:contents!important}" },
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button){display:contents!important}" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button)>.wp-block-button__link{width:fit-content}" },
-    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons)>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}" }
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button)>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons)>.wp-block-button:not(.blocks-engine-layout-child-button)>.wp-block-button__link{display:block;word-break:normal}" }
   ]
 }

@@ -80,8 +80,8 @@ $assert(
     $rowCss
 );
 $assert(
-    str_contains($rowCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{width:fit-content}')
-        && str_contains($rowCss, ':where(.' . $neutralButtons . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}'),
+    str_contains($rowCss, ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}')
+        && str_contains($rowCss, ':where(.' . $neutralButtons . ')>.wp-block-button:not(.' . $neutralButton . ')>.wp-block-button__link{display:block;word-break:normal}'),
     'neutralizing the inner wrapper transfers shrink-to-fit onto the control that becomes the flex item, without min-content collapse',
     $rowCss
 );

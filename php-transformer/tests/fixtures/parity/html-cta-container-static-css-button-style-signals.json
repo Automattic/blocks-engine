@@ -23,13 +23,13 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button blocks-engine-control-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button blocks-engine-layout-child-button blocks-engine-control-" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-block-button primary blocks-engine-control-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\"" },
-    { "path": "assets.1.content", "assert": "contains", "value": "background-color:#2563eb!important" },
-    { "path": "assets.1.content", "assert": "contains", "value": "border-width:2px!important" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline blocks-engine-control-" },
-    { "path": "assets.1.content", "assert": "contains", "value": "background-color:transparent!important" },
-    { "path": "assets.1.content", "assert": "contains", "value": "border-color:currentColor!important" }
+    { "path": "assets.1.content", "assert": "contains", "value": "background-color:#2563eb" },
+    { "path": "assets.1.content", "assert": "contains", "value": "border:2px solid #2563eb" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button is-style-outline blocks-engine-layout-child-button blocks-engine-control-" },
+    { "path": "assets.1.content", "assert": "contains", "value": "background-color:transparent" },
+    { "path": "assets.1.content", "assert": "contains", "value": "color:#2563eb" }
   ]
 }

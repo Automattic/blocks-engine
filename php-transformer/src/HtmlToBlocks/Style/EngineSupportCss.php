@@ -132,30 +132,26 @@ final class EngineSupportCss
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
             // A synthesized core/buttons wrapper is required for validity, but it
-            // did not exist in the source. Flatten it so positioned children keep
-            // the authored containing block instead of a collapsed wrapper box.
-            // core/button's inner link is inline-block with word-break:break-word.
-            // Inside an abspos shrink-to-fit parent that is cyclic, that link's
-            // available width is 0 and auto width collapses to min-content.
-            // A source abspos control is a block box that shrink-to-fits against
-            // its containing block; restore that on the positioned button box.
+            // did not exist in the source. Flatten it so the next real box is the
+            // one that participates in the parent's formatting context.
             $neutral = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS;
+            $inner = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
             $parts[] = ':where(.' . $neutral . '){display:contents!important}'
-                . ':where(.' . $neutral . ')>.wp-block-button{width:fit-content}'
-                . ':where(.' . $neutral . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}';
+                // When the inner save wrapper still generates a box (positioned
+                // controls), that box owns shrink-to-fit. `:not()` keeps these
+                // declarations off a neutralized inner wrapper so they cannot
+                // silently drop.
+                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . '){width:fit-content}'
+                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . ')>.wp-block-button__link{display:block;word-break:normal}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS) ) {
             // core/button always saves a .wp-block-button box around the control.
-            // Flatten that inner wrapper when the source button was already a
-            // direct child of an authored flex/grid container, so source classes
-            // on the wrapper cannot add a second padding box in the parent layout.
-            // display:contents drops layout-participating declarations that lived
-            // on that wrapper — including width:fit-content from the outer
-            // layout-neutral buttons rule — so restore shrink-to-fit on the
-            // element that actually becomes the flex/grid item.
+            // Flatten it when it is extra relative to the source, and transfer
+            // shrink-to-fit plus inline participation onto the link — the box
+            // that actually becomes the flex/grid/inline item.
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
             $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
-                . ':where(.' . $neutralButton . ')>.wp-block-button__link{width:fit-content}';
+                . ':where(.' . $neutralButton . ')>.wp-block-button__link{display:inline;width:fit-content;word-break:normal}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
