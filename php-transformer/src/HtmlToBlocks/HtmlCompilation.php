@@ -7411,14 +7411,22 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
 
             $children = $this->convertChildren($child, $fallbacks, true);
-            if ( array() !== $children ) {
-                $items[] = $this->createBlock(
-                    'core/group',
-                    array_merge($this->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
-                    $children,
-                    $child
-                );
+            if ( array() === $children ) {
+                continue;
             }
+            if ( 1 === count($children) ) {
+                $coalesced = $this->coalescedSingleGroupWrapper($child, $children[0]);
+                if ( null !== $coalesced ) {
+                    $items[] = $coalesced;
+                    continue;
+                }
+            }
+            $items[] = $this->createBlock(
+                'core/group',
+                array_merge($this->cssOwnedGroupAttributes($child), array( 'tagName' => 'li' )),
+                $children,
+                $child
+            );
         }
 
         return $this->createBlock(

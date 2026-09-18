@@ -151,7 +151,7 @@ $assert('core/group' === ($built['blockName'] ?? null), 'plain-wrapper-builds-ch
 // one authored signal, so the resulting disposition names that signal.
 $span = $elementFrom('<span><p>Copy</p></span>');
 $reason = $makeCoalescer()->coalescingDisposition($span, array('blockName' => 'core/group'))->reason;
-$assert('not_a_div_element' === $reason, 'non-div-wrapper-names-tag-reason', $reason);
+$assert('unrepresentable_wrapper_tag' === $reason, 'non-div-wrapper-names-tag-reason', $reason);
 
 $unsupportedChild = $makeCoalescer()->coalescingDisposition($elementFrom('<div><p>Copy</p></div>'), array('blockName' => 'core/paragraph'))->reason;
 $assert('unsupported_child_block_name' === $unsupportedChild, 'unsupported-child-block-names-reason', $unsupportedChild);
@@ -177,7 +177,7 @@ $dataReason = $makeCoalescer()->coalescingDisposition($dataWrapper, array('block
 $assert('has_data_attributes_without_proof' === $dataReason, 'data-attribute-names-reason', $dataReason);
 
 $structureSignalReason = $makeCoalescer(array(), array(
-    'structureSignals' => static fn (DOMElement $e): array => array('card_like' => true),
+    'structureSignals' => static fn (DOMElement $e): array => array('visual_layer' => true),
 ))->coalescingDisposition($elementFrom('<div class="card"><p>Copy</p></div>'), array('blockName' => 'core/group'))->reason;
 $assert('has_structure_signals_without_proof' === $structureSignalReason, 'structure-signal-names-reason', $structureSignalReason);
 

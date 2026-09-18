@@ -171,6 +171,11 @@ if ( $section instanceof DOMElement && $div instanceof DOMElement ) {
 $article = $transform('<article><h2>Story</h2><p>Body</p></article>');
 $assert(in_array('Story', $names($named($article['blocks'] ?? array())), true), 'An article that owns a heading is named from that heading.');
 
+$listItem = $transform(
+    '<ul class="cards"><li><div><h3>Office setup</h3><p>Card copy</p></div></li></ul>'
+);
+$assert(in_array('Office setup', $names($named($listItem['blocks'] ?? array())), true), 'A structural list item that owns a heading is named from that heading.');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, sprintf('editor list view container names: %d passed, %d failed%s', $passes, $failures, PHP_EOL));
     exit(1);

@@ -18,7 +18,7 @@
   "expected_blocks": [
     { "path": "blocks.0", "name": "core/group", "attrs": { "className": "resource-grid", "layout": { "type": "grid" } } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card" } },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/group", "attrs": { "className": "resource-card__media" } },
+    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/image", "attrs": { "className": "resource-card__media blocks-engine-synthetic-image-figure" } },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "resource-card__content" } },
     { "path": "blocks.0.innerBlocks.1", "name": "custom/layout-shell" },
     { "path": "blocks.0.innerBlocks.1.innerBlocks.1", "name": "core/heading" }

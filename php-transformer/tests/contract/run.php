@@ -1856,7 +1856,7 @@ $cssSizedInlineSvgArtwork = ( new HtmlTransformer() )->transform(
 )->toArray();
 $cssSizedInlineSvgArtworkMarkup = (string) ($cssSizedInlineSvgArtwork['serialized_blocks'] ?? '');
 $cssSizedInlineSvgArtworkCss = implode("\n", array_map(static fn (array $asset): string => 'css' === ($asset['kind'] ?? '') ? (string) ($asset['content'] ?? '') : '', $cssSizedInlineSvgArtwork['assets'] ?? array()));
-$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'class="wp-block-image album-cover be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
+$assert(str_contains($cssSizedInlineSvgArtworkMarkup, 'wp-block-image') && str_contains($cssSizedInlineSvgArtworkMarkup, 'album-cover') && str_contains($cssSizedInlineSvgArtworkMarkup, 'be-inline-geometry-') && str_contains($cssSizedInlineSvgArtworkMarkup, 'blocks-engine-synthetic-image-figure'), 'CSS-sized inline SVG artwork preserves the media class on the native image wrapper');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'is-resized album-cover'), 'CSS-sized inline SVG artwork does not add resized wrapper geometry over source CSS');
 $assert(! str_contains($cssSizedInlineSvgArtworkMarkup, 'style="width:500px;height:500px"'), 'CSS-sized inline SVG artwork does not force intrinsic SVG dimensions over source CSS sizing');
 $assert(str_contains($cssSizedInlineSvgArtworkCss, 'line-height:0') && str_contains($cssSizedInlineSvgArtworkCss, '>img{display:block;width:100%;max-width:380px;aspect-ratio:1}'), 'explicit block SVG core/image carries metadata-skipped line-box geometry with its materialized image rules');

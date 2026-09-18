@@ -722,10 +722,11 @@ $nestedGridItemBlock = $nestedGridItem['blocks'][0] ?? array();
 $nestedGridItemChildren = $nestedGridItemBlock['innerBlocks'] ?? array();
 $nestedGridItemCss = $css($nestedGridItem);
 $assert(
-    str_ends_with((string) ($nestedGridItemBlock['blockName'] ?? ''), '/layout-shell')
-    && 2 === count($nestedGridItemBlock['attrs']['wrappers'] ?? array())
+    'core/group' === ($nestedGridItemBlock['blockName'] ?? '')
     && 2 === count($nestedGridItemChildren)
     && 'core/paragraph' === ($nestedGridItemChildren[0]['blockName'] ?? '')
+    && str_contains((string) ($nestedGridItemBlock['attrs']['className'] ?? ''), 'grid')
+    && str_contains((string) ($nestedGridItemBlock['attrs']['className'] ?? ''), 'card')
     && str_contains((string) ($nestedGridItemChildren[0]['attrs']['className'] ?? ''), 'blocks-engine-inline-layout-carrier')
     && str_contains($nestedGridItemCss, '.card > p.blocks-engine-inline-layout-carrier > span{grid-column:2}')
     && ! str_contains((string) ($nestedGridItem['serialized_blocks'] ?? ''), 'blocks-engine-css-owned-layout-item')
@@ -959,7 +960,7 @@ $flexItemGroup = $transform('<div style="display:flex"><div><p>A</p><p>B</p></di
 $assert(2 === substr_count((string) ($flexItemGroup['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($flexItemGroup['blocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains((string) ($flexItemGroup['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout'), 'a flex item wrapper around stacked content remains a direct CSS-owned child');
 
 $namedFlex = $transform('<style>.shell{display:flex}</style><div class="shell"><div style="display:flex"><p>A</p><p>B</p></div></div>');
-$assert(2 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['innerBlocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers retain their direct CSS-owned child topology');
+$assert(1 === substr_count((string) ($namedFlex['serialized_blocks'] ?? ''), '<!-- wp:group') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'shell') && str_contains((string) ($namedFlex['blocks'][0]['attrs']['className'] ?? ''), 'blocks-engine-css-owned-layout') && 2 === count($namedFlex['blocks'][0]['innerBlocks'] ?? array()) && str_contains($css($namedFlex), '.shell{display:flex}'), 'author-named flex wrappers transfer their class onto a redundant nested flex child');
 
 $boxedTextWrapper = $transform('<style>@layer utilities{.footer-note{margin-top:calc(var(--spacing) * 12);padding-top:calc(var(--spacing) * 6);border-top-style:solid;border-top-width:1px}}</style><footer><div class="footer-note">Footer text</div></footer>');
 $boxedTextWrapperMarkup = (string) ($boxedTextWrapper['serialized_blocks'] ?? '');

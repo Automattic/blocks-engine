@@ -17,7 +17,7 @@
   },
   "expected_blocks": [
     {
-      "path": "blocks.0.innerBlocks.0",
+      "path": "blocks.0",
       "name": "core/image"
     }
   ],
@@ -28,7 +28,7 @@
       "value": "success"
     },
     {
-      "path": "blocks.0.innerBlocks.0.attrs.url",
+      "path": "blocks.0.attrs.url",
       "assert": "contains",
       "value": "assets/materialized-svg/"
     },
