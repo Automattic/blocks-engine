@@ -116,7 +116,7 @@ final class SourceBlockAttributeProjector
                 $attrs['tagName'] = $semanticTag;
             }
         }
-        return $attrs;
+        return ( new EditorListViewContainerNamer() )->apply($name, $attrs, $sourceElement);
     }
 
     private static function isHiddenAccessibilitySupportElement(DOMElement $element): bool

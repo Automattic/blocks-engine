@@ -24,7 +24,7 @@
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_form_fallback" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<section><h2>Notes</h2><div><textarea id=\"message\" name=\"message\"></textarea><button id=\"submit\" type=\"submit\">Send</button></div><span id=\"status\">Ready</span></section>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<span id=\"status\">Ready</span>" },
     { "path": "source_reports.runtime_islands", "assert": "count", "count": 3 },

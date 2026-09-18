@@ -26,7 +26,7 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"} -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:group {\"tagName\":\"section\"" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "<section><h2>Draft notes</h2><div><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save</button><output id=\"preview\"></output></div></section>" },
     { "path": "serialized_blocks", "assert": "contains", "value": "<div><textarea id=\"draft\" aria-label=\"Draft\"></textarea><button id=\"save\" type=\"submit\">Save</button><output id=\"preview\"></output></div>" },
     { "path": "source_reports.runtime_islands", "assert": "count", "count": 2 },
