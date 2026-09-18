@@ -203,6 +203,7 @@
       "php tests/unit/button-link-min-content.php",
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/positioned-button-containing-block.php",
+      "php tests/unit/positioned-button-translate-projection.php",
       "php tests/unit/button-wrapper-fill-selector-list.php",
       "php tests/unit/button-grid-item-placement.php",
       "php tests/unit/corpus-detectors.php",
