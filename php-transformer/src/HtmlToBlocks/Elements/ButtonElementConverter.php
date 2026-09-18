@@ -23,7 +23,7 @@ final class ButtonElementConverter implements ElementConverter
             return ConversionOutcome::handled(null);
         }
 
-        if ( $this->context->isImageCarrierButton($element) ) {
+        if ( $this->context->isImageCarrierButton($element) || ! $this->context->isRichTextButtonLabel($element) ) {
             $children = $this->context->convertChildren($element, $fallbacks, true);
             if ( array() !== $children ) {
                 return ConversionOutcome::handled(

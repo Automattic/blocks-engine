@@ -144,6 +144,48 @@ $assert(
     'block-level structure alone, with no image, is not an image carrier'
 );
 
+// --- identity: RichText-legal button labels ---------------------------------
+//
+// core/button can hold a phrasing label, including one flow wrapper around that
+// label (a heading used for CTA type). Branching flow is a card, not a button.
+
+$assert(
+    $classifier->isRichTextButtonLabel($element('<button>Go</button>')),
+    'a phrasing-only button is a RichText label'
+);
+$assert(
+    $classifier->isRichTextButtonLabel($element('<button><div><span>Stacked</span></div></button>')),
+    'a single layout wrapper around phrasing is still a RichText label'
+);
+$assert(
+    $classifier->isRichTextButtonLabel($element('<a class="primary-button" href="/book"><h3>Reserve now</h3><span aria-hidden="true"></span></a>')),
+    'a heading used as the sole visible CTA label is still a RichText label'
+);
+$assert(
+    $classifier->isRichTextButtonLabel($element(
+        '<button class="nested-control"><span>WhatsApp</span>'
+        . '<div class="nested-icon"><div class="nested-icon-source">'
+        . '<svg width="100%" height="100%" viewBox="0 0 77 77" aria-hidden="true"><path d="M0 0h77v77H0z"/></svg>'
+        . '</div></div></button>'
+    )),
+    'phrasing text plus a nested icon wrapper is still a RichText label'
+);
+$assert(
+    ! $classifier->isRichTextButtonLabel($element('<button><h3>Orangutan TT\'s</h3><p>70% Indica / 30% Sativa</p></button>')),
+    'a heading plus a paragraph is not a RichText label'
+);
+$assert(
+    ! $classifier->isRichTextButtonLabel($element(
+        '<button><div><h3>Orangutan TT\'s</h3><p>70% Indica / 30% Sativa</p></div>'
+        . '<div><p>Offers significant analgesic effects.</p></div></button>'
+    )),
+    'nested layout containers each holding their own content are not a RichText label'
+);
+$assert(
+    ! $classifier->isRichTextButtonLabel($element('<a style="padding:10px;background:#fff" href="/x"><h3>Title</h3><p>Body copy</p></a>')),
+    'a clickable card anchor wrapping a heading plus a paragraph is not a RichText label'
+);
+
 // --- identity: card-like ----------------------------------------------------
 
 $assert(
