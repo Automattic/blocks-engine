@@ -220,6 +220,7 @@ final class HtmlResultComposer
             'wp_block_validity' => $input['block_validity_report'],
             'semantic_parity' => $input['semantic_parity_report'],
             'content_round_trip' => $input['content_round_trip_report'],
+            'source_media_retention' => $input['source_media_retention_report'],
             'editability_report' => $blockCompilationOutput->editabilityReport,
             'html' => array(
                 'presentation_signals' => $input['presentation_signals'],
