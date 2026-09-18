@@ -160,16 +160,14 @@ final class SourceBlockAttributeProjector
     ): array {
         $logicalControlPath = $logicalControl->getNodePath() ?? '';
         $presentationPath = $sourceElement->getNodePath() ?? '';
-        $isStandaloneLayoutButton = 'button' === strtolower($logicalControl->tagName)
-            && $this->isDirectChildOfAuthorOwnedLayout($logicalControl)
-            && ! $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl);
-        if ( $isStandaloneLayoutButton ) {
-            if ( 'core/buttons' === $name ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTONS_CLASS);
-            }
-            if ( 'core/button' === $name ) {
-                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTON_CLASS);
-            }
+        $participation = in_array($name, array( 'core/button', 'core/buttons' ), true)
+            ? LayoutParticipation::resolve($logicalControl, $this->styleResolver)
+            : null;
+        if ( $participation instanceof LayoutParticipation && $participation->neutralizeButtonsWrapper() && 'core/buttons' === $name ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTONS_CLASS);
+        }
+        if ( $participation instanceof LayoutParticipation && $participation->neutralizeButtonWrapper() && 'core/button' === $name ) {
+            $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTON_CLASS);
         }
         $nativeButtonTextAlignment = '';
         $hasNativeButtonColor = false;
@@ -210,16 +208,13 @@ final class SourceBlockAttributeProjector
                 $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), $controlMarker);
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
-                    $childOwnedOffsets = $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl);
-                    if ( $facts->isDirectChildOfAuthorFlexLayout && ! $childOwnedOffsets && ! $isStandaloneLayoutButton ) {
+                    $childOwnedOffsets = $participation instanceof LayoutParticipation && $participation->positioned;
+                    if ( $participation instanceof LayoutParticipation && $participation->needsDirectFlexRepair() ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
                     if ( ! $childOwnedOffsets ) {
                         $this->registerButtonWidth($attrs, $controlMarker, $logicalControl, $context);
                     }
-                }
-                if ( 'core/buttons' === $name && $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl) ) {
-                    $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTONS_CLASS);
                 }
             }
             if ( '' !== $controlMarker && '' !== $presentationPath && $presentationPath !== $logicalControlPath ) {

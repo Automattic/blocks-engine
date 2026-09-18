@@ -22,8 +22,8 @@
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "hero-cta brand-primary blocks-engine-native-button-alignment-start be-inline-geometry-" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button hero-cta brand-primary blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "blocks.0.innerBlocks.0.attrs.className", "assert": "contains", "value": "hero-cta brand-primary blocks-engine-layout-child-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<div class=\"wp-block-button hero-cta brand-primary blocks-engine-layout-child-button blocks-engine-native-button-alignment-start be-inline-geometry-" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"wp-block-button__link has-text-color has-background has-border-color wp-element-button\"" },
     { "path": "blocks.0.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#135e96" },
     { "path": "blocks.0.innerBlocks.0.attrs.style.border.radius", "assert": "equals", "value": "999px" },

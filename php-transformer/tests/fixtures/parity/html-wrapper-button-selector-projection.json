@@ -21,8 +21,8 @@
   ],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
-    { "path": "assets.0.content", "assert": "contains", "value": "> :where(.wp-block-button__link):focus" },
+    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):hover" },
+    { "path": "assets.1.content", "assert": "contains", "value": "> :where(.wp-block-button__link):focus" },
     { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" }
   ]
 }

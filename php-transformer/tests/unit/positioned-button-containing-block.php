@@ -58,8 +58,8 @@ $assert(
     $positionedCss
 );
 $assert(
-    str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button{width:fit-content}')
-        && str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}'),
+    str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){width:fit-content}')
+        && str_contains($positionedCss, ':where(.' . $neutralClass . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:block;word-break:normal}'),
     'a positioned converted button shrink-to-fits against its containing block instead of collapsing to min-content',
     $positionedCss
 );
@@ -112,8 +112,8 @@ $inFlow = ( new HtmlTransformer() )->transform(
 )->toArray();
 $inFlowMarkup = (string) ( $inFlow['serialized_blocks'] ?? '' );
 $assert(
-    ! str_contains($inFlowMarkup, $neutralClass) && str_contains($inFlowMarkup, 'wp-block-buttons'),
-    'an ordinary in-flow control keeps a normal synthesized buttons wrapper',
+    str_contains($inFlowMarkup, $neutralClass) && str_contains($inFlowMarkup, 'wp-block-buttons'),
+    'an inline in-flow control is layout-neutral so it does not acquire a block-level box',
     $inFlowMarkup
 );
 

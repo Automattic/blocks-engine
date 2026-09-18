@@ -208,6 +208,7 @@
       "php tests/unit/button-wrapper-inner-fill.php",
       "php tests/unit/positioned-button-containing-block.php",
       "php tests/unit/standalone-layout-button-wrapper.php",
+      "php tests/unit/layout-participation.php",
       "php tests/unit/positioned-button-translate-projection.php",
       "php tests/unit/positioned-button-shrink-to-fit.php",
       "php tests/unit/button-wrapper-fill-selector-list.php",

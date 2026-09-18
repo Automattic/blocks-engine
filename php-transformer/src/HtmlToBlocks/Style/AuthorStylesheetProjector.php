@@ -684,11 +684,14 @@ final class AuthorStylesheetProjector
             $prelude,
             $context,
             function (string $selector, array $parsed, string $marker, DOMElement $element) use ($context): string {
-                // A layout-neutral buttons wrapper generates no box. Geometry
-                // that describes the source control must land on the
-                // wp-block-button that remains in the containing block.
-                if ( $this->styleResolver->hasChildOwnedPositionedOffsets($element) ) {
+                // Layout-participating declarations follow the box that still
+                // generates a box after synthesized wrappers are neutralized.
+                $box = LayoutParticipation::resolve($element, $this->styleResolver)->participatingBox();
+                if ( LayoutParticipation::BOX_BUTTON_WRAPPER === $box ) {
                     return $this->projectButtonBoxSelector($selector, $parsed, $marker, $context);
+                }
+                if ( LayoutParticipation::BOX_LINK === $box ) {
+                    return $this->projectControlSelector($selector, $parsed, $marker, $context, false);
                 }
 
                 return $this->projectControlSelector($selector, $parsed, $marker, $context, true);
@@ -748,12 +751,11 @@ final class AuthorStylesheetProjector
             'grid-area', 'grid-column', 'grid-row',
             'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
             'align-self', 'justify-self', 'order',
-            // Flex sizing is item participation, like the `align-self` and
-            // `order` above it: it describes how the box behaves inside the
-            // author's flex container. The wrapper is the box that stands in
-            // the source element's place there, so a `flex-shrink:0` left on
-            // the inner link is inert and the control grows or shrinks
-            // against the author's intent.
+                    // Flex sizing is item participation, like the `align-self` and
+                    // `order` above it: it describes how the box behaves inside the
+                    // author's flex container. These declarations travel with
+                    // LayoutParticipation::participatingBox() so neutralizing a
+                    // wrapper cannot drop them.
             'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
         );
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
@@ -850,6 +852,9 @@ final class AuthorStylesheetProjector
         $hasMinimumHeight = CssValueInspector::hasAuthoredMinimumHeight($layoutCss);
         if ( $hasDefiniteWidth || $hasDefiniteHeight || $hasAutoHeight || $hasMinimumHeight ) {
             $selectors = CssStylesheetTransformer::splitSelectorList($wrapperPrelude) ?? array( $wrapperPrelude );
+            if ( str_contains($wrapperPrelude, '.wp-block-button__link)') ) {
+                return $css . $rest;
+            }
             $targetsButtonBox = str_contains($wrapperPrelude, '.wp-block-button)') && ! str_contains($wrapperPrelude, '.wp-block-buttons)');
             if ( $targetsButtonBox ) {
                 $button = implode(',', array_map(static fn (string $selector): string => rtrim($selector), $selectors));

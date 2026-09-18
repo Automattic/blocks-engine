@@ -59,13 +59,13 @@ foreach ( $height['assets'] ?? array() as $asset ) {
 }
 
 $assert(
-    (bool) preg_match('/wp-block-buttons[^}]*\{[^}]*height:45\.8594px/', $heightCss),
-    '4: source-authored height stays on the outer core/buttons carrier',
+    (bool) preg_match('/wp-block-button__link\)\{[^}]*height:45\.8594px/', $heightCss),
+    '4: source-authored height stays on the participating link box',
     $heightCss
 );
 $assert(
-    (bool) preg_match('/wp-block-buttons\)> :where\(\.wp-block-button\)\{height:100%!important\}[^\n]*wp-block-button__link\)\{height:100%!important\}/', $heightCss),
-    '5: a definite outer height fills the nested core/button and link from the authored carrier rule',
+    ! preg_match('/wp-block-button__link\)> :where\(\.wp-block-button\)\{height:100%!important\}/', $heightCss),
+    '5: height on the participating link does not invent nested carrier fill',
     $heightCss
 );
 
@@ -86,8 +86,8 @@ $responsiveHeight = ( new HtmlTransformer() )->transform(
 )->toArray();
 $responsiveHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $responsiveHeight['assets'] ?? array()));
 $assert(
-    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*height:auto[^}]*\}[^@]*height:auto!important/', $responsiveHeightCss),
-    '7: responsive auto-height explicitly clears the nested carrier fill in the same condition',
+    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\)\{height:auto!important\}/', $responsiveHeightCss),
+    '7: responsive auto-height clears the participating link in the same condition',
     $responsiveHeightCss
 );
 
@@ -98,13 +98,14 @@ $mathMinimumHeight = ( new HtmlTransformer() )->transform(
 $mathMinimumHeightCss = implode('', array_map(static fn (array $asset): string => 'css' === ( $asset['kind'] ?? '' ) ? (string) ( $asset['content'] ?? '' ) : '', $mathMinimumHeight['assets'] ?? array()));
 $assert(
     str_contains($mathMinimumHeightCss, 'min-height:max(.5px,.1175977*(var(--scaling-factor) - var(--scrollbar-width)))')
-        && 4 === substr_count($mathMinimumHeightCss, 'min-height:inherit!important'),
-    '8: variable-backed math minimum height stays on the outer carrier and is inherited by both native carriers',
+        && (bool) preg_match('/wp-block-button__link\)\{[^}]*min-height:max/', $mathMinimumHeightCss)
+        && ! str_contains($mathMinimumHeightCss, 'min-height:inherit!important'),
+    '8: variable-backed math minimum height stays on the participating link without nested inherit fill',
     $mathMinimumHeightCss
 );
 $assert(
-    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*min-height:0[^}]*\}[^@]*min-height:inherit!important/', $mathMinimumHeightCss),
-    '9: responsive minimum-height reset reaches both native carriers in the same condition',
+    (bool) preg_match('/@media\(max-width:600px\)\{[^}]*wp-block-button__link\)\{min-height:0!important\}/', $mathMinimumHeightCss),
+    '9: responsive minimum-height reset reaches the participating link in the same condition',
     $mathMinimumHeightCss
 );
 

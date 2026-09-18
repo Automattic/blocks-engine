@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { wordpressButtonCss } from './wordpress-button-css.mjs';
 
 const transformerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const sourceFixture = `<style>
@@ -33,7 +34,6 @@ $css = array_filter($result['assets'] ?? array(), static fn(array $asset): bool 
 echo json_encode(array('serializedBlocks' => (string) ($result['serialized_blocks'] ?? ''), 'css' => implode("\\n", array_column($css, 'content'))));
 `, transformerRoot, Buffer.from(sourceFixture).toString('base64')], { encoding: 'utf8' }));
 
-const wordpressButtonCss = `.wp-block-buttons{box-sizing:border-box;display:flex;flex-wrap:wrap;gap:.5em}.wp-block-button{box-sizing:border-box;display:inline-block}.wp-block-button__link{box-sizing:border-box;cursor:pointer;display:inline-block;padding:0;text-align:center;word-break:break-word}`;
 const labels = ['ASSET MANAGERS', 'EDUCATORS & CREATORS', 'ADVISORS & DISTRIBUTORS', 'MARKET INFRASTRUCTURE', 'RESEARCH & MEDIA', 'PLATFORMS & FINTECH'];
 
 const browser = await chromium.launch({ headless: true });
