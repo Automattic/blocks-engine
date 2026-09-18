@@ -21,6 +21,7 @@ final class SourceBlockAttributeProjector
     public const CSS_OWNED_INLINE_FLOW_CLASS = 'blocks-engine-css-owned-inline-flow';
     public const CSS_OWNED_LAYOUT_ITEM_CLASS = 'blocks-engine-css-owned-layout-item';
     public const LAYOUT_NEUTRAL_BUTTONS_CLASS = 'blocks-engine-layout-neutral-buttons';
+    public const LAYOUT_NEUTRAL_BUTTON_CLASS = 'blocks-engine-layout-child-button';
 
     private const SYNTHETIC_HEADER_ANCHOR_CLASS_PREFIX = 'blocks-engine-synthetic-header-anchor-';
 
@@ -159,6 +160,17 @@ final class SourceBlockAttributeProjector
     ): array {
         $logicalControlPath = $logicalControl->getNodePath() ?? '';
         $presentationPath = $sourceElement->getNodePath() ?? '';
+        $isStandaloneLayoutButton = 'button' === strtolower($logicalControl->tagName)
+            && $this->isDirectChildOfAuthorOwnedLayout($logicalControl)
+            && ! $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl);
+        if ( $isStandaloneLayoutButton ) {
+            if ( 'core/buttons' === $name ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTONS_CLASS);
+            }
+            if ( 'core/button' === $name ) {
+                $attrs['className'] = SourceDom::mergeClassNames((string) ($attrs['className'] ?? ''), self::LAYOUT_NEUTRAL_BUTTON_CLASS);
+            }
+        }
         $nativeButtonTextAlignment = '';
         $hasNativeButtonColor = false;
         $hasNativeButtonStyle = false;
@@ -199,7 +211,7 @@ final class SourceBlockAttributeProjector
                 if ( 'core/button' === $name ) {
                     $this->generatedStyleProjector->registerNativeButtonStyleRule($controlMarker, $attrs, $context->generatedStyles, $nativeButtonTextAlignment, $logicalControl);
                     $childOwnedOffsets = $this->styleResolver->hasChildOwnedPositionedOffsets($logicalControl);
-                    if ( $facts->isDirectChildOfAuthorFlexLayout && ! $childOwnedOffsets ) {
+                    if ( $facts->isDirectChildOfAuthorFlexLayout && ! $childOwnedOffsets && ! $isStandaloneLayoutButton ) {
                         $this->generatedStyleProjector->registerDirectFlexButton($controlMarker, $logicalControl, $context->generatedStyles);
                     }
                     if ( ! $childOwnedOffsets ) {
@@ -432,15 +444,19 @@ final class SourceBlockAttributeProjector
     private function sourceAnchorResolvesToBlockDisplay(DOMElement $anchor): bool
     {
         $ownDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($anchor)['display'] ?? ''));
-        if ( '' !== $ownDisplay ) {
-            return false;
-        }
 
-        $parent = $anchor->parentNode;
+        return '' === $ownDisplay && $this->isDirectChildOfAuthorOwnedLayout($anchor);
+    }
+
+    private function isDirectChildOfAuthorOwnedLayout(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
         if ( ! $parent instanceof DOMElement ) {
             return false;
         }
+
         $parentDisplay = CssValueInspector::comparable((string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? ''));
+
         return in_array($parentDisplay, array( 'flex', 'inline-flex', 'grid', 'inline-grid' ), true);
     }
 

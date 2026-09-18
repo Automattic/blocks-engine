@@ -144,6 +144,13 @@ final class EngineSupportCss
                 . ':where(.' . $neutral . ')>.wp-block-button{width:fit-content}'
                 . ':where(.' . $neutral . ')>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS) ) {
+            // core/button always saves a .wp-block-button box around the control.
+            // Flatten that inner wrapper when the source button was already a
+            // direct child of an authored flex/grid container, so source classes
+            // on the wrapper cannot add a second padding box in the parent layout.
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}';
+        }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }
