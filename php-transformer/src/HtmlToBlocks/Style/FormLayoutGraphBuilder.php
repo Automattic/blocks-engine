@@ -440,6 +440,9 @@ final class FormLayoutGraphBuilder
         if ( array() === $layout ) {
             return null;
         }
+        foreach ( $layout as $key => $value ) {
+            $layout[$key] = self::providerSafeLength($value);
+        }
         $properties = array();
         foreach ( array_keys($layout) as $key ) {
             $properties[] = 'row_gap' === $key ? 'row-gap' : $key;
@@ -447,6 +450,16 @@ final class FormLayoutGraphBuilder
         $base = array_intersect_key($base, array_flip($properties));
 
         return array( 'layout' => $layout, 'provenance' => $this->provenance($base, null) );
+    }
+
+    /**
+     * Leading-dot numbers are valid CSS (`.25rem`) but provider overlays that
+     * admit calc() lengths require a digit before the decimal.
+     */
+    private static function providerSafeLength(string $value): string
+    {
+        $normalized = preg_replace('/(?<![0-9])\.(\d+)/', '0.$1', $value);
+        return is_string($normalized) ? $normalized : $value;
     }
 
     /** @param list<array<string, mixed>> $rules @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} */

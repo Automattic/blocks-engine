@@ -82,6 +82,14 @@ $assert('' === $formGap($layoutNodes($solo)), 'a single-field wrapper gap is not
 $inline = $transformer->transform('<form method="post"><div style="display:grid;gap:32px"><div><label>Name</label><input name="name"></div><div><label>Email</label><input type="email" name="email"></div></div><button type="submit">Send</button></form>')->toArray();
 $assert('32px' === $formGap($layoutNodes($inline)), 'inline field-list gap becomes form stack spacing', $formGap($layoutNodes($inline)));
 
+$calcCss = ':root{--spacing:.25rem} @layer utilities { .fields { display:grid; gap:calc(var(--spacing) * 6) } }';
+$calc = $transformer->transform($html, array( 'static_css' => $calcCss ))->toArray();
+$assert(
+    'calc(0.25rem * 6)' === $formGap($layoutNodes($calc)),
+    'resolved field-list calc gap keeps provider-admissible leading digits',
+    $formGap($layoutNodes($calc))
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Form field-list spacing tests: {$failures} failed, {$passes} passed\n");
     exit(1);
