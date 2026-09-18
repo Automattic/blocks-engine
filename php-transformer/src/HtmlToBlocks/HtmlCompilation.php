@@ -3764,6 +3764,15 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return true;
         }
 
+        // A lone styled inline in a flow wrapper is still inline in the source.
+        // Converting it to a paragraph host adds the host's line box and block
+        // spacing on top of the wrapper that already owns the source geometry.
+        if ( ! $this->ancestorElement($element, 'li') instanceof DOMElement
+            && $this->isLoneStyledInlineInFlowWrapper($element)
+        ) {
+            return true;
+        }
+
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         $display = strtolower(trim((string) ($declarations['display'] ?? 'inline')));
         if ( 'block' === $display ) {
@@ -3822,6 +3831,39 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         return false;
+    }
+
+    private function isLoneStyledInlineInFlowWrapper(DOMElement $element): bool
+    {
+        $parent = $element->parentNode;
+        if ( ! $parent instanceof DOMElement
+            || $this->isRichTextInlineContext($element)
+            || $this->sourceElementClassifier->isInlineSourceElement(strtolower($parent->tagName))
+            || ! ShellLandmarkPolicy::isInlineContentWrapperTag($parent->tagName)
+            || ! $this->hasBoxChromeWrapperStyling($parent)
+            || ( ! $this->hasAuthorSemanticMarker($element) && '' === $this->richTextMarker($element) )
+        ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $child ) {
+            if ( $child === $element ) {
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return false;
+                }
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private function isAtomicDirectInlineLayoutItem(DOMElement $element): bool
@@ -5622,12 +5664,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
         if ( 0 === $this->childElementCount($element) && ! ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) ) {
-            return $this->createBlock(
-                'core/paragraph',
-                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
-                array(),
-                $element
-            );
+            $attrs = array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content ));
+            // A non-`p` source did not have paragraph margins. Mark the host so
+            // engine-support CSS can neutralize them without touching authored <p>.
+            if ( 'p' !== strtolower($element->tagName) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+            }
+
+            return $this->createBlock('core/paragraph', $attrs, array(), $element);
         }
 
         return $this->createBlock(
