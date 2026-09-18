@@ -188,6 +188,7 @@
       "php tests/unit/navigation-item-scoped-anchor-rules.php",
       "php tests/unit/navigation-inert-support-children.php",
       "php tests/unit/overlay-hidden-navigation.php",
+      "php tests/unit/navigation-overlay-duplicate-collapse.php",
       "php tests/unit/layout-boundary-excludes-shell.php",
       "php tests/unit/navigation-nested-authored-anchor.php",
       "php tests/unit/button-signal-classifier.php",
