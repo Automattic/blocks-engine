@@ -131,7 +131,7 @@ final class AuthorSelectorSemanticPreparer
     {
         $classes = preg_split('/\s+/', trim($sourceBody->getAttribute('class'))) ?: array();
         return array_values(array_filter(array_unique($classes), static function (string $class) use ($authorStyles): bool {
-            return '' !== $class && (bool) preg_match('/\.' . preg_quote($class, '/') . '(?:\b|(?=[.#:\[]))/', $authorStyles->combinedCss());
+            return ColorSchemeVariant::cssContainsClassSelector($authorStyles->combinedCss(), $class);
         }));
     }
 

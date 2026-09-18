@@ -119,6 +119,8 @@
       "php tests/unit/theme-json-projection-typography-families.php",
       "php tests/unit/theme-json-projection-layered-deferral.php",
       "php tests/unit/responsive-font-size-not-baked.php",
+      "php tests/unit/color-scheme-variant.php",
+      "php tests/unit/color-scheme-projection.php",
       "php tests/unit/background-image-extractor.php",
       "php tests/unit/cover-block-factory.php",
       "php tests/unit/cover-pattern.php",

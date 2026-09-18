@@ -24,7 +24,7 @@ final class AuthorStylesheetProjector
     {
         return ( new CssStylesheetTransformer() )->transformStyleRules(
             $stylesheet,
-            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors))
+            fn (string $prelude, string $body, array $ancestors = array()): string => $this->projectStyleRule($prelude, $body, $context, self::ancestorsAreConditional($ancestors), $ancestors)
         );
     }
 
@@ -40,7 +40,17 @@ final class AuthorStylesheetProjector
         return false;
     }
 
-    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
+    /** @param list<string> $ancestors */
+    private function projectStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false, array $ancestors = array()): string
+    {
+        $lifted = ColorSchemeVariant::liftPrelude($prelude);
+        $css = $this->emitProjectedStyleRule($lifted['prelude'], $body, $context, $inConditional);
+        $css .= $this->sharedBodyCanvasPaintRule($lifted['prelude'], $body, $context);
+
+        return ColorSchemeVariant::wrap($css, $lifted['scheme'], $ancestors);
+    }
+
+    private function emitProjectedStyleRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context, bool $inConditional = false): string
     {
         $parts = str_contains($body, '{') ? (new CssStylesheetTransformer())->splitStyleRuleBody($body) : array();
         $hasNestedRules = array_filter($parts, static fn (array $part): bool => isset($part['prelude']));
@@ -55,14 +65,14 @@ final class AuthorStylesheetProjector
                 if ( isset($part['declarations']) ) {
                     // Splitting only contiguous runs retains declarations after
                     // a nested condition at their original cascade position.
-                    $css .= $this->projectStyleRule($prelude, $part['declarations'], $context, $inConditional);
+                    $css .= $this->emitProjectedStyleRule($prelude, $part['declarations'], $context, $inConditional);
                 } elseif ( in_array($part['at_rule'], array('media', 'supports'), true) ) {
-                    $css .= $part['prelude'] . '{' . $this->projectStyleRule($prelude, $part['body'], $context, true) . '}';
+                    $css .= $part['prelude'] . '{' . $this->emitProjectedStyleRule($prelude, $part['body'], $context, true) . '}';
                 } else {
                     // Relative selectors and scoped/layer rules retain their
                     // original host. Only media/supports conditions can lift.
                     $nested = '' === $part['at_rule']
-                        ? $this->projectStyleRule($part['prelude'], $part['body'], $context, $inConditional)
+                        ? $this->emitProjectedStyleRule($part['prelude'], $part['body'], $context, $inConditional)
                         : $part['prelude'] . '{' . $part['body'] . '}';
                     $css .= $this->rewriteSelectorPrelude($prelude, $context) . '{' . $nested . '}';
                 }
@@ -785,7 +795,7 @@ final class AuthorStylesheetProjector
         if ( array() === $classes ) {
             return $selector;
         }
-        $classes = implode('|', array_map(static fn (string $class): string => preg_quote($class, '/'), $classes));
+        $classes = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
         $selector = preg_replace('/^\s*body(?=\.(?:' . $classes . ')(?:\b|[.#:\[]))/', '', $selector, 1) ?? $selector;
         return $this->projectSourceBodySubjectSelector($selector, $classes, $context);
     }
@@ -817,6 +827,58 @@ final class AuthorStylesheetProjector
         }
         $shims = str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.'));
         return substr($selector, 0, $start) . 'body' . $shims . substr($selector, $end);
+    }
+
+    private function sharedBodyCanvasPaintRule(string $prelude, string $body, AuthorStylesheetProjectionContext $context): string
+    {
+        $classes = $context->authorStyles->sourceBodyProjectionClasses();
+        if ( array() === $classes ) {
+            return '';
+        }
+        $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
+        if ( null === $selectors || 1 !== count($selectors) ) {
+            return '';
+        }
+        $selector = trim($selectors[0]);
+        $parsed = $context->sourceStyles->parsedSelector($selector);
+        if ( ! ($parsed['supported'] ?? false) || null === ($parsed['rightmost_compound_span'] ?? null) ) {
+            return '';
+        }
+        $start = (int) $parsed['rightmost_compound_span']['start'];
+        $end = (int) $parsed['rightmost_rewrite_end'];
+        if ( 0 !== $start ) {
+            return '';
+        }
+        $classPattern = implode('|', array_map(static fn (string $class): string => preg_quote(ColorSchemeVariant::cssEscapeIdent($class), '/'), $classes));
+        $subject = substr($selector, $start, $end - $start);
+        if ( 1 !== preg_match('/^(?:\.(?:' . $classPattern . '))+$/', $subject) ) {
+            return '';
+        }
+        if ( array() === $this->matchingSourceElements($selector, $parsed, $context) ) {
+            return '';
+        }
+        $paint = array_intersect_key(
+            $this->styleResolver->verbatimCssDeclarations($body),
+            array_flip(array(
+                'color',
+                'background',
+                'background-color',
+                'background-image',
+                'background-position',
+                'background-size',
+                'background-repeat',
+                'background-attachment',
+                'background-origin',
+                'background-clip',
+                'background-blend-mode',
+            ))
+        );
+        $css = $this->styleResolver->cssDeclarationString($paint);
+        if ( '' === $css ) {
+            return '';
+        }
+
+        return 'body' . str_repeat(':not(.' . $context->authorStyles->classSpecificityShim() . ')', substr_count($subject, '.')) . '{' . $css . '}';
     }
 
     /** @return array{string, string} */

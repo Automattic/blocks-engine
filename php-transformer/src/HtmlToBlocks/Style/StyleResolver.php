@@ -2671,16 +2671,21 @@ final class StyleResolver implements ElementPresentationResolver
                 //
                 // `@media` stays conditional: it depends on the viewport, which
                 // is exactly what the conditional stream exists to model.
-                $isStaticLayerRule = array() !== $conditions
-                    && array_reduce($conditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
-
-                foreach (explode(',', $prelude) as $selector) {
+                foreach (CssStylesheetTransformer::splitSelectorList($prelude) ?? explode(',', $prelude) as $selector) {
                     $selector = trim($selector);
                     if ('' === $selector || str_starts_with($selector, '@')) {
                         continue;
                     }
+                    $lifted = ColorSchemeVariant::liftSelector($selector);
+                    $selector = trim($lifted['prelude']);
+                    $selectorConditions = $conditions;
+                    if (null !== $lifted['scheme']) {
+                        $selectorConditions[] = '@media (prefers-color-scheme: ' . $lifted['scheme'] . ')';
+                    }
+                    $selectorIsStaticLayerRule = array() !== $selectorConditions
+                        && array_reduce($selectorConditions, fn (bool $static, string $condition): bool => $static && $this->conditionResolvesStatically($condition), true);
                     $supportedRestingSelector = ! $this->selectorCarriesPseudoState($selector) && $this->isSupportedCssSelector($selector);
-                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
+                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && (array() !== $declarations || array() !== $mediaTextDeclarations)) {
                         $analysis['static'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
@@ -2689,12 +2694,12 @@ final class StyleResolver implements ElementPresentationResolver
                             'layer' => $layer,
                         );
                     }
-                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $conditions && ! $isStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
+                    if (! $this->selectorCarriesPseudoState($selector) && array() !== $selectorConditions && ! $selectorIsStaticLayerRule && (array() !== $declarations || array() !== $cascadedValueDeclarations)) {
                         $analysis['conditional'][] = array(
                             'selector' => $selector,
                             'declarations' => $declarations,
                             'cascadedDeclarations' => $cascadedValueDeclarations,
-                            'conditions' => $conditions,
+                            'conditions' => $selectorConditions,
                             'layer' => $layer,
                         );
                     }
@@ -2704,19 +2709,19 @@ final class StyleResolver implements ElementPresentationResolver
                                 'selector' => $selector,
                                 'property' => $entry['property'],
                                 'value' => $entry['value'],
-                                'conditions' => $conditions,
+                                'conditions' => $selectorConditions,
                                 'order' => $imageOrder++,
                                 'layer' => $layer,
                             );
                         }
                     }
-                    if ($supportedRestingSelector && (array() === $conditions || $isStaticLayerRule) && array() !== $cascadedValueDeclarations) {
+                    if ($supportedRestingSelector && (array() === $selectorConditions || $selectorIsStaticLayerRule) && array() !== $cascadedValueDeclarations) {
                         $analysis['cascaded_values'][] = array('selector' => $selector, 'declarations' => $cascadedValueDeclarations);
                     }
                     if (array() === $declarations) {
                         continue;
                     }
-                    if (array() === $conditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
+                    if (array() === $selectorConditions && 1 === preg_match_all('/:(hover|focus-within|focus-visible|focus|active)\b/i', $selector, $stateMatches, PREG_OFFSET_CAPTURE)) {
                         $state = strtolower((string) $stateMatches[1][0][0]);
                         $offset = (int) $stateMatches[0][0][1];
                         $baseSelector = trim(substr_replace($selector, '', $offset, strlen((string) $stateMatches[0][0][0])));
@@ -2732,7 +2737,7 @@ final class StyleResolver implements ElementPresentationResolver
                             if (isset($rawDeclarations['content'])) {
                                 $pseudoDeclarations['content'] = $rawDeclarations['content'];
                             }
-                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $conditions);
+                            $analysis['pseudo'][] = array('selector' => $baseSelector, 'pseudo' => strtolower($pseudoMatch[1]), 'declarations' => $pseudoDeclarations, 'conditions' => $selectorConditions);
                         }
                     }
                 }
