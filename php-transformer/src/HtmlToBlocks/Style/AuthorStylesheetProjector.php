@@ -205,16 +205,20 @@ final class AuthorStylesheetProjector
                 $mixedButtonProjection = $this->withoutCollapsedButtonProjectedWidths($projectedPrelude, $body);
                 return $nonButtonLinkRule . ( null !== $mixedButtonProjection ? $mixedButtonProjection : $projectedPrelude . '{' . $body . '}' ) . $nativeButtonCompatRule;
             }
-            [ $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            [ $placement, $geometry, $inner ] = $this->splitDirectButtonGeometryDeclarations($body);
+            $placementPrelude = $this->directButtonPlacementWrapperPrelude($prelude, $context);
+            $placementRule = '' === $placement || '' === $placementPrelude
+                ? ''
+                : $placementPrelude . '{' . $placement . '}';
             $nonButtonGeometryPrelude = $this->withoutButtonPresentationProjectionSelectors($projectedPrelude, $directWrapperPrelude);
-            $nonButtonGeometryDeclarations = array_filter(array( $geometry, $this->collapsedButtonKeywordWidthDeclarations($body) ));
+            $nonButtonGeometryDeclarations = array_filter(array( $placement, $geometry, $this->collapsedButtonKeywordWidthDeclarations($body) ));
             $nonButtonGeometry = '' === $nonButtonGeometryPrelude || array() === $nonButtonGeometryDeclarations
                 ? ''
                 : $nonButtonGeometryPrelude . '{' . implode(';', $nonButtonGeometryDeclarations) . '}';
             if ( '' === $geometry ) {
-                return $nonButtonLinkRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry . $nativeButtonCompatRule;
+                return $nonButtonLinkRule . $placementRule . ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry . $nativeButtonCompatRule;
             }
-            return $nonButtonLinkRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional) . $nativeButtonCompatRule;
+            return $nonButtonLinkRule . $placementRule . $this->withButtonWrapperInnerFill($directWrapperPrelude, $geometry, ( '' === $inner ? '' : $projectedPrelude . '{' . $inner . '}' ) . $nonButtonGeometry, $inConditional) . $nativeButtonCompatRule;
         }
 
         [ $layout, $control ] = $this->splitButtonPresentationDeclarations($body);
@@ -676,6 +680,25 @@ final class AuthorStylesheetProjector
 
     private function directButtonGeometryWrapperPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
     {
+        return $this->directButtonWrapperPrelude(
+            $prelude,
+            $context,
+            fn (string $selector, array $parsed, string $marker): string => $this->projectControlSelector($selector, $parsed, $marker, $context, true)
+        );
+    }
+
+    private function directButtonPlacementWrapperPrelude(string $prelude, AuthorStylesheetProjectionContext $context): string
+    {
+        return $this->directButtonWrapperPrelude(
+            $prelude,
+            $context,
+            fn (string $selector, array $parsed, string $marker): string => $this->projectButtonBoxSelector($selector, $parsed, $marker, $context)
+        );
+    }
+
+    /** @param callable(string, array<string, mixed>, string): string $project */
+    private function directButtonWrapperPrelude(string $prelude, AuthorStylesheetProjectionContext $context, callable $project): string
+    {
         $selectors = CssStylesheetTransformer::splitSelectorList($prelude);
         if ( null === $selectors ) {
             return '';
@@ -697,47 +720,52 @@ final class AuthorStylesheetProjector
                 if ( '' === $marker || $context->selectorProjections->isButtonPresentationPath($path) ) {
                     continue;
                 }
-                $rewritten[] = $this->projectControlSelector($selector, $parsed, $marker, $context, true);
+                $rewritten[] = $project($selector, $parsed, $marker);
             }
         }
         return implode(',', array_values(array_unique($rewritten)));
     }
 
-    /** @return array{string, string} */
+    /** @return array{string, string, string} */
     private function splitDirectButtonGeometryDeclarations(string $body): array
     {
+        $placement = array();
         $geometry = array();
         $inner = array();
+        $placementVars = $this->buttonPlacementCustomProperties($body);
+        $wrapperOwned = array(
+            'position', 'top', 'right', 'bottom', 'left', 'z-index',
+            'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            'grid-area', 'grid-column', 'grid-row',
+            'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
+            'align-self', 'justify-self', 'order',
+            // Flex sizing is item participation, like the `align-self` and
+            // `order` above it: it describes how the box behaves inside the
+            // author's flex container. The wrapper is the box that stands in
+            // the source element's place there, so a `flex-shrink:0` left on
+            // the inner link is inert and the control grows or shrinks
+            // against the author's intent.
+            'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
+        );
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
             $colon = strpos($declaration, ':');
             $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
             $value = false === $colon ? '' : trim(substr($declaration, $colon + 1));
-            $wrapperOwned = array(
-                'position', 'top', 'right', 'bottom', 'left', 'z-index',
-                'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-                'grid-area', 'grid-column', 'grid-row',
-                'grid-column-start', 'grid-column-end', 'grid-row-start', 'grid-row-end',
-                'align-self', 'justify-self', 'order',
-                // Flex sizing is item participation, like the `align-self` and
-                // `order` above it: it describes how the box behaves inside the
-                // author's flex container. The wrapper is the box that stands in
-                // the source element's place there, so a `flex-shrink:0` left on
-                // the inner link is inert and the control grows or shrinks
-                // against the author's intent.
-                'flex', 'flex-grow', 'flex-shrink', 'flex-basis',
-            );
             if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
-            if ( '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
-                && ! $this->isButtonControlBoxSize($name, $value)
-            ) {
+            $places = '' !== $name && false !== $colon && $this->declarationPlacesTheButton($name, $placementVars);
+            $owned = '' !== $name && false !== $colon && in_array($name, $wrapperOwned, true)
+                && ! $this->isButtonControlBoxSize($name, $value);
+            if ( $places ) {
+                $placement[] = $declaration;
+            } elseif ( $owned ) {
                 $geometry[] = $declaration;
             } else {
                 $inner[] = $declaration;
             }
         }
-        return array( implode(';', $geometry), implode(';', $inner) );
+        return array( implode(';', $placement), implode(';', $geometry), implode(';', $inner) );
     }
 
     private function projectSourceBodyStateSelector(string $selector, AuthorStylesheetProjectionContext $context): string
@@ -755,6 +783,7 @@ final class AuthorStylesheetProjector
     {
         $layout = array();
         $control = array();
+        $placementVars = $this->buttonPlacementCustomProperties($body);
         foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
             $colon = strpos($declaration, ':');
             $name = strtolower(trim(false === $colon ? $declaration : substr($declaration, 0, $colon)));
@@ -766,7 +795,9 @@ final class AuthorStylesheetProjector
             if ( $this->isCollapsedButtonKeywordWidth($name, $value) ) {
                 continue;
             }
-            if ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) ) {
+            if ( $this->declarationPlacesTheButton($name, $placementVars)
+                || ( $this->isButtonWrapperLayoutProperty($name) && ! $this->isButtonControlBoxSize($name, $value) )
+            ) {
                 $layout[] = $declaration;
             } else {
                 $control[] = $declaration;
@@ -868,16 +899,66 @@ final class AuthorStylesheetProjector
 
     private function isButtonWrapperLayoutProperty(string $property): bool
     {
+        return $this->isButtonPlacementProperty($property)
+            || in_array($property, array(
+                'align-content', 'align-items', 'align-self', 'clear', 'display', 'float',
+                'flex', 'flex-basis', 'flex-direction', 'flex-flow', 'flex-grow', 'flex-shrink',
+                'flex-wrap', 'gap', 'grid', 'grid-area', 'grid-auto-columns', 'grid-auto-flow',
+                'grid-auto-rows', 'grid-column', 'grid-row', 'grid-template', 'grid-template-areas',
+                'grid-template-columns', 'grid-template-rows', 'isolation', 'justify-content',
+                'justify-items', 'justify-self', 'order', 'overflow', 'overflow-x', 'overflow-y',
+                'place-content', 'place-items', 'place-self', 'position', 'top', 'right', 'bottom',
+                'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
+            ), true);
+    }
+
+    private function isButtonPlacementProperty(string $property): bool
+    {
         return in_array($property, array(
-            'align-content', 'align-items', 'align-self', 'clear', 'display', 'float',
-            'flex', 'flex-basis', 'flex-direction', 'flex-flow', 'flex-grow', 'flex-shrink',
-            'flex-wrap', 'gap', 'grid', 'grid-area', 'grid-auto-columns', 'grid-auto-flow',
-            'grid-auto-rows', 'grid-column', 'grid-row', 'grid-template', 'grid-template-areas',
-            'grid-template-columns', 'grid-template-rows', 'isolation', 'justify-content',
-            'justify-items', 'justify-self', 'order', 'overflow', 'overflow-x', 'overflow-y',
-            'place-content', 'place-items', 'place-self', 'position', 'top', 'right', 'bottom',
-            'left', 'z-index', 'width', 'min-width', 'max-width', 'height', 'min-height', 'max-height',
-        ), true);
+            'translate',
+            'rotate',
+            'scale',
+            'transform',
+            '-webkit-transform',
+            'transform-origin',
+            'offset',
+        ), true) || str_starts_with($property, 'offset-');
+    }
+
+    /**
+     * Custom properties consumed by a placement declaration belong on the same
+     * box. `translate: var(--shift)` on the wrapper is inert if `--shift` is
+     * left on the inner link.
+     *
+     * @return array<string, true>
+     */
+    private function buttonPlacementCustomProperties(string $body): array
+    {
+        $referenced = array();
+        foreach ( CssValueSplitter::splitTopLevel($body, array( ';' )) as $declaration ) {
+            $colon = strpos($declaration, ':');
+            if ( false === $colon ) {
+                continue;
+            }
+            $name = strtolower(trim(substr($declaration, 0, $colon)));
+            $value = trim(substr($declaration, $colon + 1));
+            if ( ! $this->isButtonPlacementProperty($name) ) {
+                continue;
+            }
+            if ( preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+                foreach ( $matches[1] as $property ) {
+                    $referenced[strtolower($property)] = true;
+                }
+            }
+        }
+
+        return $referenced;
+    }
+
+    /** @param array<string, true> $placementVars */
+    private function declarationPlacesTheButton(string $property, array $placementVars): bool
+    {
+        return $this->isButtonPlacementProperty($property) || isset($placementVars[$property]);
     }
 
     private function rewriteSelectorPrelude(string $prelude, AuthorStylesheetProjectionContext $context, bool $controlWrapper = false): string
@@ -1427,6 +1508,13 @@ final class AuthorStylesheetProjector
     {
         $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
         return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context) . ($wrapper ? ':where(.wp-block-buttons)' : '> :where(.wp-block-button__link)') . $suffix;
+    }
+
+    /** @param array<string, mixed> $parsed */
+    private function projectButtonBoxSelector(string $selector, array $parsed, string $marker, AuthorStylesheetProjectionContext $context): string
+    {
+        $suffix = null === $parsed['pseudo_state_suffix_span'] ? '' : substr($selector, $parsed['pseudo_state_suffix_span']['start']);
+        return ':where(.' . $marker . ')' . $this->selectorSpecificityShims($parsed, $context) . ':where(.wp-block-button)' . $suffix;
     }
 
     /** @param array<string, mixed> $parsed */
