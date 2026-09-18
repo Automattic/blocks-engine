@@ -780,33 +780,75 @@ final class InlineGeometry
 
     /**
      * Unambiguous grid class tokens: a bare `grid`, a numbered `grid-N`, or any
-     * `*-grid` / `*_grid` suffix (footer-grid, card-grid, mission-grid, …) plus
-     * the common `grid-cols` / `grid-columns` utility names. These map directly to
-     * `display:grid` containers, so they are safe to treat as grids regardless of
-     * child semantics. Ambiguous semantic names (cards, features, …) stay gated on
+     * token ending `*-grid` / `*_grid` (footer-grid, card-grid, mission-grid, …)
+     * plus the common `grid-cols` / `grid-columns` utility names. Matched as whole
+     * class tokens, so mid-token fragments (`border-grid-line`, `grid-pattern`,
+     * `text-grid-500`) are not signals. These map directly to `display:grid`
+     * containers, so they are safe to treat as grids regardless of child
+     * semantics. Ambiguous semantic names (cards, features, …) stay gated on
      * card-like children via hasGridLikeClass().
      */
     private function hasExplicitGridClass(DOMElement $element): bool
     {
-        $className = $this->authorClassTokens($element);
-        return (bool) preg_match('/(?:^|[\s_-])(?:grid|grid-[0-9]+|grid-cols(?:-[0-9]+)?|grid-columns|[a-z0-9]+[-_]grid)(?:$|[\s_-])/', $className);
+        foreach ( $this->authorClassTokens($element) as $token ) {
+            if ( $this->isExplicitGridClassToken($token) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function hasGridLikeClass(DOMElement $element): bool
     {
-        $className = $this->authorClassTokens($element);
-        return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|collection|gallery)(?:$|[\s_-])/', $className);
+        foreach ( $this->authorClassTokens($element) as $token ) {
+            if ( $this->isGridLikeClassToken($token) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isExplicitGridClassToken(string $token): bool
+    {
+        $token = $this->classTokenBase($token);
+        if ( 'grid' === $token || 'grid-cols' === $token || 'grid-columns' === $token ) {
+            return true;
+        }
+        if ( 1 === preg_match('/^grid-(?:[0-9]+|cols-[0-9]+)$/', $token) ) {
+            return true;
+        }
+
+        return str_ends_with($token, '-grid') || str_ends_with($token, '_grid');
+    }
+
+    private function isGridLikeClassToken(string $token): bool
+    {
+        $token = $this->classTokenBase($token);
+
+        return in_array($token, array( 'cards', 'features', 'services', 'providers', 'testimonials', 'resources', 'posts', 'projects', 'stats', 'badges', 'grid', 'tiles', 'collection', 'gallery' ), true)
+            || 1 === preg_match('/^grid-[0-9]+$/', $token);
+    }
+
+    private function classTokenBase(string $token): string
+    {
+        $slash = strpos($token, '/');
+
+        return false === $slash ? $token : substr($token, 0, $slash);
     }
 
     /**
      * Class tokens with generated markers filtered out, so transformer-emitted
      * classes (blocks-engine-css-owned-grid, …) re-ingested from prior output
      * never trip the author grid-class heuristics.
+     *
+     * @return array<int, string>
      */
-    private function authorClassTokens(DOMElement $element): string
+    private function authorClassTokens(DOMElement $element): array
     {
         $tokens = preg_split('/\s+/', strtolower(trim(SourceDom::attr($element, 'class')))) ?: array();
 
-        return implode(' ', array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-inline-geometry-')));
+        return array_values(array_filter($tokens, static fn (string $token): bool => '' !== $token && ! GeneratedGutenbergClassPolicy::isGeneratedClassName($token) && ! str_starts_with($token, 'blocks-engine-') && ! str_starts_with($token, 'be-inline-geometry-')));
     }
 }
