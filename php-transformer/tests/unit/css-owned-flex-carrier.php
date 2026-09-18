@@ -222,7 +222,7 @@ $assert(
     $plainEngineCss
 );
 $assert(
-    str_starts_with($plainMarkup, '<!-- wp:group {"className":"plain","tagName":"footer"} --><footer class="wp-block-group plain">'),
+    str_starts_with($plainMarkup, '<!-- wp:group {"className":"plain","tagName":"footer","metadata":{"name":"Footer"}} --><footer class="wp-block-group plain">'),
     'no authored display control: the container block is unchanged',
     substr($plainMarkup, 0, 200)
 );
