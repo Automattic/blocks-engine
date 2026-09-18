@@ -1655,9 +1655,14 @@ final class AuthorStylesheetProjector
         if ( ! is_array($rightmost) ) {
             return $selector;
         }
-        return substr($selector, 0, (int) $rightmost['start'])
-            . 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . ' > '
-            . substr($selector, (int) $rightmost['start']);
+        $prefix = substr($selector, 0, (int) $rightmost['start']);
+        $right = substr($selector, (int) $rightmost['start']);
+        $carrierChild = 'p.' . self::INLINE_LAYOUT_CARRIER_CLASS . ' > ';
+        // A content-wrapping <a> is pushed down onto the carrier as a child
+        // wrapping the source leaf. Child combinators that targeted that leaf
+        // must also reach it through the propagated anchor, or authored
+        // typography on nested lockup spans is dropped.
+        return $prefix . $carrierChild . 'a > ' . $right . ',' . $prefix . $carrierChild . $right;
     }
 
     /** @param array<string, mixed> $parsed */
