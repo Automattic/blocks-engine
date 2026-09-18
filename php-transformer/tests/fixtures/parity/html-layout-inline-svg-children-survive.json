@@ -1,0 +1,42 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-layout-inline-svg-children-survive",
+  "description": "A preserved flex layout container keeps untitled inline SVG children instead of materializing as an empty group. Each SVG is a child of an otherwise empty anchor and must reach the existing native image materializer.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-layout-inline-svg-children-survive.json",
+    "notes": "Product-neutral regression for inline SVG loss inside a preserved layout container. Distilled from a footer icon row whose flex wrapper survived while its SVG children were dropped because empty-text anchors returned null before SvgElementConverter ran."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<footer><p>Connect</p><div class=\"flex gap-4 mb-4\"><a href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\"><path d=\"M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z\"></path></svg></a><a href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\"><rect width=\"20\" height=\"20\" x=\"2\" y=\"2\" rx=\"5\"></rect></svg></a><a href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\"><circle cx=\"4\" cy=\"4\" r=\"2\"></circle></svg></a></div></footer>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "footer" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/paragraph", "attrs": { "content": "Connect" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/group", "attrs": { "className": "flex gap-4 mb-4" } },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0", "name": "core/image" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.2.innerBlocks.0", "name": "core/image" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks", "assert": "count", "count": 3 },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.0.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.1.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "blocks.0.innerBlocks.1.innerBlocks.2.innerBlocks.0.attrs.url", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-empty-visual-group" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:freeform" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:missing" },
+    { "path": "assets", "assert": "count", "count": 4 },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}

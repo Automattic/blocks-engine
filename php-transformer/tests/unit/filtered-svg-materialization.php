@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\HtmlTransformer;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 
 $assertions = 0;
 $assert = static function (bool $condition, string $message) use (&$assertions): void {
@@ -83,5 +84,28 @@ $assert(
     1 === count($layerIdIconAssets) && str_contains((string) ($layerIdIconAssets[0]['content'] ?? ''), '<path'),
     'Drawable icon SVGs with generic layer identifiers retain their artwork in a portable asset.'
 );
+
+$layoutIcons = (new HtmlTransformer())->transform(
+    '<footer><p>Connect</p><div class="flex gap-4 mb-4">'
+    . '<a href="#"><svg width="20" height="20" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>'
+    . '<a href="#"><svg width="20" height="20" viewBox="0 0 24 24"><rect width="20" height="20" x="2" y="2" rx="5"></rect></svg></a>'
+    . '<a href="#"><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="4" cy="4" r="2"></circle></svg></a>'
+    . '</div></footer>'
+)->toArray();
+$layoutMarkup = (string) ($layoutIcons['serialized_blocks'] ?? '');
+$layoutAssets = array_values(array_filter($layoutIcons['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));
+$flexGroup = $layoutIcons['blocks'][0]['innerBlocks'][1] ?? array();
+$assert('core/group' === ($flexGroup['blockName'] ?? null) && str_contains((string) ($flexGroup['attrs']['className'] ?? ''), 'flex gap-4 mb-4'), 'A preserved flex container keeps its layout classes when its children are inline SVGs.');
+$assert(3 === count($flexGroup['innerBlocks'] ?? array()) && !str_contains($layoutMarkup, 'blocks-engine-empty-visual-group'), 'Inline SVG children of a preserved layout container are not dropped.');
+$assert(3 === substr_count($layoutMarkup, 'assets/materialized-svg/') && 3 === count($layoutAssets), 'Each untitled inline SVG materializes as a portable image asset.');
+$assert(!str_contains($layoutMarkup, '<!-- wp:html') && !str_contains($layoutMarkup, '<!-- wp:freeform') && !str_contains($layoutMarkup, '<!-- wp:missing'), 'Preserved inline SVG children stay on the native image path.');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($layoutIcons['blocks'] ?? array())['status'] ?? null), 'Preserved inline SVG children remain Gutenberg-valid.');
+
+$unsafeChild = (new HtmlTransformer())->transform(
+    '<div class="flex gap-4"><a href="#"><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></a></div>'
+)->toArray();
+$unsafeMarkup = (string) ($unsafeChild['serialized_blocks'] ?? '');
+$assert(!str_contains($unsafeMarkup, 'onload=') && !str_contains($unsafeMarkup, 'alert(1)'), 'Unsafe attributes on an inline SVG child are stripped rather than leaked.');
+$assert(str_contains($unsafeMarkup, '<path d="M0 0h1v1z">'), 'Sanitized drawable SVG children of a preserved container still survive.');
 
 fwrite(STDOUT, 'Filtered SVG materialization tests: ' . $assertions . " passed\n");

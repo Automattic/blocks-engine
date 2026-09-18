@@ -67,6 +67,13 @@ final class ButtonLinkDispatcher
         }
 
         if ( '' === trim($element->textContent ?? '') ) {
+            if ( 0 < $element->getElementsByTagName('svg')->length ) {
+                $svgChildren = $this->context->convertLinkWrapperGroup($element, $fallbacks);
+                if ( null !== $svgChildren ) {
+                    return $svgChildren;
+                }
+            }
+
             return null;
         }
 
