@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNaviga
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\SourceTargetProjectionState;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\NavigationStyleProjector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\NavigationToggleSuppressor;
@@ -76,6 +77,32 @@ final class NavigationPatternContext
     public function resolvedDisplay(DOMElement $element): string
     {
         return $this->styleResolver?->resolvedConditionalDisplay($element) ?? '';
+    }
+
+    /**
+     * Whether the element is hidden once its authored cascade — inline, static,
+     * AND media/feature-conditional rules that apply at the desktop reference
+     * viewport — is fully resolved. A `hidden md:flex` element correctly reads
+     * as visible here; a `md:hidden` overlay duplicate reads as hidden.
+     */
+    public function isHiddenAtReferenceViewport(DOMElement $element): bool
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return false;
+        }
+
+        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($element));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        if ( 'none' === $display ) {
+            return true;
+        }
+        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
+            return true;
+        }
+        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
+
+        return is_numeric($opacity) && 0.0 === (float) $opacity;
     }
 
     /** @return list<string> */

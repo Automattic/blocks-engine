@@ -16,7 +16,7 @@
     "content": "<nav class=\"nav\"><a href=\"#home\" class=\"brand-logo\" aria-label=\"Home\"><span class=\"brand-mark\" aria-hidden=\"true\"><svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg></span><span><span class=\"brand-name\">Roasters</span><span class=\"brand-sub\">Est. 2018</span></span></a><ul class=\"nav-links\"><li><a href=\"#menu\">Menu</a></li><li><a href=\"#contact\">Contact</a></li></ul><button class=\"nav-toggle\" aria-label=\"Open navigation\"><span></span><span></span></button></nav><div class=\"ticker-band\"><div class=\"ticker-track\"><span class=\"ticker-item\">Small Batch</span><span class=\"ticker-item ticker-dot\">•</span><span class=\"ticker-item\">Direct Trade</span></div></div><article class=\"menu-card\"><div class=\"card-footer\"><span class=\"card-tag\">Espresso</span><span class=\"card-price\">$4.50</span></div></article>"
   },
   "expected_blocks": [
-    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "nav" } },
+    { "path": "blocks.0", "name": "core/group", "attrs": { "className": "nav blocks-engine-brand-navigation-carrier" } },
     { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
     { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "url": "#home", "title": "Home" } },
     { "path": "blocks.0.innerBlocks.1", "name": "core/navigation", "attrs": { "className": "nav-links blocks-engine-list-navigation blocks-engine-native-responsive-navigation blocks-engine-native-navigation-toggle-b5e9ccdeeabe" } },

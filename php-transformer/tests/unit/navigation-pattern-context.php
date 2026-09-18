@@ -46,6 +46,7 @@ $assert(false === $context->isRuntimeDomTarget($nav), 'null runtime-island check
 $assert('never' === $context->overlayMenu($nav), 'null toggle suppressor overlay is never');
 $assert('' === $context->resolvedStyle($nav), 'null style resolver yields empty style');
 $assert('' === $context->resolvedDisplay($nav), 'null style resolver yields empty display');
+$assert(false === $context->isHiddenAtReferenceViewport($nav), 'null style resolver is not hidden at the reference viewport');
 $assert(array() === $context->colorInteractionStates($nav), 'null style projector yields no color states');
 $assert('' === $context->responsiveToggleMarker($nav), 'null projected navigation yields no toggle marker');
 $assert('' === $context->linkIconMarker($anchor), 'null svg materializer yields no link icon');

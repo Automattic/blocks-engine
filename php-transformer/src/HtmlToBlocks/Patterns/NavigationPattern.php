@@ -73,23 +73,6 @@ final class NavigationPattern implements PatternRecognizerInterface
             return null;
         }
 
-        if ( $this->hasNavigationChrome($element) ) {
-            $hasImageBrand = false;
-            foreach ( $element->childNodes as $child ) {
-                if ( $child instanceof DOMElement
-                    && 'a' === strtolower($child->tagName)
-                    && $this->readsAsBrandAnchor($child)
-                    && 0 < $child->getElementsByTagName('img')->length
-                ) {
-                    $hasImageBrand = true;
-                    break;
-                }
-            }
-            if ( ! $hasImageBrand ) {
-                return null;
-            }
-        }
-
         // A row of button-styled links (e.g. `<div class="stream-links"><a
         // class="stream-btn">…</a>…</div>`) is a call-to-action button group, not
         // site navigation. It matched here only because a container token like
@@ -439,6 +422,10 @@ final class NavigationPattern implements PatternRecognizerInterface
                 continue;
             }
 
+            if ( $this->isCollapsedNavigationDuplicate($child, $element, $navigationContext) ) {
+                continue;
+            }
+
             // Block-level content inside the anchor is no obstacle here: the
             // carrier converts the anchor rather than flattening it into a menu
             // item label, so a lockup built from a heading survives whole.
@@ -570,10 +557,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             );
             $this->projectBlockListDisplay($listSource, $navigationContext, $splitLandmarkOwnership);
         }
-        $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
+        $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $cluster, $navigationContext);
+            $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
@@ -1319,6 +1306,10 @@ final class NavigationPattern implements PatternRecognizerInterface
             }
 
             if ( $child instanceof DOMElement && $this->isSectionLabelElement($child) ) {
+                continue;
+            }
+
+            if ( $child instanceof DOMElement && $this->isCollapsedNavigationDuplicate($child, $element, $navigationContext) ) {
                 continue;
             }
 
@@ -2348,6 +2339,56 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return (bool) preg_match('/overlay|fullscreen|drawer|offcanvas/', $tokens)
             && 0 === $element->getElementsByTagName('a')->length;
+    }
+
+    /**
+     * A sibling link cluster that the source collapses at the reference
+     * viewport (typically a mobile overlay copy of the in-flow menu). It is
+     * identified by resolved display/visibility at that viewport plus an
+     * equivalent destination-link signature — not by overlay class names —
+     * so a genuinely visible second group is kept.
+     */
+    private function isCollapsedNavigationDuplicate(DOMElement $element, DOMElement $scope, ?NavigationPatternContext $navigationContext): bool
+    {
+        if ( null === $navigationContext || ! $navigationContext->isHiddenAtReferenceViewport($element) ) {
+            return false;
+        }
+
+        $signature = $this->destinationLinkSignature($element);
+        if ( '' === $signature ) {
+            return false;
+        }
+
+        foreach ( $scope->childNodes as $sibling ) {
+            if ( ! $sibling instanceof DOMElement
+                || $sibling->isSameNode($element)
+                || $navigationContext->isHiddenAtReferenceViewport($sibling)
+            ) {
+                continue;
+            }
+            if ( $signature === $this->destinationLinkSignature($sibling) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function destinationLinkSignature(DOMElement $element): string
+    {
+        $links = array();
+        foreach ( $element->getElementsByTagName('a') as $anchor ) {
+            if ( ! $anchor instanceof DOMElement || ! $this->anchorNavigatesToDestination($anchor) ) {
+                continue;
+            }
+            $label = strtolower(trim($anchor->textContent ?? ''));
+            if ( '' === $label ) {
+                continue;
+            }
+            $links[] = $label . '|' . trim($this->attr($anchor, 'href'));
+        }
+
+        return 2 > count($links) ? '' : implode("\n", $links);
     }
 
     /**
