@@ -551,12 +551,49 @@ final class SvgMaterializer implements SvgElementMaterializer
 
     private function resolveMaterializedSvgColors(string $html, DOMElement $element): string
     {
-        $html = $this->styleResolver->resolveCssVariablesInValue($html, $element);
+        $html = $this->resolveCssVariablesInSvgMarkup($html, $element);
         if ( false !== stripos($html, 'currentColor') ) {
             $html = preg_replace('/\bcurrentColor\b/i', $this->inheritedSvgColor($element), $html) ?? $html;
         }
 
         return $this->bakeCascadedSvgPaint($html, $element);
+    }
+
+    /**
+     * Expand `var()` inside SVG markup attributes. Resolved values such as a
+     * quoted font stack must be escaped for the attribute they land in;
+     * substituting them into the raw HTML string would terminate the attribute
+     * at the first `"`.
+     */
+    private function resolveCssVariablesInSvgMarkup(string $html, DOMElement $element): string
+    {
+        if ( false === strpos($html, 'var(') ) {
+            return $html;
+        }
+
+        $html = preg_replace_callback(
+            '/(\s[^\s=<>\/]+)\s*=\s*(["\'])(.*?)\2/s',
+            function (array $match) use ($element): string {
+                $decoded = html_entity_decode($match[3], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+                if ( false === strpos($decoded, 'var(') ) {
+                    return $match[0];
+                }
+
+                $resolved = $this->styleResolver->resolveCssVariablesInValue($decoded, $element);
+                if ( $resolved === $decoded ) {
+                    return $match[0];
+                }
+
+                return $match[1] . '=' . $match[2] . htmlspecialchars($resolved, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . $match[2];
+            },
+            $html
+        ) ?? $html;
+
+        if ( false !== strpos($html, 'var(') ) {
+            $html = $this->styleResolver->resolveCssVariablesInValue($html, $element);
+        }
+
+        return $html;
     }
 
     private function inheritedSvgColor(DOMElement $element): string
@@ -856,7 +893,8 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
         $boxProperties = array_flip(array( 'width', 'height', 'min-width', 'max-width', 'min-height', 'max-height', 'aspect-ratio' ));
         foreach ( $this->styleResolver->cssDeclarations(SourceDom::attr($element, 'style')) as $property => $value ) {
-            if ( preg_match('/var\s*\(/i', $value) && ! isset($boxProperties[strtolower($property)]) ) {
+            $resolved = $this->styleResolver->resolveCssVariablesInValue($value, $element);
+            if ( preg_match('/var\s*\(/i', $resolved) && ! isset($boxProperties[strtolower($property)]) ) {
                 return false;
             }
         }

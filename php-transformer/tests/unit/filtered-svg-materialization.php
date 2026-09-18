@@ -101,6 +101,35 @@ $assert(3 === substr_count($layoutMarkup, 'assets/materialized-svg/') && 3 === c
 $assert(!str_contains($layoutMarkup, '<!-- wp:html') && !str_contains($layoutMarkup, '<!-- wp:freeform') && !str_contains($layoutMarkup, '<!-- wp:missing'), 'Preserved inline SVG children stay on the native image path.');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($layoutIcons['blocks'] ?? array())['status'] ?? null), 'Preserved inline SVG children remain Gutenberg-valid.');
 
+$rootFontVar = (new HtmlTransformer())->transform(
+    '<style>:root{--font-mono:"JetBrains Mono", ui-monospace, monospace}.w-full{width:100%;display:block}.h-auto{height:auto}</style>'
+    . '<main><svg viewBox="0 0 100 84" class="w-full h-auto select-none" style="font-family: var(--font-mono);">'
+    . '<rect width="100" height="84" fill="#E2E8F0"></rect>'
+    . '<text x="50" y="42" text-anchor="middle" font-size="8">FR1</text>'
+    . '</svg></main>'
+)->toArray();
+$rootFontVarMarkup = (string) ($rootFontVar['serialized_blocks'] ?? '');
+$rootFontVarAssets = array_values(array_filter($rootFontVar['assets'] ?? array(), static fn(array $asset): bool => 'inline-svg' === ($asset['source'] ?? null)));
+$assert(
+    str_contains($rootFontVarMarkup, '<!-- wp:image') && !str_contains($rootFontVarMarkup, '<!-- wp:html') && 1 === count($rootFontVarAssets),
+    'A resolved root-style font-family custom property does not block the native image path.'
+);
+$assert(
+    str_contains($rootFontVarMarkup, 'assets/materialized-svg/'),
+    'A resolved root-style font-family custom property materializes as an editable SVG image asset.'
+);
+
+$unresolvedRootFontVar = (new HtmlTransformer())->transform(
+    '<main><svg viewBox="0 0 100 84" style="font-family: var(--missing-font);">'
+    . '<rect width="100" height="84" fill="#E2E8F0"></rect>'
+    . '<text x="50" y="42">FR1</text>'
+    . '</svg></main>'
+)->toArray();
+$assert(
+    str_contains((string) ($unresolvedRootFontVar['serialized_blocks'] ?? ''), '<!-- wp:html') && !str_contains((string) ($unresolvedRootFontVar['serialized_blocks'] ?? ''), '<!-- wp:image'),
+    'An unresolved root-style font-family custom property still fails closed as core/html.'
+);
+
 $unsafeChild = (new HtmlTransformer())->transform(
     '<div class="flex gap-4"><a href="#"><svg onload="alert(1)"><path d="M0 0h1v1z"></path></svg></a></div>'
 )->toArray();

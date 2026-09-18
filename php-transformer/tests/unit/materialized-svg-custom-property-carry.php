@@ -27,13 +27,20 @@ $assert = static function (bool $condition, string $message, string $detail = ''
 $transform = static function (string $html): array {
     $out = ( new HtmlTransformer() )->transform($html)->toArray();
     $css = '';
+    $svg = '';
     foreach ( $out['assets'] ?? array() as $asset ) {
-        if ( is_array($asset) && 'css' === ( $asset['kind'] ?? '' ) ) {
+        if ( ! is_array($asset) ) {
+            continue;
+        }
+        if ( 'css' === ( $asset['kind'] ?? '' ) ) {
             $css .= (string) ( $asset['content'] ?? '' );
+        }
+        if ( 'inline-svg' === ( $asset['source'] ?? '' ) ) {
+            $svg .= (string) ( $asset['content'] ?? '' );
         }
     }
 
-    return array( 'blocks' => (string) ( $out['serialized_blocks'] ?? '' ), 'css' => $css );
+    return array( 'blocks' => (string) ( $out['serialized_blocks'] ?? '' ), 'css' => $css, 'svg' => $svg );
 };
 
 // An icon inside a converted button: the wrapper that declares --size is gone.
@@ -72,6 +79,31 @@ $assert(
     str_contains($carrier, '--size:32px'),
     '5: the generated rule re-roots the custom property it reads',
     $carrier
+);
+
+// A quoted font stack resolved from a root-style custom property must remain a
+// well-formed HTML attribute. Unescaped `"` would terminate `style="` early.
+$quotedFont = $transform(
+    '<style>:root{--font-mono:"JetBrains Mono", ui-monospace, monospace}.plan{width:100%;height:auto;display:block}</style>'
+    . '<main><svg class="plan" viewBox="0 0 100 84" style="font-family: var(--font-mono);">'
+    . '<rect width="100" height="84" fill="#E2E8F0"></rect>'
+    . '<text x="50" y="42" text-anchor="middle">FR1</text>'
+    . '</svg></main>'
+);
+$quotedFontImage = preg_match('/<img[^>]*>/', $quotedFont['blocks'], $quotedFontMatch) ? $quotedFontMatch[0] : '';
+$assert(
+    str_contains($quotedFont['blocks'], '<!-- wp:image') && ! str_contains($quotedFont['blocks'], '<!-- wp:html') && '' !== $quotedFontImage,
+    '6: a resolved quoted font-family custom property stays on the native image path',
+    $quotedFont['blocks']
+);
+$assert(
+    str_contains($quotedFont['svg'], 'font-family:&quot;JetBrains Mono&quot;, ui-monospace, monospace')
+        && preg_match('/<svg\b[^>]*\sstyle\s*=\s*"([^"]*)"/i', $quotedFont['svg'], $quotedFontStyle) === 1
+        && str_contains($quotedFontStyle[1], 'JetBrains Mono')
+        && ! str_contains($quotedFontStyle[1], '"')
+        && ! str_contains($quotedFont['svg'], 'style="font-family:"'),
+    '7: the materialized SVG style attribute remains well-formed around a quoted font family',
+    $quotedFont['svg']
 );
 
 if ( $failures > 0 ) {
