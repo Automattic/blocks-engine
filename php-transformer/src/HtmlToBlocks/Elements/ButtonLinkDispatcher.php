@@ -80,7 +80,9 @@ final class ButtonLinkDispatcher
         // Tag-wise inline children can still stack: a linked brand lockup whose
         // spans render as block boxes keeps two authored lines that a paragraph
         // host would merge and de-link. Convert it like a link wrapper.
-        if ( $this->context->hasBlockContentChildren($element) || $this->stacksLinkedInlineChildren($element) ) {
+        // Phrasing media (text plus an inline SVG/img) is valid paragraph
+        // RichText, not a card-style wrapper — splitting it creates two links.
+        if ( $this->hasLinkWrapperChildren($element) || $this->stacksLinkedInlineChildren($element) ) {
             $linkWrapper = $this->context->convertLinkWrapperGroup($element, $fallbacks);
             if ( null !== $linkWrapper ) {
                 return $linkWrapper;
@@ -93,6 +95,32 @@ final class ButtonLinkDispatcher
         // Its id remains on the inner link, the node that source selectors and
         // fragment navigation actually address.
         return $this->paragraphHost($element);
+    }
+
+    /**
+     * Whether an anchor wraps flow content that must become inner blocks.
+     *
+     * Inline formatting, breaks, and phrasing media (img/svg) stay inside one
+     * paragraph host. An img is already a RichText object; an svg materializes
+     * as one. Treating those as link-wrapper children splits one anchor into
+     * sibling block-level paragraphs.
+     */
+    private function hasLinkWrapperChildren(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'br', 'img', 'svg' ), true) || $this->context->isInlineContentElement($tagName) ) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**

@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-text-icon-link-stays-one-anchor",
+  "description": "An inline anchor whose children are phrasing content (text plus an inline SVG icon) stays a single anchor inside one paragraph instead of being split into sibling block-level paragraphs.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-text-icon-link-stays-one-anchor.json",
+    "notes": "Product-neutral regression for a text-plus-icon call-to-action. Distilled from card CTAs whose one inline anchor was decomposed into a group of two paragraphs and two links because a direct SVG child was classified as block content."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<a class=\"cta-row\" href=\"/services\">Read more <svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\"><path d=\"M5 12h14\"></path><path d=\"M12 5l7 7-7 7\"></path></svg></a>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/paragraph" }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 1 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:paragraph" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<a class=\"cta-row\" href=\"/services\">Read more <img src=\"assets/materialized-svg/" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:group" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-synthetic-svg-paragraph" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:freeform" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "<!-- wp:missing" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 }
+  ]
+}
