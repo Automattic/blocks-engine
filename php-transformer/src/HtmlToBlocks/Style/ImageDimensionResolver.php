@@ -25,7 +25,7 @@ final class ImageDimensionResolver
     {
     }
 
-    public function imageDisplayDimension(DOMElement $image, string $property, bool $linked): string
+    public function imageDisplayDimension(DOMElement $image, string $property): string
     {
         $declarations = $this->styles->cssDeclarations(SourceDom::attr($image, 'style'));
         $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? '')));
@@ -35,11 +35,11 @@ final class ImageDimensionResolver
             return '100%';
         }
         if ( '' !== $inline && ! in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true) ) {
-            return $this->imageDimensionValue($inline, $linked);
+            return $this->imageDimensionValue($inline);
         }
         $stylesheet = $this->imageStylesheetDimension($image, $property);
         if ( '' !== $stylesheet ) {
-            return $this->imageDimensionValue($stylesheet, $linked);
+            return $this->imageDimensionValue($stylesheet);
         }
         if ( $this->authorResolvesDimensionToAuto($image, $property) ) {
             // Author CSS is not silent on this axis -- it explicitly neutralises
@@ -59,7 +59,7 @@ final class ImageDimensionResolver
             return '';
         }
         $attribute = trim(SourceDom::attr($image, $property));
-        return $this->imageDimensionValue($attribute, $linked);
+        return $this->imageDimensionValue($attribute);
     }
 
     /**
@@ -113,14 +113,21 @@ final class ImageDimensionResolver
         return true;
     }
 
-    /** Keep core/image dimensions to CSS lengths WordPress can serialize safely. */
-    private function imageDimensionValue(string $value, bool $linked): string
+    /**
+     * Keep core/image dimensions to CSS lengths WordPress can serialize safely.
+     *
+     * core/image save() writes `width`/`height` into the <img> style verbatim,
+     * so a bare number has to gain its `px` here: an attribute of `800` saves
+     * as `width:800`, which no longer matches stored `width:800px` markup and
+     * invalidates the block in the editor. Linked images are no exception.
+     */
+    private function imageDimensionValue(string $value): string
     {
         $value = trim($value);
         if (1 !== preg_match('/^(?:\d+|\d*\.\d+)(?:%|px|r?em|ex|ch|lh|rlh|vw|vh|vmin|vmax|vi|vb|cm|mm|q|in|pt|pc)?$/i', $value)) {
             return '';
         }
-        return ! $linked && preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
+        return preg_match('/^(?:\d+|\d*\.\d+)$/', $value) ? $value . 'px' : $value;
     }
 
     /**
