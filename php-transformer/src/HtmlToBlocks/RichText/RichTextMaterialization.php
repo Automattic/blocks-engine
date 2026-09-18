@@ -25,14 +25,6 @@ interface RichTextMaterialization
 
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool;
 
-    /**
-     * Same conservative gate, except a `<button>` descendant that carries no
-     * form semantics or wired runtime behavior does not force the fallback —
-     * it rides through as an inline RichText run the same way `<a>` already
-     * does.
-     */
-    public function requiresHtmlFallbackConsideringInlineButtons(DOMElement $element, string $content): bool;
-
     public function containsNativeSvgImageObject(string $content): bool;
 
     public function stripDecorativeSvg(string $content): string;

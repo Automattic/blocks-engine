@@ -92,9 +92,9 @@ final class RichTextElementContext
         return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
     }
 
-    public function requiresHtmlFallback(DOMElement $element, string $content): bool
+    public function requiresHtmlFallback(string $content): bool
     {
-        return $this->richTextMaterializer->requiresHtmlFallbackConsideringInlineButtons($element, $content);
+        return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
     }
 
     public function containsNativeSvgImageObject(string $content): bool
