@@ -62,6 +62,20 @@ $controlGaps = static function (array $nodes): array {
     ksort($gaps, SORT_STRING);
     return $gaps;
 };
+$labelGaps = static function (array $result): array {
+    $gaps = array();
+    foreach ( $result['fallbacks'][0]['presentation_graph']['controls'] ?? array() as $row ) {
+        if ( ! is_array($row) ) {
+            continue;
+        }
+        $gap = (string) ( $row['label']['styles']['margin_block_end'] ?? '' );
+        if ( '' === $gap ) {
+            continue;
+        }
+        $gaps[] = $gap;
+    }
+    return $gaps;
+};
 $labels = static function (array $result): array {
     $names = array();
     foreach ( $result['fallbacks'][0]['controls'] ?? array() as $control ) {
@@ -84,6 +98,7 @@ $assert('materialize_form_provider' === ($layeredFallback['suggested_repair_clas
 $assert(array( 'Name', 'Email', 'Message' ) === $labels($layered), 'every authored field remains, in order', json_encode($labels($layered)));
 $assert('24px' === $formGap($layeredNodes), 'field-list gap stays form stack spacing', $formGap($layeredNodes) . ' ' . json_encode($layeredNodes['form']['layout'] ?? null));
 $assert(array( '8px', '8px', '8px' ) === array_values($layeredGaps), 'layered label-to-control gap becomes control margin-block-start a provider can apply', json_encode($layeredGaps));
+$assert(array( '8px', '8px', '8px' ) === $labelGaps($layered), 'layered label-to-control gap also becomes label margin-block-end the field shell can keep', json_encode($labelGaps($layered)));
 $assert(str_contains((string) ($layered['serialized_blocks'] ?? ''), 'Name') && str_contains((string) ($layered['serialized_blocks'] ?? ''), 'Email') && str_contains((string) ($layered['serialized_blocks'] ?? ''), 'Message'), 'readable form markup still carries every field label');
 
 $unlayeredCss = '.fields { display: grid; gap: 24px } .field { display: flex; flex-direction: column; gap: 8px }';
@@ -91,11 +106,13 @@ $unlayered = $transformer->transform($html, array( 'static_css' => $unlayeredCss
 $unlayeredNodes = $layoutNodes($unlayered);
 $assert('24px' === $formGap($unlayeredNodes), 'unlayered field-list gap remains form stack spacing', $formGap($unlayeredNodes));
 $assert(array( '8px', '8px', '8px' ) === array_values($controlGaps($unlayeredNodes)), 'unlayered label-to-control gap becomes the same control geometry', json_encode($controlGaps($unlayeredNodes)));
+$assert(array( '8px', '8px', '8px' ) === $labelGaps($unlayered), 'unlayered label-to-control gap becomes label margin-block-end', json_encode($labelGaps($unlayered)));
 
 $twelveCss = '@layer utilities { .fields { display: grid; gap: 24px } .field { display: flex; flex-direction: column; gap: 12px } }';
 $twelve = $transformer->transform($html, array( 'static_css' => $twelveCss ))->toArray();
 $assert('24px' === $formGap($layoutNodes($twelve)), 'a different field-group gap does not steal field-list spacing', $formGap($layoutNodes($twelve)));
 $assert(array( '12px', '12px', '12px' ) === array_values($controlGaps($layoutNodes($twelve))), 'the authored field-group gap is carried, not a hardcoded 8px', json_encode($controlGaps($layoutNodes($twelve))));
+$assert(array( '12px', '12px', '12px' ) === $labelGaps($twelve), 'the authored field-group gap is carried onto labels, not a hardcoded 8px', json_encode($labelGaps($twelve)));
 
 $rowGapCss = '@layer utilities { .field { display: flex; flex-direction: column; row-gap: 0.5rem } }';
 $rowGap = $transformer->transform($html, array( 'static_css' => $rowGapCss ))->toArray();
