@@ -1,0 +1,46 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-css-limit-only-intrinsic-size",
+  "description": "An inline SVG sized only by CSS limits (max-height) keeps its viewBox size on the materialized SVG asset, so the native image does not collapse to 0x0 inside a shrink-to-fit figure.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-css-limit-only-intrinsic-size.json",
+    "notes": "Distilled from gameover.ai (r12): a centered logo <svg style=\"max-height:50vh\" viewBox=\"0 0 260 511.59\"> with no width/height rendered 0x0 because the standalone SVG asset had no natural size."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"container has-text-centered\"><svg xmlns=\"http://www.w3.org/2000/svg\" style=\"max-height: 50vh;\" viewBox=\"0 0 260 511.59\"><path fill=\"#fff\" d=\"M0 0h260v511.59H0z\"/></svg></div></main>"
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/image"
+    }
+  ],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.attrs.url",
+      "assert": "contains",
+      "value": "assets/materialized-svg/"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "viewBox=\"0 0 260 511.59\" width=\"260\" height=\"511.59\""
+    },
+    {
+      "path": "serialized_blocks",
+      "assert": "not_contains",
+      "value": "style=\"width:260px"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-svg-css-definite-size-no-intrinsic-size",
+  "description": "An inline SVG whose CSS sets a definite width keeps CSS as the sole owner of its box; the materialized SVG asset gets no viewBox-derived width/height.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-svg-css-definite-size-no-intrinsic-size.json",
+    "notes": "Companion guard for html-inline-svg-css-limit-only-intrinsic-size: intrinsic dimensions are only carried when CSS provides limits without a definite width or height."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<style>.logo{width:120px;max-height:50vh}</style><main><div class=\"container\"><svg class=\"logo\" xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 260 511.59\"><path fill=\"#fff\" d=\"M0 0h260v511.59H0z\"/></svg></div></main>"
+  },
+  "expected_blocks": [],
+  "expect": [
+    {
+      "path": "status",
+      "assert": "equals",
+      "value": "success"
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "contains",
+      "value": "viewBox=\"0 0 260 511.59\""
+    },
+    {
+      "path": "assets.0.content",
+      "assert": "not_contains",
+      "value": "width=\"260\""
+    }
+  ]
+}
