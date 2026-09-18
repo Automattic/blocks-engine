@@ -94,6 +94,7 @@
       "php tests/unit/captured-dialog-projector.php",
       "php tests/unit/scroll-state-projector.php",
       "php tests/unit/editability-report.php",
+      "php tests/unit/visually-hidden-menu-toggle-label.php",
       "php tests/unit/projected-branch-compression.php",
       "php tests/unit/core-block-capability-matrix.php",
       "php tests/unit/core-block-snapshot-validity.php",

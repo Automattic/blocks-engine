@@ -1680,6 +1680,47 @@ final class StyleResolver implements ElementPresentationResolver
     }
 
     /**
+     * Every value the author stylesheet states for these properties on this
+     * element in its resting state, at any viewport, in source order with the
+     * inline style last.
+     *
+     * The source-style collections keep only the classification allow-list, so
+     * a property such as `text-indent` or `clip` never reaches them; the author
+     * analysis keeps every declaration together with its condition stack. This
+     * answers "does the source ever state X here" for recognition, not which
+     * value wins, so callers must not project it.
+     *
+     * @param array<int, string> $properties
+     * @return array<string, list<string>>
+     */
+    public function authorDeclaredValuesAtAnyViewport(DOMElement $element, array $properties): array
+    {
+        $wanted = array_fill_keys(array_map('strtolower', $properties), true);
+        $authorStyles = $this->context->authorStyles();
+        $selectorCache = $authorStyles->selectorMatchCache();
+        $rules = $selectorCache->styleRuleCandidates($element, 'author-structural', $authorStyles->styleRuleCandidateIndex());
+        $declarationSets = array();
+        foreach ( $rules as $rule ) {
+            if ( $selectorCache->matches($element, (string) ($rule['selector'] ?? ''), $rule['parsed'] ?? array())['matches'] ) {
+                $declarationSets[] = $rule['declarations'] ?? array();
+            }
+        }
+        $declarationSets[] = $this->cssDeclarations(SourceDom::attr($element, 'style'));
+
+        $declared = array();
+        foreach ( $declarationSets as $declarations ) {
+            foreach ( $declarations as $property => $value ) {
+                $property = strtolower((string) $property);
+                if ( isset($wanted[ $property ]) ) {
+                    $declared[ $property ][] = (string) $value;
+                }
+            }
+        }
+
+        return $declared;
+    }
+
+    /**
      * Resolve media-text gate declarations without flattening CSS importance or
      * shorthand/longhand order. Inline declarations outrank matched stylesheet
      * declarations at equal importance.

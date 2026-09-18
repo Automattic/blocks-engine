@@ -109,4 +109,57 @@ final class CssValueInspector
         }
         return false;
     }
+
+    /**
+     * Whether one declaration, on its own, keeps an element's text from being
+     * seen while its box may still paint: an off-screen `text-indent` (the
+     * image-replacement idiom), a zero `font-size`, or hidden `visibility`.
+     */
+    public static function hidesText(string $property, string $value): bool
+    {
+        $value = self::comparable($value);
+        switch ( strtolower($property) ) {
+            case 'visibility':
+                return in_array($value, array( 'hidden', 'collapse' ), true);
+            case 'font-size':
+                return 1 === preg_match('/^0(?:\.0+)?(?:[a-z]+|%)?$/', $value);
+            case 'text-indent':
+                if ( 1 !== preg_match('/^-(\d+(?:\.\d+)?|\.\d+)(px|em|rem|ch|%|vw)?$/', $value, $match) ) {
+                    return false;
+                }
+                $offset = (float) $match[1];
+                return match ( $match[2] ?? '' ) {
+                    'em', 'rem', 'ch' => $offset >= 50,
+                    '%', 'vw' => $offset >= 100,
+                    default => $offset >= 999,
+                };
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether a declaration set clips its box out of sight: the screen-reader
+     * text pattern (an absolutely positioned box of at most 1px, overflow
+     * hidden, clipped by `clip`/`clip-path`) or a zero-size overflow-hidden box.
+     *
+     * @param array<string, string> $declarations
+     */
+    public static function isVisuallyClippedBox(array $declarations): bool
+    {
+        $value = static fn (string $property): string => self::comparable((string) ($declarations[$property] ?? ''));
+        if ( 'hidden' !== $value('overflow') ) {
+            return false;
+        }
+
+        $isAtMost = static fn (string $length, string $limit): bool => 1 === preg_match('/^(?:0|' . $limit . ')(?:px)?$/', $length);
+        if ( $isAtMost($value('width'), '0') && $isAtMost($value('height'), '0') ) {
+            return true;
+        }
+
+        return 'absolute' === $value('position')
+            && $isAtMost($value('width'), '1')
+            && $isAtMost($value('height'), '1')
+            && (str_starts_with($value('clip'), 'rect(') || str_starts_with($value('clip-path'), 'inset('));
+    }
 }

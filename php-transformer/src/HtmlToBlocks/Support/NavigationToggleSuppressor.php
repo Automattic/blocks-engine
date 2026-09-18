@@ -659,7 +659,7 @@ final class NavigationToggleSuppressor
             return $parent instanceof DOMElement
                 && 'details' === strtolower($parent->tagName)
                 && '' === $this->visibleMenuToggleLabel($element)
-                && 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger)(?:[^a-z0-9]|$)/', $accessibleName);
+                && $this->namesMenu($accessibleName);
         }
 
         $isButton = 'button' === $tagName;
@@ -685,7 +685,32 @@ final class NavigationToggleSuppressor
         // arrives with no aria-* hooks at all — only its bar-stack shape betrays
         // it. Recognizing that shape (never a class string) lets these toggles be
         // dropped too, instead of surfacing as an empty, always-visible button.
-        return $this->isHamburgerBarStackControl($element);
+        if ( $this->isHamburgerBarStackControl($element) ) {
+            return true;
+        }
+
+        // Named-icon shape: a labelless control whose accessible name — its
+        // aria-label/title, or the text it hides visually (an off-screen
+        // "Menu" behind a CSS-drawn glyph) — names a menu.
+        return $this->accessibleNameNamesMenu($element);
+    }
+
+    private function accessibleNameNamesMenu(DOMElement $element): bool
+    {
+        return $this->namesMenu(implode(' ', array(
+            SourceDom::attr($element, 'aria-label'),
+            SourceDom::attr($element, 'title'),
+            $element->textContent,
+        )));
+    }
+
+    /**
+     * Whether an accessible name calls its control a menu. The word is matched
+     * whole, including its accented spellings (`Menú`, `Menü`).
+     */
+    private function namesMenu(string $accessibleName): bool
+    {
+        return 1 === preg_match('/(?:^|[^\p{L}\p{N}])(?:navigation|nav|men[uúùü]|hamburger)(?:[^\p{L}\p{N}]|$)/iu', $accessibleName);
     }
 
     private function isCheckboxBoundEmptyLabel(DOMElement $element): bool
@@ -842,6 +867,10 @@ final class NavigationToggleSuppressor
      */
     private function visibleMenuToggleLabel(DOMElement $element): string
     {
+        if ( $this->hidesTextVisually($element, false) ) {
+            return '';
+        }
+
         $label = '';
         foreach ( $element->childNodes as $child ) {
             $label .= $this->visibleMenuToggleText($child);
@@ -859,7 +888,7 @@ final class NavigationToggleSuppressor
         if ( ! $node instanceof DOMElement
             || 'svg' === strtolower($node->tagName)
             || 'true' === strtolower(SourceDom::attr($node, 'aria-hidden'))
-            || $this->hasHiddenDisplay($node) ) {
+            || $this->hidesTextVisually($node, true) ) {
             return '';
         }
 
@@ -871,10 +900,48 @@ final class NavigationToggleSuppressor
         return $text;
     }
 
-    private function hasHiddenDisplay(DOMElement $element): bool
+    /**
+     * Whether the source keeps the element's text out of sight at any viewport
+     * it declares. A toggle label only has to be hidden where the toggle
+     * shows, and that is usually behind a mobile media query. Text-hiding
+     * declarations (off-screen text-indent, zero font-size) keep the box
+     * painting, so they apply to the control itself; a label descendant is
+     * also hidden by `display:none`, `visibility:hidden`, or a clipped box.
+     */
+    private function hidesTextVisually(DOMElement $element, bool $isLabelDescendant): bool
     {
-        $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
-        return 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($declarations['display'] ?? '')));
+        $resolved = $this->styleResolver->cssDeclarations($this->styleResolver->specificityResolvedPresentationStyle($element));
+        if ( $isLabelDescendant && 1 === preg_match('/^none(?:\s*!important)?$/i', trim((string) ($resolved['display'] ?? ''))) ) {
+            return true;
+        }
+
+        $textProperties = $isLabelDescendant ? array( 'visibility', 'text-indent', 'font-size' ) : array( 'text-indent', 'font-size' );
+        $declared = $this->styleResolver->authorDeclaredValuesAtAnyViewport(
+            $element,
+            array_merge($textProperties, $isLabelDescendant ? array( 'display', 'position', 'overflow', 'width', 'height', 'clip', 'clip-path' ) : array())
+        );
+        foreach ( $textProperties as $property ) {
+            foreach ( $declared[$property] ?? array() as $value ) {
+                if ( CssValueInspector::hidesText($property, $value) ) {
+                    return true;
+                }
+            }
+        }
+
+        if ( ! $isLabelDescendant ) {
+            return false;
+        }
+
+        foreach ( $declared['display'] ?? array() as $value ) {
+            if ( 'none' === CssValueInspector::comparable($value) ) {
+                return true;
+            }
+        }
+
+        return CssValueInspector::isVisuallyClippedBox(array_map(
+            static fn (array $values): string => (string) end($values),
+            $declared
+        ));
     }
 
     /**
@@ -1245,7 +1312,7 @@ final class NavigationToggleSuppressor
             SourceDom::attr($element, 'title'),
         ))));
 
-        return 1 === preg_match('/(?:^|[^a-z0-9])(?:navigation|nav|menu|hamburger)(?:[^a-z0-9]|$)/', $accessibleName);
+        return $this->namesMenu($accessibleName);
     }
 
     private function isNavigationDestinationAnchor(DOMElement $anchor): bool

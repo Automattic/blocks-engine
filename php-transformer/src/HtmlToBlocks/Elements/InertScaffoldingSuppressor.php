@@ -90,22 +90,7 @@ final class InertScaffoldingSuppressor implements ElementConverter
 
     private function isVisuallyClippedLiveRegion(DOMElement $element): bool
     {
-        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $width = trim((string) ($declarations['width'] ?? ''));
-        $height = trim((string) ($declarations['height'] ?? ''));
-        $clip = strtolower(trim((string) ($declarations['clip'] ?? '')));
-        $clipPath = strtolower(trim((string) ($declarations['clip-path'] ?? '')));
-
-        return 'absolute' === strtolower(trim((string) ($declarations['position'] ?? '')))
-            && 'hidden' === strtolower(trim((string) ($declarations['overflow'] ?? '')))
-            && $this->isAtMostOnePixelLength($width)
-            && $this->isAtMostOnePixelLength($height)
-            && (str_starts_with($clip, 'rect(') || str_starts_with($clipPath, 'inset('));
-    }
-
-    private function isAtMostOnePixelLength(string $value): bool
-    {
-        return 1 === preg_match('/^(?:0|1)px$/i', $value);
+        return CssValueInspector::isVisuallyClippedBox($this->styleResolver->structuralPresentationDeclarations($element));
     }
 
     private function sourceElementStartsHidden(DOMElement $element): bool
