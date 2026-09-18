@@ -161,8 +161,28 @@ $layerRules = $layerAnalysis['rules'];
 $assert(false === $layerAnalysis['truncated'] && array() === $layerAnalysis['diagnostics'], 'cascade layer statements and blocks are not reported as malformed');
 $assert(3 === count($layerRules), 'a named layer, a layer nested inside a media query, and an anonymous layer are all traversed');
 $assert('.field' === ($layerRules[0]['selector'] ?? null) && array_key_exists('condition', $layerRules[0]) && null === $layerRules[0]['condition'], 'a named cascade layer rule carries no condition of its own');
+$assert(0 === ($layerRules[0]['layer'] ?? null), 'a named cascade layer records the rank from the leading layer-order statement');
 $assert('.field' === ($layerRules[1]['selector'] ?? null) && 'media' === ($layerRules[1]['condition']['kind'] ?? null), 'a media query nested inside a cascade layer keeps its own condition');
+$assert(2 === ($layerRules[1]['layer'] ?? null), 'a later named cascade layer outranks earlier layers');
 $assert('.anonymous' === ($layerRules[2]['selector'] ?? null), 'an anonymous cascade layer block is traversed');
+$assert(3 === ($layerRules[2]['layer'] ?? null), 'an anonymous cascade layer records a rank after the named layers');
+
+$propertyInsideLayer = (new CssRuleAnalyzer())->analyze(
+    array(
+        array(
+            'content' => '@layer properties { @property --tw-foo { syntax: "*"; inherits: false; initial-value: 0 } } @layer utilities { .field { display:flex } }',
+            'source_path' => 'property-layer.css',
+            'source_hash' => hash('sha256', 'property-layer.css'),
+        ),
+    ),
+    '',
+    array( 'display' ),
+    1024,
+    16,
+    16,
+    4
+);
+$assert(false === $propertyInsideLayer['truncated'] && array() === $propertyInsideLayer['diagnostics'] && 1 === count($propertyInsideLayer['rules']) && '.field' === ($propertyInsideLayer['rules'][0]['selector'] ?? null), 'non-style at-rules nested in a cascade layer are skipped so later layered style rules still analyze');
 
 if ( $failures > 0 ) {
     fwrite(STDERR, "CssRuleAnalyzer unit tests: {$failures} failed, {$passes} passed\n");

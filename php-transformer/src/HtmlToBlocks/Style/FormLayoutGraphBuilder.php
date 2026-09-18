@@ -352,6 +352,14 @@ final class FormLayoutGraphBuilder
         $conditional = array();
         $matched = 0;
         foreach ( $rules as $rule ) {
+            // Cascade layers reorder precedence; they are not unlayered
+            // structural facts. Emitting them here as if they were unlayered
+            // made optional layout graphs look complete, so providers declined
+            // forms they can still materialize. Layered presentation stays on
+            // the presentation graph, which overlays as CSS.
+            if ( null !== ( $rule['layer'] ?? null ) ) {
+                continue;
+            }
             $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
             if ( ! $match['supported'] ) {
                 $this->diagnostics[] = 'unsupported_selector:' . $rule['selector'];
@@ -368,7 +376,7 @@ final class FormLayoutGraphBuilder
             foreach ( $rule['declarations'] as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
-                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important );
+                $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
                 $key = null === $rule['condition'] ? null : json_encode($rule['condition']);
                 if ( null === $key ) {
                     $target =& $base;

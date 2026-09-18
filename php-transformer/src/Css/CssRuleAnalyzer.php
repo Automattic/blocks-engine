@@ -25,8 +25,13 @@ final class CssRuleAnalyzer
         $maxScannedSelectors ??= $maxSelectors;
 
         foreach ( $stylesheets as $sheet ) {
+            $css = (string) ( $sheet['content'] ?? '' );
+            $layerRanks = array();
+            foreach ( ( new AuthorCascadeLayerOrder() )->names($css) as $index => $name ) {
+                $layerRanks[ $name ] = $index;
+            }
             $this->analyzeStylesheet(
-                (string) ( $sheet['content'] ?? '' ),
+                $css,
                 (string) ( $sheet['source_path'] ?? $sheet['path'] ?? '' ),
                 (string) ( $sheet['source_hash'] ?? '' ),
                 $this->linkCondition($sheet),
@@ -41,7 +46,8 @@ final class CssRuleAnalyzer
                 $scannedSelectorCount,
                 $scanLimitReached,
                 $retainSelector,
-                $maxScannedSelectors
+                $maxScannedSelectors,
+                $layerRanks
             );
             if ( $scanLimitReached ) {
                 break;
@@ -49,7 +55,11 @@ final class CssRuleAnalyzer
         }
 
         if ( array() === $stylesheets && '' !== trim($inlineCss) ) {
-            $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors);
+            $layerRanks = array();
+            foreach ( ( new AuthorCascadeLayerOrder() )->names($inlineCss) as $index => $name ) {
+                $layerRanks[ $name ] = $index;
+            }
+            $this->analyzeStylesheet($inlineCss, 'inline-style', hash('sha256', $inlineCss), null, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks);
         }
 
         $result['diagnostics'] = array_values(array_unique($result['diagnostics']));
@@ -66,8 +76,9 @@ final class CssRuleAnalyzer
     /**
      * @param list<string> $properties
      * @param array{rules: list<array<string, mixed>>, diagnostics: list<string>, truncated: bool} $result
+     * @param array<string, int> $layerRanks
      */
-    private function analyzeStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, array &$result, int &$order, int &$retainedSelectorCount, int &$scannedSelectorCount, bool &$scanLimitReached, ?callable $retainSelector, int $maxScannedSelectors, int $conditionDepth = 0): void
+    private function analyzeStylesheet(string $css, string $path, string $hash, ?array $condition, array $properties, int $maxCssBytes, int $maxRules, int $maxSelectors, int $maxConditionDepth, array &$result, int &$order, int &$retainedSelectorCount, int &$scannedSelectorCount, bool &$scanLimitReached, ?callable $retainSelector, int $maxScannedSelectors, array &$layerRanks, ?int $layer = null, int $conditionDepth = 0): void
     {
         if ( $scanLimitReached ) {
             return;
@@ -107,7 +118,7 @@ final class CssRuleAnalyzer
                         $result['diagnostics'][] = 'condition_depth_limit';
                         return;
                     }
-                    $this->analyzeStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $conditionDepth + 1);
+                    $this->analyzeStylesheet($body, $path, $hash, $this->combineCondition($condition, array( 'kind' => $atRule['name'], 'query' => $atRule['query'] )), $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks, $layer, $conditionDepth + 1);
                     if ( $scanLimitReached ) {
                         return;
                     }
@@ -115,12 +126,22 @@ final class CssRuleAnalyzer
                     // A cascade layer block gates cascade priority, not whether its
                     // declarations apply at all - unlike media/container/supports it
                     // is not a condition, so its contents are analyzed at the same
-                    // condition depth and without adding a condition gate.
-                    $this->analyzeStylesheet($body, $path, $hash, $condition, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $conditionDepth);
+                    // condition depth and without adding a condition gate. The layer
+                    // rank is recorded so consumers can apply cascade-layer precedence
+                    // instead of treating every layered rule as unlayered.
+                    $this->analyzeStylesheet($body, $path, $hash, $condition, $properties, $maxCssBytes, $maxRules, $maxSelectors, $maxConditionDepth, $result, $order, $retainedSelectorCount, $scannedSelectorCount, $scanLimitReached, $retainSelector, $maxScannedSelectors, $layerRanks, $this->layerRank($layerRanks, $atRule['query']), $conditionDepth);
                     if ( $scanLimitReached ) {
                         return;
                     }
                 }
+                $offset = $end + 1;
+                continue;
+            }
+            if ( $this->isAtRulePrelude($prelude) ) {
+                // Nested non-style at-rules (@property, @keyframes, @font-face, …)
+                // are opaque blocks, not selectors. Recursing into @layer exposes
+                // them; treating them as style rules would abort the rest of the
+                // stylesheet as malformed or pollute the cascade with junk facts.
                 $offset = $end + 1;
                 continue;
             }
@@ -160,6 +181,7 @@ final class CssRuleAnalyzer
                     'parsed_selector' => $parsed,
                     'declarations' => $declarations,
                     'condition' => $condition,
+                    'layer' => $layer,
                     'path' => $path,
                     'hash' => $hash,
                     'order' => $order++,
@@ -236,6 +258,41 @@ final class CssRuleAnalyzer
             return array( 'name' => 'layer', 'query' => trim($match[1]) );
         }
         return null;
+    }
+
+    /**
+     * @param array<string, int> $layerRanks
+     */
+    private function layerRank(array &$layerRanks, string $query): int
+    {
+        $names = array();
+        foreach ( explode(',', $query) as $candidate ) {
+            $candidate = strtolower(trim($candidate));
+            if ( '' === $candidate ) {
+                continue;
+            }
+            if ( 1 !== preg_match('/^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*$/', $candidate) ) {
+                $names = array();
+                break;
+            }
+            $top = strstr($candidate, '.', true);
+            $names[] = false === $top ? $candidate : $top;
+        }
+        if ( array() === $names ) {
+            $rank = count($layerRanks);
+            $layerRanks[ '#anon-' . $rank ] = $rank;
+            return $rank;
+        }
+        $name = $names[0];
+        $layerRanks[ $name ] ??= count($layerRanks);
+        return $layerRanks[ $name ];
+    }
+
+    private function isAtRulePrelude(string $prelude): bool
+    {
+        $prelude = $this->normalizeAtRuleComments($prelude);
+        $prelude = ltrim($prelude);
+        return '' !== $prelude && '@' === $prelude[0];
     }
 
     private function combineCondition(?array $left, array $right): array
