@@ -15,6 +15,9 @@ final class FormControlMetadataBuilder
     /** How far a control's own field wrapper may sit above it. */
     private const FIELD_WRAPPER_DEPTH = 4;
 
+    /** A field description reads as a note, not an article; bound it like other in-form copy. */
+    private const MAX_DESCRIPTION_LENGTH = 240;
+
     /** @param Closure(DOMElement): string $elementSelector */
     public function __construct(
         private readonly Closure $elementSelector,
@@ -85,6 +88,9 @@ final class FormControlMetadataBuilder
         if ( $context['interleaved_context'] ) {
             $metadata['interleaved_context'] = true;
         }
+        if ( array() !== $context['unrepresented_context'] ) {
+            $metadata['unrepresented_context'] = $context['unrepresented_context'];
+        }
 
         return $metadata;
     }
@@ -95,12 +101,19 @@ final class FormControlMetadataBuilder
      * not a control, so nothing in the control manifest carries it. Record it
      * against the controls it sits around so a materialized form can keep it.
      *
-     * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool}
+     * Copy that sits between two controls cannot be placed by position alone
+     * (see `interleaved_context`), but the text itself is still reported —
+     * bounded, under `unrepresented_context` — instead of being discarded
+     * outright, so a caller can turn it into a named diagnostic rather than a
+     * silent loss.
+     *
+     * @return array{context_before: array<int, array<string, mixed>>, context_after: array<int, array<string, mixed>>, interleaved_context: bool, unrepresented_context: array<int, array<string, mixed>>}
      */
     private function inFormContext(DOMElement $form): array
     {
         $before = array();
         $after = array();
+        $unrepresented = array();
         $interleaved = false;
         $seenControls = 0;
         $totalControls = 0;
@@ -129,6 +142,7 @@ final class FormControlMetadataBuilder
                 $after[] = $item;
             } else {
                 $interleaved = true;
+                $unrepresented[] = $item;
             }
         }
 
@@ -136,6 +150,7 @@ final class FormControlMetadataBuilder
             'context_before' => array_slice($before, 0, 8),
             'context_after' => array_slice($after, 0, 8),
             'interleaved_context' => $interleaved,
+            'unrepresented_context' => array_slice($unrepresented, 0, 8),
         );
     }
 
@@ -179,6 +194,7 @@ final class FormControlMetadataBuilder
         $tagName = strtolower($control->tagName);
         $type = FormControlClassifier::controlType($control);
         $labelElement = $this->labelElement($control);
+        $description = $this->describeControl($control, $labelElement);
         if ( 'button' === $type && FormControlClassifier::isSubmitLikeControl($control) ) {
             $type = 'submit';
         }
@@ -202,7 +218,15 @@ final class FormControlMetadataBuilder
             'step'             => SourceDom::attr($control, 'step'),
             'maxlength'        => SourceDom::attr($control, 'maxlength'),
             'rows'             => $this->effectiveRows($control),
+            'description'      => $description['description'],
         ), static fn (string $value): bool => '' !== $value);
+
+        // More than one candidate means the text cannot be safely attributed to
+        // this control alone; the caller surfaces it as a diagnostic instead of
+        // guessing, via this internal marker stripped before publication.
+        if ( array() !== $description['ambiguous'] ) {
+            $metadata['_unresolved_description_candidates'] = array_slice($description['ambiguous'], 0, 4);
+        }
 
         if ( in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
             $text = $this->buttonText($control);
@@ -452,6 +476,104 @@ final class FormControlMetadataBuilder
         }
 
         return null;
+    }
+
+    /**
+     * A field's own helper/description copy — "Link to your design work…"
+     * under a Portfolio URL input — is neither the label nor the control, so
+     * neither the label lookup above nor the control manifest carries it. A
+     * consumer materializing this field onto a provider block (Jetpack's
+     * per-field `helpText` attribute, for one) needs that text attached to
+     * the specific control it describes, not folded into a form-wide bucket
+     * it cannot be positioned from.
+     *
+     * Read it the same way `fieldWrapperLabel()` reads a positional label:
+     * only from a wrapper this control exclusively owns, so the text cannot
+     * actually belong to a sibling field instead. More than one qualifying
+     * candidate in that wrapper cannot be safely attributed either, so it is
+     * reported as ambiguous rather than guessed at.
+     *
+     * @return array{description: string, ambiguous: array<int, string>}
+     */
+    private function describeControl(DOMElement $control, ?DOMElement $labelElement): array
+    {
+        $depth = 0;
+        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
+            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                break;
+            }
+
+            $controls = FormControlClassifier::controlElements($wrapper);
+            // A wrapper shared with another control cannot say which one nearby copy belongs to.
+            if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
+                break;
+            }
+
+            $candidates = $this->descriptionCandidates($wrapper, $control, $labelElement);
+            if ( 1 === count($candidates) ) {
+                return array( 'description' => $this->collapsedElementText($candidates[0]), 'ambiguous' => array() );
+            }
+            if ( 1 < count($candidates) ) {
+                return array(
+                    'description' => '',
+                    'ambiguous' => array_map(fn (DOMElement $candidate): string => $this->collapsedElementText($candidate), $candidates),
+                );
+            }
+        }
+
+        return array( 'description' => '', 'ambiguous' => array() );
+    }
+
+    /**
+     * Text-bearing descendants of an exclusively-owned field wrapper, other
+     * than the control itself and its label. Ancestors of an already-found
+     * candidate are skipped so a wrapping element is not double-counted with
+     * the specific element that actually carries the text.
+     *
+     * @return array<int, DOMElement>
+     */
+    private function descriptionCandidates(DOMElement $wrapper, DOMElement $control, ?DOMElement $labelElement): array
+    {
+        $candidates = array();
+        foreach ( $wrapper->getElementsByTagName('*') as $node ) {
+            if ( ! $node instanceof DOMElement ) {
+                continue;
+            }
+            if ( SourceDom::elementContains($control, $node) || SourceDom::elementContains($node, $control) ) {
+                continue;
+            }
+            if ( $labelElement instanceof DOMElement
+                && ( SourceDom::elementContains($labelElement, $node) || SourceDom::elementContains($node, $labelElement) )
+            ) {
+                continue;
+            }
+            if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
+                continue;
+            }
+            $alreadyCounted = false;
+            foreach ( $candidates as $existing ) {
+                if ( SourceDom::elementContains($existing, $node) ) {
+                    $alreadyCounted = true;
+                    break;
+                }
+            }
+            if ( $alreadyCounted ) {
+                continue;
+            }
+
+            $text = $this->collapsedElementText($node);
+            if ( '' === $text || self::MAX_DESCRIPTION_LENGTH < strlen($text) ) {
+                continue;
+            }
+            $candidates[] = $node;
+        }
+
+        return $candidates;
+    }
+
+    private function collapsedElementText(DOMElement $element): string
+    {
+        return trim(preg_replace('/\s+/', ' ', $element->textContent ?? '') ?? '');
     }
 
     private function classNames(DOMElement $element): string

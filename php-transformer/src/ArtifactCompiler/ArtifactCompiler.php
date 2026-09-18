@@ -943,7 +943,25 @@ final class ArtifactCompiler
                         && ! in_array(strtolower((string) ($control['type'] ?? '')), array('button', 'image', 'reset', 'submit'), true)
                 );
                 if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
-                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
+                // A control's own field-description candidates that could not be
+                // safely attributed to it (see `FormControlMetadataBuilder`) are an
+                // internal marker, not published schema: collect them for a
+                // diagnostic and strip them before the control reaches the entity.
+                $rawControls = array_values(array_filter($fallback['controls'], 'is_array'));
+                $unrepresentedText = array();
+                foreach ( $rawControls as $index => $rawControl ) {
+                    foreach ( is_array($rawControl['_unresolved_description_candidates'] ?? null) ? $rawControl['_unresolved_description_candidates'] : array() as $text ) {
+                        if ( is_string($text) && '' !== trim($text) ) $unrepresentedText[] = array('selector' => is_string($rawControl['selector'] ?? null) ? $rawControl['selector'] : $selector, 'text' => $text);
+                    }
+                    unset($rawControls[$index]['_unresolved_description_candidates']);
+                }
+                // Copy sitting between two controls at the form's own level cannot
+                // be positioned either (see `inFormContext()`); it reaches here as
+                // named text instead of only a boolean flag.
+                foreach ( is_array($fallback['form']['unrepresented_context'] ?? null) ? $fallback['form']['unrepresented_context'] : array() as $item ) {
+                    if ( is_array($item) && is_string($item['text'] ?? null) && '' !== trim($item['text']) ) $unrepresentedText[] = array('selector' => $selector, 'text' => $item['text']);
+                }
+                $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => $rawControls);
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
                 if ( is_array($fallback['sibling_relations'] ?? null) && true !== ($fallback['sibling_relations']['truncated'] ?? false) ) $form['sibling_relations'] = $fallback['sibling_relations'];
@@ -955,6 +973,7 @@ final class ArtifactCompiler
                 if ( ! isset($form['bindings']) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'page_owned_binding_anchor_missing', 'it has no page-owned block binding anchor, so a provider cannot locate the converted form in the page'); continue; }
                 $supersededScripts = $this->supersededFormScripts($fallback, $files, $sourcePath);
                 if ( array() !== $supersededScripts ) $form['superseded_scripts'] = $supersededScripts;
+                if ( $declarable && array() !== $unrepresentedText ) $diagnostics[] = $this->unrepresentedFormTextDiagnostic($sourcePath, $selector, $unrepresentedText);
                 $forms[$sourcePath . "\n" . $selector] = $form;
             }
         }
@@ -1009,6 +1028,41 @@ final class ArtifactCompiler
             'control_count' => count($controls),
             'entity_schema' => 'generic/forms/v1',
             'reason_code' => 'runtime_form_declaration_declined',
+            'pattern_family' => 'interactive_form',
+            'repair_bucket' => 'materialize_form_provider',
+            'suggested_repair_class' => 'materialize_form_provider',
+            'source' => self::class,
+        );
+    }
+
+    /**
+     * Name source copy that reached a declared `generic/forms/v1` entity but
+     * could not be carried into it: a field's own helper text sitting beside
+     * more than one candidate element in its wrapper, or copy positioned
+     * between two controls with no positional anchor. The entity itself still
+     * declares successfully — this names what it could not bring with it, in
+     * the same taxonomy and repair bucket as a declined declaration, so the
+     * loss is never silent even when the form otherwise materializes.
+     *
+     * @param array<int, array{selector: string, text: string}> $items
+     * @return array<string,mixed>
+     */
+    private function unrepresentedFormTextDiagnostic(string $sourcePath, string $selector, array $items): array
+    {
+        $texts = array_values(array_unique(array_map(
+            static fn (array $item): string => substr((string) $item['text'], 0, 200),
+            $items
+        )));
+        return array(
+            'code' => 'form_field_context_unrepresented',
+            'severity' => 'warning',
+            'message' => substr('Source copy inside a materialized form could not be attached to a control or placed as form context, so it did not reach the generic/forms/v1 entity.', 0, 256),
+            'source_path' => substr($sourcePath, 0, 256),
+            'selector' => substr($selector, 0, 256),
+            'unrepresented_text' => array_slice($texts, 0, 8),
+            'unrepresented_count' => count($texts),
+            'entity_schema' => 'generic/forms/v1',
+            'reason_code' => 'form_field_context_unrepresented',
             'pattern_family' => 'interactive_form',
             'repair_bucket' => 'materialize_form_provider',
             'suggested_repair_class' => 'materialize_form_provider',

@@ -409,6 +409,39 @@ $pseudoFormMarkup = (string) ($pseudoFormPlan['pages'][0]['canonical_block_marku
 $assert('generic/block-binding/v1' === ($pseudoFormBinding['schema'] ?? null) && 'form' === ($pseudoFormBinding['role'] ?? null) && 1 === ($pseudoFormBinding['occurrence'] ?? null) && 'index.html' === ($pseudoFormBinding['source_path'] ?? null) && 1 === substr_count($pseudoFormMarkup, (string) ($pseudoFormBinding['search_block_markup'] ?? 'missing')), 'A div pseudo-form binding is an exact, page-owned anchor in the canonical block markup.');
 $assert(str_contains((string) ($pseudoFormBinding['search_block_markup'] ?? ''), '"className":"signup"') && str_contains((string) ($pseudoFormBinding['search_block_markup'] ?? ''), 'Subscribe'), 'A div pseudo-form binding anchors the whole converted pseudo-form subtree, not a synthesized replacement.');
 
+// A field's own helper/description copy is neither its label nor a control,
+// so nothing but a per-control channel carries it. It must survive into the
+// declared generic/forms/v1 entity — mappable onto a provider's native
+// per-field description affordance (Jetpack's `helpText`, for one) — instead
+// of vanishing when the div pseudo-form's subtree is replaced. See #718.
+$describedFieldResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><div class="signup"><div class="field"><label>Portfolio URL</label><input type="text" name="portfolio" placeholder="https://example.com"><p class="text-xs text-muted-foreground">Link to your design work (Behance, Dribbble, personal site, etc.)</p></div><div class="field"><label>Email</label><input type="email" name="email"></div><button>Subscribe</button></div></main>')))->toArray();
+$describedFieldFallback = current(array_filter($describedFieldResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$describedFieldControls = array_column($describedFieldFallback['controls'] ?? array(), null, 'name');
+$assert('Link to your design work (Behance, Dribbble, personal site, etc.)' === ($describedFieldControls['portfolio']['description'] ?? null) && ! isset($describedFieldControls['email']['description']), 'A field-level description survives on the control it describes, and is not duplicated onto an unrelated field.');
+$describedFieldDeclaration = current(array_filter($describedFieldResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? null) && 'forms' === ($declaration['type'] ?? null)));
+$describedFieldEntityControls = array_column($describedFieldDeclaration['payload']['entities'][0]['controls'] ?? array(), null, 'name');
+$assert('Link to your design work (Behance, Dribbble, personal site, etc.)' === ($describedFieldEntityControls['portfolio']['description'] ?? null), 'A field description reaches the declared generic/forms/v1 entity, mappable onto a provider-native per-field description attribute.');
+$assert(! array_key_exists('_unresolved_description_candidates', $describedFieldEntityControls['portfolio'] ?? array()), 'Internal description-resolution markers never reach the published entity.');
+$assert(array() === array_filter($describedFieldResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)), 'An unambiguous field description produces no unrepresented-text diagnostic.');
+
+// Source copy that cannot be safely attributed to one control — two disjoint
+// candidates in the same exclusively-owned field wrapper — is named by a
+// diagnostic instead of being guessed at or silently dropped.
+$ambiguousFieldResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><div class="signup"><div class="field"><label>Portfolio URL</label><input type="text" name="portfolio"><p>Link to your design work</p><span>Optional but recommended</span></div><button>Subscribe</button></div></main>')))->toArray();
+$ambiguousFieldFallback = current(array_filter($ambiguousFieldResult['fallbacks'] ?? array(), static fn(array $fallback): bool => 'html_form_fallback' === ($fallback['diagnostic_code'] ?? null)));
+$ambiguousFieldControl = current(array_filter($ambiguousFieldFallback['controls'] ?? array(), static fn(array $control): bool => 'portfolio' === ($control['name'] ?? null)));
+$assert(! isset($ambiguousFieldControl['description']) && array('Link to your design work', 'Optional but recommended') === ($ambiguousFieldControl['_unresolved_description_candidates'] ?? null), 'Two disjoint description candidates for one control are not guessed at.');
+$ambiguousFieldDiagnostics = array_values(array_filter($ambiguousFieldResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
+$assert(1 === count($ambiguousFieldDiagnostics) && 'warning' === ($ambiguousFieldDiagnostics[0]['severity'] ?? null) && 'generic/forms/v1' === ($ambiguousFieldDiagnostics[0]['entity_schema'] ?? null) && 'materialize_form_provider' === ($ambiguousFieldDiagnostics[0]['repair_bucket'] ?? null) && array('Link to your design work', 'Optional but recommended') === ($ambiguousFieldDiagnostics[0]['unrepresented_text'] ?? null), 'Ambiguous field description candidates are named by a diagnostic in the same taxonomy and repair bucket as a declined form declaration, rather than vanishing.');
+$assert(is_array(current(array_filter($ambiguousFieldResult['source_reports']['wordpress_site_plan']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? null) && 'forms' === ($declaration['type'] ?? null)))), 'A field with an unrepresented description still declares its generic/forms/v1 entity — the diagnostic supplements the declaration, it does not replace it.');
+
+// Copy that sits between two controls at the form's own level cannot be
+// positioned either; it is named by the same diagnostic rather than only
+// flipping a boolean flag.
+$interleavedCopyResult = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><form method="post" action="/apply"><input type="text" name="a"><h3>Second section</h3><input type="text" name="b"><input type="submit" value="Go"></form></main>')))->toArray();
+$interleavedCopyDiagnostics = array_values(array_filter($interleavedCopyResult['diagnostics'] ?? array(), static fn(array $diagnostic): bool => 'form_field_context_unrepresented' === ($diagnostic['code'] ?? null)));
+$assert(1 === count($interleavedCopyDiagnostics) && array('Second section') === ($interleavedCopyDiagnostics[0]['unrepresented_text'] ?? null), 'Copy interleaved between two controls is named by a diagnostic instead of only recording a boolean flag.');
+
 // A prepared form declaration is never dropped silently: a failed contract is
 // named so a consumer can see which check declined the metadata.
 $truncatedFormFields = ''; for ($index = 0; $index < 70; ++$index) $truncatedFormFields .= '<div class="field"><input type="text" name="field-' . $index . '"></div>';
