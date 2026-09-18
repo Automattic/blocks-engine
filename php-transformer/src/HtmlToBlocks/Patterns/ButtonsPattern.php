@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\LayoutParticipation;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -427,7 +428,7 @@ final class ButtonsPattern
     private function buttonPresentationAttributes(DOMElement $element, PatternContext $context, ButtonPatternContext $buttons): array
     {
         $resolvedStyle = $buttons->resolvedStyle($element);
-        $width = $this->buttonWidth($resolvedStyle);
+        $width = LayoutParticipation::widthPreset($resolvedStyle);
         // Resolve native paint before classifying an outline: a generic reset such
         // as `button { background: none }` can precede a filled button variant.
         // It is also resolved before the presentation attributes so the carrier
@@ -493,14 +494,6 @@ final class ButtonsPattern
 
         return $attrs;
     }
-	private function buttonWidth(string $style): ?int
-	{
-		if ( ! preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $style, $matches) ) {
-			return null;
-		}
-
-		return (int) $matches[1];
-	}
 
     /**
      * @return array<string, string>
