@@ -160,6 +160,20 @@ final class LayoutParticipation
     }
 
     /**
+     * When the neutralized inner wrapper still carries a source flex/inline-flex
+     * class, that class cannot create a formatting context (`display:contents`).
+     * Transfer the container onto the link — the first box that still generates
+     * — and inherit gap/alignment/padding the wrapper computed from those
+     * source classes. `display:inline` would blockify as a flex item of the
+     * parent row and stack img+text; core `.wp-element-button` padding would
+     * then add a constant document-height offset.
+     */
+    public static function transferredFlexContainerDeclarations(): string
+    {
+        return 'display:flex!important;align-items:inherit;justify-content:inherit;flex-direction:inherit;flex-wrap:inherit;gap:inherit;column-gap:inherit;row-gap:inherit;padding:inherit!important;height:auto!important;width:fit-content!important;word-break:normal!important';
+    }
+
+    /**
      * The counterpart to {@see self::transferredItemDeclarations()} for a
      * positioned control ({@see self::BOX_BUTTON_WRAPPER}): the inner
      * `.wp-block-button` save wrapper keeps generating a box — it is the
