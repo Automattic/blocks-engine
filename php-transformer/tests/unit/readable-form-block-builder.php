@@ -98,6 +98,7 @@ $layoutShellBlockForElements = static function (array $elements, array $innerBlo
         'innerBlocks' => $innerBlocks,
     );
 };
+$rowCss = '.fields-row{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}';
 $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
@@ -107,7 +108,17 @@ $builder = new ReadableFormBlockBuilder(
     $presentationAttributes,
     $createBlock,
     static fn (string $localName): string => $authoredRegistry->blockName($localName),
-    $layoutShellBlockForElements
+    $layoutShellBlockForElements,
+    static fn (): array => array(
+        array(
+            'path' => 'style.css',
+            'source_path' => 'style.css',
+            'content' => $rowCss,
+            'source_hash' => hash('sha256', $rowCss),
+            'media' => '',
+        ),
+    ),
+    static fn (): string => $rowCss
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
@@ -174,6 +185,12 @@ $assert(2 === count($rowShell['innerBlocks'] ?? array()), 'shared-row-wrapper-ke
 $assert('Name *' === ($rowShell['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-name-control-stays-inside-the-shared-wrapper');
 $assert('Phone *' === ($rowShell['innerBlocks'][1]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-phone-control-stays-inside-the-shared-wrapper');
 $assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($rowGrouped['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? ''), 'standalone-control-stays-a-direct-form-child');
+$rowGraph = $builder->layoutGraph() ?? array();
+$rowNodes = array_column($rowGraph['nodes'] ?? array(), null, 'id');
+$assert('generic/computed-layout-graph/v2' === ($rowGraph['schema'] ?? null), 'degrade-path-consumes-layout-graph');
+$assert('grid' === ($rowNodes['wrapper-0']['layout']['display'] ?? null), 'row-display-comes-from-the-layout-graph');
+$assert('1fr 1fr' === ($rowNodes['wrapper-0']['layout']['columns'] ?? null), 'row-columns-come-from-the-layout-graph');
+$assert('1.5rem' === ($rowNodes['wrapper-0']['layout']['gap'] ?? null), 'row-gap-comes-from-the-layout-graph');
 
 $recorded = array();
 $runtimeForm = $builder->build($formFrom('<form><input data-runtime name="email"></form>'));

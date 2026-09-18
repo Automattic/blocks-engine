@@ -658,7 +658,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (string $localName): string => $this->generatedBlocks()->blockName($localName),
             function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
                 return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
-            }
+            },
+            fn (): array => $this->authorStyles()->stylesheetAssets(),
+            fn (): string => $this->sourceStyles()->formLayoutCss()
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {
@@ -708,7 +710,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             function (DOMElement $element, array &$fallbacks): ?array {
                 return $this->formCompositionPlanner->compose($element, $fallbacks);
             },
-            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $this->formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock),
+            fn (DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array => $this->formFallbackFindingBuilder->build($element, $readableFormBlock, $bindingBlock, $this->readableFormBlockBuilder->layoutGraph()),
             function (DOMElement $element, ?array $readableFormBlock): void {
                 $this->formRuntimeIslandRecorder->recordForm($element, $readableFormBlock);
             },

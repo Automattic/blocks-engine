@@ -23,13 +23,14 @@ final class FormFallbackFindingBuilder
     /**
      * @param array<string, mixed>|null $readableFormBlock
      * @param array<string, mixed>|null $bindingBlock
+     * @param array<string, mixed>|null $layoutGraph
      * @return array<string, mixed>
      */
-    public function build(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null): array
+    public function build(DOMElement $element, ?array $readableFormBlock, ?array $bindingBlock = null, ?array $layoutGraph = null): array
     {
         $controls = $this->metadataBuilder->controls($element);
         $controlTopology = (new FormControlTopologyBuilder())->build($element);
-        $layoutGraph = (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
+        $layoutGraph ??= (new FormLayoutGraphBuilder())->build($element, $this->context->stylesheetAssets(), $this->context->formLayoutCss());
         $presentationBuilder = new FormPresentationGraphBuilder(
             fn (DOMElement $control, string $value): string => $this->context->resolvePresentationValue($control, $value),
             fn (DOMElement $element): string => $this->context->sanitizeInlineSvgMarkup($element),

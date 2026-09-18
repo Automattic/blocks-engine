@@ -15,7 +15,7 @@
     "input": {
         "content": "<main><form class=\"contact\"><div class=\"fields-row\"><div><label class=\"field-label\">Name *</label><input type=\"text\" class=\"field\" required></div><div><label class=\"field-label\">Phone *</label><input type=\"tel\" class=\"field\" required></div></div><div><label class=\"field-label\">Email *</label><input type=\"email\" class=\"field\" required></div><div><label class=\"field-label\">Project Details *</label><textarea class=\"field\" rows=\"5\" placeholder=\"Tell us about your project...\" required></textarea></div><button type=\"submit\" class=\"field\">Submit</button></form></main>",
         "options": {
-            "static_css": ".field{border:1px solid #ccc;padding:8px;background:#fff;}"
+            "static_css": ".fields-row{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}.field{border:1px solid #ccc;padding:8px;background:#fff;}"
         }
     },
     "expected_blocks": [
