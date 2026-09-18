@@ -248,6 +248,8 @@
             "php tests/unit/readable-form-block-builder.php",
             "php tests/unit/form-composition-planner.php",
             "php tests/unit/form-fallback-finding-builder.php",
+            "php tests/unit/form-entity-in-form-context.php",
+            "php tests/unit/form-field-description.php",
       "php tests/unit/form-control-topology-legend.php",
              "php tests/unit/form-dispatcher.php",
              "php tests/unit/native-get-form-workflow.php",
