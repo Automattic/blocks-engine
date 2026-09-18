@@ -674,13 +674,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         $this->formSuccessPanelMetadataBuilder = new FormSuccessPanelMetadataBuilder(
             fn (DOMElement $element): string => $this->elementSelector($element),
-            fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+            fn (DOMElement $element): array => $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers())),
             fn (DOMElement $element): string => $this->innerHtml($element)
         );
         $this->formFallbackFindingBuilder = new FormFallbackFindingBuilder(
             new FormFallbackFindingContext(
                 $this->session,
-                fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+                fn (DOMElement $element): array => $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers())),
                 fn (DOMElement $element): array => $this->runtimeIslands->runtimeDomSelectorsForElement($element),
                 fn (DOMElement $element): array => $this->sourceContext($element),
                 fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
@@ -823,7 +823,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             fn (DOMElement $element): bool => $this->isInertRuntimeMediaPlaceholder($element),
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
-            fn (DOMElement $element): array => $this->boundedFallbackHtml($this->safeFallbackHtml($element)),
+            fn (DOMElement $element): array => $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers())),
             fn (DOMElement $element): array => $this->sourceContext($element)
         );
         $this->customBlockGenerator = new CustomBlockGenerator(
@@ -1008,7 +1008,6 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->session,
             fn (DOMElement $element): array => $this->structureSignals($element, array()),
             fn (DOMElement $element): ?DOMElement => $this->soleElementChild($element),
-            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
             fn (DOMElement $element): bool => $this->isImageOnlyAnchor($element)
         );
     }
@@ -1026,7 +1025,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new StyleResolutionContext(
             $this->session,
             fn (DOMElement $element): int => $this->cardLikeChildCount($element),
-            fn (string $value): string => $this->cssComparableValue($value),
+            CssValueInspector::comparable(...),
             fn (string $selector): array => $this->parsedCssSelector($selector),
             fn (string $className): string => $this->promotedClassName($className),
             fn (string $url): string => $this->resolvedAssetImageUrl($url),
@@ -1093,7 +1092,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $this->sourceElementClassifier,
             $this,
             fn (DOMElement $element): ?string => $this->reusableComponentFingerprintFor($element),
-            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): string => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()),
             fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
             fn (DOMElement $element, string $svg): array => $this->svgArtworkBlock($element, $svg)
         );
@@ -1185,7 +1184,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (array $generated, DOMElement $element): array => $this->generatedComponentBlock($generated, $element),
             fn (DOMElement $element): array => $this->sourceContext($element),
             fn (DOMElement $element): array => $this->fallbackEmitter()->classifyFallbackSubtree($element),
-            fn (DOMElement $element): string => $this->safeFallbackHtml($element),
+            fn (DOMElement $element): string => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()),
             fn (array $fallback): array => FallbackDiagnostic::build($fallback, $this->transformationProvenance()->fallback())
         );
     }
@@ -1336,6 +1335,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
+    /**
+     * Backs {@see DomHelpersTrait::safeFallbackHtml()}, still used here only
+     * through {@see DomHelpersTrait::sanitizeInlineSvgMarkup()} (every other
+     * fallback-HTML path now calls {@see SourceDom::safeFallbackHtml()}
+     * directly with this same source).
+     */
     protected function fallbackSourceTagMarker(string $tagName): string
     {
         return $this->authorSelectorProjections()->tagMarker($tagName);
@@ -2563,7 +2568,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     /** @param array<int, array<string, mixed>> $fallbacks */
     private function recordDependentRuntimeMediaMaskLoss(DOMElement $owner, DOMElement $mask, array &$fallbacks, int $fallbackIndex): void
     {
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($mask));
+        $boundedHtml = $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($mask, $this->authorSelectorProjections()->tagMarkers()));
         $fallbacks[$fallbackIndex]['dependent_losses'][] = array(
             'relationship' => 'runtime_media_mask',
             'disposition' => 'omitted',
@@ -2603,7 +2608,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $sourceElement): string => $this->styleResolver->cssDeclarationString($this->styleResolver->structuralPresentationDeclarations($sourceElement))
             ),
             new MarkupPatternContext(
-                fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
                 $this->runtime
             ),
             new ButtonPatternContext(
@@ -2701,7 +2706,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 session: $this->session
             ),
             markupContext: new MarkupPatternContext(
-                fn (DOMElement $sourceElement): string => $this->safeFallbackHtml($sourceElement),
+                fn (DOMElement $sourceElement): string => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()),
                 $this->runtime
             ),
             codeWindowContext: new CodeWindowPatternContext(
@@ -2899,7 +2904,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        $href = $this->safeLinkUrl($this->attr($element, 'href'));
+        $href = LinkUrlSanitizer::sanitize($this->attr($element, 'href'));
         if ( '' === $href ) {
             return null;
         }
@@ -3214,7 +3219,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $attrs['content'] = $this->richTextMaterializer->stripDecorativeSvg((string) ($attrs['content'] ?? ''));
             if ( $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects((string) ($attrs['content'] ?? '')) ) {
-                return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($sourceElement) ), array(), $sourceElement);
+                return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($sourceElement, $this->authorSelectorProjections()->tagMarkers()) ), array(), $sourceElement);
             }
         }
 
@@ -3342,9 +3347,9 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
-        $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
-        $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
-        $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
+        $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
+        $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
+        $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
@@ -3390,26 +3395,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 return false;
             }
             $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
-            $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
+            $display = CssValueInspector::comparable((string) ($declarations['display'] ?? ''));
             if ( 'none' === $display ) {
                 return true;
             }
-            $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
+            $visibility = CssValueInspector::comparable((string) ($declarations['visibility'] ?? ''));
             if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
                 return true;
             }
-            $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
+            $opacity = CssValueInspector::comparable((string) ($declarations['opacity'] ?? ''));
             if ( is_numeric($opacity) && 0.0 === (float) $opacity ) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    private function cssComparableValue(string $value): string
-    {
-        return CssValueInspector::comparable($value);
     }
 
     private function hasAuthorSemanticMarker(DOMElement $element): bool
@@ -3723,7 +3723,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         foreach ( array( 'grid-column', 'grid-row', 'order', 'align-self', 'justify-self', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left' ) as $property ) {
-            if ( $this->cssValueIsNonZero((string) ($declarations[$property] ?? '')) ) {
+            if ( CssValueInspector::isNonZero((string) ($declarations[$property] ?? '')) ) {
                 return true;
             }
         }
@@ -4644,7 +4644,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function sourceProvenanceEntry(string $blockName, DOMElement $element): array
     {
-        $sourceHtml = $this->safeFallbackHtml($element);
+        $sourceHtml = SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers());
         return array_merge(array(
             'block_name'        => $blockName,
             'tag'               => strtolower($element->tagName),
@@ -5636,24 +5636,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // into block-supports attributes and would otherwise be invisible here.
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( $properties as $property ) {
-            if ( isset($declarations[$property]) && $this->cssValueIsNonZero((string) $declarations[$property]) ) {
+            if ( isset($declarations[$property]) && CssValueInspector::isNonZero((string) $declarations[$property]) ) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    /**
-     * Whether a CSS length/box value contributes real geometry. A universal reset
-     * (`* { margin: 0; padding: 0 }`) sets zero-valued box properties on every
-     * element; those must not be treated as box chrome or every wrapper would be
-     * disqualified from collapsing to a paragraph. Treats empty, `0`, `none`, and
-     * all-zero shorthand values (`0 0 0 0`, `0px`) as no geometry.
-     */
-    private function cssValueIsNonZero(string $value): bool
-    {
-        return CssValueInspector::isNonZero($value);
     }
 
     private function paragraphBlockFromInlineContentWrapper(DOMElement $element): ?array
@@ -6008,7 +5996,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function safeSourceFragment(DOMElement $element): string
     {
-        $html = $this->safeFallbackHtml($element);
+        $html = SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers());
         $html = preg_replace('/\s+on[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
         $html = preg_replace('/\s+(href|src)\s*=\s*("\s*javascript:[^"]*"|\'\s*javascript:[^\']*\'|javascript:[^\s>]+)/i', '', $html) ?? '';
 
@@ -6146,7 +6134,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
             $seen[$key] = true;
 
-            $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+            $boundedHtml = $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()));
             $fallbacks[] = FallbackDiagnostic::build(array_filter(array(
                 'type'                => 'html',
                 'reason'              => 'interactive_control_behavior_lost',
@@ -6369,7 +6357,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         if ( 'button' === strtolower($this->attr($element, 'role')) && 'button' !== $tagName ) {
-            $href = 'a' === $tagName ? $this->safeLinkUrl($this->attr($element, 'href')) : '';
+            $href = 'a' === $tagName ? LinkUrlSanitizer::sanitize($this->attr($element, 'href')) : '';
             if ( '' === $href ) {
                 $evidence[] = 'role=button';
             }
@@ -7723,7 +7711,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function htmlPreservationBlock(DOMElement $element): array
     {
-        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
+        return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()) ), array(), $element);
     }
 
     private function backgroundImageBlockFromElement(DOMElement $element): ?array
@@ -7998,7 +7986,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     public function imageBlockFromAnchor(DOMElement $anchor): ?array
     {
-        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
         if ( ! $this->isImageOnlyAnchor($anchor) ) {
             return null;
         }
@@ -8043,7 +8031,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        if ( '' !== $this->safeLinkUrl($this->attr($anchor, 'href')) ) {
+        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($anchor, 'href')) ) {
             return $this->responsiveMediaBlock($anchor);
         }
 
@@ -8261,7 +8249,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ) {
                 continue;
             }
-            $value = trim($this->cssValueWithoutImportant((string) ($presentation[ $property ] ?? '')));
+            $value = trim(CssValueInspector::withoutImportant((string) ($presentation[ $property ] ?? '')));
             if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
                 $geometry[ $property ] = str_ends_with($value, 'px') ? $value : $value . 'px';
             }
@@ -8297,7 +8285,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
         $own = $this->styleResolver->presentationDeclarations($element);
         foreach ( array( 'height', 'min-height' ) as $property ) {
-            $value = trim($this->cssValueWithoutImportant((string) ($own[ $property ] ?? '')));
+            $value = trim(CssValueInspector::withoutImportant((string) ($own[ $property ] ?? '')));
             if ( preg_match('/^(?:\d+|\d*\.\d+)(?:px)?$/', $value) && 0.0 < (float) $value ) {
                 return '';
             }
@@ -8326,7 +8314,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                         continue 2;
                     }
                 }
-                $height = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
+                $height = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))['height'] ?? '')));
                 if ( preg_match('/^(?:\d+|\d*\.\d+)$/', $height) ) {
                     $height .= 'px';
                 }
@@ -8435,7 +8423,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function hasBlockFigureDisplay(DOMElement $host): bool
     {
-        return 'block' === strtolower(trim($this->cssValueWithoutImportant(
+        return 'block' === strtolower(trim(CssValueInspector::withoutImportant(
             (string) ($this->styleResolver->structuralPresentationDeclarations($host)['display'] ?? '')
         )));
     }
@@ -8451,7 +8439,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return false;
         }
 
-        $display = strtolower(trim($this->cssValueWithoutImportant(
+        $display = strtolower(trim(CssValueInspector::withoutImportant(
             (string) ($this->styleResolver->structuralPresentationDeclarations($parent)['display'] ?? '')
         )));
         if ( '' !== $display && ! in_array($display, array( 'block', 'flex', 'flow-root', 'grid', 'list-item', 'table-cell' ), true) ) {
@@ -8474,7 +8462,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
         foreach ( $declarations as $property => $value ) {
             if ( 'display' !== strtolower($property)
-                || 'block' !== strtolower(trim($this->cssValueWithoutImportant((string) $value))) ) {
+                || 'block' !== strtolower(trim(CssValueInspector::withoutImportant((string) $value))) ) {
                 return false;
             }
         }
@@ -8485,12 +8473,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function hasCropFocusThatCoreImageCannotCarry(DOMElement $image): bool
     {
         $declarations = $this->styleResolver->imageShapeDeclarations($image);
-        $scale = strtolower($this->cssValueWithoutImportant((string) ($declarations['object-fit']['value'] ?? '')));
+        $scale = strtolower(CssValueInspector::withoutImportant((string) ($declarations['object-fit']['value'] ?? '')));
         if ( ! in_array($scale, array( 'cover', 'contain' ), true) ) {
             return false;
         }
 
-        return '' !== trim($this->cssValueWithoutImportant((string) ($declarations['object-position']['value'] ?? '')));
+        return '' !== trim(CssValueInspector::withoutImportant((string) ($declarations['object-position']['value'] ?? '')));
     }
 
     private function customVideoElement(DOMElement $element): ?DOMElement
@@ -8648,7 +8636,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
         return $this->createBlock(
             $this->generatedBlocks()->blockName(ResponsiveMediaBlockGenerator::LOCAL_NAME),
-            array( 'content' => $this->safeFallbackHtml($element), 'kind' => 'media' ),
+            array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()), 'kind' => 'media' ),
             array(),
             $element
         );
@@ -8775,7 +8763,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function staticLayoutHtml(DOMElement $element): string
     {
-        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', $this->safeFallbackHtml($element)) ?? '';
+        return preg_replace('/<link\b[^>]*\/?\s*>/i', '', SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers())) ?? '';
     }
 
     private function hasLayoutGeometryProofInSubtree(DOMElement $element): bool
@@ -9158,7 +9146,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             }
         }
 
-        $boundedHtml = $this->boundedFallbackHtml($this->safeFallbackHtml($element));
+        $boundedHtml = $this->boundedFallbackHtml(SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()));
         $selector = $this->elementSelector($element);
         if ( ! $this->transformationEvidence()->hasResponsiveImageFallback($selector) ) {
             $this->transformationEvidence()->recordResponsiveImageFallback($selector, FallbackDiagnostic::build(array(
@@ -9178,7 +9166,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             ), $this->transformationProvenance()->fallback()));
         }
 
-        return $this->createBlock('core/html', array( 'content' => $this->safeFallbackHtml($element) ), array(), $element);
+        return $this->createBlock('core/html', array( 'content' => SourceDom::safeFallbackHtml($element, $this->authorSelectorProjections()->tagMarkers()) ), array(), $element);
     }
 
     private function hasUnsafeResponsiveImageSources(DOMElement $element): bool
@@ -9263,7 +9251,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function imageLinkOpensNativeLightbox(DOMElement $link): bool
     {
-        $href = $this->safeLinkUrl($this->attr($link, 'href'));
+        $href = LinkUrlSanitizer::sanitize($this->attr($link, 'href'));
         if ( '' === $href ) {
             return false;
         }
@@ -9290,7 +9278,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function imageLinkAttributes(DOMElement $link): array
     {
         $attrs = array(
-            'href'            => $this->safeLinkUrl($this->attr($link, 'href')),
+            'href'            => LinkUrlSanitizer::sanitize($this->attr($link, 'href')),
             'linkDestination' => 'custom',
             'linkAnchor'      => $this->safeAnchor($this->attr($link, 'id')),
             'linkTarget'      => $this->attr($link, 'target'),
@@ -9301,17 +9289,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return array_filter($attrs, static fn (string $value): bool => '' !== trim($value));
     }
 
-    private function safeLinkUrl(string $url): string
-    {
-        return LinkUrlSanitizer::sanitize($url);
-    }
-
     /**
      * @return array<string, string>
      */
     private function cardLinkAttributes(DOMElement $anchor): array
     {
-        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
         if ( '' === $href ) {
             return array();
         }
@@ -9403,7 +9386,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function linkPropagationAttributes(DOMElement $anchor): array
     {
-        $href = $this->safeLinkUrl($this->attr($anchor, 'href'));
+        $href = LinkUrlSanitizer::sanitize($this->attr($anchor, 'href'));
         if ( '' === $href ) {
             return array();
         }
@@ -9716,7 +9699,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $declarations = $this->styleResolver->resolvedPresentationDeclarations($element);
 
-        return strtolower(trim($this->cssValueWithoutImportant((string) ($declarations[ $property ] ?? ''))));
+        return strtolower(trim(CssValueInspector::withoutImportant((string) ($declarations[ $property ] ?? ''))));
     }
 
     private function rebuildBlock(array $block, array $attrs): array
@@ -9884,7 +9867,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // `.wp-block-image img` rules. Strip importance symmetrically with
         // normalizedAspectRatio, or the keyword never matches the allowlist below
         // and the whole promotion silently declines.
-        $scale        = strtolower($this->cssValueWithoutImportant(
+        $scale        = strtolower(CssValueInspector::withoutImportant(
             $this->styleResolver->resolveCssVariablesInValue(
                 (string) ($declarations['object-fit']['value'] ?? ''),
                 $image
@@ -9921,27 +9904,17 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
     }
 
-    private function cssValueWithoutImportant(string $value): string
-    {
-        return CssValueInspector::withoutImportant($value);
-    }
-
     /** @param array<string, array<string, mixed>> $declarations */
     private function imageShapeFillsBox(array $declarations): bool
     {
         foreach ( array( 'width', 'height' ) as $property ) {
-            $value = strtolower($this->cssValueWithoutImportant((string) ($declarations[$property]['value'] ?? '')));
+            $value = strtolower(CssValueInspector::withoutImportant((string) ($declarations[$property]['value'] ?? '')));
             if ( '100%' === $value ) {
                 return true;
             }
         }
 
         return false;
-    }
-
-    private function cssValueIsImportant(string $value): bool
-    {
-        return CssValueInspector::isImportant($value);
     }
 
     /**
@@ -9955,7 +9928,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
      */
     private function normalizedAspectRatio(string $value): string
     {
-        $value = strtolower($this->cssValueWithoutImportant($value));
+        $value = strtolower(CssValueInspector::withoutImportant($value));
         if ( '' === $value || in_array($value, array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer', 'none' ), true) ) {
             return '';
         }
@@ -9996,7 +9969,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     {
         $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
         foreach (array( 'width', 'height' ) as $property) {
-            $value = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+            $value = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
             if ('' !== $value && !in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
                 return false;
             }
@@ -10007,7 +9980,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private function imageDimensionIsIntrinsicAttribute(DOMElement $image, string $property): bool
     {
         $declarations = $this->styleResolver->cssDeclarations($this->attr($image, 'style'));
-        $inline = trim($this->cssValueWithoutImportant((string) ($declarations[$property] ?? '')));
+        $inline = trim(CssValueInspector::withoutImportant((string) ($declarations[$property] ?? '')));
         return ('' === $inline || in_array(strtolower($inline), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true))
             && '' === $this->imageDimensions()->imageStylesheetDimension($image, $property)
             && '' !== trim($this->attr($image, $property));
@@ -10015,10 +9988,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function imageHasNonPositiveDimension(DOMElement $image, string $property): bool
     {
-        $inline = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
+        $inline = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->cssDeclarations($this->attr($image, 'style'))[ $property ] ?? '')));
         $value = $inline;
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
-            $value = trim($this->cssValueWithoutImportant((string) ($this->styleResolver->presentationDeclarations($image)[ $property ] ?? '')));
+            $value = trim(CssValueInspector::withoutImportant((string) ($this->styleResolver->presentationDeclarations($image)[ $property ] ?? '')));
         }
         if ('' === $value || in_array(strtolower($value), array( 'auto', 'inherit', 'initial', 'unset', 'revert', 'revert-layer' ), true)) {
             $value = trim($this->attr($image, $property));

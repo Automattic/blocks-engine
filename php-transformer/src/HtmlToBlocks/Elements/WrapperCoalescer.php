@@ -57,7 +57,7 @@ use LogicException;
  * detection, standalone-inline-leaf detection, ...) that also need them,
  * instead of keeping a second copy.
  *
- * Four closures remain, each because the primitive it wraps is genuinely
+ * Three closures remain, each because the primitive it wraps is genuinely
  * shared by call sites with no wrapper-coalescing relationship at all, so
  * moving *those* primitives here — rather than duplicating them — would
  * recreate the coupling this refactor removes:
@@ -72,12 +72,16 @@ use LogicException;
  *    `sourceElementStartsHidden()`) is called from a dozen unrelated sites
  *    across `HtmlCompilation` and is also injected into
  *    `InertScaffoldingSuppressor`.
- *  - `$safeFallbackHtml`: the shared fallback-HTML serializer used by every
- *    `core/html` fallback path in `HtmlCompilation` (twenty-odd call sites),
- *    not something wrapper coalescing owns.
  *  - `$isImageOnlyAnchor`: image-anchor classification reused across image
  *    conversion (`imageBlockFromAnchor()`, image-in-anchor promotion, ...)
  *    well outside wrapper coalescing.
+ *
+ * The fallback-HTML serializer used to be a fourth closure here
+ * (`$safeFallbackHtml`), but it was only ever a `HtmlCompilation` instance
+ * method forwarding to the stateless {@see SourceDom::safeFallbackHtml()}.
+ * This class already holds `$session`, which is where that state (projected
+ * author tag markers) actually lives, so {@see self::sameSourceGroupChainLeaf()}
+ * calls `SourceDom::safeFallbackHtml()` directly instead.
  *
  * This class never holds a reference to `HtmlCompilation` itself.
  */
@@ -86,7 +90,6 @@ final class WrapperCoalescer
     /**
      * @param Closure(DOMElement): array<string, mixed> $structureSignals
      * @param Closure(DOMElement): ?DOMElement $soleElementChild
-     * @param Closure(DOMElement): string $safeFallbackHtml
      * @param Closure(DOMElement): bool $isImageOnlyAnchor
      */
     public function __construct(
@@ -97,7 +100,6 @@ final class WrapperCoalescer
         private readonly HtmlTransformerSession $session,
         private readonly Closure $structureSignals,
         private readonly Closure $soleElementChild,
-        private readonly Closure $safeFallbackHtml,
         private readonly Closure $isImageOnlyAnchor
     ) {
     }
@@ -700,7 +702,7 @@ final class WrapperCoalescer
         }
 
         $child = ($this->soleElementChild)($element);
-        while ( $child instanceof DOMElement && hash('sha256', ($this->safeFallbackHtml)($child)) !== $sourceDigest ) {
+        while ( $child instanceof DOMElement && hash('sha256', SourceDom::safeFallbackHtml($child, $this->session->authorSelectorProjectionState()->tagMarkers())) !== $sourceDigest ) {
             // A native image block may take its source provenance from the img
             // while retaining an image-only anchor as block attributes.
             $anchorChild = 'a' === strtolower($child->tagName) ? ($this->soleElementChild)($child) : null;

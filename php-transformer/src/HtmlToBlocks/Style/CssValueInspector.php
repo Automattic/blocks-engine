@@ -23,6 +23,13 @@ final class CssValueInspector
         return 1 === preg_match('/\s*!\s*important\s*$/i', $value);
     }
 
+    /**
+     * Whether a CSS length/box value contributes real geometry. A universal reset
+     * (`* { margin: 0; padding: 0 }`) sets zero-valued box properties on every
+     * element; those must not be treated as box chrome or every wrapper would be
+     * disqualified from collapsing to a paragraph. Treats empty, `0`, `none`, and
+     * all-zero shorthand values (`0 0 0 0`, `0px`) as no geometry.
+     */
     public static function isNonZero(string $value): bool
     {
         $normalized = strtolower(trim($value));
