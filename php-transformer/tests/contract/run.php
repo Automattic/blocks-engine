@@ -29,6 +29,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPressSitePlan\WordPressSitePlanRe
 use Automattic\BlocksEngine\PhpTransformer\StaticSite\MaterializationPlanBuilder;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbe;
 use Automattic\BlocksEngine\PhpTransformer\VisualParity\TypographyVisualProbeComparator;
+use Automattic\BlocksEngine\PhpTransformer\WordPress\BlockValidityValidator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\CanonicalSaveShapeValidator;
 
 if ( ! function_exists('serialize_blocks') ) {
@@ -5659,6 +5660,60 @@ $assert(str_contains((string) ($capturedDialogBlock['view_js'] ?? ''), 'showModa
 $assert(isset($capturedDialogBlock['assets']['index.js']), 'captured dialog companion block carries an editable InnerBlocks editor');
 $capturedDialogForms = array_values(array_filter($capturedDialog['source_reports']['artifact']['runtime_declarations'] ?? array(), static fn(array $declaration): bool => 'entity_collection' === ($declaration['kind'] ?? '') && 'forms' === ($declaration['type'] ?? '')));
 $assert(1 === count($capturedDialogForms), 'captured dialog forms continue through the generic form materialization declaration');
+
+$selectableAlpha = '<div><h2>Alpha</h2><p>Alpha specification details</p></div>';
+$selectableBeta = '<div><h2>Beta</h2><p>Beta specification details</p></div>';
+$selectableFailed = array(
+    'status' => 'click-failed',
+    'kind' => 'selectable-set',
+    'trigger' => array('selector' => 'body > main > div > button:nth-of-type(3)', 'tag' => 'button', 'label' => 'Gamma', 'ariaHaspopup' => '', 'dataBindings' => array()),
+    'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => '', 'htmlBytes' => 0, 'htmlTruncated' => false),
+    'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 2),
+);
+$capturedSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Selectable Set Site', 'slug' => 'captured-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item to view details</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 0),
+                    ),
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 3, 'index' => 1),
+                    ),
+                    $selectableFailed,
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$selectableMarkup = (string) ($capturedSelectableSet['serialized_blocks'] ?? '');
+$assert(1 === ($capturedSelectableSet['source_reports']['captured_interactions']['projected_selectable_set_count'] ?? null), 'captured interaction reports project one selectable set');
+$assert(str_contains($selectableMarkup, '<!-- wp:tabs'), 'captured selectable sets serialize as native core/tabs');
+$assert(str_contains($selectableMarkup, '<!-- wp:tab-list') && str_contains($selectableMarkup, '<!-- wp:tab-panel'), 'the tabs family keeps an editable tab list and per-member panels');
+$assert(str_contains($selectableMarkup, 'Alpha specification details') && str_contains($selectableMarkup, 'Beta specification details'), 'every captured member region remains in the block tree');
+$assert(str_contains($selectableMarkup, '"label":"Alpha"') && str_contains($selectableMarkup, '"label":"Beta"'), 'member labels remain editable tab attributes');
+$assert(! str_contains($selectableMarkup, 'Select an item to view details'), 'the frozen placeholder does not survive projection');
+$assert(! str_contains($selectableMarkup, 'Gamma'), 'click-failed members do not become tabs');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($capturedSelectableSet['blocks'] ?? array()), 'captured selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($capturedSelectableSet['blocks'] ?? array())['status'] ?? ''), 'captured selectable-set tabs remain Gutenberg-valid');
 
 // Runtime-island package producer (issue #491 slice 2): preserved runtime
 // islands are packaged into a generic, product-neutral envelope a downstream

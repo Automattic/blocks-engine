@@ -542,11 +542,15 @@ trait StagedTransport
         // meaning as inline compilation before ownership partitions are made.
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $capturedDialogsProjection = (new CapturedDialogProjector())->project($normalized['files']);
-        $scrollStatesProjection = (new ScrollStateProjector())->project($capturedDialogsProjection['files']);
+        $selectableSetsProjection = (new CapturedSelectableSetProjector())->project($capturedDialogsProjection['files']);
+        $scrollStatesProjection = (new ScrollStateProjector())->project($selectableSetsProjection['files']);
         $capturedDialogs = array(
-            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
+            'diagnostics' => array_merge($capturedDialogsProjection['diagnostics'], $selectableSetsProjection['diagnostics'], $scrollStatesProjection['diagnostics']),
             'projected_count' => $capturedDialogsProjection['projected_count'] + $scrollStatesProjection['projected_count'],
         );
+        if (0 < $selectableSetsProjection['projected_count']) {
+            $capturedDialogs['projected_selectable_set_count'] = $selectableSetsProjection['projected_count'];
+        }
         $rawFiles = $scrollStatesProjection['files'];
         // A later partition-envelope normalization must not lose the implicit
         // page ownership of already-expanded inline assets.

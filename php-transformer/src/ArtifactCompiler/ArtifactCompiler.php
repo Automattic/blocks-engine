@@ -157,17 +157,20 @@ final class ArtifactCompiler
         $normalized = (new ArtifactNormalizer())->normalize($artifact);
         $this->layoutGeometryProof = is_array($normalized['layout_geometry_proof'] ?? null) ? $normalized['layout_geometry_proof'] : array();
         $capturedDialogs = (new CapturedDialogProjector())->project($normalized['files']);
-        $scrollStates = (new ScrollStateProjector())->project($capturedDialogs['files']);
+        $selectableSets = (new CapturedSelectableSetProjector())->project($capturedDialogs['files']);
+        $scrollStates = (new ScrollStateProjector())->project($selectableSets['files']);
         $normalized['files'] = $scrollStates['files'];
         return $this->finalizeArtifact($artifact, array(
             'normalized' => $normalized,
             'inline_compilation' => true,
-            // Both capture-time projectors run against the same source
-            // documents before block conversion, so their diagnostics and
-            // projection counts share one reporting bucket.
+            // Capture-time projectors run against the same source documents
+            // before block conversion, so their diagnostics share one
+            // reporting bucket. Selectable-set counts stay separate so
+            // projected_dialog_count is not inflated.
             'captured_dialogs' => array(
-                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $scrollStates['diagnostics']),
+                'diagnostics' => array_merge($capturedDialogs['diagnostics'], $selectableSets['diagnostics'], $scrollStates['diagnostics']),
                 'projected_count' => $capturedDialogs['projected_count'] + $scrollStates['projected_count'],
+                'projected_selectable_set_count' => $selectableSets['projected_count'],
             ),
         ));
     }
@@ -314,11 +317,15 @@ final class ArtifactCompiler
                 'runtime_declarations' => $normalized['runtime_declarations'],
             ),
         );
+        $interactionReport = array('schema' => 'blocks-engine/captured-interactions/v1');
         if (0 < $capturedDialogs['projected_count']) {
-            $sourceReports['captured_interactions'] = array(
-                'schema' => 'blocks-engine/captured-interactions/v1',
-                'projected_dialog_count' => $capturedDialogs['projected_count'],
-            );
+            $interactionReport['projected_dialog_count'] = $capturedDialogs['projected_count'];
+        }
+        if (0 < ($capturedDialogs['projected_selectable_set_count'] ?? 0)) {
+            $interactionReport['projected_selectable_set_count'] = $capturedDialogs['projected_selectable_set_count'];
+        }
+        if (isset($interactionReport['projected_dialog_count']) || isset($interactionReport['projected_selectable_set_count'])) {
+            $sourceReports['captured_interactions'] = $interactionReport;
         }
         $compiledSite = $this->compiledSiteReport($normalized, $entryPath, $documents['documents'], $assets, $blockTypes, $serializedBlocks, $entryBlocks['shell_artifacts'], $compiledHtmlDocuments, $inlineShellCompilation['artifacts']);
         $compiledSite['runtime_entity_records'] = $runtimeEntityRecords;

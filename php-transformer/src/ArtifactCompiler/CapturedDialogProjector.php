@@ -33,6 +33,9 @@ final class CapturedDialogProjector
         if (count($report['pages']) > self::MAX_PAGES) {
             return array('files' => $files, 'diagnostics' => array($this->diagnostic('captured_interactions_limit_exceeded', 'warning', 'The captured interaction report exceeded the page limit.', array('max_pages' => self::MAX_PAGES))), 'projected_count' => 0);
         }
+        if (! $this->hasDialogStates($report['pages'])) {
+            return array('files' => $files, 'diagnostics' => array(), 'projected_count' => 0);
+        }
 
         $receipt = $this->jsonFile($files, 'capture-receipt.json');
         if (null === $receipt || self::RECEIPT_SCHEMA !== ($receipt['schema'] ?? null) || ! is_array($receipt['routes'] ?? null)) {
@@ -59,8 +62,12 @@ final class CapturedDialogProjector
                 $diagnostics[] = $this->diagnostic('captured_interaction_page_invalid', 'warning', 'A captured interaction page was ignored because its source URL or states are invalid.');
                 continue;
             }
-            if (count($page['states']) > self::MAX_STATES_PER_PAGE) {
+            $dialogStates = $this->dialogStates($page['states']);
+            if (count($dialogStates) > self::MAX_STATES_PER_PAGE) {
                 $diagnostics[] = $this->diagnostic('captured_interaction_state_limit_exceeded', 'warning', 'A captured interaction page exceeded the state limit.', array('source_url' => $page['sourceUrl'], 'max_states' => self::MAX_STATES_PER_PAGE));
+                continue;
+            }
+            if (array() === $dialogStates) {
                 continue;
             }
             $path = $routes[$this->normalizedUrl($page['sourceUrl'])] ?? '';
@@ -70,7 +77,7 @@ final class CapturedDialogProjector
                 continue;
             }
 
-            $projection = $this->projectPage((string) $files[$index]['content'], $page['states'], $path);
+            $projection = $this->projectPage((string) $files[$index]['content'], $dialogStates, $path);
             $diagnostics = array_merge($diagnostics, $projection['diagnostics']);
             if (0 < $projection['projected_count']) {
                 $files[$index]['content'] = $projection['html'];
@@ -80,6 +87,45 @@ final class CapturedDialogProjector
         }
 
         return array('files' => $files, 'diagnostics' => $diagnostics, 'projected_count' => $projected);
+    }
+
+    /** @param array<int, mixed> $pages */
+    private function hasDialogStates(array $pages): bool
+    {
+        foreach ($pages as $page) {
+            if (! is_array($page) || ! is_array($page['states'] ?? null)) {
+                continue;
+            }
+            if (array() !== $this->dialogStates($page['states'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, mixed> $states
+     * @return array<int, array<string, mixed>>
+     */
+    private function dialogStates(array $states): array
+    {
+        $dialogStates = array();
+        foreach ($states as $state) {
+            if (is_array($state) && $this->isDialogKind($state)) {
+                $dialogStates[] = $state;
+            }
+        }
+
+        return $dialogStates;
+    }
+
+    /** @param array<string, mixed> $state */
+    private function isDialogKind(array $state): bool
+    {
+        $kind = is_string($state['kind'] ?? null) ? $state['kind'] : 'dialog';
+
+        return '' === $kind || 'dialog' === $kind;
     }
 
     /**
