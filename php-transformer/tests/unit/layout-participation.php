@@ -86,6 +86,26 @@ $assert(
     '6: a positioned control keeps the inner button box as the containing-block child',
     $positionedMarkup
 );
+$positionedCss = $cssOf($positioned);
+$assert(
+    str_contains($positionedCss, ':where(.' . $neutralButtons . ')>.wp-block-button:not(.' . $neutralButton . '){' . LayoutParticipation::retainedWrapperBoxDeclarations() . '}'),
+    '6a: the retained button box keeps shrink-to-fit as its own box declaration',
+    $positionedCss
+);
+$assert(
+    str_contains($positionedCss, ':where(.' . $neutralButtons . ')>.wp-block-button:not(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::retainedWrapperLinkDeclarations() . '}'),
+    '6b: the link inside a retained button box keeps ordinary button chrome, not the transferred-item declarations',
+    $positionedCss
+);
+
+$assert(
+    'width:fit-content' === LayoutParticipation::retainedWrapperBoxDeclarations(),
+    '8: retainedWrapperBoxDeclarations() is the single source EngineSupportCss projects for a positioned control\'s retained box'
+);
+$assert(
+    'display:block;word-break:normal' === LayoutParticipation::retainedWrapperLinkDeclarations(),
+    '9: retainedWrapperLinkDeclarations() is the single source EngineSupportCss projects for the link inside a retained box'
+);
 
 $block = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:block;width:100%;padding:8px 16px;background:#111;color:#fff}</style>'

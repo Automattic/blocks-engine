@@ -140,9 +140,9 @@ final class EngineSupportCss
                 // When the inner save wrapper still generates a box (positioned
                 // controls), that box owns shrink-to-fit. `:not()` keeps these
                 // declarations off a neutralized inner wrapper so they cannot
-                // silently drop.
-                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . '){width:fit-content}'
-                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . ')>.wp-block-button__link{display:block;word-break:normal}';
+                // silently drop. See LayoutParticipation::retainedWrapperBoxDeclarations().
+                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . '){' . LayoutParticipation::retainedWrapperBoxDeclarations() . '}'
+                . ':where(.' . $neutral . ')>.wp-block-button:not(.' . $inner . ')>.wp-block-button__link{' . LayoutParticipation::retainedWrapperLinkDeclarations() . '}';
         }
         if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS) ) {
             // core/button always saves a .wp-block-button box around the control.

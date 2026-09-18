@@ -74,10 +74,10 @@ $neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NE
 $assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){width:fit-content}'
-        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{display:block;word-break:normal}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){' . LayoutParticipation::retainedWrapperBoxDeclarations() . '}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . ')>.wp-block-button:not(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::retainedWrapperLinkDeclarations() . '}'
     === $neutralButtons[0],
-    'layout-neutral buttons wrapper flattens and keeps shrink-to-fit on the inner box that still generates a box'
+    'layout-neutral buttons wrapper flattens and keeps shrink-to-fit on the inner box that still generates a box, sourced from LayoutParticipation'
 );
 
 $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, 'blocks-engine/layout-shell');
