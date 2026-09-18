@@ -116,6 +116,35 @@ $markup = (string) ($converted['serialized_blocks'] ?? '');
 $assert(2 === substr_count($markup, '<!-- wp:navigation '), 'full conversion serializes an editable navigation for each responsive document');
 $assert(2 === substr_count($markup, '"url":"/contact"'), 'both document menus retain the Contact destination through serialization');
 
+// A structurally hidden duplicate that carries none of isMobileDuplicate()'s
+// keyword vocabulary (mobile|drawer|offcanvas|overlay|collapsed|hamburger|
+// menu-panel|nav-panel) is still recognized and dropped via the
+// `sourceBaseHiddenStates` signal, independent of the keyword check.
+$sourceProvenanceNoKeywords = array(
+    1 => array('source_attributes' => array('class' => 'primary'), 'context' => array('class_names' => array('primary'))),
+    2 => array('source_attributes' => array('class' => 'flex flex-col'), 'context' => array('class_names' => array('flex', 'flex-col'), 'ancestor_class_names' => array('fixed', 'inset-0', 'z-40', 'bg-white', 'lg:hidden', 'translate-x-full'))),
+);
+$normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenanceNoKeywords, array(2 => true));
+$assert(1 === count($normalized) && 1 === ($normalized[0]['_source_provenance_id'] ?? null), 'a structurally hidden duplicate is dropped even when its class/ancestor identity carries no drawer-style keyword');
+$normalized = $normalizer->normalize(array($navigation(1), $navigation(2)), $sourceProvenanceNoKeywords, array());
+$assert(2 === count($normalized), 'the same keyword-free duplicate survives when neither copy is reported as starting hidden');
+
+// End-to-end: a Tailwind off-canvas drawer — `fixed inset-0 … lg:hidden
+// translate-x-full` on an ANCESTOR wrapper, nothing hiding the `<nav>` itself
+// — duplicates the desktop menu. The desktop nav is hidden BELOW the
+// reference viewport (`hidden`) and shown only AT it (`lg:flex`); a
+// static-only hidden check would misread that as "hidden" and could drop the
+// wrong copy, so this also guards the real desktop nav survives unique.
+$offCanvasDrawerHtml = '<style>.hidden{display:none}.flex{display:flex}'
+    . '@media(min-width:1024px){.lg\:flex{display:flex}.lg\:hidden{display:none}}</style>'
+    . '<header><nav class="hidden lg:flex"><a href="/">Home</a><a href="/about">About</a></nav></header>'
+    . '<div class="fixed inset-0 lg:hidden translate-x-full"><nav class="flex"><a href="/">Home</a><a href="/about">About</a></nav></div>';
+$offCanvasDrawerResult = (new HtmlTransformer())->transform($offCanvasDrawerHtml)->toArray();
+$offCanvasDrawerMarkup = (string) ($offCanvasDrawerResult['serialized_blocks'] ?? '');
+$assert(1 === substr_count($offCanvasDrawerMarkup, '<!-- wp:navigation '), 'a Tailwind off-canvas drawer duplicate hidden only via an ancestor and a media query collapses to one navigation block');
+$assert(str_contains($offCanvasDrawerMarkup, 'hidden lg:flex'), 'the surviving navigation is the real desktop menu, not the off-canvas duplicate');
+$assert(! str_contains($offCanvasDrawerMarkup, 'is-responsive') && false === strpos($offCanvasDrawerMarkup, '"overlayMenu":"mobile"'), 'the surviving desktop navigation is not reclassified as a responsive overlay');
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "Navigation block normalizer contract: {$failures} failed, {$passes} passed\n");
     exit(1);
