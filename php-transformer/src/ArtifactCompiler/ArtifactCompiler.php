@@ -2828,7 +2828,8 @@ final class ArtifactCompiler
         }
         $body = $dom->getElementsByTagName('body')->item(0);
         $root = $body instanceof \DOMElement ? $body->firstElementChild : null;
-        return $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+        $identity = $root instanceof \DOMElement ? ($dom->saveHTML($root) ?: $markup) : $markup;
+        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($identity);
     }
 
     private static function loadUtf8Html(\DOMDocument $dom, string $html): bool

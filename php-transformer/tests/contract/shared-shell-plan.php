@@ -403,4 +403,45 @@ foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog.html' => '
 }
 $assert(str_contains($nestedMultiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($nestedMultiColorWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Nested multi-color chrome binds the shared header on generic templates.');
 
+$responsiveDuplicateShell = static function (string $title, bool $dual, bool $correspondence): string {
+    $link = static function (string $href, string $label) use ($correspondence): string {
+        $attrs = $correspondence
+            ? ' class="nav-link data-liberation-responsive-counterpart-f0edc2abe43b" data-dla-responsive-source="root:a:1"'
+            : ' class="nav-link"';
+        return '<a' . $attrs . ' href="' . $href . '">' . $label . '</a>';
+    };
+    $header = '<header class="site-header"><p>Brand</p><p>' . $link('/', 'Home') . $link('/about', 'About') . '</p></header>';
+    $footer = '<footer class="site-footer"><p>Ticker</p></footer>';
+    $body = $header . '<main><h1>' . $title . '</h1></main>' . $footer;
+    if (!$dual) return '<div id="root"><div class="page">' . $body . '</div></div>';
+    $document = static function (string $variant) use ($body): string {
+        return '<div class="data-liberation-' . $variant . '-document"><div id="root"><div class="page">' . $body . '</div></div></div>';
+    };
+    return $document('desktop') . $document('mobile');
+};
+$responsiveDuplicatePlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $responsiveDuplicateShell('Home', true, true),
+    'about.html' => $responsiveDuplicateShell('About', false, false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$responsiveDuplicateWrites = $writes($responsiveDuplicatePlan);
+$responsiveDuplicatePages = $pages($responsiveDuplicatePlan);
+$responsiveDuplicateParts = array_column($responsiveDuplicatePlan['template_parts'], null, 'slug');
+$assert(isset($responsiveDuplicateParts['header'], $responsiveDuplicateParts['footer']) && 'shared_shell' === ($responsiveDuplicateParts['header']['placement']['kind'] ?? null) && 'shared_shell' === ($responsiveDuplicateParts['footer']['placement']['kind'] ?? null), 'Identical nested chrome duplicated inside responsive documents still extracts one header and one footer template part.');
+$assert(str_contains($responsiveDuplicateWrites['parts/header.html']['payload']['data'] ?? '', 'site-header') && str_contains($responsiveDuplicateWrites['parts/footer.html']['payload']['data'] ?? '', 'Ticker'), 'Extracted responsive-duplicate parts keep the authored header and footer content.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About') as $source => $title) {
+    $markup = $responsiveDuplicatePages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'site-header') && !str_contains($markup, 'Ticker') && !str_contains($markup, 'wp:template-part') && str_contains($markup, '>' . $title . '</h1>'), "{$source} loses duplicated nested chrome and keeps its page content after shared-shell extraction.");
+}
+$assert(1 === substr_count($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && 1 === substr_count($responsiveDuplicateWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"footer"') && 1 === substr_count($responsiveDuplicateWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"footer"'), 'Generic templates bind the shared header and footer so new pages receive chrome.');
+$responsiveDuplicateTheme = json_decode($responsiveDuplicateWrites['theme.json']['payload']['data'] ?? '', true);
+$responsiveDuplicatePartNames = array_column($responsiveDuplicateTheme['templateParts'] ?? array(), 'name');
+sort($responsiveDuplicatePartNames, SORT_STRING);
+$assert(array('footer', 'header') === $responsiveDuplicatePartNames, 'Generated theme metadata exposes the extracted header and footer parts.');
+
+$responsiveMismatchPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => str_replace('Ticker', 'Desktop ticker', $responsiveDuplicateShell('Home', true, false)),
+    'about.html' => $responsiveDuplicateShell('About', false, false),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$assert(!array_filter($responsiveMismatchPlan['template_parts'], static fn(array $part): bool => 'footer' === ($part['area'] ?? null)) && str_contains($pages($responsiveMismatchPlan)['index.html']['canonical_block_markup'] ?? '', 'Desktop ticker') && str_contains($pages($responsiveMismatchPlan)['about.html']['canonical_block_markup'] ?? '', 'Ticker'), 'Divergent nested footers across a dual-document page and a single-document page stay page-owned.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");
