@@ -81,7 +81,12 @@ $assert(
 
 $neutralButton = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS, 'blocks-engine/layout-shell');
 $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits one before-author rule');
-$assert(':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}' === $neutralButton[0], 'layout-neutral inner button wrapper reuses SourceBlockAttributeProjector constant');
+$assert(
+    ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{width:fit-content}'
+    === $neutralButton[0],
+    'layout-neutral inner button wrapper flattens and restores shrink-to-fit on the control that becomes the layout item'
+);
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
 $assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');

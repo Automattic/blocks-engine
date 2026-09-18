@@ -1,0 +1,56 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-neutralized-layout-button-shrinks-to-fit",
+  "description": "When synthesized core/buttons and core/button wrappers around a standalone native button are flattened with display:contents, shrink-to-fit sizing must land on the control that becomes the flex item — not on the neutralized wrapper, where width cannot apply.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-neutralized-layout-button-shrinks-to-fit.json",
+    "notes": "Regression fixture for PR #1983: flattening both button wrappers dropped width:fit-content on .wp-block-button, so each button stretched to the full flex row (1280px) and the filter row grew from 38px to 286px. Neutralizing a wrapper must carry layout-participating declarations forward to the real item."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This is a regression fixture for an upstream primitive with no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"row\"><button class=\"chip\" type=\"button\">All</button><button class=\"chip\" type=\"button\">Kitchens</button><button class=\"chip\" type=\"button\">Bathrooms</button><button class=\"chip\" type=\"button\">Whole-Home</button><button class=\"chip\" type=\"button\">Outdoor</button><button class=\"chip\" type=\"button\">Commercial</button></div>",
+    "options": {
+      "static_css": ".row{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;width:1280px}.chip{padding:8px 20px;font-size:14px;line-height:20px;font-weight:600}"
+    }
+  },
+  "expected_blocks": [
+    {
+      "path": "blocks.0",
+      "name": "core/group"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0",
+      "name": "core/buttons"
+    },
+    {
+      "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+      "name": "core/button",
+      "attrs": {
+        "tagName": "button",
+        "text": "All",
+        "type": "button"
+      }
+    }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks", "assert": "count", "count": 6 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-layout-neutral-buttons" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-layout-child-button" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:freeform" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:missing" },
+    { "path": "source_reports.wp_block_validity.status", "assert": "equals", "value": "pass" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons){display:contents!important}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button){display:contents!important}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button)>.wp-block-button__link{width:fit-content}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons)>.wp-block-button>.wp-block-button__link{display:block;word-break:normal}" }
+  ]
+}

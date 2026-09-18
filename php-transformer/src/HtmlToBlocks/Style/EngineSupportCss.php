@@ -149,7 +149,13 @@ final class EngineSupportCss
             // Flatten that inner wrapper when the source button was already a
             // direct child of an authored flex/grid container, so source classes
             // on the wrapper cannot add a second padding box in the parent layout.
-            $parts[] = ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}';
+            // display:contents drops layout-participating declarations that lived
+            // on that wrapper — including width:fit-content from the outer
+            // layout-neutral buttons rule — so restore shrink-to-fit on the
+            // element that actually becomes the flex/grid item.
+            $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
+            $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
+                . ':where(.' . $neutralButton . ')>.wp-block-button__link{width:fit-content}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
