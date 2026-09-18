@@ -36,6 +36,10 @@ final class ButtonPatternContext
             return null;
         }
 
+        if ( $this->sitsInMixedLinkCluster($anchor) ) {
+            return null;
+        }
+
         $attrs = array_filter(array_merge($this->styleResolver->presentationAttributes($anchor), array(
             'href'               => $href,
             'fileName'           => $this->richText($anchor),
@@ -44,6 +48,40 @@ final class ButtonPatternContext
         )), static fn (mixed $value): bool => is_bool($value) ? true : '' !== $value);
 
         return $this->createBlock->createBlock('core/file', $attrs, array(), $anchor);
+    }
+
+    /**
+     * Whether the anchor is one link among links rather than a document listing.
+     *
+     * core/file renders two affordances: the file link, plus a download button
+     * whenever the source carried a `download` attribute. One authored anchor
+     * therefore materialises as two, the author's own link is emptied of its
+     * classes and loses `download` to the generated button, and both take the
+     * button's smaller type. That is the right shape for a published document,
+     * and the wrong one for a link that merely points at a file.
+     *
+     * A run of sibling anchors that all address files is a document listing, so
+     * each one is a file. A cluster mixing a file link with ordinary
+     * destinations — a footer reading `Email · Download CV · Work` — is a set of
+     * links, and the file link is a link like the ones beside it.
+     */
+    private function sitsInMixedLinkCluster(DOMElement $anchor): bool
+    {
+        $parent = $anchor->parentNode;
+        if ( ! $parent instanceof DOMElement ) {
+            return false;
+        }
+
+        foreach ( $parent->childNodes as $sibling ) {
+            if ( ! $sibling instanceof DOMElement || $sibling === $anchor || 'a' !== strtolower($sibling->tagName) ) {
+                continue;
+            }
+            if ( '' === $this->safeFileUrl(SourceDom::attr($sibling, 'href')) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function resolvedStyle(DOMElement $element): string

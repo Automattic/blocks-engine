@@ -77,6 +77,31 @@ if (1 !== substr_count($styledMarkup, '<a ')) throw new RuntimeException('One au
 if (!str_contains($styledMarkup, 'padding')) throw new RuntimeException('A promoted download control must keep the authored padding core/file cannot hold.');
 if ('pass' !== ((new BlockValidityValidator())->validateBlocks($styledDownload['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('A promoted download control must stay editor-valid.');
 
+// A run of sibling anchors that all address files is a document listing. A
+// cluster mixing a file link with ordinary destinations is a set of links, and
+// core/file cannot represent one of them: it empties the author's anchor of its
+// classes, moves `download` onto a generated button the author never wrote, and
+// renders both at the button's smaller type.
+$linkCluster = (new HtmlTransformer())->transform(
+    '<html><body><div class="row">'
+    . '<a href="mailto:hello@example.com">Email</a>'
+    . '<a href="/cv.pdf" download="CV.pdf" class="lnk">Download CV</a>'
+    . '<a href="#work">Work</a>'
+    . '</div></body></html>',
+    array('static_css' => '.row{display:flex;gap:24px}.lnk{color:#333}')
+)->toArray();
+$clusterMarkup = (string) ($linkCluster['serialized_blocks'] ?? '');
+if (in_array('core/file', $blockNames($linkCluster['blocks'] ?? array()), true)) throw new RuntimeException('A file link beside ordinary destinations is one link among links, not a document listing.');
+if (3 !== substr_count($clusterMarkup, '<a ')) throw new RuntimeException('A link cluster must materialise exactly the anchors the author wrote.');
+if (!str_contains($clusterMarkup, 'download="CV.pdf"')) throw new RuntimeException('The authored download attribute must stay on the authored anchor.');
+if (!str_contains($clusterMarkup, 'lnk')) throw new RuntimeException('The authored anchor must keep its own classes.');
+
+// Siblings that all address files remain a document listing.
+$listing = (new HtmlTransformer())->transform(
+    '<html><body><div><a href="/docs/a.pdf">Plain PDF</a><a href="/docs/b.pdf" download>Download PDF</a></div></body></html>'
+)->toArray();
+if (2 !== count(array_filter($blockNames($listing['blocks'] ?? array()), static fn (string $name): bool => 'core/file' === $name))) throw new RuntimeException('Sibling anchors that all address files stay on core/file.');
+
 // The unstyled case is what core/file exists for, and stays there.
 $plainDownload = (new HtmlTransformer())->transform(
     '<html><body><div><a download="cv.pdf" href="/cv.pdf">Ethan-Chalmers-CV.pdf</a></div></body></html>'
