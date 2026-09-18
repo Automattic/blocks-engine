@@ -1,0 +1,33 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-button-inherited-body-foreground-fills-missing-text-color",
+  "description": "A filled button with no authored color of its own carries its inherited body foreground onto native style.color.text instead of falling through to the theme's white .wp-element-button default. A sibling button whose fill already authors white text (matching that same theme default) is unaffected.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-button-inherited-body-foreground-fills-missing-text-color.json",
+    "notes": "Regression fixture for the light-background/dark-source-text button pair proven on a real import: a control-surface button (background only, color inherited from body) sat beside a primary button (background + explicit white text). Only the first lost its label to the theme default."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Inherited native-button foreground resolution has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<div class=\"hero\"><a class=\"btn btn-primary\" href=\"/browse\">Browse Logos</a> <a class=\"btn btn-ghost\" href=\"/sell\">Start Selling</a></div>",
+    "options": { "static_css": "body{color:hsl(0 0% 7%)}.btn{padding:12px 40px;border-radius:9999px;font-weight:600}.btn-primary{background:hsl(250 65% 55%);color:hsl(0 0% 100%)}.btn-ghost{background:hsl(0 0% 99%);border:1px solid hsl(0 0% 90%)}" }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Browse Logos", "url": "/browse" } },
+    { "path": "blocks.0.innerBlocks.1", "name": "core/button", "attrs": { "text": "Start Selling", "url": "/sell" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks.0.innerBlocks.0.attrs.style.color.text", "assert": "equals", "value": "hsl(0 0% 100%)" },
+    { "path": "blocks.0.innerBlocks.1.attrs.style.color.text", "assert": "equals", "value": "hsl(0 0% 7%)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-button__link has-text-color has-background wp-element-button\" style=\"border-radius:9999px;color:hsl(0 0% 100%)" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "color:hsl(0 0% 7%);background-color:hsl(0 0% 99%)" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
