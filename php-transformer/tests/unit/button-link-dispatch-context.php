@@ -50,6 +50,7 @@ $assert('/x' === $context->safeLinkUrl('/x'), 'safe link URLs are sanitized with
 $assert('' === $context->safeLinkUrl('javascript:void(0)'), 'unsafe link URLs are stripped without a closure');
 $assert(array() === $context->presentationAttributes($anchor), 'null presentation resolver yields no attributes');
 $assert(false === $context->hasBlockContentChildren($anchor), 'a text-only anchor has no block children');
+$assert(false === $context->hasBlockContentChildren($anchor, true), 'a text-only anchor has no block children with svg treated as inline');
 
 if ( 0 !== $failures ) {
     fwrite(STDERR, "button link dispatch context failed ({$failures} failures, {$passes} passed)\n");

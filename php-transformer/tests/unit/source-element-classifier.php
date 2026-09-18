@@ -211,6 +211,25 @@ $assert(
 // --- phrasing content -------------------------------------------------------
 
 $assert(
+    $classifier->isInlineSourceElement('svg') && ! $classifier->isInlineContentElement('svg'),
+    'svg is inline-level replaced source content, not a text-formatting tag'
+);
+$textIcon = $element('<a href="/renovations">LEARN MORE <svg width="14" height="14"><path d="M5 12h14"></path></svg></a>');
+$assert(
+    $classifier->hasBlockContentChildren($textIcon),
+    'by default an svg child still counts as block content, matching isInlineContentElement'
+);
+$assert(
+    ! $classifier->hasBlockContentChildren($textIcon, true),
+    'an inline icon inside a text-bearing anchor is not block content when svg opts in as inline'
+);
+$textVideo = $element('<a href="/watch"><video src="/clip.mp4">Transcript</video></a>');
+$assert(
+    $classifier->hasBlockContentChildren($textVideo, true),
+    'a wrapped video still counts as block content even when svg opts in as inline'
+);
+
+$assert(
     $classifier->hasOnlyPhrasingChildren($element('<p>text <em>emphasis</em> more</p>')),
     'inline children are phrasing content'
 );

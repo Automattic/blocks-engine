@@ -308,11 +308,21 @@ final class SourceElementClassifier
             || in_array($tagName, array( 'a', 'audio', 'bdi', 'bdo', 'button', 'canvas', 'data', 'del', 'dfn', 'img', 'input', 'ins', 'label', 'meter', 'output', 'picture', 'progress', 'q', 's', 'select', 'svg', 'textarea', 'u', 'video' ), true);
     }
 
-    public function hasBlockContentChildren(DOMElement $element): bool
+    /**
+     * An element without any block-level child can stay a phrasing/RichText
+     * host. `svg` is inline-level replaced content (like the typographic tags
+     * `isInlineContentElement` already covers) but is intentionally excluded
+     * from that predicate elsewhere because its materialization path differs
+     * (see {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SvgMaterializer}).
+     * Callers that only care whether a child forces structural promotion, not
+     * whether it is a text-formatting tag, opt in with `$treatSvgAsInline` so
+     * a decorative icon beside text does not itself trigger block treatment.
+     */
+    public function hasBlockContentChildren(DOMElement $element, bool $treatSvgAsInline = false): bool
     {
         foreach ( $element->childNodes as $child ) {
             $tagName = $child instanceof DOMElement ? strtolower($child->tagName) : '';
-            if ( $child instanceof DOMElement && 'br' !== $tagName && ! $this->isInlineContentElement($tagName) ) {
+            if ( $child instanceof DOMElement && 'br' !== $tagName && ! ( $treatSvgAsInline && 'svg' === $tagName ) && ! $this->isInlineContentElement($tagName) ) {
                 return true;
             }
         }

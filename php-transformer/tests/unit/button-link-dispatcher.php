@@ -231,6 +231,20 @@ $assert(
     'column-flex-brand-lockup-converts-as-link-wrapper'
 );
 
+// Text plus an inline SVG is one phrasing run. The SVG does not by itself
+// count as block content for this decision, so the leftover wrapper is not used.
+$textIcon = $makeDispatcher(array(
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array('blockName' => 'core/group');
+        }
+    ),
+))->convertAnchor($elementFrom('<a class="inline-flex items-center gap-2" href="/renovations">LEARN MORE <svg width="14" height="14" viewBox="0 0 24 24"><path d="M5 12h14"></path></svg></a>'), $fallbacks);
+$assert(
+    'core/paragraph' === ($textIcon['blockName'] ?? ''),
+    'text-plus-inline-svg-stays-paragraph-host'
+);
+
 // A row flex link keeps its items on one line, so it stays a paragraph host.
 $rowFlex = $makeDispatcher(array(
     'structural'  => $declarationsFor(array(

@@ -134,9 +134,9 @@ final class ButtonLinkDispatchContext
         return LinkUrlSanitizer::sanitize($href);
     }
 
-    public function hasBlockContentChildren(DOMElement $element): bool
+    public function hasBlockContentChildren(DOMElement $element, bool $treatSvgAsInline = false): bool
     {
-        return $this->sourceElementClassifier->hasBlockContentChildren($element);
+        return $this->sourceElementClassifier->hasBlockContentChildren($element, $treatSvgAsInline);
     }
 
     /**

@@ -77,10 +77,15 @@ final class ButtonLinkDispatcher
             return null;
         }
 
+        // A block-level child (a heading, a media element, a structural div)
+        // makes this a content-wrapping link that needs a native group host.
+        // A decorative svg beside the anchor's text is not such a child: it is
+        // inline-level replaced content that materializes in place inside the
+        // saved anchor, so it does not by itself force that promotion.
         // Tag-wise inline children can still stack: a linked brand lockup whose
         // spans render as block boxes keeps two authored lines that a paragraph
         // host would merge and de-link. Convert it like a link wrapper.
-        if ( $this->context->hasBlockContentChildren($element) || $this->stacksLinkedInlineChildren($element) ) {
+        if ( $this->context->hasBlockContentChildren($element, true) || $this->stacksLinkedInlineChildren($element) ) {
             $linkWrapper = $this->context->convertLinkWrapperGroup($element, $fallbacks);
             if ( null !== $linkWrapper ) {
                 return $linkWrapper;
