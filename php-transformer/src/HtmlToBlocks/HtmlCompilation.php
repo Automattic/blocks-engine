@@ -48,6 +48,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\NativeGetFormCo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\PhrasingSvgConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ScrollStateConverter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\CopyToClipboardConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ThemeToggleConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementContext;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ButtonElementConverter;
@@ -1008,6 +1009,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 fn (DOMElement $element): string => $this->sanitizeInlineSvgMarkup($element),
                 fn (): string => $this->capturedRootTheme
             ),
+            new CopyToClipboardConverter($this->session),
             $this->formDispatcher,
             $this->searchBlockConverter,
             $this->runtimeIslands,
