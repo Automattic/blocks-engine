@@ -35,6 +35,11 @@ final class WordPressSitePlan
      */
     public const SOURCE_TEXT_TYPOGRAPHY = "add_filter( 'run_wptexturize', '__return_false' );";
     private string $sourceOrigin = '';
+    private string $sourceUrl = '';
+    private const MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS = 50;
+    /** @var array<string,array<string,mixed>> */
+    private array $unresolvedNavigationDiagnostics = array();
+    private int $omittedUnresolvedNavigationDiagnostics = 0;
     /** @var array<string,string> */
     private array $routeSources = array();
     /** @var array<string,string> */
@@ -101,7 +106,10 @@ final class WordPressSitePlan
      */
     public function fromCompilerInput(array $data, WordPressSitePlanInput $input): array
     {
-        $this->sourceOrigin = $this->urlOrigin($this->sourceUrlFromProvenance($data['provenance'] ?? array()));
+        $this->sourceUrl = $this->sourceUrlFromProvenance($data['provenance'] ?? array());
+        $this->sourceOrigin = $this->urlOrigin($this->sourceUrl);
+        $this->unresolvedNavigationDiagnostics = array();
+        $this->omittedUnresolvedNavigationDiagnostics = 0;
         $editabilityPolicy = $input->editabilityPolicy;
         if (!is_array($editabilityPolicy) || EditabilityPolicy::SCHEMA !== ($editabilityPolicy['schema'] ?? null) || 'required' !== ($editabilityPolicy['enforcement'] ?? null) || !in_array($editabilityPolicy['status'] ?? null, array('passed', 'failed'), true)) {
             throw new InvalidArgumentException('WordPress site plan requires a versioned editability policy.');
@@ -188,6 +196,7 @@ final class WordPressSitePlan
         $operations = $this->operations($pages);
         $scriptLoading = $this->scriptLoading($pages, $parts, $assets, $tokens, $operations, $runtimeDeclarations);
         $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens), $this->assetWrites($assets, $references));
+        $linkDiagnostics = $this->unresolvedNavigationDiagnostics();
         $plan = array(
             'schema' => self::SCHEMA,
             'source' => array('schema' => $compiled['schema'] ?? null, 'source_hash' => $compiled['source_hash'] ?? null, 'entry_path' => $compiled['entry_path'] ?? null, 'provenance' => $data['provenance'], 'source_documents' => $this->sourceDocumentCatalog($compiled['pages'] ?? array())),
@@ -207,9 +216,9 @@ final class WordPressSitePlan
             'runtime_declarations' => $runtimeDeclarations,
             'runtime_records' => $runtimeRecords,
             'runtime_entity_records' => $compiled['runtime_entity_records'] ?? array(),
-            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']),
+            'diagnostics' => array_merge($data['diagnostics'], $inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $linkDiagnostics),
             'quality' => array('status' => $data['status'], 'pass' => 'failed' !== $data['status'], 'metrics' => array_diff_key($data['metrics'], array('transform_duration_ms' => true)), 'fallbacks' => $data['fallbacks'], 'core_html_fallback_evidence' => $input->coreHtmlFallbackEvidence, 'editability_policy' => $editabilityPolicy),
-            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics']), $surfaces),
+            'reporting' => $this->reporting($pages, $data, $input->coreHtmlFallbackEvidence, array_merge($inlineShells['diagnostics'], $shells['diagnostics'], $scriptLoading['diagnostics'], $linkDiagnostics), $surfaces),
         );
         $plan['plan_identity'] = self::planIdentity($plan);
         self::assertValid($plan);
@@ -1407,11 +1416,96 @@ final class WordPressSitePlan
         $offset = 0;
         while (preg_match($jsonPattern, $content, $match, PREG_OFFSET_CAPTURE, $offset)) {
             if (null !== $this->routeReference($match[2][0], $origin, $routes)) {
-                return preg_replace_callback($jsonPattern, $replace, $content) ?? $content;
+                $content = preg_replace_callback($jsonPattern, $replace, $content) ?? $content;
+                break;
             }
             $offset = $match[0][1] + strlen($match[0][0]);
         }
-        return $content;
+        return $this->unresolvedNavigationLinks($content, $origin, $routes);
+    }
+    /**
+     * A document-relative a/area href that names no artifact route cannot stay
+     * in the plan: WordPress would resolve it against the imported page URL
+     * (issue #636). It names a page on the source site, so point it there when
+     * the artifact records its source URL, or neutralize it to a same-page
+     * fragment otherwise, and report the outcome instead of rejecting the whole
+     * plan. Asset references (src, srcset, CSS url(), link href) stay on the
+     * declared-token path and remain rejected by assertNoLocalBrowserReferences.
+     *
+     * @param array<int,array<string,mixed>> $routes
+     */
+    private function unresolvedNavigationLinks(string $content, string $origin, array $routes): string
+    {
+        if (!preg_match('~(?:<|\\\\u003c)(?:a|area)\b~i', $content)) return $content;
+        return preg_replace_callback('~(?:<|\\\\u003c)(?:a|area)(?=[\s/>\\\\])(?:[^>\\\\]|\\\\(?!u003e))*~i', function (array $tag) use ($origin, $routes): string {
+            $replace = function (array $match) use ($origin, $routes): string {
+                $resolved = $this->unresolvedNavigationReference($match[2], $origin, $routes);
+                return null === $resolved ? $match[0] : $match[1] . $resolved . $match[3];
+            };
+            $markup = $tag[0];
+            foreach (array('~((?<![\w:-])href\s*=\s*")([^"]*)(")~i', "~((?<![\\w:-])href\\s*=\\s*')([^']*)(')~i", '~((?<![\w:-])href\s*=\s*\\\\")([^"\\\\]*)(\\\\")~i', '~((?<![\w:-])href\s*=\s*\\\\u0022)(.*?)(\\\\u0022)~i') as $pattern) $markup = preg_replace_callback($pattern, $replace, $markup) ?? $markup;
+            return $markup;
+        }, $content) ?? $content;
+    }
+    /** @param array<int,array<string,mixed>> $routes */
+    private function unresolvedNavigationReference(string $value, string $origin, array $routes): ?string
+    {
+        $url = str_replace('\\/', '/', trim(html_entity_decode($value, ENT_QUOTES | ENT_HTML5, 'UTF-8')));
+        if ('' === $url || str_starts_with($url, self::TOKEN_PREFIX) || preg_match('~^(?:[a-z][a-z0-9+.-]*:|/|#|\?)~i', $url)) return null;
+        $path = $url; $suffix = '';
+        if (preg_match('/^([^?#]*)(.*)$/s', $url, $parts)) { $path = $parts[1]; $suffix = $parts[2]; }
+        if (null !== $this->routeReference($url, $origin, $routes)) return null;
+        $absolute = $this->sourceDocumentReference($path, $origin, $routes);
+        $key = $origin . "\0" . $url;
+        if (!isset($this->unresolvedNavigationDiagnostics[$key])) {
+            if (count($this->unresolvedNavigationDiagnostics) >= self::MAX_UNRESOLVED_NAVIGATION_DIAGNOSTICS) $this->omittedUnresolvedNavigationDiagnostics++;
+            else $this->unresolvedNavigationDiagnostics[$key] = array_filter(array(
+                'code' => 'wordpress_site_plan_unresolved_navigation_link',
+                'severity' => 'warning',
+                'message' => substr(null === $absolute ? "Neutralized a link to {$url}, which names no artifact page and has no recorded source URL." : "Linked {$url} to the source site because it names no artifact page.", 0, 256),
+                'source_path' => substr($origin, 0, 256),
+                'value' => substr($url, 0, 256),
+                'resolution' => null === $absolute ? 'neutralized' : 'source_url',
+                'resolved_url' => null === $absolute ? null : substr($absolute . $suffix, 0, 512),
+                'reason_code' => 'unresolved_local_browser_reference',
+            ), static fn(mixed $field): bool => null !== $field);
+        }
+        // Keep the authored query/fragment bytes so their context encoding survives.
+        return null === $absolute ? '#' : htmlspecialchars($absolute, ENT_QUOTES | ENT_HTML5, 'UTF-8', false) . (preg_match('/[?#].*$/s', $value, $rawSuffix) ? $rawSuffix[0] : '');
+    }
+    /**
+     * Resolves a document-relative path against the source URL of the page that
+     * declared it. The recorded source URL locates the entrypoint; every other
+     * document keeps its path relative to the entrypoint directory.
+     *
+     * @param array<int,array<string,mixed>> $routes
+     */
+    private function sourceDocumentReference(string $path, string $origin, array $routes): ?string
+    {
+        $source = '' !== $this->sourceUrl ? parse_url($this->sourceUrl) : false;
+        if (!is_array($source) || str_contains($path, '\\')) return null;
+        $entry = ''; foreach ($routes as $route) if (is_array($route) && !empty($route['entrypoint']) && is_string($route['source_path'] ?? null)) { $entry = $route['source_path']; break; }
+        $entryRoot = self::entryRootFromDocuments($routes);
+        if ('' !== $entryRoot && !str_starts_with($origin, $entryRoot . '/')) return null;
+        $basePath = (string) ($source['path'] ?? '/');
+        // The source URL names the entrypoint; an index entry is served as its directory.
+        if (!str_ends_with($basePath, '/')) $basePath = str_starts_with(strtolower(basename($entry)), 'index.') && strtolower(basename($basePath)) !== strtolower(basename($entry)) ? $basePath . '/' : dirname($basePath) . '/';
+        $documentDirectory = dirname('' === $entryRoot ? $origin : substr($origin, strlen($entryRoot) + 1));
+        $segments = array();
+        foreach (explode('/', $basePath . ('.' === $documentDirectory ? '' : $documentDirectory . '/') . $path) as $index => $segment) {
+            if ('..' === $segment) { array_pop($segments); continue; }
+            if ('.' !== $segment && ('' !== $segment || 0 === $index)) $segments[] = $segment;
+        }
+        $resolvedPath = '/' . ltrim(implode('/', $segments), '/') . (preg_match('~(?:^|/)\.{0,2}$~', $path) && '' !== $path ? '/' : '');
+        if ('//' === $resolvedPath) $resolvedPath = '/';
+        return strtolower((string) $source['scheme']) . '://' . $source['host'] . (isset($source['port']) ? ':' . $source['port'] : '') . $resolvedPath;
+    }
+    /** @return array<int,array<string,mixed>> */
+    private function unresolvedNavigationDiagnostics(): array
+    {
+        $diagnostics = array_values($this->unresolvedNavigationDiagnostics);
+        if ($this->omittedUnresolvedNavigationDiagnostics > 0) $diagnostics[] = array('code' => 'wordpress_site_plan_unresolved_navigation_link', 'severity' => 'warning', 'message' => sprintf('%d more unresolved navigation links were resolved or neutralized; omitted from this diagnostic list.', $this->omittedUnresolvedNavigationDiagnostics), 'reason' => 'truncated', 'omitted_count' => $this->omittedUnresolvedNavigationDiagnostics);
+        return $diagnostics;
     }
     /** @param array<int,array<string,mixed>> $routes */
     private function routeReference(string $value, string $origin, array $routes): ?string
@@ -1448,7 +1542,10 @@ final class WordPressSitePlan
         $entryRoot = self::entryRootFromDocuments($routes);
         $path = str_starts_with($value, '/') ? ('' === $entryRoot ? ltrim($value, '/') : $entryRoot . '/' . ltrim($value, '/')) : self::resolveRouteSource($origin, $value);
         if (null === $path) return null;
-        return isset($this->routeSources[$path]) ? $this->routeSources[$path] . $suffix : null;
+        if (isset($this->routeSources[$path])) return $this->routeSources[$path] . $suffix;
+        // A directory reference (interactive/, ../) names its index document.
+        foreach (array('index.html', 'index.htm') as $index) { $indexPath = ('' === $path ? '' : rtrim($path, '/') . '/') . $index; if (isset($this->routeSources[$indexPath])) return $this->routeSources[$indexPath] . $suffix; }
+        return null;
     }
     /** @param array<int,mixed> $provenance */
     private function sourceUrlFromProvenance(array $provenance): string

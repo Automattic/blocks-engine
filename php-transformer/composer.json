@@ -62,6 +62,7 @@
       "php tests/contract/data-attribute-grid-projection.php",
       "php tests/contract/finding-contract.php",
       "php tests/contract/wordpress-site-plan.php",
+      "php tests/contract/unresolved-navigation-links.php",
       "php tests/contract/template-surfaces.php",
       "php tests/contract/staged-artifact-compilation.php",
             "php tests/contract/entry-point-transform-parity.php",

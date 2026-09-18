@@ -103,7 +103,12 @@ and `WordPressSitePlanResolver::resolve()`.
   `routes`, page hierarchy operations, document link and metadata-href rewriting,
   resolver/report projections, and page-scoped script conditions. Relative and
   root-relative document links retain query and fragment suffixes; asset references
-  remain on the separate declared-asset token path.
+  remain on the separate declared-asset token path. A directory link names its
+  `index.html` document. A document-relative `a`/`area` `href` that names no
+  artifact page resolves against that page's URL on the recorded
+  `provenance.source_url` site, or becomes `#` when no source URL is recorded; each
+  such link is reported once as a `wordpress_site_plan_unresolved_navigation_link`
+  warning in `diagnostics` rather than failing the plan.
   The plan rejects colliding, traversal, encoded-separator, and unsafe route identities.
   Missing directory parents are explicit synthetic pages with stable source and
   reconciliation identities; a physical directory index takes precedence over a
