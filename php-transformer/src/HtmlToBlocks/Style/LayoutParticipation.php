@@ -184,6 +184,47 @@ final class LayoutParticipation
         return 'display:block;word-break:normal';
     }
 
+    /**
+     * The core/button `width` preset (25/50/75/100) an authored `width`
+     * declaration resolves to — the single decision point for the block's
+     * width attribute. `ButtonsPattern` and `ButtonStyleResolver` used to
+     * derive this independently from the same resolved style string (a
+     * boundary-anchored single-declaration match, and a decimal-tolerant
+     * `100%`-only fallback embedded in paint resolution); both rules
+     * collapse into this one function in cascade order so a permissively
+     * formatted authored width is not silently lost.
+     *
+     * Sizing a converted control is the same "what box does this authored
+     * control have" question {@see self::resolve()} answers for display
+     * participation, so it lives on this seam rather than a third owner.
+     * core/button's `dimensions.width` support is
+     * `__experimentalSkipSerialization`, so the resolved preset never
+     * produces CSS on its own — {@see SourceBlockAttributeProjector::registerButtonWidth()}
+     * is the explicit collaborator that projects it.
+     */
+    public static function widthPreset(string $resolvedStyle): ?int
+    {
+        if ( preg_match('/(?:^|;)\s*width\s*:\s*(25|50|75|100)%\s*(?:;|$)/i', $resolvedStyle, $matches) === 1 ) {
+            return (int) $matches[1];
+        }
+
+        $width = '';
+        foreach ( explode(';', $resolvedStyle) as $declaration ) {
+            if ( ! str_contains($declaration, ':') ) {
+                continue;
+            }
+            [ $name, $value ] = array_map('trim', explode(':', $declaration, 2));
+            if ( '' === $name || '' === $value ) {
+                continue;
+            }
+            if ( 'width' === strtolower($name) ) {
+                $width = preg_replace('/\s+/', ' ', $value) ?? $value;
+            }
+        }
+
+        return 1 === preg_match('/^100(?:\.0+)?%$/', $width) ? 100 : null;
+    }
+
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
         $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));

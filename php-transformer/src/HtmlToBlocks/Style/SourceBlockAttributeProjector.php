@@ -319,7 +319,17 @@ final class SourceBlockAttributeProjector
         return false;
     }
 
-    /** @param array<string, mixed> $attrs */
+    /**
+     * Projects the `width` attribute {@see LayoutParticipation::widthPreset()}
+     * already decided into generated CSS. core/button's `dimensions.width`
+     * support is `__experimentalSkipSerialization`, so the canonical attribute
+     * never produces CSS on its own — this is the explicit collaborator that
+     * makes it render: the 25/50/75 branch fills the control as a flex item
+     * inside `.wp-block-buttons`, and the 100 branch blockifies the wrapper
+     * chain so the percentage resolves against a definite ancestor.
+     *
+     * @param array<string, mixed> $attrs
+     */
     private function registerButtonWidth(array $attrs, string $marker, DOMElement $sourceControl, SourceBlockAttributeProjectionContext $context): void
     {
         $buttonWidth = (int) ($attrs['width'] ?? 0);
