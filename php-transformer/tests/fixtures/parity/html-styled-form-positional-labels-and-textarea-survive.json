@@ -69,7 +69,12 @@
         },
         {
             "path": "blocks.0.innerBlocks.3",
-            "name": "core/buttons"
+            "name": "custom/authored-button",
+            "attrs": {
+                "type": "submit",
+                "className": "field",
+                "text": "Submit"
+            }
         }
     ],
     "expected_fallbacks": [
@@ -128,7 +133,7 @@
         {
             "path": "serialized_blocks",
             "assert": "contains",
-            "value": "Submit"
+            "value": "<button type=\"submit\" class=\"field\">Submit</button>"
         }
     ]
 }
