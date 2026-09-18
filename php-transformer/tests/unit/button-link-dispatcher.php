@@ -132,6 +132,18 @@ $assert(null === $makeDispatcher()->convertButton($elementFrom('<button>go</butt
 // An empty anchor with no accessible name drops.
 $assert(null === $makeDispatcher()->convertAnchor($elementFrom('<a href="/x"></a>'), $fallbacks), 'empty-anchor-drops');
 
+// Untitled inline SVG is visual content. Convert children instead of dropping.
+$svgChildren = $makeDispatcher(array(
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return 0 < $e->getElementsByTagName('svg')->length
+                ? array( 'blockName' => 'core/group', 'attrs' => array( 'from' => 'svg-children' ) )
+                : null;
+        }
+    ),
+))->convertAnchor($elementFrom('<a href="#"><svg viewBox="0 0 10 10"><path d="M0 0h1v1z"></path></svg></a>'), $fallbacks);
+$assert('core/group' === ($svgChildren['blockName'] ?? '') && 'svg-children' === ($svgChildren['attrs']['from'] ?? ''), 'svg-only-anchor-converts-children');
+
 // An icon-only anchor with an aria-label and a safe href survives as a paragraph host.
 $iconOnly = $makeDispatcher()->convertAnchor($elementFrom('<a href="/x" aria-label="Home"></a>'), $fallbacks);
 $assert('core/paragraph' === ($iconOnly['blockName'] ?? ''), 'icon-only-anchor-survives');
