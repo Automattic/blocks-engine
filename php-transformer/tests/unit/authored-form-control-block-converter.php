@@ -89,6 +89,20 @@ $assert($registry->has(AuthoredSelectBlockGenerator::class), 'styled-select-regi
 $assert(array( 'plan' ) === $echoes, 'styled-select-registers-only-label-echo');
 
 $echoes = array();
+$requiredSelect = $elementFrom('<label class="block">Assistance required<select data-styled class="mt-1.5 w-full" required><option value="" selected disabled>Select a program</option><option value="food">Food &amp; housing</option></select></label>', 'select');
+$requiredLabel = $requiredSelect->parentNode instanceof DOMElement ? $requiredSelect->parentNode : null;
+$requiredBlock = $converter->select($requiredSelect, false, $requiredLabel);
+$authoredRequired = $requiredBlock['innerBlocks'][0] ?? array();
+$assert(true === ($authoredRequired['attrs']['required'] ?? false), 'required-select-retains-required-attribute');
+$assert('Assistance required' === ($authoredRequired['attrs']['label'] ?? ''), 'required-select-retains-wrapping-label');
+$assert(
+    str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<select class="mt-1.5 w-full" required>')
+        && str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<option value="" selected disabled>Select a program</option>')
+        && str_contains((string) ($authoredRequired['innerHTML'] ?? ''), '<option value="food">Food &amp; housing</option>'),
+    'required-select-emits-required-placeholder-and-escaped-option-markup'
+);
+
+$echoes = array();
 $emptySelect = $elementFrom('<select></select>', 'select');
 $assert(null === $converter->select($emptySelect), 'select-without-options-declines-block');
 $assert(array( 'Select option' ) === $echoes, 'select-without-options-still-registers-label-echo');
