@@ -5812,7 +5812,7 @@ $assert(str_contains($regionLayoutMarkup, '<!-- wp:tabs'), 'a layout-classed reg
 $assert(1 !== preg_match('/<!-- wp:tabs\s+\{[^}]*card-host/', $regionLayoutMarkup), 'the tabs wrapper JSON does not carry the shared region class');
 $assert(1 !== preg_match('/<div class="wp-block-tabs[^"]*card-host/', $regionLayoutMarkup), 'the tabs wrapper does not inherit the shared region class');
 $assert(1 !== preg_match('/<!-- wp:tabs\s+\{[^}]*"layout"/', $regionLayoutMarkup), 'the tabs wrapper does not inherit a layout attribute from the shared region');
-$assert(1 === preg_match('/<section[^>]*class="wp-block-tab-panel[^"]*card-host/', $regionLayoutMarkup), 'the shared region class lands on each tab-panel whose children it used to wrap');
+$assert(1 !== preg_match('/<section[^>]*class="wp-block-tab-panel[^"]*card-host/', $regionLayoutMarkup), 'tab-panels do not inherit the shared region class either');
 $assert(1 === preg_match('/<div class="wp-block-tab-list step-row"/', $regionLayoutMarkup), 'the tab-list still carries the source trigger row class');
 $assert(str_contains($regionLayoutMarkup, 'role="tab"') && str_contains($regionLayoutMarkup, 'role="tabpanel"'), 'projected tabs keep tab and tabpanel roles');
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($regionLayoutSelectableSet['blocks'] ?? array()), 'region-layout selectable-set tabs retain a canonical save shape');

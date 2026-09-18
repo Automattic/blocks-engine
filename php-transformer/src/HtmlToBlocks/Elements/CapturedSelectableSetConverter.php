@@ -93,9 +93,6 @@ final class CapturedSelectableSetConverter implements ElementConverter
             return null;
         }
 
-        $regionPresentation = $this->presentation->presentationAttributes($element);
-        unset($regionPresentation['anchor']);
-
         $panelBlocks = array();
         foreach ($panels as $index => $panel) {
             $children = ($this->convertChildren)($panel, $fallbacks);
@@ -106,19 +103,13 @@ final class CapturedSelectableSetConverter implements ElementConverter
                 }
                 $children = array($this->createBlock->createBlock('core/paragraph', array('content' => $text), array(), $panel));
             }
-            $panelPresentation = $this->presentation->presentationAttributes($panel);
             $panelBlocks[] = $this->createBlock->createBlock('core/tab-panel', array_filter(array_merge(
-                $regionPresentation,
-                $panelPresentation,
+                $this->presentation->presentationAttributes($panel),
                 array(
-                    'className' => SourceDom::mergeClassNames(
-                        (string) ($regionPresentation['className'] ?? ''),
-                        (string) ($panelPresentation['className'] ?? '')
-                    ),
                     'anchor' => trim(SourceDom::attr($panel, 'id')),
                     'label' => $labels[$index]['label'],
                 )
-            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value)), $children, $panel);
+            ), static fn ($value): bool => '' !== $value), $children, $panel);
         }
 
         $hidden = 'hidden' === strtolower(trim(SourceDom::attr($tabList, 'data-blocks-engine-tablist-presentation')));
