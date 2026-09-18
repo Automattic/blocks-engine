@@ -1989,6 +1989,22 @@ $assert(str_contains($leadingFlowFormatMarkup, '<p class="blocks-engine-inline-l
 $assert(str_contains($leadingFlowFormatMarkup, '<p>Ordinary <strong>inline prose</strong> remains together.</p>'), 'ordinary inline prose remains one RichText flow');
 $assert('pass' === ($leadingFlowFormat['source_reports']['wp_block_validity']['status'] ?? ''), 'leading semantic flow carriers remain editor-valid');
 
+$loneStyledInline = ( new HtmlTransformer() )->transform(
+    '<style>.label-row{padding:.5rem 1rem;border-bottom:1px solid #242424}.label{font-size:10px;line-height:15px;letter-spacing:1px;font-weight:500}</style>'
+    . '<div class="card"><div class="label-row"><span class="label">01 / 05</span></div><p>Script vidéo 20 secondes</p></div>'
+)->toArray();
+$loneStyledInlineMarkup = (string) ($loneStyledInline['serialized_blocks'] ?? '');
+$assert(str_contains($loneStyledInlineMarkup, 'blocks-engine-inline-layout-carrier') && str_contains($loneStyledInlineMarkup, '<span class="label"') && str_contains($loneStyledInlineMarkup, '01 / 05'), 'a lone styled span in a padded flow wrapper uses a boxless valid carrier');
+$assert(! str_contains($loneStyledInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><mark'), 'the span is not rewrapped as a synthetic paragraph host');
+$assert('pass' === ($loneStyledInline['source_reports']['wp_block_validity']['status'] ?? ''), 'lone styled inline carriers remain editor-valid');
+
+$paddedTextWrapper = ( new HtmlTransformer() )->transform(
+    '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style><div class="copy">PLAN 1 (0-3s)</div>'
+)->toArray();
+$paddedTextWrapperMarkup = (string) ($paddedTextWrapper['serialized_blocks'] ?? '');
+$assert(str_contains($paddedTextWrapperMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($paddedTextWrapperMarkup, 'PLAN 1 (0-3s)'), 'a childless padded text wrapper marks its paragraph host for margin neutralization');
+$assert('pass' === ($paddedTextWrapper['source_reports']['wp_block_validity']['status'] ?? ''), 'padded text wrapper paragraphs remain editor-valid');
+
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
 )->toArray();
