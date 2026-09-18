@@ -933,8 +933,16 @@ final class ArtifactCompiler
                     $products[$productSlug] = $row;
                 }
             } elseif ( 'html_form_fallback' === $code && is_array($fallback['controls'] ?? null) ) {
-                if ( true === ($fallback['control_topology']['truncated'] ?? false) ) continue;
                 $selector = is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '';
+                // Only a finding carrying data-entry metadata describes a form a
+                // provider could materialize, so only that finding is worth
+                // reporting when a contract stops it from being declared.
+                $declarable = array() !== array_filter(
+                    array_filter($fallback['controls'], 'is_array'),
+                    static fn (array $control): bool => in_array(strtolower((string) ($control['tag'] ?? '')), array('input', 'select', 'textarea'), true)
+                        && ! in_array(strtolower((string) ($control['type'] ?? '')), array('button', 'image', 'reset', 'submit'), true)
+                );
+                if ( true === ($fallback['control_topology']['truncated'] ?? false) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'control_topology_truncated', 'its bounded control topology was truncated, so the control graph is incomplete'); continue; }
                 $form = array('selector' => $selector, 'source_path' => $sourcePath, 'form' => is_array($fallback['form'] ?? null) ? $fallback['form'] : array(), 'controls' => array_values(array_filter($fallback['controls'], 'is_array')));
                 foreach (array('fallback_identity', 'reconciliation_identity') as $identityKey) if (is_string($fallback[$identityKey] ?? null) && preg_match('/^[a-f0-9]{64}$/', $fallback[$identityKey])) $form[$identityKey] = $fallback[$identityKey];
                 if ( is_array($fallback['control_topology'] ?? null) ) $form['control_topology'] = $fallback['control_topology'];
@@ -944,7 +952,7 @@ final class ArtifactCompiler
                 if ( is_array($fallback['binding'] ?? null) && 'generic/block-binding/v1' === ($fallback['binding']['schema'] ?? null) && is_string($fallback['binding']['search_block_markup'] ?? null) && '' !== trim($fallback['binding']['search_block_markup']) ) {
                     $form['bindings'] = array(array_merge($fallback['binding'], array('source_path' => $sourcePath)));
                 }
-                if ( ! isset($form['bindings']) ) continue;
+                if ( ! isset($form['bindings']) ) { if ( $declarable ) $diagnostics[] = $this->declinedFormDeclarationDiagnostic($fallback, $sourcePath, $selector, 'page_owned_binding_anchor_missing', 'it has no page-owned block binding anchor, so a provider cannot locate the converted form in the page'); continue; }
                 $supersededScripts = $this->supersededFormScripts($fallback, $files, $sourcePath);
                 if ( array() !== $supersededScripts ) $form['superseded_scripts'] = $supersededScripts;
                 $forms[$sourcePath . "\n" . $selector] = $form;
@@ -977,6 +985,35 @@ final class ArtifactCompiler
             }
         }
         return RuntimeDeclarations::normalizeList($declarations);
+    }
+
+    /**
+     * Name the contract that stopped prepared form metadata from reaching the
+     * runtime declarations. A declined form is otherwise invisible: the
+     * `html_form_fallback` finding still reports extracted controls while the
+     * `generic/forms/v1` entity that a provider materializes never appears.
+     *
+     * @param array<string,mixed> $fallback
+     * @return array<string,mixed>
+     */
+    private function declinedFormDeclarationDiagnostic(array $fallback, string $sourcePath, string $selector, string $failedCheck, string $because): array
+    {
+        $controls = array_values(array_filter(is_array($fallback['controls'] ?? null) ? $fallback['controls'] : array(), 'is_array'));
+        return array(
+            'code' => 'runtime_form_declaration_declined',
+            'severity' => 'warning',
+            'message' => substr('Extracted form metadata was declined before the runtime form entity declaration because ' . $because . '.', 0, 256),
+            'source_path' => substr($sourcePath, 0, 256),
+            'selector' => substr($selector, 0, 256),
+            'failed_check' => $failedCheck,
+            'control_count' => count($controls),
+            'entity_schema' => 'generic/forms/v1',
+            'reason_code' => 'runtime_form_declaration_declined',
+            'pattern_family' => 'interactive_form',
+            'repair_bucket' => 'materialize_form_provider',
+            'suggested_repair_class' => 'materialize_form_provider',
+            'source' => self::class,
+        );
     }
 
     /**

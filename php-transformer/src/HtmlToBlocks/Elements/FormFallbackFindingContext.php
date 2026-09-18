@@ -16,7 +16,7 @@ final class FormFallbackFindingContext
      * @param Closure(DOMElement): array<int, string>                                               $runtimeDomSelectors
      * @param Closure(DOMElement): array<string, mixed>                                             $sourceContext
      * @param Closure(DOMElement): array<string, mixed>                                             $classifyFallbackSubtree
-     * @param Closure(array<string, mixed>, string, array<int, string>): array<string, mixed>       $blockBinding
+     * @param Closure(array<string, mixed>, string, array<int, string>, ?DOMElement): array<string, mixed> $blockBinding
      * @param (Closure(DOMElement, string): string)|null                                            $resolvePresentationValue
      * @param (Closure(DOMElement): string)|null                                                    $sanitizeInlineSvgMarkup
      */
@@ -72,9 +72,9 @@ final class FormFallbackFindingContext
      * @param array<int, string> $supersededRuntimeSelectors
      * @return array<string, mixed>
      */
-    public function blockBinding(array $block, string $role, array $supersededRuntimeSelectors): array
+    public function blockBinding(array $block, string $role, array $supersededRuntimeSelectors, ?DOMElement $anchorElement = null): array
     {
-        return ($this->blockBinding)($block, $role, $supersededRuntimeSelectors);
+        return ($this->blockBinding)($block, $role, $supersededRuntimeSelectors, $anchorElement);
     }
 
     public function resolvePresentationValue(DOMElement $element, string $value): string
