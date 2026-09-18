@@ -1338,30 +1338,43 @@ final class WordPressSitePlan
             $markup = is_string($source) ? ($markupBySource[$source] ?? null) : null;
             if (!is_string($source) || !is_string($search) || '' === $search || !is_int($binding['occurrence'] ?? null) || $binding['occurrence'] < 1 || !is_string($markup)) throw new InvalidArgumentException('A runtime entity binding lacks an exact emitted block anchor.');
             if (is_array($position) && ('blocks-engine/runtime-binding-position/v1' !== ($position['schema'] ?? null) || !is_int($position['block_index'] ?? null) || $position['block_index'] < 0 || !is_int($position['offset'] ?? null) || $position['offset'] < 0 || !is_int($position['length'] ?? null) || $position['length'] < 1)) throw new InvalidArgumentException('A runtime entity binding has an invalid emitted block position.');
-            $groups[$source . "\n" . $search][] = array('id' => $declarationIndex . ':' . $entityIndex . ':' . $bindingIndex, 'source' => $source, 'declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'source_offset' => is_array($position) ? $position['offset'] : null, 'source_occurrence' => $binding['occurrence'], 'canonical_position' => false, 'markup' => $markup, 'source_markup' => $sourceMarkupBySource[$source] ?? null, 'search' => $search);
+            $groups[$source . "\n" . $search][] = array('id' => $declarationIndex . ':' . $entityIndex . ':' . $bindingIndex, 'source' => $source, 'declaration' => $declarationIndex, 'entity' => $entityIndex, 'binding' => $bindingIndex, 'source_offset' => is_array($position) ? $position['offset'] : null, 'source_occurrence' => $binding['occurrence'], 'canonical_position' => false, 'markup' => $markup, 'source_markup' => $sourceMarkupBySource[$source] ?? null, 'search' => $search, 'role' => is_string($binding['role'] ?? null) ? $binding['role'] : null);
         }
         foreach ($groups as $bindings) {
             usort($bindings, static fn(array $left, array $right): int => array($left['source_offset'] ?? PHP_INT_MAX, $left['source_occurrence'], $left['declaration'], $left['entity'], $left['binding']) <=> array($right['source_offset'] ?? PHP_INT_MAX, $right['source_occurrence'], $right['declaration'], $right['entity'], $right['binding']));
-            $identities = array();
+            // A `commerce_collection` binding is deliberately shared, byte for
+            // byte, by every product entity a detected grid covers (see
+            // `CommerceFallbackReporter`): one page region, many entities, one
+            // canonical claim -- not N entities racing for the same position.
+            // Cluster same-position bindings so that legitimate sharing is one
+            // claim consuming one canonical range, while two DIFFERENT claims
+            // (any role, or a non-collection role repeating a position) still
+            // fail closed exactly as before.
+            $clusters = array();
             foreach ($bindings as $identity) {
                 $key = is_int($identity['source_offset']) ? 'offset:' . $identity['source_offset'] : 'occurrence:' . $identity['source_occurrence'];
-                if (isset($identities[$key])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
-                $identities[$key] = true;
+                $clusters[$key][] = $identity;
+            }
+            $claims = array();
+            foreach ($clusters as $members) {
+                if (1 < count($members) && array() !== array_filter($members, static fn(array $member): bool => 'commerce_collection' !== $member['role'])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
+                $claims[] = $members;
             }
             $markup = $bindings[0]['markup']; $search = $bindings[0]['search']; $ranges = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
-            if (count($ranges) < count($bindings)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
-            $claimedOffsets = array(); $claimedBindings = array(); $resolved = array();
-            foreach ($bindings as $identity) {
+            if (count($ranges) < count($claims)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
+            $claimedOffsets = array(); $claimedClaims = array(); $resolved = array();
+            foreach ($claims as $claimIndex => $members) {
+                $identity = $members[0];
                 $position = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['position'] ?? null;
                 if (isset($declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor']) || true !== $identity['canonical_position'] || !self::bindingPosition($position, $markup, $search)) continue;
                 if (isset($claimedOffsets[$position['offset']])) throw new InvalidArgumentException('A runtime entity binding has ambiguous canonical source-page anchors.');
                 $claimedOffsets[$position['offset']] = true;
-                $claimedBindings[$identity['id']] = true;
-                $resolved[] = array($identity, array('offset' => $position['offset'], 'length' => $position['length']));
+                $claimedClaims[$claimIndex] = true;
+                foreach ($members as $member) $resolved[] = array($member, array('offset' => $position['offset'], 'length' => $position['length']));
             }
-            $remainingBindings = array_values(array_filter($bindings, static fn(array $identity): bool => !isset($claimedBindings[$identity['id']])));
-            $remainingRanges = array_values(array_filter($ranges, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
-            foreach ($remainingBindings as $identity) {
+            $remainingClaims = array_values(array_filter($claims, static fn(array $members, int $claimIndex): bool => !isset($claimedClaims[$claimIndex]), ARRAY_FILTER_USE_BOTH));
+            foreach ($remainingClaims as $members) {
+                $identity = $members[0];
                 $anchor = $declarations[$identity['declaration']]['payload']['entities'][$identity['entity']]['bindings'][$identity['binding']]['projected_anchor'] ?? null;
                 if (!is_array($anchor) || 'blocks-engine/projected-binding-anchor/v1' !== ($anchor['schema'] ?? null) || !is_string($anchor['source_block_markup'] ?? null)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
                 $sourceMarkup = $sourceMarkupBySource[$identity['source']] ?? null;
@@ -1372,7 +1385,8 @@ final class WordPressSitePlan
                 $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($anchor['source_block_markup'] === substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, $anchor['source_block_markup'], $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
                 if (array() === $candidates) { $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length']))); $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length']) && !isset($claimedOffsets[$range['offset']]))); if (1 === count($sourceMatches) && 1 === count($canonicalMatches)) $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $canonicalMatches[0]); }
                 if (1 !== count($candidates)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
-                $claimedOffsets[$candidates[0]['canonical']['offset']] = true; $resolved[] = array($identity, $candidates[0]['canonical']);
+                $claimedOffsets[$candidates[0]['canonical']['offset']] = true;
+                foreach ($members as $member) $resolved[] = array($member, $candidates[0]['canonical']);
             }
             foreach ($resolved as $resolvedEntry) {
                 [$identity, $range] = $resolvedEntry;
