@@ -265,6 +265,20 @@ final class NavigationToggleSuppressor
             return null;
         }
 
+        // The target reads as hidden by its own unconditional declaration
+        // (e.g. a `hidden md:flex` desktop nav), but a builder commonly
+        // expresses "visible only from this breakpoint up" that same way.
+        // Resolving the full cascade at the desktop reference viewport tells
+        // the genuine off-canvas panel — still hidden once every applicable
+        // media-conditional rule is applied — apart from the real, in-flow
+        // desktop navigation the toggle merely stands in for on narrow
+        // viewports. Only the former is a control's hidden counterpart; the
+        // latter must keep its own document position and let the toggle
+        // become core/navigation's native responsive affordance instead.
+        if ( ! $this->targetHiddenAtReferenceViewport($target) ) {
+            return null;
+        }
+
         $tagName = strtolower($target->tagName);
         $role = strtolower(SourceDom::attr($target, 'role'));
         $isLandmark = in_array($tagName, array( 'dialog', 'nav' ), true)
@@ -319,6 +333,31 @@ final class NavigationToggleSuppressor
 
         $maxHeight = CssValueInspector::comparable(
             (string) ($this->styleResolver->structuralPresentationDeclarations($element)['max-height'] ?? '')
+        );
+
+        return in_array($maxHeight, array( '0', '0px' ), true);
+    }
+
+    /**
+     * Whether the target stays hidden once its authored cascade is resolved
+     * at the desktop reference viewport — the same test
+     * {@see self::sourceElementIsHidden()} makes, but reading display,
+     * visibility and opacity (on the element or an ancestor) through
+     * media-conditional rules that apply there instead of unconditional
+     * declarations only. A max-height clip is a static, non-responsive
+     * hiding technique, so it is read the same narrow way in both checks.
+     */
+    private function targetHiddenAtReferenceViewport(DOMElement $target): bool
+    {
+        if ( $target->hasAttribute('hidden')
+            || 'true' === strtolower(SourceDom::attr($target, 'aria-hidden'))
+            || 'false' === strtolower(SourceDom::attr($target, 'data-visible'))
+            || $this->context->sourceElementOrAncestorStartsHidden($target) ) {
+            return true;
+        }
+
+        $maxHeight = CssValueInspector::comparable(
+            (string) ($this->styleResolver->structuralPresentationDeclarations($target)['max-height'] ?? '')
         );
 
         return in_array($maxHeight, array( '0', '0px' ), true);

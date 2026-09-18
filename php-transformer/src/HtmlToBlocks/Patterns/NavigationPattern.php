@@ -32,6 +32,15 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     private const SIDEBAR_NAVIGATION_CARRIER_CLASS = 'blocks-engine-sidebar-navigation-carrier';
 
+    /**
+     * Marks a core/navigation whose generated support CSS must be able to
+     * force it visible (flex) against the author's own responsive hide/show
+     * classes — every nav Core's native `overlayMenu` now controls, whether
+     * or not its source items were themselves list-based. See
+     * {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\EngineSupportCss::listNavigationHostRepairCss()}.
+     */
+    private const LIST_NAVIGATION_CLASS = 'blocks-engine-list-navigation';
+
     public function claimsBeforeAuthorOwnedLayout(DOMElement $element): bool
     {
         $tag = strtolower($element->tagName);
@@ -141,7 +150,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($element, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($element) ?? '');
+            $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $element, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $element, $navigationContext);
         }
         if ( $label instanceof DOMElement ) {
@@ -564,7 +573,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $navigationAttrs['overlayMenu'] = $this->overlayMenu($cluster, $navigationContext);
         if ( 'mobile' === $navigationAttrs['overlayMenu'] ) {
             $navigationAttrs = $this->withClassName($navigationAttrs, 'blocks-engine-native-responsive-navigation');
-            $navigationAttrs = $this->withClassName($navigationAttrs, $navigationContext?->responsiveToggleMarker($cluster) ?? '');
+            $navigationAttrs = $this->withResponsiveToggleMarker($navigationAttrs, $cluster, $navigationContext);
             $navigationAttrs = $this->withInlineNavigationDisplay($navigationAttrs, $cluster, $navigationContext);
         }
         $isDirectDivCluster = 'div' === strtolower($cluster->tagName);
@@ -688,6 +697,27 @@ final class NavigationPattern implements PatternRecognizerInterface
         $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? '') . ' ' . $className)) ?: array();
         $attrs['className'] = implode(' ', array_values(array_unique(array_filter($classes))));
         return $attrs;
+    }
+
+    /**
+     * @param array<string, mixed> $attrs
+     * @return array<string, mixed>
+     */
+    private function withResponsiveToggleMarker(array $attrs, DOMElement $element, ?NavigationPatternContext $navigationContext): array
+    {
+        $marker = $navigationContext?->responsiveToggleMarker($element) ?? '';
+        if ( '' === $marker ) {
+            return $attrs;
+        }
+
+        // The generated toggle-box host rule's selector requires this class
+        // alongside `blocks-engine-native-responsive-navigation` (see
+        // {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter::responsiveNavigationToggleMarker()}).
+        // Without it the rule is dead CSS: present in the stylesheet but
+        // matching nothing, regardless of whether the source menu itself was
+        // list-based.
+        $attrs = $this->withClassName($attrs, self::LIST_NAVIGATION_CLASS);
+        return $this->withClassName($attrs, $marker);
     }
 
     /** @param array<string, mixed> $attrs @return array<string, mixed> */
@@ -1707,20 +1737,24 @@ final class NavigationPattern implements PatternRecognizerInterface
             if ( '' === trim($anchor->textContent ?? '') ) {
                 continue;
             }
-            $classes = array();
-            $node    = $anchor->parentNode;
-            $depth   = 0;
-            while ( $node instanceof DOMElement && ! $node->isSameNode($navigation) && $depth < 6 ) {
-                ++$depth;
-                if ( 'li' === strtolower($node->tagName) ) {
-                    break;
-                }
-                foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
-                    if ( '' !== $candidate && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $candidate) ) {
+            $classes = $this->replacedAncestorWrapperClassNames($anchor, $navigation);
+            // A builder just as commonly wraps an item's full presentation
+            // (box, padding, gap, radius, sizing) in a single element INSIDE
+            // the anchor — `<a href><div class="…pill…">icon label</div></a>`
+            // — rather than between the anchor and the nav. core/navigation
+            // collapses that wrapper the same way; carry its classes too, or
+            // an icon-plus-label pill item silently loses its entire box
+            // model. Merged into the same set: only classes every item's
+            // anchor carries on EITHER side survive the intersection below,
+            // so a route-current state expressed on just one item's wrapper
+            // (inner or outer) is still excluded, same as today.
+            $descendant = $this->soleMeaningfulChild($anchor);
+            if ( $descendant instanceof DOMElement && $this->hasElementChild($descendant) ) {
+                foreach ( preg_split('/\s+/', trim($this->attr($descendant, 'class'))) ?: array() as $candidate ) {
+                    if ( $this->isCarriableWrapperClassName($candidate) ) {
                         $classes[$candidate] = true;
                     }
                 }
-                $node = $node->parentNode;
             }
             $sets[] = $classes;
         }
@@ -1734,6 +1768,87 @@ final class NavigationPattern implements PatternRecognizerInterface
         }
 
         return implode(' ', array_keys($shared));
+    }
+
+    /** @return array<string, true> */
+    private function replacedAncestorWrapperClassNames(DOMElement $anchor, DOMElement $navigation): array
+    {
+        $classes = array();
+        $node    = $anchor->parentNode;
+        $depth   = 0;
+        while ( $node instanceof DOMElement && ! $node->isSameNode($navigation) && $depth < 6 ) {
+            ++$depth;
+            if ( 'li' === strtolower($node->tagName) ) {
+                break;
+            }
+            foreach ( preg_split('/\s+/', trim($this->attr($node, 'class'))) ?: array() as $candidate ) {
+                if ( $this->isCarriableWrapperClassName($candidate) ) {
+                    $classes[$candidate] = true;
+                }
+            }
+            $node = $node->parentNode;
+        }
+
+        return $classes;
+    }
+
+    /**
+     * A single class token safe to carry from a replaced wrapper onto the
+     * generated navigation item. Allows the internal `.` a utility framework
+     * commonly uses for fractional scale steps (`gap-1.5`, `px-3.5`) — unlike
+     * {@see self::authorClassNames()}'s selector-building character set, this
+     * value only ever reaches an HTML `class` attribute, which does not need
+     * CSS-selector escaping.
+     */
+    private function isCarriableWrapperClassName(string $candidate): bool
+    {
+        return '' !== $candidate && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_.-]{0,79}$/D', $candidate);
+    }
+
+    /**
+     * Whether the element has at least one element child of its own (an icon,
+     * an inline mark, …) rather than being a plain text-only leaf. A wrapper
+     * carrying only text — `<p class="label">Programs</p>` — is exactly the
+     * shape {@see self::navigationLabel()} already reduces to RichText label
+     * content; only a wrapper mixing in other markup (an icon beside the
+     * label) needs its own box presentation carried onto the generated item.
+     */
+    private function hasElementChild(DOMElement $element): bool
+    {
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMElement ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The element's one meaningful child — a single element surrounded only
+     * by whitespace text nodes — or null when the element has no children,
+     * more than one, or any non-whitespace text of its own.
+     */
+    private function soleMeaningfulChild(DOMElement $element): ?DOMElement
+    {
+        $only = null;
+        foreach ( $element->childNodes as $child ) {
+            if ( XML_TEXT_NODE === $child->nodeType ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    return null;
+                }
+                continue;
+            }
+            if ( XML_COMMENT_NODE === $child->nodeType ) {
+                continue;
+            }
+            if ( ! $child instanceof DOMElement || null !== $only ) {
+                return null;
+            }
+            $only = $child;
+        }
+
+        return $only;
     }
 
     private function projectBlockListDisplay(DOMElement $listSource, ?NavigationPatternContext $navigationContext, bool $preserveSemanticBlockStack = false): void
@@ -1921,7 +2036,7 @@ final class NavigationPattern implements PatternRecognizerInterface
         $attrs = $this->withoutCoreNavigationClasses($presentationAttributes($element));
         $list = $this->navigationListSource($element);
         if ( $list instanceof DOMElement ) {
-            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' blocks-engine-list-navigation');
+            $attrs['className'] = trim((string) ($attrs['className'] ?? '') . ' ' . self::LIST_NAVIGATION_CLASS);
         }
         if ( '' !== (string) ($attrs['style']['spacing']['blockGap'] ?? '') ) {
             return $attrs;

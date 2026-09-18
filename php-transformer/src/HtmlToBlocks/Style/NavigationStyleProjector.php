@@ -1330,6 +1330,52 @@ final class NavigationStyleProjector
     }
 
     /**
+     * Restore a navigation icon beside a label core/navigation-link kept.
+     *
+     * Unlike {@see self::navigationLinkIconRules()}'s icon-only replacement,
+     * the label stays visible; the icon is projected as a leading `::before`
+     * mark so the anchor reads icon-then-label like its source.
+     *
+     * Tagged {@see CascadeLayer::SOURCE_STYLE_PROJECTION}.
+     *
+     * @return list<CascadeRule>
+     */
+    public function navigationLinkLeadingIconRules(string $serializedBlocks): array
+    {
+        $prefix = 'blocks-engine-navigation-link-leading-icon-';
+        if ( ! str_contains($serializedBlocks, $prefix)
+            || ! preg_match_all('/<!--\s*wp:navigation-(?:link|submenu)\s*(\{.*?\})\s*\/?-->/s', $serializedBlocks, $matches, PREG_SET_ORDER)
+        ) {
+            return array();
+        }
+
+        $rules = array();
+        foreach ( $matches as $match ) {
+            $attrs = json_decode($match[1], true);
+            if ( ! is_array($attrs) ) {
+                continue;
+            }
+
+            foreach ( preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class ) {
+                if ( ! str_starts_with($class, $prefix) ) {
+                    continue;
+                }
+                $declarations = $this->context->generatedSupportStyles()->navigationLinkLeadingIcon($class);
+                if ( '' === $declarations ) {
+                    continue;
+                }
+                $content = '.wp-block-navigation-item.' . $class . '>.wp-block-navigation-item__content';
+                $rules[$class] = $content . '::before{' . $declarations . '}';
+            }
+        }
+
+        return array_map(
+            static fn (string $css): CascadeRule => new CascadeRule(CascadeLayer::SOURCE_STYLE_PROJECTION, $css),
+            array_values($rules)
+        );
+    }
+
+    /**
      * Carry each navigation-link's resolved resting colour to the anchor core
      * renders. core/navigation-link does not consume style.color.text, while
      * adaptive header chrome can target the rendered anchor directly and beat
