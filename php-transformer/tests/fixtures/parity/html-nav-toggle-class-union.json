@@ -1,0 +1,111 @@
+{
+    "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+    "name": "html-nav-toggle-class-union",
+    "description": "A separate desktop nav (base display:none, flex at a breakpoint) and a separate mobile toggle button (visible at rest, hidden at that same breakpoint, with its own box-sizing utilities) must not have their class lists unioned onto one core/navigation. The toggle's own visibility/sizing classes describe the control the nav's overlayMenu already represents, not the navigation container itself; unioning them produces a self-contradictory className (both 'hidden'/'md:flex' and 'md:hidden' on the same element) and pins the toggle's small fixed box size onto the nav at every breakpoint.",
+    "source_reference": {
+        "repo": "php-transformer",
+        "path": "tests/fixtures/parity/html-nav-toggle-class-union.json",
+        "notes": "Regression fixture for fix/nav-toggle-class-union. Reduced from a real capture where a `hidden md:flex` <nav> and a sibling `md:hidden` hamburger <button> (3 SVG lines, no aria-controls/aria-label) were merged into one core/navigation whose className carried both opposing responsive-visibility classes plus the button's w-9/h-9 box size."
+    },
+    "legacy_comparison": {
+        "skip": true,
+        "reason": "This upstream primitive fixture has no downstream legacy comparison."
+    },
+    "operation": "html_transformer.transform",
+    "input": {
+        "content": "<style>.hidden{display:none}.flex{display:flex}.items-center{align-items:center}.gap-0\\.5{gap:0.125rem}.w-9{width:2.25rem}.h-9{height:2.25rem}.justify-center{justify-content:center}.rounded-lg{border-radius:0.5rem}@media (min-width:768px){.md\\:flex{display:flex}.md\\:hidden{display:none}}</style><header class=\"site-header\"><a href=\"/Home\">Brand</a><nav class=\"hidden md:flex items-center gap-0.5\"><a href=\"/Home\">Home</a><a href=\"/Browse\">Browse</a></nav><button class=\"md:hidden w-9 h-9 flex items-center justify-center rounded-lg hover:bg-muted transition-colors\"><svg><line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"></line><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"></line><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"></line></svg></button></header>"
+    },
+    "expected_blocks": [
+        {
+            "path": "blocks.0",
+            "name": "core/group",
+            "attrs": {
+                "className": "site-header"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1",
+            "name": "core/navigation",
+            "attrs": {
+                "className": "blocks-engine-list-navigation blocks-engine-native-responsive-navigation hidden md:flex items-center gap-0.5 blocks-engine-native-navigation-toggle-c214e3ba6841",
+                "style": {
+                    "spacing": {
+                        "blockGap": "0.125rem"
+                    }
+                },
+                "overlayMenu": "mobile"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "name": "core/navigation-link",
+            "attrs": {
+                "label": "Home",
+                "url": "/Home",
+                "kind": "custom"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.1",
+            "name": "core/navigation-link",
+            "attrs": {
+                "label": "Browse",
+                "url": "/Browse",
+                "kind": "custom"
+            }
+        }
+    ],
+    "expected_fallbacks": [],
+    "expect": [
+        {
+            "path": "status",
+            "assert": "equals",
+            "value": "success"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "contains",
+            "value": "hidden md:flex items-center gap-0.5"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "md:hidden"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "w-9"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "h-9"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "justify-center"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "hover:bg-muted"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "transition-colors"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.overlayMenu",
+            "assert": "equals",
+            "value": "mobile"
+        },
+        {
+            "path": "fallbacks",
+            "assert": "count",
+            "count": 0
+        }
+    ]
+}

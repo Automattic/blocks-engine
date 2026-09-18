@@ -36,19 +36,26 @@ final class ProjectedNavigationConverter implements ElementConverter
         if ( $projectedNavigation instanceof DOMElement ) {
             $block = ($this->recognizePatterns)($projectedNavigation, $fallbacks, array(NavigationPattern::class));
             if ( null !== $block ) {
-                $controlAttrs = $this->styleResolver->presentationAttributes($element);
                 $nativeClassNames = 'blocks-engine-list-navigation blocks-engine-native-responsive-navigation';
                 if ( $this->navigationToggleSuppressor->isImplicitDialogNavigationControl($element) ) {
                     $nativeClassNames .= ' blocks-engine-projected-dialog-navigation';
                 }
-                $controlClassName = (string) ($controlAttrs['className'] ?? '');
-                if ( $this->navigationToggleSuppressor->isHashAnchorMenuProjection($element) ) {
-                    $controlClassName = '';
-                }
+                // The control's own presentation class (its visibility utility,
+                // box sizing, hover states, …) describes the *toggle*, not the
+                // navigation it opens — Core's overlayMenu is the responsive
+                // affordance now, so that presentation is carried onto it
+                // through the generated toggle marker below and the generic
+                // author-selector projection, never by unioning the control's
+                // literal class onto the nav host. Doing that here previously
+                // put a hamburger's own visibility/size utilities (and any
+                // author rule keyed to its class) directly on the block that
+                // replaces it, which is self-contradictory whenever the
+                // control and the nav it projects state opposite responsive
+                // visibility (e.g. a `md:hidden` toggle projecting a
+                // `hidden md:flex` nav).
                 $block['attrs']['className'] = SourceDom::mergeClassNames(
                     $nativeClassNames,
                     (string) ($block['attrs']['className'] ?? ''),
-                    $controlClassName,
                     $this->responsiveNavigationToggleMarker($projectedNavigation),
                     $this->sourceBlockAttributeProjector->sourceProjectionClassName($element, $this->sourceBlockAttributeProjectionContext())
                 );
