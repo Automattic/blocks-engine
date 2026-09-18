@@ -13,9 +13,11 @@ final class ThemeJsonProjection
     /**
      * Source typography is routinely applied through custom properties
      * (`h1,h2{font-family:var(--font-serif)}` defined by
-     * `:root{--font-serif:"Cormorant Garamond",serif}`). Those declarations are
-     * resolved before representability so the captured families reach
-     * settings.typography and styles.typography; every other property keeps its
+     * `:root{--font-serif:"Cormorant Garamond",serif}`), including class-scoped
+     * utilities (`.font-mono{font-family:var(--font-mono)}`). Those declarations
+     * are resolved before representability so every distinct used stack reaches
+     * settings.typography.fontFamilies; only global element selectors also
+     * project into styles.typography. Every other property keeps its
      * literal-only representability because a resolved color or spacing token
      * still cannot prove cascade independence.
      *
@@ -44,12 +46,13 @@ final class ThemeJsonProjection
         $variables = $this->customProperties($assets);
         $candidates = array();
         $conditionalProperties = array();
+        $fontFamilyStacks = array();
         $visitor = new CssStylesheetTransformer();
         foreach ($assets as $assetIndex => $asset) {
             if ('css' !== ($asset['kind'] ?? null) || !is_string($asset['content'] ?? null)) continue;
             $path = (string) ($asset['source_path'] ?? $asset['path'] ?? '');
             $hash = (string) ($asset['content_hash'] ?? $asset['hash'] ?? hash('sha256', $asset['content']));
-            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, $assetIndex, $path, $hash, $variables): void {
+            $visitor->visitStyleRules($asset['content'], function (string $prelude, string $body, array $ancestors) use (&$candidates, &$conditionalProperties, &$fontFamilyStacks, $assetIndex, $path, $hash, $variables): void {
                 // Cascade layers qualify where a declaration sits in the source
                 // cascade but leave it unconditional; media, supports, container,
                 // scope, and starting-style ancestors make it cascade-conditional.
@@ -60,21 +63,25 @@ final class ThemeJsonProjection
                     $conditional = true;
                     break;
                 }
+                $resolved = array();
+                foreach ($this->declarations($body) as $name => $value) {
+                    if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true)) $value = $this->resolveVariableReferences($value, $variables);
+                    $resolved[$name] = $value;
+                    if ('font-family' === $name && $this->representable('body', 'font-family', $value) && !in_array(strtolower($value), self::CSS_WIDE_KEYWORDS, true)) $fontFamilyStacks[$value] = true;
+                }
                 $targets = $this->targets($prelude);
                 if (null === $targets) return;
                 // Global Styles cannot reproduce a declaration that source CSS varies
                 // inside a conditional cascade, so keep that property source-owned.
                 if ($conditional) {
-                    foreach ($this->declarations($body) as $name => $value) {
-                        if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true)) $value = $this->resolveVariableReferences($value, $variables);
+                    foreach ($resolved as $name => $value) {
                         foreach ($targets as $target) {
                             if ($this->representable($target, $name, $value)) $conditionalProperties[$target . "\n" . $name] = true;
                         }
                     }
                     return;
                 }
-                foreach ($this->declarations($body) as $name => $value) {
-                    if (in_array($name, self::VARIABLE_REFERENCED_PROPERTIES, true)) $value = $this->resolveVariableReferences($value, $variables);
+                foreach ($resolved as $name => $value) {
                     // A CSS-wide keyword inside a cascade layer defers to whatever
                     // else the cascade supplies; a reset layer states `inherit` so
                     // a later layer can win. Global Styles is unlayered, so
@@ -98,7 +105,7 @@ final class ThemeJsonProjection
 
         $counts = array_count_values(array_map(static fn(array $candidate): string => $candidate['property'] . "\n" . strtolower($candidate['value']), $candidates));
         $selected = array_values(array_filter($candidates, static fn(array $candidate): bool => !isset($conditionalProperties[$candidate['target'] . "\n" . $candidate['property']]) && (1 < $counts[$candidate['property'] . "\n" . strtolower($candidate['value'])] || 'body' === $candidate['target'] || 'layout' === $candidate['target'] || str_starts_with($candidate['target'], 'element:'))));
-        $presets = $this->presets($selected);
+        $presets = $this->presets($selected, $fontFamilyStacks);
 
         return array('assets' => $assets, 'theme' => $this->theme($selected, $presets, $this->fontFaces($assets)), 'provenance' => array_values(array_map(static fn(array $candidate): array => array('source_path' => $candidate['path'], 'source_hash' => $candidate['hash'], 'selector' => $candidate['selector'], 'property' => $candidate['property'], 'value' => $candidate['value']), $selected)), 'presets' => $presets);
     }
@@ -264,8 +271,12 @@ final class ThemeJsonProjection
         return false;
     }
 
-    /** @param array<int,array<string,mixed>> $selected @return array<string,array<string,string>> */
-    private function presets(array $selected): array
+    /**
+     * @param array<int,array<string,mixed>> $selected
+     * @param array<string,true> $fontFamilyStacks
+     * @return array<string,array<string,string>>
+     */
+    private function presets(array $selected, array $fontFamilyStacks = array()): array
     {
         $presets = array('color' => array(), 'font-family' => array(), 'font-size' => array(), 'spacing' => array());
         foreach ($selected as $candidate) {
@@ -273,6 +284,9 @@ final class ThemeJsonProjection
                 'color', 'background-color' => 'color', 'font-family' => 'font-family', 'font-size' => 'font-size', 'padding', 'margin', 'gap' => 'spacing', default => '',
             };
             if ('' !== $group && !in_array(strtolower($candidate['value']), self::CSS_WIDE_KEYWORDS, true)) $presets[$group][$candidate['value']] = $this->slug($group, $candidate['value']);
+        }
+        foreach (array_keys($fontFamilyStacks) as $stack) {
+            if (is_string($stack) && '' !== $stack) $presets['font-family'][$stack] = $this->slug('font-family', $stack);
         }
         foreach ($presets as &$values) ksort($values, SORT_STRING); unset($values);
         return $presets;

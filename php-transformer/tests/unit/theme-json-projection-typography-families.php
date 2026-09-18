@@ -9,9 +9,11 @@ declare(strict_types=1);
  * (`body{font-family:var(--font-sans)}`, `h1,h2,h3,h4,h5,h6{font-family:var(--font-serif)}`
  * defined by `:root{--font-sans:…;--font-serif:…}`) and, in Tailwind v4 output,
  * nested inside `@layer base`. The projection must resolve those references,
- * register the captured families as settings.typography.fontFamilies, and set
- * body versus heading styles.typography.fontFamily from the same capture
- * evidence — otherwise the generated theme cannot represent the source
+ * register the captured families as settings.typography.fontFamilies — including
+ * class-scoped stacks that never project as Global Styles — and set body versus
+ * heading styles.typography.fontFamily from global-element capture evidence.
+ * Duplicate resolved stacks collapse to one preset; unused custom properties
+ * never register. Otherwise the generated theme cannot represent the source
  * typefaces in the block editor even though the frontend renders them through
  * the copied author CSS.
  */
@@ -107,15 +109,20 @@ $assert(
 
 // ---------------------------------------------------------------------------
 // 4. A conditional (media) font-family override keeps the property source-owned
-//    while the unconditional body family still projects.
+//    as a style while the used stacks still register as editor-facing families.
 // ---------------------------------------------------------------------------
 $conditional = $project( array( $cssAsset(
     ':root{--font-body:"Lora",serif}body{font-family:var(--font-body)}@media (max-width:600px){body{font-family:Georgia,serif}}'
 ) ) )['theme'];
 $assert(
-    ! isset( $conditional['styles']['typography']['fontFamily'] ) && ! isset( $conditional['settings']['typography']['fontFamilies'] ),
-    '4: a media-conditioned family override blocks projection of that property',
+    ! isset( $conditional['styles']['typography']['fontFamily'] ),
+    '4: a media-conditioned family override blocks style projection of that property',
     json_encode( $conditional['styles']['typography'] ?? null )
+);
+$assert(
+    array( 'Lora', 'Georgia' ) === array_column( $conditional['settings']['typography']['fontFamilies'] ?? array(), 'name' ),
+    '4b: used stacks still register as editor-facing families',
+    json_encode( $conditional['settings']['typography']['fontFamilies'] ?? null )
 );
 
 // ---------------------------------------------------------------------------
@@ -191,13 +198,85 @@ $assert(
 );
 
 // ---------------------------------------------------------------------------
-// 8. Typography projection is absent for sources without global type rules.
+// 8. Class-scoped typography never projects as Global Styles. The used stack
+//    still registers as an editor-facing family so it is selectable.
 // ---------------------------------------------------------------------------
 $bare = $project( array( $cssAsset( '.card{font-family:Georgia,serif}' ) ) )['theme'];
 $assert(
-    ! isset( $bare['settings']['typography'] ) && ! isset( $bare['styles']['typography'] ),
-    '8: class-scoped typography never projects into theme.json',
-    json_encode( $bare['settings'] ?? null )
+    ! isset( $bare['styles']['typography'] ),
+    '8: class-scoped typography never projects as styles.typography',
+    json_encode( $bare['styles'] ?? null )
+);
+$assert(
+    array( 'Georgia' ) === array_column( $bare['settings']['typography']['fontFamilies'] ?? array(), 'name' )
+        && 'Georgia,serif' === ( $bare['settings']['typography']['fontFamilies'][0]['fontFamily'] ?? null ),
+    '8b: a class-scoped used stack still registers as a fontFamilies preset',
+    json_encode( $bare['settings']['typography']['fontFamilies'] ?? null )
+);
+
+// ---------------------------------------------------------------------------
+// 9. Three source families with one duplicate resolved stack produce two
+//    deduplicated entries. An unused custom property does not register. Slugs
+//    are deterministic. Global Styles stay limited to the body capture.
+// ---------------------------------------------------------------------------
+$multiCss = ':root{--font-body:"Inter", ui-sans-serif, system-ui, sans-serif;--font-display:"Inter Tight", ui-sans-serif, system-ui, sans-serif;--font-heading:"Inter Tight", ui-sans-serif, system-ui, sans-serif;--font-unused:"Never Used", serif}'
+    . 'body{font-family:var(--font-body)}'
+    . '.font-display{font-family:var(--font-display)}'
+    . '.font-heading{font-family:var(--font-heading)}';
+$multiProjection = $project( array( $cssAsset( $multiCss ) ) );
+$multi = $multiProjection['theme'];
+$multiFamilies = $multi['settings']['typography']['fontFamilies'] ?? array();
+$assert(
+    2 === count( $multiFamilies ) && array( 'Inter Tight', 'Inter' ) === array_column( $multiFamilies, 'name' ),
+    '9: three used families with one duplicate stack register two presets',
+    json_encode( $multiFamilies )
+);
+$assert(
+    '"Inter Tight", ui-sans-serif, system-ui, sans-serif' === ( $multiFamilies[0]['fontFamily'] ?? null )
+        && '"Inter", ui-sans-serif, system-ui, sans-serif' === ( $multiFamilies[1]['fontFamily'] ?? null ),
+    '9b: registered stacks are the resolved source stacks, not var() tokens',
+    json_encode( $multiFamilies )
+);
+$assert(
+    ! in_array( 'Never Used', array_column( $multiFamilies, 'name' ), true ),
+    '9c: an unused custom property does not register as a font family'
+);
+$bodyFamily = (string) ( $multi['styles']['typography']['fontFamily'] ?? '' );
+$assert(
+    'var:preset|font-family|' . ( $multiProjection['presets']['font-family']['"Inter", ui-sans-serif, system-ui, sans-serif'] ?? '' ) === $bodyFamily,
+    '9d: the body style still references the Inter family preset',
+    $bodyFamily
+);
+$assert(
+    ! isset( $multi['styles']['elements'] ),
+    '9e: class-scoped families do not project as element styles',
+    json_encode( $multi['styles'] ?? null )
+);
+$repeat = $project( array( $cssAsset( $multiCss ) ) );
+$assert(
+    array_column( $multiFamilies, 'slug' ) === array_column( $repeat['theme']['settings']['typography']['fontFamilies'] ?? array(), 'slug' )
+        && json_encode( $multiFamilies ) === json_encode( $repeat['theme']['settings']['typography']['fontFamilies'] ?? array() ),
+    '9f: registered family slugs are deterministic across repeated projection',
+    json_encode( array_column( $repeat['theme']['settings']['typography']['fontFamilies'] ?? array(), 'slug' ) )
+);
+
+// ---------------------------------------------------------------------------
+// 10. A third distinct used stack (mono) registers beside body and display.
+// ---------------------------------------------------------------------------
+$withMono = $project( array( $cssAsset(
+    $multiCss . '.font-mono{font-family:var(--font-mono)}:root{--font-mono:"JetBrains Mono", ui-monospace, SFMono-Regular, monospace}'
+) ) )['theme'];
+$withMonoFamilies = $withMono['settings']['typography']['fontFamilies'] ?? array();
+$assert(
+    3 === count( $withMonoFamilies ) && array( 'Inter Tight', 'Inter', 'JetBrains Mono' ) === array_column( $withMonoFamilies, 'name' ),
+    '10: a third distinct used stack registers beside the deduplicated pair',
+    json_encode( $withMonoFamilies )
+);
+$assert(
+    ! isset( $withMono['styles']['elements'] )
+        && str_starts_with( (string) ( $withMono['styles']['typography']['fontFamily'] ?? '' ), 'var:preset|font-family|' ),
+    '10b: registering the extra family does not add competing element styles',
+    json_encode( $withMono['styles'] ?? null )
 );
 
 if ( $failures > 0 ) {
