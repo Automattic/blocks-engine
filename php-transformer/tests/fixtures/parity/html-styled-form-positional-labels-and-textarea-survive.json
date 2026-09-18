@@ -28,7 +28,11 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.0.innerBlocks.0",
+            "path": "blocks.0.innerBlocks.0",
+            "name": "custom/layout-shell"
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0",
             "name": "custom/authored-input",
             "attrs": {
                 "type": "text",
@@ -37,7 +41,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0",
             "name": "custom/authored-input",
             "attrs": {
                 "type": "tel",
@@ -46,7 +50,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.2.innerBlocks.0",
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
             "name": "custom/authored-select",
             "attrs": {
                 "label": "Project Type",
@@ -54,7 +58,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.3",
+            "path": "blocks.0.innerBlocks.2",
             "name": "custom/authored-textarea",
             "attrs": {
                 "label": "Project Details *",
@@ -64,7 +68,7 @@
             }
         },
         {
-            "path": "blocks.0.innerBlocks.4",
+            "path": "blocks.0.innerBlocks.3",
             "name": "core/buttons"
         }
     ],
