@@ -1088,6 +1088,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return new NavigationToggleSuppressionContext(
             $this->session,
             fn (DOMElement $element): bool => $this->sourceElementStartsHidden($element),
+            fn (DOMElement $element): bool => $this->sourceElementOrAncestorStartsHidden($element),
             $this->patternRecognizers,
             $this->patternProbeContext
         );
@@ -2166,6 +2167,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkTextColorRules($serializedBlocks));
         $afterAuthorCss->addAll(CascadeLayer::SOURCE_STYLE_PROJECTION, $this->session->sourceTargetProjectionState()->rules());
         $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkIconRules($serializedBlocks));
+        $afterAuthorCss->absorb($this->navigationStyleProjector->navigationLinkLeadingIconRules($serializedBlocks));
         $afterAuthorCss->absorb($engineSupportCss->socialLinkCss($serializedBlocks));
         $afterAuthorCss->absorb($this->generatedSupportStyles()->conditionalAfterAuthorCss($serializedBlocks));
         $nativeSearchTriggerCss = $this->generatedSupportStyles()->beforeAuthorCss();

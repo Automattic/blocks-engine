@@ -95,11 +95,15 @@ final class NavigationPatternContext
     }
 
     /**
-     * Marker for an icon-only navigation anchor whose artwork core cannot save.
+     * Marker for a navigation anchor whose artwork core cannot save.
      *
-     * core/navigation-link stores only a label and URL, so a source anchor whose
-     * visible content is an inline SVG loses that artwork. The owning transformer
-     * registers the recovered presentation and returns an opaque marker class.
+     * core/navigation-link stores only a label and URL, so a source anchor's
+     * inline SVG has nowhere to land. An icon-only anchor keeps its accessible
+     * name as the saved label and has that icon replace it visually; an
+     * anchor that ALSO shows a word keeps that word and gets the icon
+     * projected beside it as a leading mark, so neither is lost. Either way
+     * the owning transformer registers the recovered presentation and this
+     * returns an opaque marker class.
      */
     public function linkIconMarker(DOMElement $element): string
     {
@@ -107,12 +111,6 @@ final class NavigationPatternContext
             || ! $this->styleResolver instanceof StyleResolver
             || ! $this->session instanceof HtmlTransformerSession
         ) {
-            return '';
-        }
-
-        // Only an anchor with no visible text is described by its icon. An
-        // anchor that also shows a word keeps that word as its presentation.
-        if ( '' !== trim($element->textContent ?? '') ) {
             return '';
         }
 
@@ -137,14 +135,61 @@ final class NavigationPatternContext
             return '';
         }
 
-        $declarations = 'display:inline-block;' . $box
-            . ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
-            . ';background-repeat:no-repeat;background-position:center;background-size:contain'
-            . ';font-size:0;line-height:0;color:transparent';
-        $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations), 0, 12);
-        $this->session->generatedSupportStylesheetState()->registerNavigationLinkIcon($marker, $declarations);
+        $background = ';background-image:url("data:image/svg+xml,' . rawurlencode($markup) . '")'
+            . ';background-repeat:no-repeat;background-position:center;background-size:contain';
+
+        if ( '' === trim($element->textContent ?? '') ) {
+            $declarations = 'display:inline-block;' . $box . $background . ';font-size:0;line-height:0;color:transparent';
+            $marker = 'blocks-engine-navigation-link-icon-' . substr(hash('sha256', $declarations), 0, 12);
+            $this->session->generatedSupportStylesheetState()->registerNavigationLinkIcon($marker, $declarations);
+
+            return $marker;
+        }
+
+        $gap = $this->navigationLinkLeadingIconGap($svg);
+        $declarations = 'content:"";display:inline-block;vertical-align:middle;margin-inline-end:' . $gap . ';' . $box . $background;
+        $marker = 'blocks-engine-navigation-link-leading-icon-' . substr(hash('sha256', $declarations), 0, 12);
+        $this->session->generatedSupportStylesheetState()->registerNavigationLinkLeadingIcon($marker, $declarations);
 
         return $marker;
+    }
+
+    /**
+     * The gap the source placed between a leading icon and its label, read
+     * from the nearest ancestor (up to the anchor) that declares one —
+     * commonly a flex wrapper's `gap`/`column-gap`. Falls back to a small
+     * default so a source that expressed the gap only as component internals
+     * (not CSS) still gets a readable, non-zero separation.
+     */
+    private function navigationLinkLeadingIconGap(DOMElement $svg): string
+    {
+        if ( ! $this->styleResolver instanceof StyleResolver ) {
+            return '0.375rem';
+        }
+
+        $node  = $svg->parentNode;
+        $depth = 0;
+        while ( $node instanceof DOMElement && $depth < 4 ) {
+            ++$depth;
+            $declarations = $this->styleResolver->resolvedPresentationDeclarations($node);
+            foreach ( array( 'column-gap', 'gap' ) as $property ) {
+                $value = trim((string) ($declarations[$property] ?? ''));
+                if ( '' === $value || preg_match('/[{}<>;]/', $value) ) {
+                    continue;
+                }
+                $parts = preg_split('/\s+/', $value) ?: array( $value );
+                $columnGap = trim((string) end($parts));
+                if ( '' !== $columnGap && 1 === preg_match('/^\d/', $columnGap) ) {
+                    return $columnGap;
+                }
+            }
+            if ( 'a' === strtolower($node->tagName) ) {
+                break;
+            }
+            $node = $node->parentNode;
+        }
+
+        return '0.375rem';
     }
 
     /**

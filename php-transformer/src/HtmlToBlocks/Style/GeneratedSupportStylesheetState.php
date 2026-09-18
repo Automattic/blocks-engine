@@ -40,6 +40,9 @@ final class GeneratedSupportStylesheetState
     private array $navigationLinkIcons = array();
 
     /** @var array<string, string> */
+    private array $navigationLinkLeadingIcons = array();
+
+    /** @var array<string, string> */
     private array $navigationSubmenuBackgrounds = array();
 
     /** @var array<string, string> */
@@ -130,6 +133,21 @@ final class GeneratedSupportStylesheetState
     public function navigationLinkIcon(string $className): string
     {
         return $this->navigationLinkIcons[$className] ?? '';
+    }
+
+    /**
+     * A recovered icon for a navigation anchor that ALSO shows a text label —
+     * projected as a leading `::before` mark beside the kept label, unlike
+     * {@see self::registerNavigationLinkIcon()}'s icon-only replacement.
+     */
+    public function registerNavigationLinkLeadingIcon(string $className, string $declarations): void
+    {
+        $this->navigationLinkLeadingIcons[$className] = $declarations;
+    }
+
+    public function navigationLinkLeadingIcon(string $className): string
+    {
+        return $this->navigationLinkLeadingIcons[$className] ?? '';
     }
 
     public function registerNavigationSubmenuBackground(string $className, string $color): void

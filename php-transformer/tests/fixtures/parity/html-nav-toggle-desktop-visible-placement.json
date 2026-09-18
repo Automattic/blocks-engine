@@ -1,0 +1,122 @@
+{
+    "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+    "name": "html-nav-toggle-desktop-visible-placement",
+    "description": "A separate desktop nav (base display:none, flex at the desktop reference viewport via a breakpoint class) sits between a brand anchor and an unrelated button cluster, with a separate mobile-only hamburger toggle further along in the header. The nav must convert in its OWN document position — between the brand and the button cluster, matching where it renders at the desktop viewport — not at the toggle's position past the unrelated buttons. Each item's anchor wraps an icon-plus-label pill in a single inner element (the shape core/navigation collapses); the pill's shared box/gap classes and the icon must both survive onto the generated navigation-link, or the item silently loses its size, its gap, and its icon while keeping only bare text.",
+    "source_reference": {
+        "repo": "php-transformer",
+        "path": "tests/fixtures/parity/html-nav-toggle-desktop-visible-placement.json",
+        "notes": "Regression fixture for fix/nav-placement-and-active-state, following PR #1990. Reduced from a real capture (LogoMint) where a `hidden md:flex` <nav> with icon+label pill items was projected onto a `md:hidden` hamburger toggle positioned AFTER an intervening \"Become a Seller\" button cluster, landing the nav at the wrong end of the header at 103x24 instead of its authored 187x36 centered position, with items shrunk to 45x24 (bare text, no icon, no gap)."
+    },
+    "legacy_comparison": {
+        "skip": true,
+        "reason": "This upstream primitive fixture has no downstream legacy comparison."
+    },
+    "operation": "html_transformer.transform",
+    "input": {
+        "content": "<style>.hidden{display:none}.flex{display:flex}.items-center{align-items:center}.gap-0\\.5{gap:0.125rem}.gap-1\\.5{gap:0.375rem}.px-3\\.5{padding-left:0.875rem;padding-right:0.875rem}.py-2{padding-top:0.5rem;padding-bottom:0.5rem}.rounded-lg{border-radius:0.5rem}.text-sm{font-size:0.875rem}.font-medium{font-weight:500}.w-9{width:2.25rem}.h-9{height:2.25rem}.justify-center{justify-content:center}@media (min-width:768px){.md\\:flex{display:flex}.md\\:hidden{display:none}}</style><header class=\"site-header\"><a href=\"/Home\">Brand</a><nav class=\"hidden md:flex items-center gap-0.5\"><a href=\"/Home\"><div class=\"flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\"><path d=\"M3 3h18v18H3z\"></path></svg>Home</div></a><a href=\"/Browse\"><div class=\"flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\"><circle cx=\"11\" cy=\"11\" r=\"8\"></circle></svg>Browse</div></a></nav><div class=\"button-cluster\"><button class=\"cta\">Become a Seller</button></div><button class=\"md:hidden w-9 h-9 flex items-center justify-center rounded-lg\"><svg><line x1=\"4\" x2=\"20\" y1=\"12\" y2=\"12\"></line><line x1=\"4\" x2=\"20\" y1=\"6\" y2=\"6\"></line><line x1=\"4\" x2=\"20\" y1=\"18\" y2=\"18\"></line></svg></button></header>"
+    },
+    "expected_blocks": [
+        {
+            "path": "blocks.0",
+            "name": "core/group",
+            "attrs": {
+                "className": "site-header"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1",
+            "name": "core/navigation",
+            "attrs": {
+                "overlayMenu": "mobile"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "name": "core/navigation-link",
+            "attrs": {
+                "label": "Home",
+                "url": "/Home",
+                "kind": "custom"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.1",
+            "name": "core/navigation-link",
+            "attrs": {
+                "label": "Browse",
+                "url": "/Browse",
+                "kind": "custom"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.2",
+            "name": "core/group",
+            "attrs": {
+                "className": "button-cluster"
+            }
+        }
+    ],
+    "expected_fallbacks": [],
+    "expect": [
+        {
+            "path": "status",
+            "assert": "equals",
+            "value": "success"
+        },
+        {
+            "path": "blocks.0.innerBlocks",
+            "assert": "count",
+            "count": 3
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "contains",
+            "value": "hidden md:flex items-center gap-0.5"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "md:hidden"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.className",
+            "assert": "not_contains",
+            "value": "w-9"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.attrs.style.spacing.blockGap",
+            "assert": "equals",
+            "value": "0.125rem"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.className",
+            "assert": "contains",
+            "value": "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.1.attrs.className",
+            "assert": "contains",
+            "value": "flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0.attrs.className",
+            "assert": "contains",
+            "value": "blocks-engine-navigation-link-leading-icon-"
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.1.attrs.className",
+            "assert": "contains",
+            "value": "blocks-engine-navigation-link-leading-icon-"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "<!-- wp:button {\"className\":\"md:hidden"
+        },
+        {
+            "path": "fallbacks",
+            "assert": "count",
+            "count": 0
+        }
+    ]
+}

@@ -978,6 +978,40 @@ $navTextLinks = ( new HtmlTransformer() )->transform(
 )->toArray();
 $assert(! str_contains((string) ($navTextLinks['serialized_blocks'] ?? ''), 'blocks-engine-navigation-link-icon-'), 'text navigation links do not fabricate icon markers');
 
+// A nav item whose anchor shows BOTH an icon and a text label (a builder's
+// "icon left of label" pill) must keep the label AND get the icon back as a
+// leading mark — neither the icon-only replacement (which would hide the
+// word) nor silent icon loss (which was the prior behavior) is correct.
+$navIconLabelResult = ( new HtmlTransformer() )->transform(
+    '<style>.pill{display:flex;align-items:center;gap:0.375rem}</style>'
+    . '<nav aria-label="Main"><a href="/Home"><div class="pill"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M3 3h18v18H3z"></path></svg>Home</div></a>'
+    . '<a href="/Browse"><div class="pill"><svg viewBox="0 0 24 24" width="14" height="14"><circle cx="11" cy="11" r="8"></circle></svg>Browse</div></a></nav>'
+)->toArray();
+$navIconLabelMarkup = (string) ($navIconLabelResult['serialized_blocks'] ?? '');
+$navIconLabelCss = implode("\n", array_column($navIconLabelResult['assets'] ?? array(), 'content'));
+$assert(
+    str_contains($navIconLabelMarkup, '"label":"Home"') && str_contains($navIconLabelMarkup, '"label":"Browse"'),
+    'an icon-plus-label navigation link keeps its plain text label',
+    $navIconLabelMarkup
+);
+$assert(
+    ! preg_match('/"label":"[^"]*<svg/', $navIconLabelMarkup),
+    'an icon-plus-label navigation link does not leak raw SVG markup into the saved label',
+    $navIconLabelMarkup
+);
+$assert(
+    2 === preg_match_all('/blocks-engine-navigation-link-leading-icon-[a-f0-9]{12}/', $navIconLabelMarkup),
+    'each icon-plus-label navigation link carries its own opaque leading-icon marker',
+    $navIconLabelMarkup
+);
+$assert(
+    str_contains($navIconLabelCss, '__content::before{content:"";display:inline-block')
+        && str_contains($navIconLabelCss, 'background-image:url("data:image/svg+xml,')
+        && str_contains($navIconLabelCss, 'margin-inline-end:0.375rem'),
+    'the recovered leading icon projects as a `::before` mark using the source icon-to-label gap',
+    $navIconLabelCss
+);
+
 // A row of button-styled links whose container merely carries a `links` token is
 // a call-to-action button group, not site navigation. It must convert to
 // core/buttons (preserving pill geometry) instead of being flattened into a
