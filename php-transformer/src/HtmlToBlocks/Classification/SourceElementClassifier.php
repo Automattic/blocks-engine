@@ -568,6 +568,34 @@ final class SourceElementClassifier
     }
 
     /**
+     * Whether a control's subtree is a RichText-legal button label.
+     *
+     * core/button stores its label as phrasing RichText. A single flow wrapper
+     * around that label — a heading used for CTA type, a layout div around an
+     * icon — is still a label. Sibling flow containers that each hold visible
+     * text, or more than one text-bearing flow element (heading, paragraph),
+     * are not: flattening them concatenates distinct blocks into one uneditable
+     * text run.
+     */
+    public function isRichTextButtonLabel(DOMElement $element): bool
+    {
+        if ( $this->hasSiblingFlowTextContainers($element) ) {
+            return false;
+        }
+
+        $textBearing = $this->visibleTextBearingFlowElements($element);
+        if ( count($textBearing) > 1 ) {
+            return false;
+        }
+        if ( 1 === count($textBearing) ) {
+            return $this->normalizedVisibleText($this->visibleTextContent($textBearing[0]))
+                === $this->normalizedVisibleText($this->visibleTextContent($element));
+        }
+
+        return true;
+    }
+
+    /**
      * Whether the subtree carries flow content that inline RichText cannot hold.
      *
      * core/button stores its label as RichText, so a block-level descendant is
@@ -577,13 +605,89 @@ final class SourceElementClassifier
     private function hasBlockLevelDescendant(DOMElement $element): bool
     {
         foreach ( $element->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement
-                && 1 === preg_match('/^(?:' . self::BLOCK_LEVEL_FLOW_TAGS . ')$/', strtolower($descendant->tagName)) ) {
+            if ( $descendant instanceof DOMElement && $this->isBlockLevelFlowElement($descendant) ) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    private function isBlockLevelFlowElement(DOMElement $element): bool
+    {
+        return 1 === preg_match('/^(?:' . self::BLOCK_LEVEL_FLOW_TAGS . ')$/', strtolower($element->tagName));
+    }
+
+    private function isTextBearingFlowElement(DOMElement $element): bool
+    {
+        return 1 === preg_match('/^(?:blockquote|dd|dt|figcaption|h[1-6]|li|p|pre)$/', strtolower($element->tagName));
+    }
+
+    /**
+     * @return array<int, DOMElement>
+     */
+    private function visibleTextBearingFlowElements(DOMElement $element): array
+    {
+        $found = array();
+        foreach ( $element->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement
+                && ! $this->isVisuallyHidden($descendant)
+                && $this->isTextBearingFlowElement($descendant)
+                && '' !== $this->visibleTextContent($descendant) ) {
+                $found[] = $descendant;
+            }
+        }
+
+        return $found;
+    }
+
+    private function hasSiblingFlowTextContainers(DOMElement $element): bool
+    {
+        $flowWithText = 0;
+        foreach ( $this->significantButtonLabelChildren($element) as $child ) {
+            if ( ! $child instanceof DOMElement || ! $this->isBlockLevelFlowElement($child) ) {
+                continue;
+            }
+            if ( '' !== $this->visibleTextContent($child) ) {
+                ++$flowWithText;
+            }
+            if ( $this->hasSiblingFlowTextContainers($child) ) {
+                return true;
+            }
+        }
+
+        return $flowWithText > 1;
+    }
+
+    /**
+     * @return array<int, DOMElement|DOMText>
+     */
+    private function significantButtonLabelChildren(DOMElement $element): array
+    {
+        $children = array();
+        foreach ( $element->childNodes as $child ) {
+            if ( $child instanceof DOMText ) {
+                if ( '' !== trim($child->textContent ?? '') ) {
+                    $children[] = $child;
+                }
+                continue;
+            }
+            if ( ! $child instanceof DOMElement ) {
+                continue;
+            }
+            $tagName = strtolower($child->tagName);
+            if ( in_array($tagName, array( 'template', 'script', 'style', 'noscript' ), true) || $this->isVisuallyHidden($child) ) {
+                continue;
+            }
+            $children[] = $child;
+        }
+
+        return $children;
+    }
+
+    private function normalizedVisibleText(string $text): string
+    {
+        return strtolower(trim(preg_replace('/\s+/', ' ', $text) ?? ''));
     }
 
     private function visibleTextContent(DOMElement $element): string

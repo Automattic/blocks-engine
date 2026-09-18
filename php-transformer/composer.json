@@ -287,6 +287,7 @@
             "php tests/unit/commerce-structure-recognizer.php",
             "php tests/unit/button-link-dispatcher.php",
              "php tests/unit/button-element-converter.php",
+             "php tests/unit/block-content-button-not-richtext.php",
              "php tests/unit/image-carrier-hidden-label.php",
              "php tests/unit/image-object-fit-css-variable.php",
              "php tests/unit/button-definite-ancestor-width.php",

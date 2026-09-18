@@ -32,6 +32,11 @@ final class ButtonElementContext
         return $this->sourceElementClassifier->isImageCarrierButton($element);
     }
 
+    public function isRichTextButtonLabel(DOMElement $element): bool
+    {
+        return $this->sourceElementClassifier->isRichTextButtonLabel($element);
+    }
+
     /** @param array<int, array<string, mixed>> $fallbacks @return array<int, array<string, mixed>> */
     public function convertChildren(DOMElement $element, array &$fallbacks, bool $captureUnsupported): array
     {

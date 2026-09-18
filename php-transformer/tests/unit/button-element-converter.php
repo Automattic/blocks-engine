@@ -19,12 +19,13 @@ $assert = static function (bool $condition, string $label) use (&$assertions, &$
 };
 
 $document = new DOMDocument();
-$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><button><img src="x"></button><button><span class="v6-visually-hidden" aria-hidden="true">View fullsize</span><img src="logo.png" alt="Hero logo"></button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
+$document->loadHTML('<?xml encoding="utf-8" ?><body><button>Go</button><button><img src="x"></button><button><span class="v6-visually-hidden" aria-hidden="true">View fullsize</span><img src="logo.png" alt="Hero logo"></button><button><h3>Orangutan TT\'s</h3><p>70% Indica / 30% Sativa</p></button><div></div></body>', LIBXML_NOERROR | LIBXML_NOWARNING);
 $button = $document->getElementsByTagName('button')->item(0);
 $imageButton = $document->getElementsByTagName('button')->item(1);
 $hiddenLabelImageButton = $document->getElementsByTagName('button')->item(2);
+$blockContentButton = $document->getElementsByTagName('button')->item(3);
 $div = $document->getElementsByTagName('div')->item(0);
-if ( ! $button instanceof DOMElement || ! $imageButton instanceof DOMElement || ! $hiddenLabelImageButton instanceof DOMElement || ! $div instanceof DOMElement ) {
+if ( ! $button instanceof DOMElement || ! $imageButton instanceof DOMElement || ! $hiddenLabelImageButton instanceof DOMElement || ! $blockContentButton instanceof DOMElement || ! $div instanceof DOMElement ) {
     throw new RuntimeException('Fixture elements not parsed');
 }
 
@@ -40,7 +41,16 @@ $converter = new ButtonElementConverter(new ButtonElementContext(
     static function (DOMElement $element, array &$fallbacks, bool $capture) use (&$mode, &$captureUnsupported): array {
         $captureUnsupported = $capture;
         $fallbacks[] = array( 'image' => true );
-        return 'image' === $mode ? array( array( 'blockName' => 'core/image' ) ) : array();
+        if ( 'image' === $mode ) {
+            return array( array( 'blockName' => 'core/image' ) );
+        }
+        if ( 'block-content' === $mode ) {
+            return array(
+                array( 'blockName' => 'core/heading' ),
+                array( 'blockName' => 'core/paragraph' ),
+            );
+        }
+        return array();
     },
     new ElementPresentationResolverFixture(static fn (DOMElement $element): array => array( 'className' => 'carrier' )),
     new SourceBlockCreatorFixture(static fn (string $name, array $attributes, array $innerBlocks, DOMElement $element): array => array(
@@ -78,6 +88,12 @@ $assert(0 === $genericCalls, 'hidden-label-image-carrier-short-circuits-generic-
 $mode = 'empty-image';
 $emptyImage = $converter->convert($imageButton, 'button', $fallbacks);
 $assert(! $emptyImage->handled && 0 === $genericCalls, 'empty-image-carrier-does-not-become-a-text-button');
+
+$mode = 'block-content';
+$blockContent = $converter->convert($blockContentButton, 'button', $fallbacks);
+$assert('core/group' === ($blockContent->block['blockName'] ?? ''), 'block-content-button-becomes-group');
+$assert('core/heading' === ($blockContent->block['innerBlocks'][0]['blockName'] ?? '') && 'core/paragraph' === ($blockContent->block['innerBlocks'][1]['blockName'] ?? ''), 'block-content-button-keeps-heading-and-paragraph');
+$assert(0 === $genericCalls, 'block-content-button-short-circuits-generic-button');
 
 $mode = 'generic';
 $generic = $converter->convert($button, 'button', $fallbacks);

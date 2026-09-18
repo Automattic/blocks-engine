@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMDocument;
 use DOMElement;
@@ -13,11 +14,13 @@ final class ButtonsPattern
 
     private readonly ButtonStyleResolver $styleResolver;
     private readonly ButtonSignalClassifier $signalClassifier;
+    private readonly SourceElementClassifier $sourceElements;
 
     public function __construct()
     {
         $this->styleResolver = new ButtonStyleResolver();
         $this->signalClassifier = new ButtonSignalClassifier();
+        $this->sourceElements = new SourceElementClassifier();
     }
 
     public function matchAnchor(DOMElement $anchor, PatternContext $context, ButtonPatternContext $buttons): ?PatternRecognitionResult
@@ -48,6 +51,10 @@ final class ButtonsPattern
         }
 
         if ( $this->hasUnsafeButtonContent($anchor) || $this->hasRuntimeBehaviorSignal($anchor) ) {
+            return null;
+        }
+
+        if ( ! $this->sourceElements->isRichTextButtonLabel($anchor) ) {
             return null;
         }
 
@@ -151,7 +158,7 @@ final class ButtonsPattern
 
         $buttonBlocks = array();
         foreach ( $element->childNodes as $child ) {
-            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) ) {
+            if ( $child instanceof DOMElement && 'a' === strtolower($child->tagName) && '' !== trim($child->textContent ?? '') && ! $this->isPositionedFragmentNavigation($child, $buttons->resolvedStyle($child)) && $this->hasButtonSignal($child, $buttons) && $this->sourceElements->isRichTextButtonLabel($child) ) {
                 $buttonBlocks[] = $this->buttonBlockFromAnchor($child, $context, $buttons);
             }
         }
