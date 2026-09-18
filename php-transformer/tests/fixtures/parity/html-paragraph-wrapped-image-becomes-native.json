@@ -1,0 +1,37 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-paragraph-wrapped-image-becomes-native",
+  "description": "An image that is the sole content of a paragraph — the standard markdown `![alt](src)` render, including when a generator wraps that paragraph in a captioned figure — converts to core/image through the existing image primitive. Intrinsic width/height, alt, src, and figcaption are retained. Insignificant whitespace around the image is ignored.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-paragraph-wrapped-image-becomes-native.json",
+    "notes": "Regression for #2017. Captured from a public Astro blog: website/hyundai-i30n/index.html uses <figure><p><img></p><figcaption>, website/connecting-homecom-bosch-home-assistant/index.html uses a bare <p><img></p>. Those 10 islands were the only core_html_block quality-gate failures on the source."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "New paragraph-wrapped image conversion has no legacy equivalent."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<p><img src=\"/media/images.webp\" alt=\"All AC units added to Home Assistant\" width=\"2082\" height=\"1200\" loading=\"lazy\" decoding=\"async\"></p><p>  <img src=\"/media/images-9.webp\" alt=\"Original AC unit replaced with unit from Smartlight\" width=\"1600\" height=\"1200\" loading=\"lazy\" decoding=\"async\">  </p><figure><p><img src=\"/media/images-4.webp\" alt=\"Hyundai i30n Performance\" width=\"1000\" height=\"960\" loading=\"lazy\" decoding=\"async\"></p><figcaption>Under a big old rock in the Catalan mountains</figcaption></figure>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/image", "attrs": { "url": "/media/images.webp", "alt": "All AC units added to Home Assistant", "width": "2082px", "height": "1200px" } },
+    { "path": "blocks.1", "name": "core/image", "attrs": { "url": "/media/images-9.webp", "alt": "Original AC unit replaced with unit from Smartlight", "width": "1600px", "height": "1200px" } },
+    { "path": "blocks.2", "name": "core/image", "attrs": { "url": "/media/images-4.webp", "alt": "Hyundai i30n Performance", "width": "1000px", "height": "960px", "caption": "Under a big old rock in the Catalan mountains" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 3 },
+    { "path": "fallbacks", "assert": "count", "count": 0 },
+    { "path": "coverage.0.fallback_count", "assert": "equals", "value": 0 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:image" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"/media/images.webp\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "alt=\"All AC units added to Home Assistant\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "style=\"width:2082px;height:1200px\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "src=\"/media/images-9.webp\"" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<figcaption class=\"wp-element-caption\">Under a big old rock in the Catalan mountains</figcaption>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:html" }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-paragraph-mixed-image-text-stays-html",
+  "description": "Negative guard for paragraph-wrapped image conversion: a paragraph that carries an image plus real text is genuinely mixed content and stays core/html. It must not be silently restructured into a core/image that would drop the surrounding words.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-paragraph-mixed-image-text-stays-html.json",
+    "notes": "Boundary for #2017. Convert only when the paragraph's content is a single image ignoring insignificant whitespace."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative guard for new paragraph-wrapped image conversion."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<p>See <img src=\"/media/x.webp\" alt=\"x\" width=\"100\" height=\"80\"> the photo</p><p><img src=\"/media/y.webp\" alt=\"y\" width=\"100\" height=\"80\"> caption text</p>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" },
+    { "path": "blocks.1", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "blocks", "assert": "count", "count": 2 },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p>See <img src=\"/media/x.webp\" alt=\"x\" width=\"100\" height=\"80\"> the photo</p>" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<p><img src=\"/media/y.webp\" alt=\"y\" width=\"100\" height=\"80\"> caption text</p>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp:image" }
+  ]
+}
