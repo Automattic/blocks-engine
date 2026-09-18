@@ -61,7 +61,12 @@
         },
         {
             "path": "blocks.0.innerBlocks.3",
-            "name": "core/buttons"
+            "name": "custom/authored-button",
+            "attrs": {
+                "type": "submit",
+                "className": "field",
+                "text": "Submit"
+            }
         }
     ],
     "expected_fallbacks": [

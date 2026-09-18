@@ -1,7 +1,7 @@
 {
   "schema": "blocks-engine/php-transformer/parity-fixture/v1",
   "name": "html-form-submit-button-class-background-survives-cascade",
-  "description": "A form's native submit button whose fill comes from an author CSS class (not an inline style attribute) keeps that background as native core/button color support -- baked inline the same way text color already is -- instead of being dropped and left to lose the cascade to WordPress's unlayered wp-element-button default.",
+  "description": "A form's native submit button whose fill comes from an author CSS class (not an inline style attribute) stays a native `<button type=\"submit\">` that keeps those classes, so the author's fill is not rewritten onto a Gutenberg `core/button` anchor that would lose submit semantics to wp-element-button.",
   "source_reference": {
     "repo": "php-transformer",
     "path": "tests/fixtures/parity/html-form-submit-button-class-background-survives-cascade.json",
@@ -17,15 +17,13 @@
     "options": { "static_css": ".btn{padding:12px 24px;border-radius:6px}.btn-fill{background-color:#13314f;color:#ffffff}" }
   },
   "expected_blocks": [
-    { "path": "blocks.0.innerBlocks.0", "name": "core/buttons" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0", "name": "core/button", "attrs": { "text": "Send Message" } }
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/authored-button", "attrs": { "type": "submit", "className": "btn btn-fill", "text": "Send Message" } }
   ],
   "expected_fallbacks": [],
   "expect": [
     { "path": "status", "assert": "equals", "value": "success" },
-    { "path": "blocks.0.innerBlocks.0.innerBlocks.0.attrs.style.color.background", "assert": "equals", "value": "#13314f" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "wp-block-button__link has-text-color has-background wp-element-button" },
-    { "path": "serialized_blocks", "assert": "contains_style_declarations", "value": "background-color:#13314f" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button type=\"submit\" class=\"btn btn-fill\">Send Message</button>" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "wp-element-button" },
     { "path": "fallbacks", "assert": "count", "count": 0 }
   ]
 }

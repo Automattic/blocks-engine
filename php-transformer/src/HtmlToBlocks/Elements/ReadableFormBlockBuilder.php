@@ -6,7 +6,6 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
-use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
@@ -24,7 +23,6 @@ final class ReadableFormBlockBuilder
         private readonly FormControlMetadataBuilder $metadataBuilder,
         private readonly ReadableFormControlBlockConverter $controlBlockConverter,
         private readonly FormRuntimeIslandRecorder $runtimeIslandRecorder,
-        private readonly Runtime $runtime,
         private readonly Closure $eventMetadata,
         private readonly Closure $isRuntimeDomTarget,
         private readonly Closure $presentationAttributes,
@@ -43,18 +41,10 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        $buttonBlocks = array();
         $authoredInputName = ($this->generatedBlockName)(AuthoredInputBlockGenerator::LOCAL_NAME);
         foreach ( FormControlClassifier::controlElements($form) as $control ) {
             if ( array() !== ($this->eventMetadata)($control) || ! FormControlClassifier::isReadableControl($control) ) {
                 return null;
-            }
-
-            if ( FormControlClassifier::isSubmitLikeControl($control) ) {
-                $buttonBlocks[] = $this->createBlock->createBlock('core/button', array_merge(($this->presentationAttributes)($control), array(
-                    'text' => $this->runtime->escapeHtml($this->metadataBuilder->submitText($control, 'Submit')),
-                )), array(), $control);
-                continue;
             }
 
             if ( ($this->isRuntimeDomTarget)($control) ) {
@@ -63,10 +53,6 @@ final class ReadableFormBlockBuilder
         }
 
         $contentBlocks = $this->groupedContentBlocks($form, $authoredInputName);
-        if ( array() !== $buttonBlocks ) {
-            $contentBlocks[] = $this->createBlock->createBlock('core/buttons', array(), $buttonBlocks, $form);
-        }
-
         if ( array() === $contentBlocks ) {
             return null;
         }
@@ -123,14 +109,16 @@ final class ReadableFormBlockBuilder
     /** @return array<string, mixed>|null */
     private function convertDataEntryControl(DOMElement $control, string $authoredInputName): ?array
     {
-        if ( FormControlClassifier::isSubmitLikeControl($control) ) {
-            return null;
-        }
+        // A submit control must stay a native submit control: Gutenberg's
+        // core/button saves as an anchor, which cannot submit this form.
+        // Force the authored companion so even an unstyled submit keeps
+        // its type instead of collapsing to a paragraph.
+        $forceNative = FormControlClassifier::isSubmitLikeControl($control);
 
         // The control's own label is a source fact the degraded form must
         // keep, so it rides on the control block as a real `<label>` rather
         // than being dropped with the rest of the replaced subtree.
-        $readableControlBlock = $this->controlBlockConverter->convert($control, $this->metadataBuilder->labelElement($control));
+        $readableControlBlock = $this->controlBlockConverter->convert($control, $this->metadataBuilder->labelElement($control), $forceNative);
         if ( null === $readableControlBlock ) {
             return null;
         }

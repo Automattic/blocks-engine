@@ -5,6 +5,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredButtonBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
@@ -14,7 +15,7 @@ use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Closure;
 use DOMElement;
 
-/** Converts native input and select controls into editable block representations. */
+/** Converts native input, select, textarea, and button controls into editable block representations. */
 final class AuthoredFormControlBlockConverter
 {
     /**
@@ -188,6 +189,48 @@ final class AuthoredFormControlBlockConverter
 
         return array(
             'blockName' => $registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /**
+     * Return a compact native button on the same terms as `input()`: a submit
+     * (or other form-action) control the source styles has no readable prose
+     * equivalent, because a Gutenberg button saves as an anchor and cannot
+     * submit its ancestor form.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function button(DOMElement $button, bool $forceNative = false): ?array
+    {
+        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($button) ) {
+            return null;
+        }
+
+        $generator = new AuthoredButtonBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredButtonBlockGenerator::class, $generator->definition($registry->namespace()));
+        $type = FormControlClassifier::controlType($button);
+        if ( ! in_array($type, array( 'button', 'reset', 'submit' ), true) ) {
+            $type = 'submit';
+        }
+        $attrs = array_filter(array(
+            'type' => $type,
+            'id' => SourceDom::attr($button, 'id'),
+            'name' => SourceDom::attr($button, 'name'),
+            'ariaLabel' => SourceDom::attr($button, 'aria-label'),
+            'className' => SourceDom::attr($button, 'class'),
+            'style' => SourceDom::attr($button, 'style'),
+            'text' => $this->metadataBuilder->submitText($button, 'Submit'),
+            'disabled' => $button->hasAttribute('disabled'),
+        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredButtonBlockGenerator::LOCAL_NAME),
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,
