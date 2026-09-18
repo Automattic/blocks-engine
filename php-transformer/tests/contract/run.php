@@ -5774,6 +5774,50 @@ $assert(! str_contains($triggerRowMarkup, '<!-- wp:button'), 'the source trigger
 $assert(array() === (new CanonicalSaveShapeValidator())->findings($triggerRowSelectableSet['blocks'] ?? array()), 'trigger-row selectable-set tabs retain a canonical save shape');
 $assert('pass' === ((new BlockValidityValidator())->validateBlocks($triggerRowSelectableSet['blocks'] ?? array())['status'] ?? ''), 'trigger-row selectable-set tabs remain Gutenberg-valid');
 
+$regionLayoutSelectableSet = $compiler->compile(array(
+    'site' => array('name' => 'Captured Region Layout Selectable Set Site', 'slug' => 'captured-region-layout-selectable-set-site'),
+    'entrypoint' => 'website/index.html',
+    'files' => array(
+        array('path' => 'website/index.html', 'content' => '<main><div class="step-row"><button type="button">Alpha</button><button type="button">Beta</button></div><div class="card-host" style="display:grid"><p>Select an item to view details</p></div></main>'),
+        array('path' => 'capture-receipt.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/capture-receipt/v1',
+            'routes' => array(array('url' => 'https://example.com/', 'path' => 'website/index.html')),
+        ), JSON_UNESCAPED_SLASHES)),
+        array('path' => 'interaction-states.json', 'content' => json_encode(array(
+            'schema' => 'data-liberation/captured-interactions/v1',
+            'pages' => array(array(
+                'sourceUrl' => 'https://example.com/',
+                'states' => array(
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div > button:nth-of-type(1)', 'tag' => 'button', 'label' => 'Alpha', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableAlpha, 'htmlBytes' => strlen($selectableAlpha), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 0),
+                    ),
+                    array(
+                        'status' => 'captured',
+                        'kind' => 'selectable-set',
+                        'trigger' => array('selector' => 'body > main > div > button:nth-of-type(2)', 'tag' => 'button', 'label' => 'Beta', 'ariaHaspopup' => '', 'dataBindings' => array()),
+                        'dialog' => array('selector' => 'body > main > div:nth-of-type(2)', 'tag' => 'div', 'html' => $selectableBeta, 'htmlBytes' => strlen($selectableBeta), 'htmlTruncated' => false),
+                        'set' => array('selector' => 'body > main > div:nth-of-type(1)', 'size' => 2, 'index' => 1),
+                    ),
+                ),
+            )),
+        ), JSON_UNESCAPED_SLASHES)),
+    ),
+))->toArray();
+$regionLayoutMarkup = (string) ($regionLayoutSelectableSet['serialized_blocks'] ?? '');
+$assert(str_contains($regionLayoutMarkup, '<!-- wp:tabs'), 'a layout-classed region still serializes as core/tabs');
+$assert(1 !== preg_match('/<!-- wp:tabs\s+\{[^}]*card-host/', $regionLayoutMarkup), 'the tabs wrapper JSON does not carry the shared region class');
+$assert(1 !== preg_match('/<div class="wp-block-tabs[^"]*card-host/', $regionLayoutMarkup), 'the tabs wrapper does not inherit the shared region class');
+$assert(1 !== preg_match('/<!-- wp:tabs\s+\{[^}]*"layout"/', $regionLayoutMarkup), 'the tabs wrapper does not inherit a layout attribute from the shared region');
+$assert(1 === preg_match('/<section[^>]*class="wp-block-tab-panel[^"]*card-host/', $regionLayoutMarkup), 'the shared region class lands on each tab-panel whose children it used to wrap');
+$assert(1 === preg_match('/<div class="wp-block-tab-list step-row"/', $regionLayoutMarkup), 'the tab-list still carries the source trigger row class');
+$assert(str_contains($regionLayoutMarkup, 'role="tab"') && str_contains($regionLayoutMarkup, 'role="tabpanel"'), 'projected tabs keep tab and tabpanel roles');
+$assert(array() === (new CanonicalSaveShapeValidator())->findings($regionLayoutSelectableSet['blocks'] ?? array()), 'region-layout selectable-set tabs retain a canonical save shape');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($regionLayoutSelectableSet['blocks'] ?? array())['status'] ?? ''), 'region-layout selectable-set tabs remain Gutenberg-valid');
+
 $graphicAlpha = '<div><h2>FR1</h2><p>Flower Room 1 specification</p></div>';
 $graphicBeta = '<div><h2>FR2</h2><p>Flower Room 2 specification</p></div>';
 $graphicSelectableSet = $compiler->compile(array(
