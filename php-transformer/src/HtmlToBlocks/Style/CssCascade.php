@@ -238,6 +238,9 @@ final class CssCascade
         if (in_array($term, array('print', 'speech'), true)) return false;
         if (preg_match('/^[a-z-]+$/', $term)) return null;
         $term = trim($term, " \t\n\r\0\x0B()");
+        if (preg_match('/^prefers-color-scheme\s*:\s*(dark|light)$/', $term, $match)) {
+            return 'light' === $match[1];
+        }
         return self::mediaWidthTermApplies($term, $viewportWidth, $rootFontSize);
     }
 
