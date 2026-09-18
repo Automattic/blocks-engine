@@ -643,7 +643,10 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             fn (DOMElement $element): bool => $this->runtimeIslands->isRuntimeDomTarget($element),
             fn (DOMElement $element): array => $this->styleResolver->presentationAttributes($element),
             $this,
-            fn (string $localName): string => $this->generatedBlocks()->blockName($localName)
+            fn (string $localName): string => $this->generatedBlocks()->blockName($localName),
+            function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
+                return $this->layoutShellBlockForElements($elements, $innerBlocks, $sourceElement);
+            }
         );
         $this->nativeGetFormBlockBuilder = new NativeGetFormBlockBuilder(
             function (DOMElement $element, array &$fallbacks): array {

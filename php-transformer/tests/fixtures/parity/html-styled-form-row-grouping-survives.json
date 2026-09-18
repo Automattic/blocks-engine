@@ -1,0 +1,126 @@
+{
+    "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+    "name": "html-styled-form-row-grouping-survives",
+    "description": "A degraded form keeps a shared wrapper around sibling controls instead of flattening every field into a single stacked list.",
+    "source_reference": {
+        "repo": "php-transformer",
+        "path": "tests/fixtures/parity/html-styled-form-row-grouping-survives.json",
+        "notes": "Regression fixture for a lossy form fallback: ReadableFormBlockBuilder flattened every control into one list, so a two-control row wrapper collapsed to stacked full-width fields. The shared grouping element must survive as a layout-shell whose wrappers attribute keeps the source class, with the two row controls as its inner blocks and later fields remaining siblings of that grouping."
+    },
+    "legacy_comparison": {
+        "skip": true,
+        "reason": "This is a regression fixture for an upstream primitive with no downstream legacy comparison."
+    },
+    "operation": "html_transformer.transform",
+    "input": {
+        "content": "<main><form class=\"contact\"><div class=\"fields-row\"><div><label class=\"field-label\">Name *</label><input type=\"text\" class=\"field\" required></div><div><label class=\"field-label\">Phone *</label><input type=\"tel\" class=\"field\" required></div></div><div><label class=\"field-label\">Email *</label><input type=\"email\" class=\"field\" required></div><div><label class=\"field-label\">Project Details *</label><textarea class=\"field\" rows=\"5\" placeholder=\"Tell us about your project...\" required></textarea></div><button type=\"submit\" class=\"field\">Submit</button></form></main>",
+        "options": {
+            "static_css": ".field{border:1px solid #ccc;padding:8px;background:#fff;}"
+        }
+    },
+    "expected_blocks": [
+        {
+            "path": "blocks.0",
+            "name": "core/group",
+            "attrs": {
+                "className": "contact",
+                "tagName": "form"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.0",
+            "name": "custom/layout-shell"
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks.0.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "text",
+                "label": "Name *"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks.1.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "tel",
+                "label": "Phone *"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.1.innerBlocks.0",
+            "name": "custom/authored-input",
+            "attrs": {
+                "type": "email",
+                "label": "Email *"
+            }
+        },
+        {
+            "path": "blocks.0.innerBlocks.2",
+            "name": "custom/authored-textarea"
+        },
+        {
+            "path": "blocks.0.innerBlocks.3",
+            "name": "core/buttons"
+        }
+    ],
+    "expected_fallbacks": [
+        {
+            "type": "html",
+            "reason": "form_requires_runtime",
+            "diagnostic_code": "html_form_fallback"
+        }
+    ],
+    "expect": [
+        {
+            "path": "status",
+            "assert": "equals",
+            "value": "success"
+        },
+        {
+            "path": "fallbacks",
+            "assert": "count",
+            "count": 1
+        },
+        {
+            "path": "blocks.0.innerBlocks.0.innerBlocks",
+            "assert": "count",
+            "count": 2
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<!-- wp:custom/layout-shell"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "\"class\":\"fields-row\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<div class=\"fields-row\">"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Name *<input type=\"text\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "contains",
+            "value": "<label class=\"field-label\">Phone *<input type=\"tel\""
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "<!-- wp:freeform"
+        },
+        {
+            "path": "serialized_blocks",
+            "assert": "not_contains",
+            "value": "<!-- wp:missing"
+        }
+    ]
+}

@@ -79,6 +79,24 @@ $controlConverter = new ReadableFormControlBlockConverter(
         $echoes[] = $text;
     }
 );
+$layoutShellBlockForElements = static function (array $elements, array $innerBlocks, DOMElement $sourceElement): array {
+    return array(
+        'blockName' => 'custom/layout-shell',
+        'attrs' => array(
+            'wrappers' => array_map(static function (DOMElement $element): array {
+                $attributes = array();
+                if ( $element->hasAttribute('class') ) {
+                    $attributes['class'] = $element->getAttribute('class');
+                }
+                return array(
+                    'tagName' => strtolower($element->tagName),
+                    'attributes' => $attributes,
+                );
+            }, $elements),
+        ),
+        'innerBlocks' => $innerBlocks,
+    );
+};
 $builder = new ReadableFormBlockBuilder(
     $metadataBuilder,
     $controlConverter,
@@ -88,7 +106,8 @@ $builder = new ReadableFormBlockBuilder(
     $isRuntimeDomTarget,
     $presentationAttributes,
     $createBlock,
-    static fn (string $localName): string => $authoredRegistry->blockName($localName)
+    static fn (string $localName): string => $authoredRegistry->blockName($localName),
+    $layoutShellBlockForElements
 );
 
 $assert(null === $builder->build($formFrom('<form></form>')), 'empty-form-declines-block');
@@ -137,7 +156,18 @@ $assert($authoredRegistry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME)
 $assert('Details *' === ($positionalTextarea['attrs']['label'] ?? '') && '5' === ($positionalTextarea['attrs']['rows'] ?? '') && 'Tell us more' === ($positionalTextarea['attrs']['placeholder'] ?? ''), 'textarea-label-rows-and-placeholder-survive');
 
 $sharedWrapper = $builder->build($formFrom('<form><div><label>Ambiguous</label><input data-styled type="text"><input data-styled type="tel"></div></form>'));
-$assert('' === ($sharedWrapper['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
+$sharedShell = $sharedWrapper['innerBlocks'][0] ?? array();
+$assert('custom/layout-shell' === ($sharedShell['blockName'] ?? ''), 'a-wrapper-shared-by-two-controls-stays-a-layout-shell');
+$assert('' === ($sharedShell['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
+
+$rowGrouped = $builder->build($formFrom('<form class="stack"><div class="fields-row"><div><label class="field-label">Name *</label><input data-styled type="text" required></div><div><label class="field-label">Phone *</label><input data-styled type="tel" required></div></div><div><label class="field-label">Email *</label><input data-styled type="email" required></div></form>'));
+$rowShell = $rowGrouped['innerBlocks'][0] ?? array();
+$assert('custom/layout-shell' === ($rowShell['blockName'] ?? ''), 'shared-row-wrapper-is-a-layout-shell');
+$assert('fields-row' === ($rowShell['attrs']['wrappers'][0]['attributes']['class'] ?? ''), 'shared-row-wrapper-keeps-its-source-class');
+$assert(2 === count($rowShell['innerBlocks'] ?? array()), 'shared-row-wrapper-keeps-both-row-controls');
+$assert('Name *' === ($rowShell['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-name-control-stays-inside-the-shared-wrapper');
+$assert('Phone *' === ($rowShell['innerBlocks'][1]['innerBlocks'][0]['attrs']['label'] ?? ''), 'row-phone-control-stays-inside-the-shared-wrapper');
+$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($rowGrouped['innerBlocks'][1]['innerBlocks'][0]['blockName'] ?? ''), 'standalone-control-stays-a-direct-form-child');
 
 $recorded = array();
 $runtimeForm = $builder->build($formFrom('<form><input data-runtime name="email"></form>'));
