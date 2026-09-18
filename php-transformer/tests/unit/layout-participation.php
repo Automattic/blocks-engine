@@ -106,6 +106,11 @@ $assert(
     'display:block;word-break:normal' === LayoutParticipation::retainedWrapperLinkDeclarations(),
     '9: retainedWrapperLinkDeclarations() is the single source EngineSupportCss projects for the link inside a retained box'
 );
+$assert(
+    str_starts_with(LayoutParticipation::transferredFlexContainerDeclarations(), 'display:flex!important;')
+        && str_contains(LayoutParticipation::transferredFlexContainerDeclarations(), 'padding:inherit!important'),
+    '10: transferredFlexContainerDeclarations() restores a source flex container onto the link, inheriting wrapper padding'
+);
 
 $block = ( new HtmlTransformer() )->transform(
     '<style>.cta{display:block;width:100%;padding:8px 16px;background:#111;color:#fff}</style>'

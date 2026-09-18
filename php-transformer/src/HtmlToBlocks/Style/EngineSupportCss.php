@@ -152,7 +152,8 @@ final class EngineSupportCss
             // LayoutParticipation::transferredItemDeclarations().
             $neutralButton = SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS;
             $parts[] = ':where(.' . $neutralButton . '){display:contents!important}'
-                . ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}';
+                . ':where(.' . $neutralButton . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
+                . ':where(.' . $neutralButton . '.flex,.' . $neutralButton . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}';
         }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
