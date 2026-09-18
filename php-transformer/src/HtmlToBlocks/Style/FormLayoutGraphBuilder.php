@@ -36,8 +36,12 @@ final class FormLayoutGraphBuilder
     private array $diagnostics = array();
     private bool $truncated = false;
 
-    /** @param list<array<string, mixed>> $stylesheets @return array<string, mixed> */
-    public function build(DOMElement $form, array $stylesheets, string $inlineCss = ''): array
+    /**
+     * @param list<array<string, mixed>> $stylesheets
+     * @param list<array<string, mixed>>|null $structure In-process node list including DOM elements; not part of the serialized graph.
+     * @return array<string, mixed>
+     */
+    public function build(DOMElement $form, array $stylesheets, string $inlineCss = '', ?array &$structure = null): array
     {
         $this->diagnostics = array();
         $this->truncated = false;
@@ -54,6 +58,9 @@ final class FormLayoutGraphBuilder
         $wrapper = 0;
         // The graph root is outside the topology depth coordinate; its children are depth zero.
         $this->collect($form, null, 0, -1, $controls, $relevant, $entries, $wrapper);
+        if ( null !== $structure ) {
+            $structure = $entries;
+        }
         $analysis = (new CssRuleAnalyzer())->analyze(
             $stylesheets,
             $inlineCss,

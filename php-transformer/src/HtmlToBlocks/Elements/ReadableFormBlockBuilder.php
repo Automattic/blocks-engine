@@ -6,18 +6,24 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\FormLayoutGraphBuilder;
 use Closure;
 use DOMElement;
 
 /** Builds the readable static block representation of a form. */
 final class ReadableFormBlockBuilder
 {
+    /** @var array<string, mixed>|null */
+    private ?array $layoutGraph = null;
+
     /**
      * @param Closure(DOMElement): array<string, mixed>                                                     $eventMetadata
      * @param Closure(DOMElement): bool                                                                     $isRuntimeDomTarget
      * @param Closure(DOMElement): array<string, mixed>                                                     $presentationAttributes
      * @param Closure(string): string                                                                       $generatedBlockName Resolves a local name through the transform's registry.
      * @param Closure(list<DOMElement>, list<array<string, mixed>>, DOMElement): array<string, mixed>       $layoutShellBlockForElements
+     * @param Closure(): list<array<string, mixed>>|null                                                    $stylesheetAssets
+     * @param Closure(): string|null                                                                        $formLayoutCss
      */
     public function __construct(
         private readonly FormControlMetadataBuilder $metadataBuilder,
@@ -28,13 +34,22 @@ final class ReadableFormBlockBuilder
         private readonly Closure $presentationAttributes,
         private readonly SourceBlockCreator $createBlock,
         private readonly Closure $generatedBlockName,
-        private readonly Closure $layoutShellBlockForElements
+        private readonly Closure $layoutShellBlockForElements,
+        private readonly ?Closure $stylesheetAssets = null,
+        private readonly ?Closure $formLayoutCss = null
     ) {
+    }
+
+    /** @return array<string, mixed>|null */
+    public function layoutGraph(): ?array
+    {
+        return $this->layoutGraph;
     }
 
     /** @return array<string, mixed>|null */
     public function build(DOMElement $form, bool $allowFormEvents = false): ?array
     {
+        $this->layoutGraph = null;
         if ( 0 < $form->getElementsByTagName('script')->length
             || ( ! $allowFormEvents && array() !== ($this->eventMetadata)($form) )
         ) {
@@ -69,34 +84,51 @@ final class ReadableFormBlockBuilder
     }
 
     /**
-     * Walk the source grouping tree so a shared wrapper around two or more
-     * converted controls stays a layout-shell, instead of flattening every
-     * control into a single list.
+     * Walk the layout graph so a shared container around two or more converted
+     * controls stays a layout-shell, instead of re-inferring rows from nesting.
      *
      * @return array<int, array<string, mixed>>
      */
-    private function groupedContentBlocks(DOMElement $container, string $authoredInputName): array
+    private function groupedContentBlocks(DOMElement $form, string $authoredInputName): array
+    {
+        $structure = array();
+        $this->layoutGraph = (new FormLayoutGraphBuilder())->build(
+            $form,
+            null !== $this->stylesheetAssets ? ($this->stylesheetAssets)() : array(),
+            null !== $this->formLayoutCss ? ($this->formLayoutCss)() : '',
+            $structure
+        );
+        $children = array();
+        foreach ( $structure as $entry ) {
+            $children[ $entry['parent'] ?? '' ][] = $entry;
+        }
+
+        return $this->blocksFromGraphEntries($children['form'] ?? array(), $children, $authoredInputName);
+    }
+
+    /**
+     * @param list<array<string, mixed>> $entries
+     * @param array<string, list<array<string, mixed>>> $children
+     * @return array<int, array<string, mixed>>
+     */
+    private function blocksFromGraphEntries(array $entries, array $children, string $authoredInputName): array
     {
         $blocks = array();
-        foreach ( $container->childNodes as $child ) {
-            if ( ! $child instanceof DOMElement ) {
-                continue;
-            }
-
-            if ( FormControlClassifier::isControlElement($child) ) {
-                $block = $this->convertDataEntryControl($child, $authoredInputName);
+        foreach ( $entries as $entry ) {
+            if ( 'control' === $entry['kind'] ) {
+                $block = $this->convertDataEntryControl($entry['element'], $authoredInputName);
                 if ( null !== $block ) {
                     $blocks[] = $block;
                 }
                 continue;
             }
 
-            $inner = $this->groupedContentBlocks($child, $authoredInputName);
+            $inner = $this->blocksFromGraphEntries($children[ $entry['id'] ] ?? array(), $children, $authoredInputName);
             if ( array() === $inner ) {
                 continue;
             }
             if ( 2 <= count($inner) ) {
-                $blocks[] = ($this->layoutShellBlockForElements)(array( $child ), $inner, $child);
+                $blocks[] = ($this->layoutShellBlockForElements)(array( $entry['element'] ), $inner, $entry['element']);
                 continue;
             }
 
