@@ -1,0 +1,28 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-button-standalone-unaffected",
+  "description": "Negative guard: the inline-button-in-paragraph fix only touches RichTextElementConverter's paragraph/heading gate. A <button> dispatched on its own (no enclosing paragraph) still converts through ButtonElementConverter to core/buttons > core/button exactly as before.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-button-standalone-unaffected.json",
+    "notes": "Same button markup as html-inline-button-in-paragraph-becomes-native.json, without the wrapping <p>, to prove the fix is scoped to the RichText paragraph path."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative guard for new inline-button-in-paragraph promotion."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><button class=\"text-primary hover:underline\">Sign in</button></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/buttons" },
+    { "path": "blocks.0.innerBlocks.0", "name": "core/button", "attrs": { "className": "text-primary hover:underline" } }
+  ],
+  "expected_fallbacks": [],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:buttons -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "wp-element-button\">Sign in</button>" }
+  ]
+}

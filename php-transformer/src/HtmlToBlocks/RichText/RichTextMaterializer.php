@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -248,6 +249,37 @@ final class RichTextMaterializer implements RichTextMaterialization
             $content
         ) ?? $content;
         return $this->requiresHtmlFallback($content);
+    }
+
+    public function requiresHtmlFallbackConsideringInlineButtons(DOMElement $element, string $content): bool
+    {
+        // The conservative gate rejects any `<button>` by tag name alone. Strip
+        // one only from this check copy — never from the real content — when
+        // every `<button>` descendant is text-only and carries no form or
+        // runtime-behavior semantics, so a plain inline control (e.g. "Already
+        // a seller? <button>Sign in</button>") does not condemn its whole
+        // paragraph to core/html.
+        if ( 1 === preg_match('/<button\b/i', $content) && $this->hasOnlyInlineSafeButtons($element) ) {
+            $content = preg_replace('/<\/?button\b[^>]*>/i', '', $content) ?? $content;
+        }
+
+        return $this->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);
+    }
+
+    private function hasOnlyInlineSafeButtons(DOMElement $element): bool
+    {
+        $buttons = $element->getElementsByTagName('button');
+        if ( 0 === $buttons->length ) {
+            return false;
+        }
+
+        foreach ( $buttons as $button ) {
+            if ( ! $button instanceof DOMElement || ! FormControlClassifier::isInlineSafeButton($button) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function containsNativeSvgImageObject(string $content): bool

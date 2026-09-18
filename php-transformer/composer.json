@@ -241,6 +241,7 @@
       "php tests/unit/button-link-dispatch-context.php",
             "php tests/unit/text-leaf-element-converter.php",
             "php tests/unit/rich-text-element-converter.php",
+             "php tests/unit/form-control-classifier-inline-safe-button.php",
              "php tests/unit/table-element-converter.php",
              "php tests/unit/stacked-nested-layout-table.php",
             "php tests/unit/unsupported-element-recorder.php",
