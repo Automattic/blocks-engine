@@ -92,6 +92,11 @@ final class RichTextElementContext
         return $this->richTextMaterializer->contentWithMaterializedSvgImages($element, $content);
     }
 
+    public function richTextWithInlineSafeButtonsLowered(DOMElement $element, string $content): ?string
+    {
+        return $this->richTextMaterializer->contentWithInlineSafeButtonsLowered($element, $content);
+    }
+
     public function requiresHtmlFallback(string $content): bool
     {
         return $this->richTextMaterializer->requiresHtmlFallbackWithoutNativeSvgImageObjects($content);

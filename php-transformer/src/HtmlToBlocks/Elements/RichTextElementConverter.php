@@ -52,7 +52,11 @@ final class RichTextElementConverter implements ElementConverter
      */
     private function convertHeading(DOMElement $element, int $level): ?array
     {
-        $content = $this->context->headingRichTextContent($this->context->richTextContent($element));
+        $content        = $this->context->headingRichTextContent($this->context->richTextContent($element));
+        $withLowered    = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
+        if ( null !== $withLowered ) {
+            $content = $withLowered;
+        }
 
         if ( $this->context->requiresHtmlFallback($content) ) {
             return $this->context->htmlPreservationBlock($element);
@@ -120,6 +124,10 @@ final class RichTextElementConverter implements ElementConverter
         }
 
         $content         = $this->context->richTextContent($element);
+        $withLowered     = $this->context->richTextWithInlineSafeButtonsLowered($element, $content);
+        if ( null !== $withLowered ) {
+            $content = $withLowered;
+        }
         $withInlineSvg   = $this->context->richTextWithMaterializedSvgImages($element, $content);
         if ( null !== $withInlineSvg ) {
             $content = $withInlineSvg;

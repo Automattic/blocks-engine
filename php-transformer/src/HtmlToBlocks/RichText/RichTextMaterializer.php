@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText;
 
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\CssValueInspector;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver;
@@ -236,6 +237,106 @@ final class RichTextMaterializer implements RichTextMaterialization
         }
 
         return $content;
+    }
+
+    /**
+     * When every `<button>` descendant of `$element` is inline-safe, lowers
+     * each into a `<mark>` carrier — RichText-legal, and recognized by the
+     * engine's own editability policy — instead of the raw `<button>` tag the
+     * conservative fallback gate rejects by name alone.
+     *
+     * The button's presentational class is not copied onto the mark: its
+     * resolved visual declarations (author CSS actually matching the source
+     * button, e.g. a `color` from a utility class) are baked into the mark's
+     * own `style` attribute instead, the same carrier mechanism already used
+     * to lower a class-bearing span/font. `role="button"` and `tabindex="0"`
+     * keep the control itself labelled and keyboard-reachable; nothing wires
+     * it to behavior, because `isInlineSafeButton()` already refused any
+     * button that had some.
+     */
+    public function contentWithInlineSafeButtonsLowered(DOMElement $element, string $content): ?string
+    {
+        if ( '' === $content || ! preg_match('/<button\b/i', $content) || ! $this->hasOnlyInlineSafeButtons($element) ) {
+            return null;
+        }
+
+        $document = new DOMDocument();
+        $previous = libxml_use_internal_errors(true);
+        $loaded   = $document->loadHTML('<?xml encoding="utf-8" ?><body>' . $content . '</body>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+        libxml_use_internal_errors($previous);
+
+        $body = $loaded ? $document->getElementsByTagName('body')->item(0) : null;
+        if ( ! $body instanceof DOMElement ) {
+            return null;
+        }
+
+        $sourceButtons = array();
+        foreach ( $element->getElementsByTagName('button') as $sourceButton ) {
+            if ( $sourceButton instanceof DOMElement ) {
+                $sourceButtons[] = $sourceButton;
+            }
+        }
+
+        $targetButtons = array();
+        foreach ( $body->getElementsByTagName('button') as $targetButton ) {
+            if ( $targetButton instanceof DOMElement ) {
+                $targetButtons[] = $targetButton;
+            }
+        }
+
+        foreach ( $targetButtons as $index => $targetButton ) {
+            $sourceButton = $sourceButtons[$index] ?? null;
+            if ( ! $sourceButton instanceof DOMElement ) {
+                continue;
+            }
+            $this->replaceInlineSafeButtonWithMark($sourceButton, $targetButton);
+        }
+
+        return SourceDom::innerHtml($body);
+    }
+
+    private function hasOnlyInlineSafeButtons(DOMElement $element): bool
+    {
+        $buttons = $element->getElementsByTagName('button');
+        if ( 0 === $buttons->length ) {
+            return false;
+        }
+
+        foreach ( $buttons as $button ) {
+            if ( ! $button instanceof DOMElement || ! FormControlClassifier::isInlineSafeButton($button) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function replaceInlineSafeButtonWithMark(DOMElement $sourceButton, DOMElement $targetButton): void
+    {
+        $document = $targetButton->ownerDocument;
+        if ( ! $document instanceof DOMDocument ) {
+            return;
+        }
+
+        $declarations = $this->inlineVisualDeclarations($sourceButton);
+        if ( ! isset($declarations['background-color']) ) {
+            $declarations['background-color'] = 'transparent';
+        }
+        if ( ! isset($declarations['color']) ) {
+            $declarations['color'] = 'inherit';
+        }
+
+        $mark = $document->createElement('mark');
+        $mark->setAttribute('style', $this->styleResolver->cssDeclarationString($declarations));
+        $mark->setAttribute('role', 'button');
+        $mark->setAttribute('tabindex', '0');
+
+        while ( null !== $targetButton->firstChild ) {
+            $mark->appendChild($targetButton->firstChild);
+        }
+
+        $targetButton->parentNode?->replaceChild($mark, $targetButton);
     }
 
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool

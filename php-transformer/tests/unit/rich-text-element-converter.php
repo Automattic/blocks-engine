@@ -40,6 +40,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
         'richTextContent'                   => static fn (DOMElement $e, array $x): string => (string) $e->textContent,
         'headingRichTextContent'            => static fn (string $c): string => $c,
         'richTextWithMaterializedSvgImages' => static fn (DOMElement $e, string $c): ?string => null,
+        'richTextWithInlineSafeButtonsLowered' => static fn (DOMElement $e, string $c): ?string => null,
         'requiresHtmlFallback'              => static fn (string $c): bool => false,
         'containsNativeSvgImageObject'      => static fn (string $c): bool => false,
         'htmlPreservationBlock'             => static fn (DOMElement $e): array => array('blockName' => 'core/html'),
@@ -64,6 +65,7 @@ $makeConverter = static function (array $overrides = array()): RichTextElementCo
             'content' => $c['richTextContent'],
             'headingContent' => $c['headingRichTextContent'],
             'contentWithMaterializedSvgImages' => $c['richTextWithMaterializedSvgImages'],
+            'contentWithInlineSafeButtonsLowered' => $c['richTextWithInlineSafeButtonsLowered'],
             'requiresHtmlFallback' => $c['requiresHtmlFallback'],
             'containsNativeSvgImageObject' => $c['containsNativeSvgImageObject'],
         )),
@@ -155,6 +157,30 @@ $assert('<img src="x.svg">' === ($svgBlock['attrs']['content'] ?? ''), 'paragrap
 // converter falls back to the element's own text.
 $svgUnclaimed = $makeConverter(array('richTextWithMaterializedSvgImages' => static fn (DOMElement $e, string $c): ?string => '<img src="x.svg">'));
 $assert('icon' === ($svgUnclaimed->convert($elementFrom('<p>icon</p>'), 'p', $fallbacks)->block['attrs']['content'] ?? ''), 'unclaimed-svg-markup-falls-back-to-text');
+
+// An inline-safe button lowered to a RichText-legal carrier replaces the
+// content before the fallback gate ever sees the original `<button>` markup —
+// for both the paragraph and heading branches.
+$loweredButton = $makeConverter(array(
+    'richTextContent'                      => static fn (DOMElement $e, array $x): string => 'Sign in <button>Go</button>',
+    'richTextWithInlineSafeButtonsLowered'  => static fn (DOMElement $e, string $c): ?string => str_replace('<button>Go</button>', '<mark role="button" tabindex="0">Go</mark>', $c),
+    'requiresHtmlFallback'                  => static fn (string $c): bool => str_contains($c, '<button'),
+));
+$loweredParagraph = $loweredButton->convert($elementFrom('<p>Sign in <button>Go</button></p>'), 'p', $fallbacks)->block;
+$assert('core/paragraph' === ($loweredParagraph['blockName'] ?? ''), 'paragraph-with-lowered-button-stays-native');
+$assert('Sign in <mark role="button" tabindex="0">Go</mark>' === ($loweredParagraph['attrs']['content'] ?? ''), 'paragraph-content-uses-lowered-button-markup');
+$loweredHeading = $loweredButton->convert($elementFrom('<h2>Sign in <button>Go</button></h2>'), 'h2', $fallbacks)->block;
+$assert('core/heading' === ($loweredHeading['blockName'] ?? ''), 'heading-with-lowered-button-stays-native');
+$assert('Sign in <mark role="button" tabindex="0">Go</mark>' === ($loweredHeading['attrs']['content'] ?? ''), 'heading-content-uses-lowered-button-markup');
+
+// When the button is not inline-safe, the lowering declines (returns null)
+// and the original `<button>` markup still trips the fallback gate.
+$declinedButton = $makeConverter(array(
+    'richTextContent'                      => static fn (DOMElement $e, array $x): string => 'Subscribe <button>Go</button>',
+    'richTextWithInlineSafeButtonsLowered'  => static fn (DOMElement $e, string $c): ?string => null,
+    'requiresHtmlFallback'                  => static fn (string $c): bool => str_contains($c, '<button'),
+));
+$assert('core/html' === ($declinedButton->convert($elementFrom('<p>Subscribe <button>Go</button></p>'), 'p', $fallbacks)->block['blockName'] ?? ''), 'declined-lowering-still-falls-back-to-html');
 
 // Box chrome around an empty inline child lowers to a group carrying children.
 $chrome = $makeConverter(array(
