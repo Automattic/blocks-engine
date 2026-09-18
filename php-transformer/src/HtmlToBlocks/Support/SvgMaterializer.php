@@ -191,6 +191,8 @@ final class SvgMaterializer implements SvgElementMaterializer
                     $mediaBox .= ';' . $property . ':' . trim((string) $presentation[$property]);
                 }
             }
+            $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $mediaBox);
+            $mediaBox = ( '' === $carriedProperties ? '' : ';' . $carriedProperties ) . $mediaBox;
             $rule = ($richTextImage ? '' : '>img') . '{display:' . $imageDisplay . ($preserveInlineGeometry ? ';vertical-align:baseline' : '') . $mediaBox . '}';
             $geometryClass = $this->context->layoutGeometry()->allocateCarrier($this->styleResolver->geometryStructuralPath($element) . "\n" . $rule);
             $geometryCss = ($preserveBlockDisplay ? '.' . $geometryClass . '{line-height:0}' : '') . '.' . $geometryClass . $rule;
@@ -269,6 +271,11 @@ final class SvgMaterializer implements SvgElementMaterializer
                 continue;
             }
             $style = trim($style, ';') . ( '' === trim($style, ';') ? '' : ';' ) . $dimension . ':' . $attrs[$dimension];
+        }
+
+        $carriedProperties = $this->carriedCustomPropertyDeclarations($element, $style);
+        if ( '' !== $carriedProperties ) {
+            $style = $carriedProperties . ';' . $style;
         }
 
         $imageAttributes = array(
@@ -406,6 +413,26 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         return false;
+    }
+
+    /**
+     * Author rules that matched the source subtree keep working on the
+     * materialized image, but the custom properties they read were declared on
+     * the wrapper elements the materialization collapses. A Wix button icon is
+     * the common shape: `._animatedIcon svg{width:var(--size)}` survives onto
+     * the image while `._animatedIcon{--size:16px}` has nothing left to match,
+     * so the width is invalid at computed-value time and the artwork falls back
+     * to its intrinsic viewBox geometry. Re-root the definitions the carried
+     * declarations depend on.
+     */
+    private function carriedCustomPropertyDeclarations(DOMElement $element, string $value): string
+    {
+        $declarations = array();
+        foreach ( $this->styleResolver->carriedCustomProperties($value, $element) as $name => $declared ) {
+            $declarations[] = $name . ':' . $declared;
+        }
+
+        return implode(';', $declarations);
     }
 
     private function cssOwnsMediaBox(DOMElement $element): bool
