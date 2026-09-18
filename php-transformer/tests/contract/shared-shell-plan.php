@@ -343,4 +343,64 @@ foreach (array('index.html', 'about.html') as $source) {
     $assert(1 === substr_count($markup, '"tagName":"header"'), "{$source} retains only its unextracted duplicate header fragment inside main content, not the extracted shared shell instance.");
 }
 
+$multiColorNav = static function (string $current): string {
+    $link = static function (string $name, string $label, string $current, string $class): string {
+        $active = $name === $current && 'menu-link' === $class;
+        return '<a class="' . $class . ($active ? ' current" aria-current="page"' : '"') . ' href="' . $name . '.html">' . $label . '</a>';
+    };
+    return '<header class="site-header"><a class="brand" href="index.html">Brand</a><nav>'
+        . $link('index', 'Home', $current, 'menu-link')
+        . $link('about', 'About', $current, 'menu-link')
+        . $link('blog', 'Blog', $current, 'menu-link')
+        . $link('index', 'Home', $current, 'overlay-link')
+        . $link('about', 'About', $current, 'overlay-link')
+        . $link('blog', 'Blog', $current, 'overlay-link')
+        . '</nav></header>';
+};
+$multiColorStyle = '<style>.brand{color:#ec4899}.menu-link{color:#111111}.overlay-link{color:#ffffff}.current{text-decoration:underline}</style>';
+$multiColorPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $multiColorStyle . $multiColorNav('') . '<main><h1>Home</h1></main><footer>Shared footer</footer>',
+    'about.html' => $multiColorStyle . $multiColorNav('about') . '<main><h1>About</h1></main><footer>Shared footer</footer>',
+    'blog.html' => $multiColorStyle . $multiColorNav('blog') . '<main><h1>Blog archive</h1></main><footer>Blog footer</footer>',
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$multiColorWrites = $writes($multiColorPlan);
+$multiColorPages = $pages($multiColorPlan);
+$multiColorHeader = array_values(array_filter($multiColorPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null)))[0] ?? array();
+$assert('header' === ($multiColorHeader['slug'] ?? null) && 'shared_shell' === ($multiColorHeader['placement']['kind'] ?? null), 'A shared header with brand, menu, and overlay link colors still extracts as one template part when pages differ only by current navigation state.');
+foreach (array('index.html', 'about.html', 'blog.html') as $source) {
+    $markup = $multiColorPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, $source === 'blog.html' ? 'Blog archive' : ($source === 'about.html' ? 'About' : 'Home')), "{$source} keeps its content region and does not carry navigation after shared-header extraction.");
+}
+$assert(str_contains($multiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($multiColorWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Generic templates keep the shared header part.');
+$assert(str_contains($multiColorWrites['templates/page-blog.html']['payload']['data'] ?? '', '"slug":"header"') && !str_contains($multiColorWrites['templates/page-blog.html']['payload']['data'] ?? '', '"slug":"footer"'), 'A page-specific template created for a divergent footer still references the shared header and carries no navigation of its own.');
+
+$nestedMultiColorShell = static function (string $current, string $title): string {
+    $link = static function (string $name, string $label, string $current, string $class): string {
+        $active = $name === $current && 'menu-link' === $class;
+        return '<a class="' . $class . ($active ? ' current" aria-current="page"' : '"') . ' href="https://example.test/' . $name . '">' . $label . '</a>';
+    };
+    return '<input class="nav-trigger" type="checkbox" id="navTrigger"><div id="wrapper" class="site-frame blocks-engine-source-div-a1b2c3d4-4"><div id="header-wrapper-sticky-wrapper" class="blocks-engine-source-div-a1b2c3d4-4"><div id="header-wrapper"><a class="brand" href="https://example.test/home">Brand</a><nav>'
+        . $link('home', 'Home', $current, 'menu-link')
+        . $link('about', 'About', $current, 'menu-link')
+        . $link('blog', 'Blog', $current, 'menu-link')
+        . $link('home', 'Home', $current, 'overlay-link')
+        . $link('about', 'About', $current, 'overlay-link')
+        . $link('blog', 'Blog', $current, 'overlay-link')
+        . '</nav></div></div><div id="main-container"><main><h1>' . $title . '</h1></main></div></div>';
+};
+$nestedMultiColorStyle = '<style>.nav-trigger{appearance:none;border:1px solid}.brand{color:#ec4899}.menu-link{color:#111111}.overlay-link{color:#ffffff}.current{text-decoration:underline}</style>';
+$nestedMultiColorPlan = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $nestedMultiColorStyle . $nestedMultiColorShell('home', 'Home'),
+    'about.html' => $nestedMultiColorStyle . $nestedMultiColorShell('about', 'About'),
+    'blog.html' => $nestedMultiColorStyle . $nestedMultiColorShell('blog', 'Blog'),
+)))->toArray()['source_reports']['wordpress_site_plan'];
+$nestedMultiColorWrites = $writes($nestedMultiColorPlan);
+$nestedMultiColorPages = $pages($nestedMultiColorPlan);
+$assert(1 === count(array_filter($nestedMultiColorPlan['template_parts'], static fn(array $part): bool => 'header' === ($part['area'] ?? null))), 'Nested chrome whose links use more than one resting color still extracts one shared header when pages differ only by current navigation state.');
+foreach (array('index.html' => 'Home', 'about.html' => 'About', 'blog.html' => 'Blog') as $source => $title) {
+    $markup = $nestedMultiColorPages[$source]['canonical_block_markup'] ?? '';
+    $assert(!str_contains($markup, 'wp:navigation') && str_contains($markup, $title) && !isset($nestedMultiColorWrites['templates/page-' . basename($source, '.html') . '.html']), "{$source} nested chrome stays in the shared header rather than a page-specific template, and page content has no navigation.");
+}
+$assert(str_contains($nestedMultiColorWrites['templates/page.html']['payload']['data'] ?? '', '"slug":"header"') && str_contains($nestedMultiColorWrites['templates/front-page.html']['payload']['data'] ?? '', '"slug":"header"'), 'Nested multi-color chrome binds the shared header on generic templates.');
+
 fwrite(STDOUT, "shared-shell-plan contract passed\n");

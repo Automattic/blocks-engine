@@ -43,7 +43,8 @@ final class ShellExtraction
             // candidate's bytes, which a coincidental duplicate elsewhere in the
             // page could otherwise make ambiguous.
             $range = $this->topLevelShellRange($canonical, (string) $candidate['area'], $markup);
-            $row = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'classes' => $classes, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
+            $identity = self::normalizeNestedChromeMarkup($markup);
+            $row = array('area' => $candidate['area'], 'markup' => $markup, 'inner_markup' => $innerMarkup, 'template_part_markup' => $templatePartMarkup, 'identity_markup' => $identity, 'classes' => $classes, 'source_path' => $sourcePath, 'source_hash' => is_string($candidate['source_hash'] ?? null) ? $candidate['source_hash'] : '');
             if (is_array($range)) { $row['offset'] = $range['offset']; $row['length'] = $range['length']; }
             $candidates[] = $row;
         }
@@ -502,6 +503,7 @@ final class ShellExtraction
         $stateCarrierCounts = array();
         $linkColorCounts = array();
         $linkCount = 0;
+        $restingColorCountsBySignature = array();
         preg_match_all('/<!--\s*wp:navigation(?:-link|-submenu)?\s+(\{.*?\})\s*(?:\/)?-->/s', $markup, $navigationMatches);
         foreach ($navigationMatches[0] as $index => $opening) {
             $attributes = $navigationMatches[1][$index];
@@ -509,13 +511,24 @@ final class ShellExtraction
             if (!is_array($attrs)) continue;
             $isLink = !preg_match('/<!--\s*wp:navigation\s/', $opening);
             if ($isLink) ++$linkCount;
-            foreach (preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array() as $class) {
+            $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
+            $current = in_array('blocks-engine-current-navigation-item', $classes, true);
+            $signature = self::navigationClassSignature($classes);
+            foreach ($classes as $class) {
                 if (preg_match('/^blocks-engine-navigation-link-color-states-\d+$/', $class)) $stateCarrierCounts[$class] = ($stateCarrierCounts[$class] ?? 0) + 1;
-                if ($isLink && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) $linkColorCounts[$class] = ($linkColorCounts[$class] ?? 0) + 1;
+                if ($isLink && preg_match('/^blocks-engine-navigation-link-color-[a-f0-9]{64}$/', $class)) {
+                    $linkColorCounts[$class] = ($linkColorCounts[$class] ?? 0) + 1;
+                    if (!$current) $restingColorCountsBySignature[$signature][$class] = ($restingColorCountsBySignature[$signature][$class] ?? 0) + 1;
+                }
             }
         }
         $sharedLinkColors = array_keys(array_filter($linkColorCounts, static fn(int $count): bool => 1 < $linkCount && $linkCount - 1 === $count));
-        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors): string {
+        $restingColorBySignature = array();
+        foreach ($restingColorCountsBySignature as $signature => $counts) {
+            arsort($counts, SORT_NUMERIC);
+            $restingColorBySignature[$signature] = (string) array_key_first($counts);
+        }
+        return preg_replace_callback('/<!--\s*wp:(navigation(?:-link|-submenu)?)\s+(\{.*?\})\s*(\/)?-->/s', static function (array $match) use ($semanticIdentity, $stateCarrierCounts, $sharedLinkColors, $restingColorBySignature): string {
             $attrs = json_decode($match[2], true);
             if (!is_array($attrs)) return $match[0];
             $classes = preg_split('/\s+/', trim((string) ($attrs['className'] ?? ''))) ?: array();
@@ -530,12 +543,25 @@ final class ShellExtraction
                 if ($current && preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class)) return false;
                 return true;
             }));
-            if ($semanticIdentity && $current && $isLink) $classes = array_values(array_unique(array_merge($classes, $sharedLinkColors)));
+            if ($semanticIdentity && $current && $isLink) {
+                $resting = $restingColorBySignature[implode(' ', $classes)] ?? null;
+                $classes = array_values(array_unique(array_merge($classes, $sharedLinkColors, is_string($resting) ? array($resting) : array())));
+            }
             $attrs['className'] = implode(' ', $classes);
             if ('' === $attrs['className']) unset($attrs['className']);
             if ($current) unset($attrs['color'], $attrs['style'], $attrs['typography']);
             if ($current || ($semanticIdentity && $isLink)) unset($attrs['anchor'], $attrs['anchorClassName']);
             return '<!-- wp:' . $match[1] . ' ' . json_encode($attrs, JSON_UNESCAPED_SLASHES) . ' ' . (($match[3] ?? '') ? '/' : '') . '-->';
         }, $markup) ?? $markup;
+    }
+
+    /** @param array<int,string> $classes */
+    private static function navigationClassSignature(array $classes): string
+    {
+        return implode(' ', array_values(array_filter($classes, static function (string $class): bool {
+            return !in_array($class, array('blocks-engine-current-navigation-item', 'blocks-engine-current-navigation-underline', 'current', 'active', 'selected'), true)
+                && !preg_match('/^blocks-engine-navigation-(?:current|link)-color-[a-f0-9]{64}$/', $class)
+                && !preg_match('/^be-inline-geometry-[a-f0-9]{64}$/', $class);
+        })));
     }
 }
