@@ -85,8 +85,9 @@ $assert(1 === count($neutralButton), 'layout-neutral inner button wrapper emits 
 $assert(
     ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '){display:contents!important}'
         . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . ')>.wp-block-button__link{' . LayoutParticipation::transferredItemDeclarations() . '}'
+        . ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.flex,.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTON_CLASS . '.inline-flex)>.wp-block-button__link{' . LayoutParticipation::transferredFlexContainerDeclarations() . '}'
     === $neutralButton[0],
-    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, beating core width:100%'
+    'neutralizing the inner wrapper transfers shrink-to-fit onto the first box that still generates, and restores a source flex container onto the link'
 );
 
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');

@@ -51,6 +51,7 @@
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons){display:contents!important}" },
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button){display:contents!important}" },
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button)>.wp-block-button__link{display:inline!important;width:fit-content!important;word-break:normal!important}" },
+    { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-child-button.flex,.blocks-engine-layout-child-button.inline-flex)>.wp-block-button__link{display:flex!important;" },
     { "path": "assets.0.content", "assert": "contains", "value": ":where(.blocks-engine-layout-neutral-buttons)>.wp-block-button:not(.blocks-engine-layout-child-button)>.wp-block-button__link{display:block;word-break:normal}" }
   ]
 }
