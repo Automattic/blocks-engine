@@ -92,6 +92,10 @@ $assert('pass' === ($wrapped['source_reports']['wp_block_validity']['status'] ??
 $asymmetricHalf = '<div class="ticker-sequence">' . $phrase('FRIED CHICKEN 100% HALAL') . $phrase('DIFFERENT') . '</div>';
 $asymmetric = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $wrappedHalf . $asymmetricHalf . '</div>', array( 'static_css' => $wrappedCss ))->toArray();
 $assert('custom/authored-marquee' !== ($asymmetric['blocks'][0]['blockName'] ?? null), 'an asymmetric two-wrapper track does not become a marquee');
+
+$translateCss = '.ticker-track{animation:ticker-scroll 30s linear infinite}@keyframes ticker-scroll{0%{transform:translate(0)}to{transform:translate(-50%)}}';
+$translate = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $wrappedHalf . $wrappedHalf . '</div>', array( 'static_css' => $translateCss ))->toArray();
+$assert('custom/authored-marquee' === ($translate['blocks'][0]['blockName'] ?? null) && 30.0 === ($translate['blocks'][0]['attrs']['duration'] ?? null) && 'left' === ($translate['blocks'][0]['attrs']['direction'] ?? null), 'a 1-axis translate() keyframe is the same continuous marquee motion as translateX()');
 $maximumMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'right', 'duration' => 900 ));
 $invalidDirectionMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'up', 'duration' => 40 ));
 $assert(str_contains($maximumMarkup, 'data-direction="right"') && str_contains($maximumMarkup, '--blocks-engine-marquee-duration:600s') && str_contains($maximumMarkup, 'aria-hidden="true" inert=""') && str_contains($invalidDirectionMarkup, 'data-direction="left"'), 'the frontend markup bounds direction and duration and keeps duplicate content inaccessible');

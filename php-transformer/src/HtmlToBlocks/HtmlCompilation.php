@@ -9333,7 +9333,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function marqueeTranslationPercentage(string $transform): ?float
     {
-        if ( ! preg_match('/translateX\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
+        if ( ! preg_match('/translate(?:X)?\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
             return null;
         }
         $value = (float) $match[1];
