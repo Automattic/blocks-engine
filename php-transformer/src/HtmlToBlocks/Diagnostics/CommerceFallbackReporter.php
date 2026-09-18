@@ -182,16 +182,6 @@ final class CommerceFallbackReporter
     private function productCardsForContainer(DOMElement $container, array $blocks = array()): array
     {
         $products = array();
-        // A card with its own cart control anchors on that control (existing,
-        // proven path). A card with no cart control at all — the buy action
-        // lives on a per-item detail page, not the browse grid — has nothing
-        // per-card to anchor on, so every such card in this grid instead
-        // shares one anchor: the grid container's own emitted block, resolved
-        // later against the page's actual block tree during fallback-binding
-        // finalization, exactly like the div-pseudo-form anchor
-        // (blocks-engine#718 / #1975). Computed lazily and once per container
-        // since most grids never need it.
-        $collectionBinding = null;
         foreach ( $container->childNodes as $child ) {
             if ( ! $child instanceof DOMElement ) {
                 continue;
@@ -204,10 +194,6 @@ final class CommerceFallbackReporter
                 // published finding; never part of the diagnostic contract.
                 $product['_catalog_image_only'] = ! $this->recognizer->isSchemaProductCard($child) && null === $this->recognizer->cartControlElement($child);
                 $binding = $this->commerceBindingForCard($child, $blocks);
-                if ( array() === $binding ) {
-                    $collectionBinding ??= $this->blockBinding(array(), 'commerce_collection', array(), $container);
-                    $binding = $collectionBinding;
-                }
                 if ( array() !== $binding ) {
                     $product['binding'] = $binding;
                 }
@@ -260,35 +246,15 @@ final class CommerceFallbackReporter
         return null;
     }
 
-    /**
-     * `$block` is the preferred anchor when the caller owns a block the page
-     * actually emits (the per-card cart-control path). `$anchorElement` is the
-     * source element whose own emitted block anchors the binding when the
-     * caller has no such block (a card with no cart control at all, so every
-     * card in the grid shares its container's anchor instead). The anchor
-     * selector is resolved against the page's actual emitted block tree by
-     * `finalizeFallbackBindings()`, exactly like the div-pseudo-form anchor
-     * (blocks-engine#718/#1975) — see that method's docblock for why an
-     * anchor selector, not a synthesized block, is what keeps a binding
-     * page-owned.
-     *
-     * @return array<string,mixed>
-     */
-    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array(), ?DOMElement $anchorElement = null): array
+    /** @return array<string,mixed> */
+    private function blockBinding(array $block, string $role, array $supersededRuntimeSelectors = array()): array
     {
         $provenanceId = $block['_source_provenance_id'] ?? null;
-        $markup = array() !== $block ? $this->runtime->serializeBlocks(array($block)) : '';
-        $anchorSelector = null !== $anchorElement ? SourceDom::elementSelector($anchorElement) : '';
-        if ( ( '' === trim($markup) || ! is_int($provenanceId) ) && '' === $anchorSelector ) {
+        $markup = $this->runtime->serializeBlocks(array($block));
+        if ( '' === trim($markup) || ! is_int($provenanceId) ) {
             return array();
         }
-        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role);
-        if ( is_int($provenanceId) ) {
-            $binding['_binding_provenance_id'] = $provenanceId;
-        }
-        if ( '' !== $anchorSelector ) {
-            $binding['_binding_anchor_selector'] = $anchorSelector;
-        }
+        $binding = array('schema' => 'generic/block-binding/v1', 'search_block_markup' => $markup, 'occurrence' => 1, 'role' => $role, '_binding_provenance_id' => $provenanceId);
         $supersededRuntimeSelectors = array_values(array_unique(array_filter($supersededRuntimeSelectors, static fn(mixed $selector): bool => is_string($selector) && '' !== trim($selector))));
         if ( array() !== $supersededRuntimeSelectors ) {
             $binding['superseded_runtime_selectors'] = $supersededRuntimeSelectors;
