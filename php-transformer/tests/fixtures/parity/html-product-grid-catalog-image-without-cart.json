@@ -1,0 +1,35 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-product-grid-catalog-image-without-cart",
+  "description": "Emits an html_product_grid_fallback for a browse/marketplace catalog grid whose cards carry a name, a one-time price, and a per-card photo but no add-to-cart control and no schema.org markup -- the purchase action lives on a detail page, not the grid card. Requires at least four such image-corroborated cards before trusting the weaker signal.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-product-grid-catalog-image-without-cart.json",
+    "notes": "Real-world marketplace/browse grids (captured evidence: a logo marketplace catalog page) commonly show name + price + photo per card with the buy action on a separate detail page, so no cart-control token appears on the grid card itself. CommerceStructureRecognizer::productCardData() qualifies this structural quad (name + one-time price + image) without a cart control, and CommerceFallbackReporter requires >= 4 such image-only-qualified cards in one grid before emitting a finding, since a small (2-3 card) count is a far more common false positive (e.g. a pricing/plan comparison) than a real catalog is."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream commerce-recognition fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"grid grid-cols-4 gap-5\"><div class=\"card\"><img src=\"/media/ring.jpg\" alt=\"Solaris Ring\"><h3>Solaris Ring</h3><span class=\"price\">$64.99</span></div><div class=\"card\"><img src=\"/media/wave.jpg\" alt=\"Prism Wave\"><h3>Prism Wave</h3><span class=\"price\">$54.99</span></div><div class=\"card\"><img src=\"/media/pulse.jpg\" alt=\"Green Pulse\"><h3>Green Pulse</h3><span class=\"price\">$29.99</span></div><div class=\"card\"><img src=\"/media/apex.jpg\" alt=\"Apex Dynamics\"><h3>Apex Dynamics</h3><span class=\"price\">$49.99</span></div></div></main>"
+  },
+  "expected_fallbacks": [
+    { "type": "html", "reason": "commerce_product_grid_detected", "tag": "div", "diagnostic_code": "html_product_grid_fallback", "kind": "html_product_grid_fallback", "product_count": 4 }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.diagnostic_code", "assert": "equals", "value": "html_product_grid_fallback" },
+    { "path": "fallbacks.0.products", "assert": "count", "count": 4 },
+    { "path": "fallbacks.0.products.0.name", "assert": "equals", "value": "Solaris Ring" },
+    { "path": "fallbacks.0.products.0.price", "assert": "equals", "value": "$64.99" },
+    { "path": "fallbacks.0.products.0.image.src", "assert": "equals", "value": "/media/ring.jpg" },
+    { "path": "fallbacks.0.products.0.has_cart_control", "assert": "equals", "value": false },
+    { "path": "fallbacks.0.products.1.name", "assert": "equals", "value": "Prism Wave" },
+    { "path": "fallbacks.0.products.1.price", "assert": "equals", "value": "$54.99" },
+    { "path": "fallbacks.0.products.2.name", "assert": "equals", "value": "Green Pulse" },
+    { "path": "fallbacks.0.products.3.name", "assert": "equals", "value": "Apex Dynamics" }
+  ]
+}

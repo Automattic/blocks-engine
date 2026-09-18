@@ -1,0 +1,22 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-product-grid-below-image-only-threshold",
+  "description": "Leaves a small (3-card) grid of name + one-time price + photo cards unflagged when no card carries schema.org evidence or a cart control, since a small image-only-qualified count is a more common false positive (e.g. a pricing/plan comparison with photos) than a real catalog.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-product-grid-below-image-only-threshold.json",
+    "notes": "Companion negative case for html-product-grid-catalog-image-without-cart.json: identical card shape, one card short of CommerceFallbackReporter::MIN_IMAGE_ONLY_QUALIFIED_CARDS. Proves the conservative repetition floor, not just the per-card structural quad."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream commerce-recognition fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><div class=\"grid grid-cols-3 gap-5\"><div class=\"card\"><img src=\"/media/ring.jpg\" alt=\"Solaris Ring\"><h3>Solaris Ring</h3><span class=\"price\">$64.99</span></div><div class=\"card\"><img src=\"/media/wave.jpg\" alt=\"Prism Wave\"><h3>Prism Wave</h3><span class=\"price\">$54.99</span></div><div class=\"card\"><img src=\"/media/pulse.jpg\" alt=\"Green Pulse\"><h3>Green Pulse</h3><span class=\"price\">$29.99</span></div></div></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-non-commerce-card-grids-negative",
+  "description": "Leaves three common non-commerce card grid patterns unflagged as products: a blog post list (photo + heading + excerpt, no price), a feature grid (inline icon, no photo, no price), and a SaaS pricing table whose plan cards carry a photo and a recurring price but no cart control.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-non-commerce-card-grids-negative.json",
+    "notes": "Negative-coverage companion to html-product-grid-catalog-image-without-cart.json. Proves the image-corroborated catalog path (added alongside schema.org and the cart-control triad in CommerceStructureRecognizer::productCardData()) does not widen false positives: a price is still required (rules out the blog and feature grids), an <img> is still required (an inline <svg> icon does not count), and a recurring/subscription price still disqualifies a card even when it carries a photo (rules out a pricing table with plan photos)."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream commerce-recognition fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><section class=\"posts grid\"><article class=\"post-card\"><img src=\"/img/post-1.jpg\" alt=\"Post one\"><h3>How We Shipped It</h3><p>A behind-the-scenes look at the release.</p></article><article class=\"post-card\"><img src=\"/img/post-2.jpg\" alt=\"Post two\"><h3>Lessons From Launch</h3><p>What we would do differently.</p></article><article class=\"post-card\"><img src=\"/img/post-3.jpg\" alt=\"Post three\"><h3>A Year In Review</h3><p>Looking back at our roadmap.</p></article><article class=\"post-card\"><img src=\"/img/post-4.jpg\" alt=\"Post four\"><h3>Meet The Team</h3><p>Introducing our newest engineers.</p></article></section><section class=\"features grid\"><div class=\"feature card\"><svg viewBox=\"0 0 10 10\"><circle cx=\"5\" cy=\"5\" r=\"4\"></circle></svg><h3>Fast</h3><p>Blazing speed by default.</p></div><div class=\"feature card\"><svg viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\"></rect></svg><h3>Secure</h3><p>Locked down from day one.</p></div><div class=\"feature card\"><svg viewBox=\"0 0 10 10\"><path d=\"M0 0L10 10\"></path></svg><h3>Reliable</h3><p>Always on, always available.</p></div><div class=\"feature card\"><svg viewBox=\"0 0 10 10\"><path d=\"M0 10L10 0\"></path></svg><h3>Simple</h3><p>Set up in minutes.</p></div></section><section class=\"pricing grid\"><div class=\"tier card\"><img src=\"/img/plan-basic.jpg\" alt=\"Basic plan\"><h3>Basic</h3><span class=\"price\">$9/mo</span><a href=\"/signup\">Get started</a></div><div class=\"tier card\"><img src=\"/img/plan-pro.jpg\" alt=\"Pro plan\"><h3>Pro</h3><span class=\"price\">$29/mo</span><a href=\"/signup\">Get started</a></div><div class=\"tier card\"><img src=\"/img/plan-team.jpg\" alt=\"Team plan\"><h3>Team</h3><span class=\"price\">$79/mo</span><a href=\"/signup\">Get started</a></div><div class=\"tier card\"><img src=\"/img/plan-enterprise.jpg\" alt=\"Enterprise plan\"><h3>Enterprise</h3><span class=\"price\">$199/mo</span><a href=\"/signup\">Get started</a></div></section></main>"
+  },
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "fallbacks", "assert": "count", "count": 0 }
+  ]
+}
