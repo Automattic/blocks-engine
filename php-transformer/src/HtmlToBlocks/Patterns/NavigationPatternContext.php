@@ -248,6 +248,14 @@ final class NavigationPatternContext
      * defaults. Read the presentation from the source element the native item
      * stands in for, and state it on that native counterpart.
      *
+     * The recovered rule is a nav-descendant selector, so it reaches every
+     * item. Only properties every source anchor actually shares may land
+     * there; a uniquely styled child (a gradient-text wordmark beside plain
+     * links) must keep its own type. `color: transparent` is refused even
+     * when shared: it is only legible with `background-clip: text` and a
+     * background image, neither of which this projection carries, so
+     * replaying it always paints invisible text.
+     *
      * Delivered as CSS rather than written onto the block: shell identity
      * compares block markup across documents, so a value that varies per page
      * would split one shared template part into one part per page.
@@ -260,14 +268,13 @@ final class NavigationPatternContext
             return;
         }
 
-        $anchor = null;
+        $anchors = array();
         foreach ( $navigation->getElementsByTagName('a') as $candidate ) {
             if ( $candidate instanceof DOMElement ) {
-                $anchor = $candidate;
-                break;
+                $anchors[] = $candidate;
             }
         }
-        if ( ! $anchor instanceof DOMElement ) {
+        if ( array() === $anchors ) {
             return;
         }
 
@@ -275,12 +282,15 @@ final class NavigationPatternContext
         // `font` first: builders commonly state menu type as the shorthand, and
         // a longhand found further out should not silently outrank it.
         foreach ( array( 'font', 'color', 'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform' ) as $property ) {
-            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            $value = $this->sharedNavigationItemPresentationValue($anchors, $navigation, $property);
             // The source component resolves this formula against its own width.
             // Replaying it on Core's replacement anchor changes that reference
             // and inflates the label. The promoted item retains the source
             // wrapper class, so the anchor can inherit the original value.
             if ( in_array($property, array( 'font', 'font-size' ), true) && str_contains($value, '--scaling-factor') ) {
+                continue;
+            }
+            if ( 'color' === $property && $this->isTransparentColor($value) ) {
                 continue;
             }
             if ( '' !== $value ) {
@@ -293,6 +303,48 @@ final class NavigationPatternContext
 
         $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
         $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $declarations));
+    }
+
+    /**
+     * Presentation every source anchor inside the navigation actually shares.
+     *
+     * @param list<DOMElement> $anchors
+     */
+    private function sharedNavigationItemPresentationValue(array $anchors, DOMElement $navigation, string $property): string
+    {
+        $shared = null;
+        foreach ( $anchors as $anchor ) {
+            $value = $this->navigationItemPresentationValue($anchor, $navigation, $property);
+            if ( null === $shared ) {
+                $shared = $value;
+                continue;
+            }
+            if ( $value !== $shared ) {
+                return '';
+            }
+        }
+
+        return is_string($shared) ? $shared : '';
+    }
+
+    /** Transparent ink is invisible unless a clipped background travels with it. */
+    private function isTransparentColor(string $value): bool
+    {
+        $normalized = strtolower(trim($value));
+        if ( '' === $normalized ) {
+            return false;
+        }
+        if ( 'transparent' === $normalized ) {
+            return true;
+        }
+
+        $compact = preg_replace('/\s+/', '', $normalized) ?? '';
+        if ( in_array($compact, array( '#0000', '#00000000' ), true) ) {
+            return true;
+        }
+
+        return 1 === preg_match('/^(?:rgba?|hsla?)\((?:[^,]+,){3}0(?:\.0+)?\)$/', $compact)
+            || 1 === preg_match('#^(?:rgba?|hsla?)\([^/]+/0(?:\.0+)?%?\)$#', $compact);
     }
 
     /**
