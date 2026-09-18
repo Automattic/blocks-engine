@@ -153,6 +153,7 @@ final class FormLayoutGraphBuilder
             }
         }
         $this->hoistFieldListSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
+        $this->hoistFieldGroupSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
 
         $graph = array(
             'schema' => 'generic/computed-layout-graph/v2',
@@ -410,6 +411,111 @@ final class FormLayoutGraphBuilder
             $this->truncated = true;
             $this->diagnostics[] = 'provenance_limit';
         }
+    }
+
+    /**
+     * A provider field flattens the exclusive label/control wrapper, so the
+     * authored intra-field gap has to live on the control the provider renders.
+     * Margin-block-start on that control is the spacing a Jetpack field shell
+     * keeps between its label and the native value.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @param array<string, array<string, mixed>> $nodes
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function hoistFieldGroupSpacing(array $entries, array &$nodes, array $rules, array $customPropertyRules): void
+    {
+        foreach ( $entries as $entry ) {
+            if ( 'control' === $entry['kind'] || 1 !== $this->dataEntryDescendants($entries, $entry['id']) ) {
+                continue;
+            }
+            $spacing = $this->fieldListGap($entry['element'], $rules, $customPropertyRules);
+            if ( null === $spacing ) {
+                continue;
+            }
+            $gap = $spacing['layout']['row_gap'] ?? $spacing['layout']['gap'] ?? null;
+            if ( ! is_string($gap) || '' === trim($gap) ) {
+                continue;
+            }
+            $controlId = $this->dataEntryControlId($entries, $entry['id']);
+            if ( null === $controlId ) {
+                continue;
+            }
+            $controlEntry = null;
+            foreach ( $entries as $candidate ) {
+                if ( $candidate['id'] === $controlId ) {
+                    $controlEntry = $candidate;
+                    break;
+                }
+            }
+            if ( null === $controlEntry || $controlEntry['parent'] !== $entry['id'] ) {
+                continue;
+            }
+            $controlLayout = is_array($nodes[$controlId]['layout'] ?? null) ? $nodes[$controlId]['layout'] : array();
+            if ( isset($controlLayout['margin_block_start']) ) {
+                continue;
+            }
+            $provenance = array();
+            foreach ( $spacing['provenance'] as $fact ) {
+                $fact['properties'] = array( 'margin-block-start' );
+                $provenance[] = $fact;
+            }
+            $layout = array( 'margin_block_start' => $gap );
+            $this->ensureAncestorNodes($entries, $controlEntry, $nodes);
+            if ( ! isset($nodes[$controlId]) ) {
+                $nodes[$controlId] = $this->node($controlEntry, $layout, $provenance);
+                continue;
+            }
+            $nodes[$controlId]['layout'] = array_merge($controlLayout, $layout);
+            ksort($nodes[$controlId]['layout']);
+            $nodes[$controlId]['provenance'] = array_merge(is_array($nodes[$controlId]['provenance'] ?? null) ? $nodes[$controlId]['provenance'] : array(), $provenance);
+            if ( count($nodes[$controlId]['provenance']) > self::MAX_PROVENANCE ) {
+                $nodes[$controlId]['provenance'] = array_slice($nodes[$controlId]['provenance'], 0, self::MAX_PROVENANCE);
+                $this->truncated = true;
+                $this->diagnostics[] = 'provenance_limit';
+            }
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $entries
+     * @param array<string, mixed> $entry
+     * @param array<string, array<string, mixed>> $nodes
+     */
+    private function ensureAncestorNodes(array $entries, array $entry, array &$nodes): void
+    {
+        for ( $parent = $entry['parent']; null !== $parent; ) {
+            if ( isset($nodes[$parent]) ) {
+                return;
+            }
+            $parentEntry = null;
+            foreach ( $entries as $candidate ) {
+                if ( $candidate['id'] === $parent ) {
+                    $parentEntry = $candidate;
+                    break;
+                }
+            }
+            if ( null === $parentEntry ) {
+                return;
+            }
+            $nodes[$parent] = $this->node($parentEntry, array(), array());
+            $parent = $parentEntry['parent'];
+        }
+    }
+
+    /** @param list<array<string, mixed>> $entries */
+    private function dataEntryControlId(array $entries, string $id): ?string
+    {
+        foreach ( $entries as $entry ) {
+            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
+                continue;
+            }
+            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
+                return $entry['id'];
+            }
+        }
+        return null;
     }
 
     /** @param list<array<string, mixed>> $entries */
