@@ -5656,12 +5656,14 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         // paragraph: author `p` type selectors are projected through the source-`p`
         // tag marker, which only elements that were `<p>` in the source carry.
         if ( 0 === $this->childElementCount($element) && ! ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) ) {
-            return $this->createBlock(
-                'core/paragraph',
-                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
-                array(),
-                $element
-            );
+            $attrs = array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content ));
+            // A non-`p` source did not have paragraph margins. Mark the host so
+            // engine-support CSS can neutralize them without touching authored <p>.
+            if ( 'p' !== strtolower($element->tagName) ) {
+                $attrs['className'] = $this->mergeClassNames((string) ($attrs['className'] ?? ''), self::SYNTHETIC_PARAGRAPH_CLASS);
+            }
+
+            return $this->createBlock('core/paragraph', $attrs, array(), $element);
         }
 
         return $this->createBlock(

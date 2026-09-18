@@ -96,6 +96,25 @@ $assert(
     $divBackedMarkup
 );
 
+$paddedText = ( new HtmlTransformer() )->transform(
+    '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style>'
+    . '<div class="copy">PLAN 1 (0-3s)</div>'
+)->toArray();
+$paddedTextMarkup = (string) ( $paddedText['serialized_blocks'] ?? '' );
+$paddedTextCss    = $cssOf($paddedText);
+
+$assert(
+    str_contains($paddedTextMarkup, 'blocks-engine-synthetic-paragraph')
+        && str_contains($paddedTextMarkup, 'PLAN 1 (0-3s)'),
+    'a childless padded text wrapper keeps the synthetic paragraph margin reset',
+    $paddedTextMarkup
+);
+$assert(
+    str_contains($paddedTextCss, ':root :where(.blocks-engine-synthetic-paragraph){margin-top:0;margin-bottom:0}'),
+    'engine-support CSS still zeros the introduced paragraph host margins',
+    $paddedTextCss
+);
+
 if ( $failures > 0 ) {
     fwrite(STDERR, "Inline span paragraph host: {$failures} failed, {$passes} passed\n");
     exit(1);

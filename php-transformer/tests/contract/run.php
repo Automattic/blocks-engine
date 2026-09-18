@@ -1997,6 +1997,13 @@ $assert(str_contains($loneStyledInlineMarkup, 'blocks-engine-inline-layout-carri
 $assert(! str_contains($loneStyledInlineMarkup, '<p class="blocks-engine-synthetic-paragraph"><mark'), 'the span is not rewrapped as a synthetic paragraph host');
 $assert('pass' === ($loneStyledInline['source_reports']['wp_block_validity']['status'] ?? ''), 'lone styled inline carriers remain editor-valid');
 
+$paddedTextWrapper = ( new HtmlTransformer() )->transform(
+    '<style>.copy{padding:1rem;font-size:.875rem;line-height:1.625}</style><div class="copy">PLAN 1 (0-3s)</div>'
+)->toArray();
+$paddedTextWrapperMarkup = (string) ($paddedTextWrapper['serialized_blocks'] ?? '');
+$assert(str_contains($paddedTextWrapperMarkup, 'blocks-engine-synthetic-paragraph') && str_contains($paddedTextWrapperMarkup, 'PLAN 1 (0-3s)'), 'a childless padded text wrapper marks its paragraph host for margin neutralization');
+$assert('pass' === ($paddedTextWrapper['source_reports']['wp_block_validity']['status'] ?? ''), 'padded text wrapper paragraphs remain editor-valid');
+
 $outlineButton = ( new HtmlTransformer() )->transform(
     '<main><a class="btn btn-secondary" style="display:inline-block;padding:1rem 2rem;border:1px solid #c4a070;background:transparent;color:#eee;text-transform:uppercase" href="/tickets"><span>Tickets</span></a></main>'
 )->toArray();
