@@ -4041,7 +4041,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         unset($attrs['layout']);
         $attrs['className'] = $this->mergeClassNames(
             (string) ($attrs['className'] ?? ''),
-            self::CSS_OWNED_LAYOUT_CLASS,
+            self::CSS_OWNED_LAYOUT_CLASS
+        );
+        if ( ! $this->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
+            return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
+        }
+        $attrs['className'] = $this->mergeClassNames(
+            (string) $attrs['className'],
             self::CSS_OWNED_FLOW_CLASS
         );
         $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
@@ -4162,6 +4168,41 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         );
 
         return $attrs;
+    }
+
+    private function authorOwnsChildFlowSpacing(DOMElement $element): bool
+    {
+        $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
+        foreach ( array( 'gap', 'row-gap', 'column-gap' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isStructuralListContext(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($element) ) {
+            return true;
+        }
+        if ( 'li' === $tagName && $this->isStructuralListItem($element) ) {
+            return true;
+        }
+
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $ancestorTag = strtolower($ancestor->tagName);
+            if ( 'li' === $ancestorTag && $this->isStructuralListItem($ancestor) ) {
+                return true;
+            }
+            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($ancestor) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<int, array<string, mixed>> $blocks */

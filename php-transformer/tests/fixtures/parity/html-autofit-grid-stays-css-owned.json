@@ -29,8 +29,8 @@
     { "path": "blocks.0.innerBlocks", "assert": "count", "count": 3 },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "is-layout-grid" },
     { "path": "serialized_blocks", "assert": "not_contains", "value": "minimumColumnWidth" },
-    { "path": "serialized_blocks", "assert": "not_contains", "value": "work-grid blocks-engine-css-owned-layout blocks-engine-css-owned-flow" },
-    { "path": "serialized_blocks", "assert": "contains", "value": "work-grid blocks-engine-css-owned-layout blocks-engine-css-owned-grid" },
+    { "path": "serialized_blocks", "assert": "not_contains", "value": "blocks-engine-css-owned-flow" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "blocks-engine-css-owned-grid" },
     { "path": "assets.1.content", "assert": "contains", "value": ".work-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:24px}" }
   ]
 }
