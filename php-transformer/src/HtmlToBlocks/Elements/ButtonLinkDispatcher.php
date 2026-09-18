@@ -201,14 +201,38 @@ final class ButtonLinkDispatcher
         }
 
         // The same reasoning covers the presentation those classes resolve to.
-        // The host saves the anchor verbatim, so a margin the author wrote on
-        // the anchor still arrives with it; restating that margin as a block
-        // attribute applies it a second time, once on the host box and once on
-        // the link inside it. Spacing the author never wrote on the anchor has
-        // no source to arrive from, so only the duplicated half is dropped.
-        if ( '' !== trim(SourceDom::attr($anchor, 'class')) && is_array($attrs['style']['spacing'] ?? null) ) {
+        // The host saves the anchor verbatim, so spacing or inherited type the
+        // author wrote on the anchor still arrives with it; restating either
+        // as a block attribute applies it a second time, once on the host box
+        // and once on the link inside it. Spacing or type the author never
+        // wrote on the anchor has no source to arrive from, so only the
+        // duplicated half is dropped.
+        //
+        // A restated line-height/font-size is not just redundant: it is a
+        // genuine line box on the host paragraph, sized from the anchor's own
+        // (frequently smaller) type instead of the host's inherited font. The
+        // source anchor was bare inline content — no wrapper of its own — so
+        // its line box came from its block ancestor, not from itself. Dropping
+        // these properties here is safe specifically because they are the
+        // ordinarily-inherited ones: with nothing restated on the host, the
+        // saved anchor still resolves the same value by inheriting through the
+        // host exactly as it inherited through its source ancestor.
+        // `textDecoration` is deliberately excluded: unlike the properties
+        // above it does not inherit on its own (only the literal `inherit`
+        // keyword propagates it), so a host that resolved it from an ancestor
+        // must keep restating it or a saved `text-decoration:inherit` anchor
+        // would resolve against the host's own default instead.
+        if ( '' !== trim(SourceDom::attr($anchor, 'class')) ) {
             unset($attrs['style']['spacing']);
-            if ( array() === $attrs['style'] ) {
+            if ( is_array($attrs['style']['typography'] ?? null) ) {
+                foreach ( array( 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textTransform', 'fontStyle' ) as $inheritedTypographyProperty ) {
+                    unset($attrs['style']['typography'][$inheritedTypographyProperty]);
+                }
+                if ( array() === $attrs['style']['typography'] ) {
+                    unset($attrs['style']['typography']);
+                }
+            }
+            if ( array() === ($attrs['style'] ?? null) ) {
                 unset($attrs['style']);
             }
         }
