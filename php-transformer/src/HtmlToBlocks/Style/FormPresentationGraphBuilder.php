@@ -6,6 +6,7 @@ namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\SourceElementClassifier;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Path\ArtifactPath;
@@ -358,9 +359,11 @@ final class FormPresentationGraphBuilder
     /** @return list<DOMElement> */
     private function controls(DOMElement $form): array
     {
-        $result = array();
-        foreach ( $form->getElementsByTagName('*') as $element ) if ( in_array(strtolower($element->tagName), array( 'input', 'select', 'textarea', 'button' ), true) ) $result[] = $element;
-        return $result;
+        // One shared enumeration keeps presentation-graph indexes aligned with
+        // reported controls. A raw tag walk counted aria-hidden honeypots the
+        // control manifest omits, so layered author CSS on the submit button
+        // landed on an unmapped index and providers declined the form.
+        return FormControlClassifier::controlElements($form);
     }
 
     /** @return list<DOMElement> */
