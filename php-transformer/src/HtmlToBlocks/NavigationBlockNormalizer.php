@@ -152,7 +152,9 @@ final class NavigationBlockNormalizer
 
             if ( 'core/navigation' === ($block['blockName'] ?? '') ) {
                 $signature = $this->signature($block);
-                if ( ! $preserveDisclosureNavigation && '' !== $signature && isset($seen[$signature]) && $this->isMobileDuplicate($block, $sourceProvenance) ) {
+                if ( ! $preserveDisclosureNavigation && '' !== $signature && isset($seen[$signature])
+                    && ( $this->isMobileDuplicate($block, $sourceProvenance) || $this->startsHidden($block, $sourceBaseHiddenStates) )
+                ) {
                     continue;
                 }
                 if ( '' !== $signature ) {

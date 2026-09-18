@@ -3242,7 +3242,12 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
                 $sourceTagName,
                 $this->elementSelector($sourceElement),
                 $this->sourceProvenanceEntry($name, $sourceElement),
-                $this->sourceElementStartsHidden($sourceElement),
+                // The ancestor-aware, conditional-CSS-resolving check only earns
+                // its extra selector-matching cost for core/navigation, the one
+                // block NavigationBlockNormalizer deduplicates by this signal.
+                'core/navigation' === $name
+                    ? $this->sourceElementOrAncestorStartsHidden($sourceElement)
+                    : $this->sourceElementStartsHidden($sourceElement),
                 $this->htmlAttributes($sourceElement),
                 $this->structureSignals($sourceElement, $attrs),
                 array() === $innerBlocks && 'core/group' === $name
@@ -3321,6 +3326,63 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         return 'none' === $display
             || in_array($visibility, array( 'hidden', 'collapse' ), true)
             || (is_numeric($opacity) && 0.0 === (float) $opacity);
+    }
+
+    /**
+     * Whether the element, or any ancestor, is hidden AT THE REFERENCE
+     * VIEWPORT once its whole authored cascade is resolved — inline style,
+     * static rules, AND rules scoped to a media or feature query that applies
+     * at that viewport — via {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style\StyleResolver::controlSurfaceResolvedStyle()}.
+     *
+     * `sourceElementStartsHidden()` is the narrow, cheap signal a dozen
+     * unrelated call sites need: the element's own UNCONDITIONAL declarations
+     * only. That narrowness is wrong twice over for navigation
+     * deduplication. First, an off-canvas drawer's `<nav>` usually carries no
+     * hidden declaration of its own at all — an ANCESTOR wrapper hides it
+     * (`lg:hidden`, i.e. `display:none` inside `@media (min-width:1024px)`).
+     * Second, the desktop nav *itself* commonly carries `hidden lg:flex` —
+     * `display:none` unconditionally, overridden by a conditional `flex` at
+     * the reference viewport — and the narrow, static-only check reads that
+     * unconditional `display:none` as "hidden", which would misclassify the
+     * one nav that must never be deduplicated away.
+     * `controlSurfaceResolvedStyle()` resolves both correctly: the full
+     * cascade — inline, static, and reference-viewport-applicable conditional
+     * rules together, in specificity and source order — is exactly the
+     * "classification signal, not presentation projection" its own doc
+     * comment calls for.
+     *
+     * Left undetected, {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\NavigationBlockNormalizer}
+     * cannot tell a genuinely hidden duplicate from the real desktop nav —
+     * both would read as equally visible — so the drawer survives as its own
+     * navigation block and renders wherever its resolved `overlayMenu`
+     * intent puts it, duplicating the primary menu in the document flow.
+     */
+    private function sourceElementOrAncestorStartsHidden(DOMElement $element): bool
+    {
+        for (
+            $candidate = $element;
+            $candidate instanceof DOMElement;
+            $candidate = $candidate->parentNode instanceof DOMElement ? $candidate->parentNode : null
+        ) {
+            if ( SourceDom::documentVariantRoot($candidate) === $candidate ) {
+                return false;
+            }
+            $declarations = $this->styleResolver->cssDeclarations($this->styleResolver->controlSurfaceResolvedStyle($candidate));
+            $display = $this->cssComparableValue((string) ($declarations['display'] ?? ''));
+            if ( 'none' === $display ) {
+                return true;
+            }
+            $visibility = $this->cssComparableValue((string) ($declarations['visibility'] ?? ''));
+            if ( in_array($visibility, array( 'hidden', 'collapse' ), true) ) {
+                return true;
+            }
+            $opacity = $this->cssComparableValue((string) ($declarations['opacity'] ?? ''));
+            if ( is_numeric($opacity) && 0.0 === (float) $opacity ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function cssComparableValue(string $value): string
