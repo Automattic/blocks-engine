@@ -3364,6 +3364,39 @@ final class StyleResolver implements ElementPresentationResolver
         return $customProperties;
     }
 
+    /**
+     * The custom properties a declaration reads, resolved from the source
+     * cascade of the element that declared it.
+     *
+     * A materializer that rebuilds a source subtree into a single element
+     * carries the author declarations that matched it, but not the custom
+     * properties those declarations read: the elements that declared them are
+     * exactly the ones the rebuild collapses. Re-rooting the definitions on the
+     * surviving element keeps a carried `var()` resolvable instead of leaving
+     * it invalid at computed-value time. Nested references are left alone so a
+     * definition that survives in the output still resolves at runtime.
+     *
+     * @return array<string, string>
+     */
+    public function carriedCustomProperties(string $value, DOMElement $element): array
+    {
+        if ( ! str_contains($value, 'var(') || ! preg_match_all('/var\(\s*(--[A-Za-z0-9_-]+)/', $value, $matches) ) {
+            return array();
+        }
+
+        $customProperties = $this->cascadedCustomProperties($element);
+        $carried = array();
+        foreach ( array_unique($matches[1]) as $name ) {
+            $declared = trim((string) ( $customProperties[ $name ] ?? '' ));
+            if ( '' === $declared ) {
+                continue;
+            }
+            $carried[ $name ] = $declared;
+        }
+
+        return $carried;
+    }
+
     /** @return array<string, string> */
     private function conditionalCascadedCustomProperties(DOMElement $element): array
     {
