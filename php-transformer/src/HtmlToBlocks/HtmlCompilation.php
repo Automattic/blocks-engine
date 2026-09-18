@@ -4049,17 +4049,20 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             (string) ($attrs['className'] ?? ''),
             self::CSS_OWNED_LAYOUT_CLASS
         );
-        if ( ! $this->authorOwnsChildFlowSpacing($element) ) {
+        if ( ! $this->authorOwnsChildFlowSpacing($element) && ! $this->isStructuralListContext($element) ) {
             return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
         }
         $attrs['className'] = $this->mergeClassNames(
             (string) $attrs['className'],
             self::CSS_OWNED_FLOW_CLASS
         );
-        $attrs['style'] = array_merge(
-            is_array($attrs['style'] ?? null) ? $attrs['style'] : array(),
-            array( 'spacing' => array( 'blockGap' => '0' ) )
-        );
+        $style = is_array($attrs['style'] ?? null) ? $attrs['style'] : array();
+        $spacing = is_array($style['spacing'] ?? null) ? $style['spacing'] : array();
+        if ( ! isset($spacing['blockGap']) ) {
+            $spacing['blockGap'] = '0';
+            $style['spacing'] = $spacing;
+            $attrs['style'] = $style;
+        }
 
         return $this->markUnsafeFixedHeightTopologyChange($attrs, $topologyChanged);
     }
@@ -4178,6 +4181,29 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $declarations = $this->styleResolver->structuralPresentationDeclarations($element);
         foreach ( array( 'gap', 'row-gap', 'column-gap' ) as $property ) {
             if ( '' !== trim((string) ($declarations[$property] ?? '')) ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isStructuralListContext(DOMElement $element): bool
+    {
+        $tagName = strtolower($element->tagName);
+        if ( in_array($tagName, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($element) ) {
+            return true;
+        }
+        if ( 'li' === $tagName && $this->isStructuralListItem($element) ) {
+            return true;
+        }
+
+        for ( $ancestor = $element->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
+            $ancestorTag = strtolower($ancestor->tagName);
+            if ( 'li' === $ancestorTag && $this->isStructuralListItem($ancestor) ) {
+                return true;
+            }
+            if ( in_array($ancestorTag, array( 'ul', 'ol' ), true) && $this->listContainsStructuralItemContent($ancestor) ) {
                 return true;
             }
         }
@@ -5798,14 +5824,11 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        // A non-paragraph wrapper that owns spacing must retain a native
-        // container: resetting a synthetic paragraph can override layered
-        // author margin utilities.
         if ( 'div' === strtolower($element->tagName) && $this->hasMarginWrapperStyling($element) ) {
             return $this->createBlock(
-                'core/group',
-                $this->styleResolver->presentationAttributes($element),
-                array( $this->createBlock('core/paragraph', array( 'content' => $content )) ),
+                'core/paragraph',
+                array_merge($this->styleResolver->presentationAttributes($element), array( 'content' => $content )),
+                array(),
                 $element
             );
         }
