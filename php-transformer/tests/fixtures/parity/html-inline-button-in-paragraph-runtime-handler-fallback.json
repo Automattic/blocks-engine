@@ -1,0 +1,26 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-inline-button-in-paragraph-runtime-handler-fallback",
+  "description": "Negative guard for inline-button-in-paragraph promotion: a button wired to runtime behavior (aria-controls/aria-expanded, a disclosure toggle) still forces the paragraph to core/html. Only a static, behavior-free button is safe to flatten into RichText.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-inline-button-in-paragraph-runtime-handler-fallback.json",
+    "notes": "Shares its unsafe-attribute list with ButtonsPattern::hasRuntimeBehaviorSignal() and ElementConversionPrelude::requiresWrappedButtonPreservation()."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "Negative guard for new inline-button-in-paragraph promotion."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><p>Toggle menu <button aria-expanded=\"false\" aria-controls=\"menu\">Menu</button></p></main>"
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/html" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<!-- wp:html -->" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "<button aria-expanded=\"false\" aria-controls=\"menu\">Menu</button>" }
+  ]
+}

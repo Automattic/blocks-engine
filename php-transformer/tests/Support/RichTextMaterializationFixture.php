@@ -21,6 +21,7 @@ final class RichTextMaterializationFixture implements RichTextMaterialization
     public function contentWithoutDecorativeSvg(DOMElement $element): string { return $this->content($element); }
     public function contentWithMaterializedSvgImages(DOMElement $element, string $content): ?string { return isset($this->operations['contentWithMaterializedSvgImages']) ? ($this->operations['contentWithMaterializedSvgImages'])($element, $content) : $content; }
     public function requiresHtmlFallbackWithoutNativeSvgImageObjects(string $content): bool { return $this->requiresHtmlFallback($content); }
+    public function requiresHtmlFallbackConsideringInlineButtons(DOMElement $element, string $content): bool { return isset($this->operations['requiresHtmlFallbackConsideringInlineButtons']) ? ($this->operations['requiresHtmlFallbackConsideringInlineButtons'])($element, $content) : $this->requiresHtmlFallback($content); }
     public function containsNativeSvgImageObject(string $content): bool { return isset($this->operations['containsNativeSvgImageObject']) && ($this->operations['containsNativeSvgImageObject'])($content); }
     public function stripDecorativeSvg(string $content): string { return $content; }
 }

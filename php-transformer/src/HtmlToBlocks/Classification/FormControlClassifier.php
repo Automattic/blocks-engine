@@ -188,6 +188,90 @@ final class FormControlClassifier
         return self::isDataEntryControl($control) && 'search' !== self::controlType($control);
     }
 
+    /**
+     * A `<button>` a paragraph's RichText can carry inline instead of forcing
+     * the whole paragraph to a `core/html` fallback: no real or pseudo form to
+     * submit, no wired runtime behavior, and no nested interactive or media
+     * content that would make an inline run unsafe or invalid.
+     */
+    public static function isInlineSafeButton(DOMElement $button): bool
+    {
+        if ( 'button' !== strtolower($button->tagName) ) {
+            return false;
+        }
+
+        if ( self::hasFormAncestor($button) || self::isPseudoFormSubmitControl($button) ) {
+            return false;
+        }
+
+        foreach ( self::UNSAFE_INLINE_BUTTON_ATTRIBUTES as $attribute ) {
+            if ( $button->hasAttribute($attribute) ) {
+                return false;
+            }
+        }
+
+        foreach ( $button->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && in_array(strtolower($descendant->tagName), self::UNSAFE_INLINE_BUTTON_DESCENDANTS, true) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Form-action and runtime-behavior attributes that make a button unsafe to
+     * flatten into RichText, shared with the wrapped-button preservation checks
+     * in {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns\ButtonsPattern}
+     * and {@see \Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ElementConversionPrelude}.
+     *
+     * @var array<int, string>
+     */
+    private const UNSAFE_INLINE_BUTTON_ATTRIBUTES = array(
+        'disabled',
+        'form',
+        'formaction',
+        'formenctype',
+        'formmethod',
+        'formnovalidate',
+        'formtarget',
+        'popovertarget',
+        'popovertargetaction',
+        'command',
+        'commandfor',
+        'aria-controls',
+        'aria-expanded',
+        'data-action',
+        'jsaction',
+        'onclick',
+        'onchange',
+        'onsubmit',
+    );
+
+    /**
+     * Interactive or media descendants that cannot live inside inline RichText,
+     * or that would nest interactive content invalidly inside a button.
+     *
+     * @var array<int, string>
+     */
+    private const UNSAFE_INLINE_BUTTON_DESCENDANTS = array(
+        'a',
+        'button',
+        'svg',
+        'canvas',
+        'img',
+        'picture',
+        'video',
+        'audio',
+        'iframe',
+        'object',
+        'embed',
+        'input',
+        'select',
+        'textarea',
+        'form',
+    );
+
     private static function isSoleFormActionControl(DOMElement $control): bool
     {
         $form = null;
