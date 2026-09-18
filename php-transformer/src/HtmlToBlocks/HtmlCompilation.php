@@ -23,6 +23,7 @@ use Automattic\BlocksEngine\PhpTransformer\Contract\EmittedCoreBlockContracts;
 use Automattic\BlocksEngine\PhpTransformer\Contract\TransformerResult;
 use Automattic\BlocksEngine\PhpTransformer\AssetAnalysis\SrcsetParser;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\ContentRoundTripReporter;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Diagnostics\SourceMediaRetentionReporter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthorLayoutBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredCarouselBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredMarqueeBlockGenerator;
@@ -378,6 +379,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     private readonly SemanticParityReporter $semanticParityReporter;
 
     private readonly ContentRoundTripReporter $contentRoundTripReporter;
+    private readonly SourceMediaRetentionReporter $sourceMediaRetentionReporter;
 
     private readonly ReusableComponentRecognizer $reusableComponentRecognizer;
 
@@ -500,6 +502,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             new TypographyParityAnalyzer(new FontMaterializationPlanBuilder($this->analysisCache->cssFontAnalysis))
         );
         $this->contentRoundTripReporter = new ContentRoundTripReporter();
+        $this->sourceMediaRetentionReporter = new SourceMediaRetentionReporter();
         $this->reusableComponentRecognizer = new ReusableComponentRecognizer();
         $this->styleResolver = new StyleResolver($this->createStyleResolutionContext(), $this->analysisCache);
         $this->generatedBlockStyleProjector = new GeneratedBlockStyleProjector($this->runtime, $this->styleResolver);
@@ -1479,6 +1482,21 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         $semanticParityReport = $semanticParityEvaluation->report($validationEvidence);
         $contentRoundTripEvaluation = $this->contentRoundTripReporter->evaluate($serializedBlocks, $html, $this->transformationEvidence()->formControlEchoTexts());
         $contentRoundTripReport = $contentRoundTripEvaluation->report();
+        // The round-trip check runs output ⊆ source to catch invented copy. This
+        // runs the other way for media, which nothing did: an image demoted to
+        // its own `alt` text is not absent, so every loss counter stayed at zero
+        // while the page lost its pictures.
+        $sourceMediaRetentionReport = $this->sourceMediaRetentionReporter->evaluate(
+            $html,
+            $serializedBlocks,
+            array_map(
+                static fn (array $asset): string => (string) ( $asset['content'] ?? '' ),
+                array_filter(
+                    $this->materializedAssets()->assets(),
+                    static fn (mixed $asset): bool => is_array($asset) && 'css' === ( $asset['kind'] ?? '' )
+                )
+            )
+        )->report();
         $validationOutcome = \Automattic\BlocksEngine\PhpTransformer\Contract\HtmlValidationOutcome::fromValidationFacts(
             $blockValidityEvaluation->status,
             $blockValidityEvaluation->findings,
@@ -1547,6 +1565,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'block_validity_report' => $blockValidityReport,
             'semantic_parity_report' => $semanticParityReport,
             'content_round_trip_report' => $contentRoundTripReport,
+            'source_media_retention_report' => $sourceMediaRetentionReport,
             'presentation_signals' => $this->transformationProvenance()->presentationSignals(),
             'frozen_hidden_state' => $this->transformationEvidence()->frozenHiddenStateFindings(),
             'dropped_link_wrappers' => $this->transformationEvidence()->droppedLinkWrapperFindings(),
