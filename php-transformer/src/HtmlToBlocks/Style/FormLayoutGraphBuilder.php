@@ -29,6 +29,9 @@ final class FormLayoutGraphBuilder
     private const LAYOUT_KEYS = array( 'display', 'width', 'height', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_items', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis', 'margin_block_start', 'margin_block_end', 'margin_inline_start', 'margin_inline_end' );
     private const V1_PROPERTIES = array( 'display', 'grid-template-columns', 'grid-template-rows', 'gap', 'row-gap', 'column-gap', 'grid-column', 'grid-row', 'grid-area', 'flex-direction', 'flex-wrap', 'align-items', 'align-content', 'justify-content', 'align-self', 'justify-self', 'order', 'flex', 'flex-grow', 'flex-shrink', 'flex-basis' );
     private const V1_LAYOUT_KEYS = array( 'display', 'columns', 'rows', 'gap', 'row_gap', 'column_gap', 'column', 'row', 'area', 'direction', 'wrap', 'align_items', 'align_content', 'justify_content', 'align_self', 'justify_self', 'order', 'flex', 'flex_grow', 'flex_shrink', 'flex_basis' );
+    // Cascade layers are not unlayered flex/grid structure, but a field-list
+    // gap still has to reach the provider form that owns the stacked fields.
+    private const SPACING_PROPERTIES = array( 'gap', 'row-gap', 'column-gap' );
 
     private array $diagnostics = array();
     private bool $truncated = false;
@@ -149,6 +152,7 @@ final class FormLayoutGraphBuilder
                 $nodes[$entry['id']]['sizing'] = $sizing;
             }
         }
+        $this->hoistFieldListSpacing($entries, $nodes, $analysis['rules'], $customPropertyAnalysis['rules']);
 
         $graph = array(
             'schema' => 'generic/computed-layout-graph/v2',
@@ -337,8 +341,116 @@ final class FormLayoutGraphBuilder
         return FormControlClassifier::controlElements($form);
     }
 
+    /**
+     * A provider form flattens shared field-list wrappers, so authored stack
+     * spacing has to live on the form node the provider actually renders.
+     *
+     * @param list<array<string, mixed>> $entries
+     * @param array<string, array<string, mixed>> $nodes
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     */
+    private function hoistFieldListSpacing(array $entries, array &$nodes, array $rules, array $customPropertyRules): void
+    {
+        $formEntry = null;
+        foreach ( $entries as $entry ) {
+            if ( 'form' === $entry['id'] ) {
+                $formEntry = $entry;
+                break;
+            }
+        }
+        if ( null === $formEntry ) {
+            return;
+        }
+        $formLayout = is_array($nodes['form']['layout'] ?? null) ? $nodes['form']['layout'] : array();
+        if ( isset($formLayout['gap']) || isset($formLayout['row_gap']) ) {
+            return;
+        }
+
+        $best = null;
+        $bestDepth = -1;
+        foreach ( $entries as $entry ) {
+            if ( 'control' === $entry['kind'] || $this->dataEntryDescendants($entries, $entry['id']) < 2 ) {
+                continue;
+            }
+            $spacing = $this->fieldListGap($entry['element'], $rules, $customPropertyRules);
+            if ( null === $spacing ) {
+                continue;
+            }
+            $depth = 0;
+            for ( $parent = $entry['parent']; null !== $parent && $depth < self::MAX_DEPTH; ++$depth ) {
+                $next = null;
+                foreach ( $entries as $candidate ) {
+                    if ( $candidate['id'] === $parent ) {
+                        $next = $candidate['parent'];
+                        break;
+                    }
+                }
+                $parent = $next;
+            }
+            if ( $depth < $bestDepth ) {
+                continue;
+            }
+            $best = $spacing;
+            $bestDepth = $depth;
+        }
+        if ( null === $best ) {
+            return;
+        }
+
+        if ( ! isset($nodes['form']) ) {
+            $nodes['form'] = $this->node($formEntry, $best['layout'], $best['provenance']);
+            return;
+        }
+        $nodes['form']['layout'] = array_merge($formLayout, $best['layout']);
+        ksort($nodes['form']['layout']);
+        $nodes['form']['provenance'] = array_merge(is_array($nodes['form']['provenance'] ?? null) ? $nodes['form']['provenance'] : array(), $best['provenance']);
+        if ( count($nodes['form']['provenance']) > self::MAX_PROVENANCE ) {
+            $nodes['form']['provenance'] = array_slice($nodes['form']['provenance'], 0, self::MAX_PROVENANCE);
+            $this->truncated = true;
+            $this->diagnostics[] = 'provenance_limit';
+        }
+    }
+
+    /** @param list<array<string, mixed>> $entries */
+    private function dataEntryDescendants(array $entries, string $id): int
+    {
+        $count = 0;
+        foreach ( $entries as $entry ) {
+            if ( 'control' !== $entry['kind'] || ! FormControlClassifier::isDataEntryControl($entry['element']) ) {
+                continue;
+            }
+            if ( $entry['id'] === $id || $this->hasAncestor($entries, $entry['id'], $id) ) {
+                ++$count;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rules
+     * @param list<array<string, mixed>> $customPropertyRules
+     * @return array{layout: array<string, string>, provenance: list<array<string, mixed>>}|null
+     */
+    private function fieldListGap(DOMElement $element, array $rules, array $customPropertyRules): ?array
+    {
+        $matched = $this->matched($element, $rules, true);
+        $base = array_intersect_key($matched['base'], array_flip(self::SPACING_PROPERTIES));
+        $layout = array_intersect_key($this->layout($base, $element, null, $customPropertyRules), array_flip(array( 'gap', 'row_gap' )));
+        if ( array() === $layout ) {
+            return null;
+        }
+        $properties = array();
+        foreach ( array_keys($layout) as $key ) {
+            $properties[] = 'row_gap' === $key ? 'row-gap' : $key;
+        }
+        $base = array_intersect_key($base, array_flip($properties));
+
+        return array( 'layout' => $layout, 'provenance' => $this->provenance($base, null) );
+    }
+
     /** @param list<array<string, mixed>> $rules @return array{base: array<string, array<string, mixed>>, conditional: array<string, array<string, array<string, mixed>>>} */
-    private function matched(DOMElement $element, array $rules): array
+    private function matched(DOMElement $element, array $rules, bool $spacingFromLayers = false): array
     {
         $base = array();
         if ( $element->hasAttribute('style') ) {
@@ -356,9 +468,22 @@ final class FormLayoutGraphBuilder
             // structural facts. Emitting them here as if they were unlayered
             // made optional layout graphs look complete, so providers declined
             // forms they can still materialize. Layered presentation stays on
-            // the presentation graph, which overlays as CSS.
-            if ( null !== ( $rule['layer'] ?? null ) ) {
+            // the presentation graph, which overlays as CSS. Field-list gap is
+            // the exception: a provider form flattens that wrapper, so the
+            // authored stack spacing has to ride on the form node itself.
+            $layered = null !== ( $rule['layer'] ?? null );
+            if ( $layered && ! $spacingFromLayers ) {
                 continue;
+            }
+            $ruleDeclarations = $rule['declarations'];
+            if ( $layered ) {
+                $ruleDeclarations = array_values(array_filter(
+                    $ruleDeclarations,
+                    static fn (array $declaration): bool => in_array($declaration['name'], self::SPACING_PROPERTIES, true)
+                ));
+                if ( array() === $ruleDeclarations ) {
+                    continue;
+                }
             }
             $match = ! empty($rule['inline']) ? array( 'supported' => true, 'matches' => true ) : CssSelectorMatcher::matches($element, $rule['parsed_selector']);
             if ( ! $match['supported'] ) {
@@ -373,7 +498,7 @@ final class FormLayoutGraphBuilder
                 $this->diagnostics[] = 'rules_per_node_limit';
                 break;
             }
-            foreach ( $rule['declarations'] as $declaration ) {
+            foreach ( $ruleDeclarations as $declaration ) {
                 $important = 1 === preg_match('/\s*!important\s*$/i', $declaration['value']);
                 $value = preg_replace('/\s*!important\s*$/i', '', $declaration['value']) ?? $declaration['value'];
                 $fact = array( 'value' => $value, 'path' => $rule['path'], 'hash' => $rule['hash'], 'selector' => $rule['selector'], 'order' => $rule['order'], 'specificity' => $rule['specificity'], 'important' => $important, 'layer' => $rule['layer'] ?? null );
