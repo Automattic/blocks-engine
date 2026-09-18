@@ -182,6 +182,7 @@
       "php tests/unit/navigation-layout-default.php",
       "php tests/unit/navigation-source-provenance.php",
       "php tests/unit/navigation-dropped-anchors.php",
+      "php tests/unit/navigation-item-scoped-anchor-rules.php",
       "php tests/unit/navigation-inert-support-children.php",
       "php tests/unit/overlay-hidden-navigation.php",
       "php tests/unit/layout-boundary-excludes-shell.php",

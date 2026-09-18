@@ -633,6 +633,22 @@ final class NavigationStyleProjector
                 continue;
             }
 
+            // `li.item .link`: the rule reaches the anchor through its own
+            // source list item. Core renders that item as the navigation-link
+            // `<li>` carrying both the item's and the anchor's classes, so the
+            // item compound folds into the item selector instead of staying an
+            // ancestor that no longer exists above it.
+            $itemCompound = '';
+            if ( $scopedAnchorClassRule
+                && 1 === preg_match('/^(?:(.*?)\s+)?(?:li)?((?:\.[A-Za-z_][A-Za-z0-9_-]*)+)$/i', $ancestor, $itemMatch)
+                && ! $this->namesNavigationHost($itemMatch[2], $hostClasses)
+                && $this->namesOnlyNavigationItemClasses($itemMatch[2], $itemClasses)
+            ) {
+                $ancestor = trim($itemMatch[1]);
+                $itemCompound = $itemMatch[2];
+                $scopedAnchorClassRule = '' !== $ancestor;
+            }
+
             if ( '' !== $ancestor && ! $this->namesNavigationHost($ancestor, $hostClasses) ) {
                 continue;
             }
@@ -646,7 +662,7 @@ final class NavigationStyleProjector
             }
 
             $sourceAnchors = $this->navigationSourceAnchorsForClass($class, $sourceProvenance);
-            if ( $scopedAnchorClassRule ) {
+            if ( $scopedAnchorClassRule || '' !== $itemCompound ) {
                 // The projected selector retains this ancestor context, so
                 // same-class links in another menu cannot affect its winners.
                 $sourceAnchors = array_values(array_filter(
@@ -655,6 +671,11 @@ final class NavigationStyleProjector
                 ));
             }
             if ( array() === $sourceAnchors ) {
+                continue;
+            }
+            if ( '' !== $itemCompound && ! $this->eachAnchorItemMatches($sourceAnchors, 'li' . $itemCompound) ) {
+                // The source rule reached some anchor through an outer list
+                // item; core's item-own selector cannot express that reach.
                 continue;
             }
 
@@ -709,8 +730,8 @@ final class NavigationStyleProjector
             // Its class moves from the source anchor onto core's item wrapper,
             // so both the anchor projection and item reset need that context.
             $itemSelector = $scopedAnchorClassRule
-                ? $ancestor . ' .wp-block-navigation-item.' . $class
-                : '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item.' . $class;
+                ? $ancestor . ' .wp-block-navigation-item' . $itemCompound . '.' . $class
+                : '.wp-block-navigation.blocks-engine-list-navigation .wp-block-navigation-item' . $itemCompound . '.' . $class;
             if ( array() !== $declarations ) {
                 $selectorText = $itemSelector . '>.wp-block-navigation-item__content' . $pseudo;
                 $mappedRule = $selectorText . '{' . implode(';', $declarations) . '}';
@@ -1533,6 +1554,44 @@ final class NavigationStyleProjector
         }
 
         return false;
+    }
+
+    /**
+     * Whether a class-only compound names nothing but classes the rendered
+     * navigation-link items carry.
+     *
+     * @param array<string, true> $itemClasses
+     */
+    private function namesOnlyNavigationItemClasses(string $compound, array $itemClasses): bool
+    {
+        if ( ! preg_match_all('/\.([A-Za-z_][A-Za-z0-9_-]*)/', $compound, $matches) ) {
+            return false;
+        }
+
+        foreach ( $matches[1] as $candidate ) {
+            if ( ! isset($itemClasses[$candidate]) ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether every source anchor's own list item matches the item compound.
+     *
+     * @param list<DOMElement> $anchors
+     */
+    private function eachAnchorItemMatches(array $anchors, string $itemSelector): bool
+    {
+        foreach ( $anchors as $anchor ) {
+            $item = $anchor->parentNode;
+            if ( ! $item instanceof DOMElement || ! $this->styleResolver->matchesCssSelector($item, $itemSelector) ) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
