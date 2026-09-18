@@ -159,6 +159,31 @@ final class LayoutParticipation
         return 'display:inline!important;width:fit-content!important;word-break:normal!important';
     }
 
+    /**
+     * The counterpart to {@see self::transferredItemDeclarations()} for a
+     * positioned control ({@see self::BOX_BUTTON_WRAPPER}): the inner
+     * `.wp-block-button` save wrapper keeps generating a box — it is the
+     * containing-block child a positioned descendant needs — so shrink-to-fit
+     * stays on that box instead of transferring to the link. No `core`
+     * descendant selector targets `.wp-block-button` itself, so this needs no
+     * `!important` the way the transferred link declarations do.
+     */
+    public static function retainedWrapperBoxDeclarations(): string
+    {
+        return 'width:fit-content';
+    }
+
+    /**
+     * The link inside a retained {@see self::retainedWrapperBoxDeclarations()}
+     * wrapper keeps ordinary button chrome (a block-level box that fills that
+     * wrapper) instead of the flattened case's `display:inline` transfer,
+     * because its own box already owns shrink-to-fit.
+     */
+    public static function retainedWrapperLinkDeclarations(): string
+    {
+        return 'display:block;word-break:normal';
+    }
+
     private static function resolvedDisplay(DOMElement $element, StyleResolver $styleResolver): string
     {
         $declarations = $styleResolver->cssDeclarations($styleResolver->controlSurfaceResolvedStyle($element));
