@@ -144,6 +144,31 @@ $svgChildren = $makeDispatcher(array(
 ))->convertAnchor($elementFrom('<a href="#"><svg viewBox="0 0 10 10"><path d="M0 0h1v1z"></path></svg></a>'), $fallbacks);
 $assert('core/group' === ($svgChildren['blockName'] ?? '') && 'svg-children' === ($svgChildren['attrs']['from'] ?? ''), 'svg-only-anchor-converts-children');
 
+// Text plus an inline SVG is phrasing content. Stay a paragraph host so one
+// link is not split into sibling block-level paragraphs.
+$textAndIcon = $makeDispatcher(array(
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array( 'blockName' => 'core/group', 'attrs' => array( 'from' => 'should-not-run' ) );
+        }
+    ),
+))->convertAnchor($elementFrom('<a href="/x">Read more <svg viewBox="0 0 10 10"><path d="M0 0h1v1z"></path></svg></a>'), $fallbacks);
+$assert(
+    'core/paragraph' === ($textAndIcon['blockName'] ?? '') && 'should-not-run' !== ($textAndIcon['attrs']['from'] ?? ''),
+    'text-plus-svg-anchor-stays-paragraph-host'
+);
+$textAndImage = $makeDispatcher(array(
+    'leftovers' => new ButtonLinkLeftoversFixture(
+        convertLinkWrapperGroup: static function (DOMElement $e, array &$f): ?array {
+            return array( 'blockName' => 'core/group', 'attrs' => array( 'from' => 'should-not-run' ) );
+        }
+    ),
+))->convertAnchor($elementFrom('<a href="/x">Read more <img src="icon.png" alt=""></a>'), $fallbacks);
+$assert(
+    'core/paragraph' === ($textAndImage['blockName'] ?? '') && 'should-not-run' !== ($textAndImage['attrs']['from'] ?? ''),
+    'text-plus-img-anchor-stays-paragraph-host'
+);
+
 // An icon-only anchor with an aria-label and a safe href survives as a paragraph host.
 $iconOnly = $makeDispatcher()->convertAnchor($elementFrom('<a href="/x" aria-label="Home"></a>'), $fallbacks);
 $assert('core/paragraph' === ($iconOnly['blockName'] ?? ''), 'icon-only-anchor-survives');

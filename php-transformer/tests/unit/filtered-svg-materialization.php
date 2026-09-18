@@ -108,4 +108,15 @@ $unsafeMarkup = (string) ($unsafeChild['serialized_blocks'] ?? '');
 $assert(!str_contains($unsafeMarkup, 'onload=') && !str_contains($unsafeMarkup, 'alert(1)'), 'Unsafe attributes on an inline SVG child are stripped rather than leaked.');
 $assert(str_contains($unsafeMarkup, '<path d="M0 0h1v1z">'), 'Sanitized drawable SVG children of a preserved container still survive.');
 
+$textAndIcon = (new HtmlTransformer())->transform(
+    '<a href="/services">Read more <svg width="14" height="14" viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M12 5l7 7-7 7"></path></svg></a>'
+)->toArray();
+$textAndIconMarkup = (string) ($textAndIcon['serialized_blocks'] ?? '');
+$assert(1 === substr_count($textAndIconMarkup, '<a '), 'A phrasing text-plus-icon anchor stays one link.');
+$assert(0 === substr_count($textAndIconMarkup, 'blocks-engine-synthetic-svg-paragraph'), 'A phrasing text-plus-icon anchor does not emit a synthetic SVG paragraph.');
+$assert(1 === substr_count($textAndIconMarkup, '<!-- wp:paragraph') && 0 === substr_count($textAndIconMarkup, '<!-- wp:group'), 'A phrasing text-plus-icon anchor stays one paragraph without a group wrapper.');
+$assert(preg_match('/<a href="\/services">Read more <img src="assets\/materialized-svg\/[^"]+" alt="" class="[^"]+" style="width:14px;height:14px" \/>/', $textAndIconMarkup) === 1, 'The SVG icon materializes as a RichText image inside the same anchor.');
+$assert(!str_contains($textAndIconMarkup, '<!-- wp:html') && !str_contains($textAndIconMarkup, '<!-- wp:freeform') && !str_contains($textAndIconMarkup, '<!-- wp:missing'), 'A phrasing text-plus-icon anchor stays on the native paragraph path.');
+$assert('pass' === ((new BlockValidityValidator())->validateBlocks($textAndIcon['blocks'] ?? array())['status'] ?? null), 'A phrasing text-plus-icon paragraph remains Gutenberg-valid.');
+
 fwrite(STDOUT, 'Filtered SVG materialization tests: ' . $assertions . " passed\n");
