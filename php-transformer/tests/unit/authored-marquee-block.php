@@ -75,6 +75,23 @@ $assert('custom/authored-marquee' !== ($finite['blocks'][0]['blockName'] ?? null
 
 $nonRepeating = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $tickerItems . '</div>', array( 'static_css' => $tickerCss ))->toArray();
 $assert('custom/authored-marquee' !== ($nonRepeating['blocks'][0]['blockName'] ?? null), 'motion identity without a repeated sequence stays on generic native lowering');
+
+$phrase = static fn (string $label): string => '<span class="ticker-phrase"><span>' . $label . '</span><span>★</span></span>';
+$wrappedHalf = '<div class="ticker-sequence">' . $phrase('FRIED CHICKEN 100% HALAL') . $phrase('CROUSTILLANT') . '</div>';
+$wrappedCss = '.ticker-track{display:flex;animation:ticker-scroll 30s linear infinite}@keyframes ticker-scroll{0%{transform:translateX(0)}to{transform:translateX(-50%)}}';
+$wrapped = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $wrappedHalf . $wrappedHalf . '</div>', array( 'static_css' => $wrappedCss ))->toArray();
+$wrappedBlock = $wrapped['blocks'][0] ?? array();
+$wrappedItems = $wrappedBlock['attrs']['items'] ?? array();
+$assert('custom/authored-marquee' === ($wrappedBlock['blockName'] ?? null), 'two identical wrapper halves with a CSS marquee animation use the authored marquee companion');
+$assert(2 === count($wrappedItems) && 'ticker-phrase' === ($wrappedItems[0]['className'] ?? null) && 'ticker-phrase' === ($wrappedItems[1]['className'] ?? null), 'wrapped-half items come from the first wrapper\'s children and keep their class names');
+$assert(str_contains((string) ($wrappedItems[0]['content'] ?? ''), 'FRIED CHICKEN 100% HALAL') && str_contains((string) ($wrappedItems[0]['content'] ?? ''), '★') && str_contains((string) ($wrappedItems[0]['content'] ?? ''), '<span') && ! str_contains((string) ($wrappedItems[0]['content'] ?? ''), 'FRIED CHICKEN 100% HALAL★'), 'nested inline item markup stays structured instead of flattening into an unreadable blob');
+$assert('CROUSTILLANT' !== ($wrappedItems[1]['content'] ?? null) && str_contains((string) ($wrappedItems[1]['content'] ?? ''), 'CROUSTILLANT'), 'the second ticker phrase remains its own editable item with nested markup intact');
+$assert('left' === ($wrappedBlock['attrs']['direction'] ?? null) && 30.0 === ($wrappedBlock['attrs']['duration'] ?? null), 'wrapped-half motion still reads keyframe direction and duration from CSS');
+$assert('pass' === ($wrapped['source_reports']['wp_block_validity']['status'] ?? null), 'wrapped-half ticker serialization remains editor-valid');
+
+$asymmetricHalf = '<div class="ticker-sequence">' . $phrase('FRIED CHICKEN 100% HALAL') . $phrase('DIFFERENT') . '</div>';
+$asymmetric = ( new HtmlTransformer() )->transform('<div class="ticker-track">' . $wrappedHalf . $asymmetricHalf . '</div>', array( 'static_css' => $wrappedCss ))->toArray();
+$assert('custom/authored-marquee' !== ($asymmetric['blocks'][0]['blockName'] ?? null), 'an asymmetric two-wrapper track does not become a marquee');
 $maximumMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'right', 'duration' => 900 ));
 $invalidDirectionMarkup = ( new AuthoredMarqueeBlockGenerator() )->markup(array( 'content' => 'Bounded', 'direction' => 'up', 'duration' => 40 ));
 $assert(str_contains($maximumMarkup, 'data-direction="right"') && str_contains($maximumMarkup, '--blocks-engine-marquee-duration:600s') && str_contains($maximumMarkup, 'aria-hidden="true" inert=""') && str_contains($invalidDirectionMarkup, 'data-direction="left"'), 'the frontend markup bounds direction and duration and keeps duplicate content inaccessible');
