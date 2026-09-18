@@ -1597,6 +1597,8 @@ $honeypotGraphGeometry = array_values(array_filter($honeypotGraphNodes, static f
 $assert(count($honeypotGraphControls) === $honeypotReportedCount, 'layout graph enumerates exactly the reported authored controls');
 $assert(array( 'control-0', 'control-1' ) === $honeypotGraphIds, 'layout graph control ids stay aligned with reported control order');
 $assert(array() === $honeypotGraphGeometry, 'wrappers that exist only to hide a non-authored control contribute no layout');
+$honeypotPresentationIndexes = array_column($honeypotGraphFallback['presentation_graph']['controls'] ?? array(), 'index');
+$assert(array( 0, 1 ) === $honeypotPresentationIndexes, 'presentation graph control indexes stay aligned with reported control order');
 
 $placeholderEmail = ( new HtmlTransformer() )->transform(
     '<main><form class="newsletter-form"><label class="title" for="email"></label><input id="email" class="field-element" type="text" name="email" x-autocompletetype="email" placeholder="Email Address"><button type="submit">Claim My Reward</button></form></main>'
