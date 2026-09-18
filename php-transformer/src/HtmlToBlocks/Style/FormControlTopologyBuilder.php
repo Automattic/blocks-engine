@@ -15,6 +15,8 @@ final class FormControlTopologyBuilder
 
     private const MAX_CLASSES = 8;
 
+    private const MAX_LEGEND_BYTES = 200;
+
     /** @var array<int, string> */
     private const WRAPPER_TAGS = array(
         'article', 'aside', 'dd', 'div', 'dl', 'dt', 'fieldset', 'footer', 'header',
@@ -187,9 +189,11 @@ final class FormControlTopologyBuilder
 
         if ( 'fieldset' === $tag ) {
             $semantics = 'plain_group';
+            $legend = '';
             foreach ( $element->childNodes as $child ) {
                 if ( $child instanceof DOMElement && 'legend' === strtolower($child->tagName) ) {
                     $semantics = 'labelled_group';
+                    $legend = $this->legendCaption($child);
                     break;
                 }
             }
@@ -199,9 +203,31 @@ final class FormControlTopologyBuilder
                 $semantics = 'attributed_group';
             }
             $presentation['fieldset_semantics'] = $semantics;
+            // The caption is the only authored name the group has. Reporting that a
+            // fieldset is captioned without reporting the caption leaves a consumer
+            // nothing to label the group with, so it can only flatten the group into
+            // anonymous controls. Carry the text whenever the fieldset is captioned.
+            if ( 'labelled_group' === $semantics && '' !== $legend ) {
+                $presentation['legend'] = $legend;
+            }
         }
 
         return $presentation;
+    }
+
+    /**
+     * Read a fieldset caption as bounded single-line text.
+     *
+     * Builders nest the caption inside presentational elements, so the element's
+     * text content is the caption. An oversized caption is dropped rather than
+     * truncated: a group labelled with half a sentence reads worse than a group
+     * a consumer declined to name.
+     */
+    private function legendCaption(DOMElement $legend): string
+    {
+        $caption = preg_replace('/\s+/', ' ', trim($legend->textContent ?? ''));
+
+        return is_string($caption) && '' !== $caption && self::MAX_LEGEND_BYTES >= strlen($caption) ? $caption : '';
     }
 
     /** @return array<int, DOMElement> */

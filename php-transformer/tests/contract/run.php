@@ -1577,6 +1577,14 @@ $assert(true === ($visibleFormMessage[0]['required'] ?? false) && 'Message' === 
 $assert(! array_key_exists('required_indicator', $visibleFormMessage[0] ?? array()), 'visible required captions keep the provider required marker enabled');
 $assert('2' === ($visibleFormMessage[0]['rows'] ?? ''), 'textareas without an authored rows report the HTML default intrinsic height');
 
+$captionedGroupForm = ( new HtmlTransformer() )->transform(
+    '<main><form class="wixui-form"><div class="wixui-radio-button-group"><fieldset role="radiogroup" aria-required="true"><legend><div data-testid="groupLabel">Meine Frage dreht sich um&hellip;</div></legend><div data-testid="radioGroup"><label><input type="radio" required name="topic" value="kinder"><span>Kinder</span></label><label><input type="radio" name="topic" value="erwachsene"><span>Erwachsene</span></label></div></fieldset></div><button type="submit">Senden</button></form></main>'
+)->toArray();
+$captionedGroupNodes = $captionedGroupForm['fallbacks'][0]['control_topology']['nodes'] ?? array();
+$captionedGroupFieldsets = array_values(array_filter($captionedGroupNodes, static fn (array $node): bool => 'fieldset' === ($node['tag'] ?? '')));
+$assert(1 === count($captionedGroupFieldsets) && 'labelled_group' === ($captionedGroupFieldsets[0]['fieldset_semantics'] ?? ''), 'captioned radio fieldsets reach the fallback topology as a labelled group');
+$assert('Meine Frage dreht sich um…' === ($captionedGroupFieldsets[0]['legend'] ?? ''), 'a labelled group carries the caption a consumer needs to name the group');
+
 $authoredRowsForm = ( new HtmlTransformer() )->transform(
     '<main><form class="notes"><label for="notes">Notes</label><textarea id="notes" rows="6"></textarea><button type="submit">Send</button></form></main>'
 )->toArray();
