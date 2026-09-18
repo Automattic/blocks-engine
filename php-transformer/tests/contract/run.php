@@ -5289,18 +5289,14 @@ $findingsByCode = static function (array $findings, string $code): array {
     return array_values(array_filter($findings, static fn (array $finding): bool => ($finding['code'] ?? '') === $code));
 };
 
-// Positive: a heading web-font declared only in an inline <style> block (no link, no static css)
-// is genuinely dropped and must surface a typography parity finding.
+// Negative: a heading family declared in CSS registers as theme.json typography,
+// so it is represented and must not surface typography_font_family_dropped.
 $droppedHeadingFontResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
     array()
 )->toArray();
 $droppedHeadingFindings = $findingsByCode($semanticFindings($droppedHeadingFontResult), 'typography_font_family_dropped');
-$assert(array() !== $droppedHeadingFindings, 'dropped heading web-font emits typography_font_family_dropped finding');
-$assert('Display Custom' === ($droppedHeadingFindings[0]['font_family'] ?? null), 'typography finding records the dropped font family generically');
-$assert(str_contains((string) ($droppedHeadingFindings[0]['source_snippet'] ?? ''), 'Display Custom'), 'typography finding carries bounded source snippet');
-$assert('none' === ($droppedHeadingFindings[0]['observed_block'] ?? null), 'dropped typography finding records explicit none observed_block');
-$assert('typography_font_family_dropped' === ($droppedHeadingFindings[0]['reason_code'] ?? null), 'typography finding carries stable reason_code');
+$assert(array() === $droppedHeadingFindings, 'CSS-declared heading family that registers as theme.json typography emits no typography_font_family_dropped finding');
 
 // Positive: a web-font family linked from a non-materializing provider surfaces web_font_not_materialized.
 $nonMaterializedLinkResult = ( new HtmlTransformer() )->transform(
@@ -5323,14 +5319,15 @@ $materializedTypographyFindings = array_filter(
 );
 $assert(array() === $materializedTypographyFindings, 'materialized web-font produces no typography parity finding');
 
-// Positive: a base/body family without a provider source cannot be represented
-// by claiming it is a Google font, so it remains a reported typography drop.
+// Negative: a base/body family without a provider source still registers as a
+// theme.json family from the CSS declaration, so it is not a typography drop.
+// Materialization remains provider-backed and must not invent a Google font.
 $inlineBodyFontResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>body{font-family:"Brand Sans",sans-serif}</style></head><body><main><h1>Heading</h1><p>Copy</p></main></body></html>',
     array()
 )->toArray();
 $inlineBodyDropped = $findingsByCode($semanticFindings($inlineBodyFontResult), 'typography_font_family_dropped');
-$assert(array() !== $inlineBodyDropped, 'inline <style> base/body font-family without a provider is reported dropped');
+$assert(array() === $inlineBodyDropped, 'inline <style> base/body font-family that registers as theme.json typography is not reported dropped');
 $inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
     '<head><style>body{font-family:"Brand Sans",sans-serif}</style></head>',
     ''
@@ -5338,15 +5335,27 @@ $inlineBodyPlan = ( new FontMaterializationPlanBuilder() )->fromWebFontSources(
 $assert(! array_key_exists('fonts', $inlineBodyPlan), 'inline <style> base/body font-family is not materialized without a provider source');
 $assert(! array_key_exists('roles', $inlineBodyPlan), 'unbacked inline body family is omitted from materialized roles');
 
-// Positive: a heading-only font in an inline <style> block (no body declaration)
-// still requires a loaded web-font to render, so it remains a reported drop.
+// Negative: a heading-only font in an inline <style> block registers as a
+// theme.json family from that declaration, so it is represented.
 $inlineHeadingOnlyResult = ( new HtmlTransformer() )->transform(
     '<!doctype html><html><head><style>h1,h2{font-family:"Display Custom",sans-serif}</style></head><body><main><h1>Heading</h1></main></body></html>',
     array()
 )->toArray();
 $inlineHeadingOnlyDropped = $findingsByCode($semanticFindings($inlineHeadingOnlyResult), 'typography_font_family_dropped');
-$assert(array() !== $inlineHeadingOnlyDropped, 'inline <style> heading-only font without a loaded web-font is still reported dropped');
-$assert('heading' === ($inlineHeadingOnlyDropped[0]['font_role'] ?? null), 'inline <style> heading-only drop carries the heading role');
+$assert(array() === $inlineHeadingOnlyDropped, 'inline <style> heading-only font that registers as theme.json typography is not reported dropped');
+
+// Positive: an inline heading style attribute is not a CSS rule, so it does not
+// register as a theme.json family and remains a reported drop when unmaterialized.
+$inlineHeadingStyleResult = ( new HtmlTransformer() )->transform(
+    '<!doctype html><html><head></head><body><main><h1 style="font-family:&quot;Display Custom&quot;,sans-serif">Heading</h1></main></body></html>',
+    array()
+)->toArray();
+$inlineHeadingStyleDropped = $findingsByCode($semanticFindings($inlineHeadingStyleResult), 'typography_font_family_dropped');
+$assert(array() !== $inlineHeadingStyleDropped, 'inline heading style font-family without a CSS rule or provider is reported dropped');
+$assert('Display Custom' === ($inlineHeadingStyleDropped[0]['font_family'] ?? null), 'inline heading style drop records the font family generically');
+$assert('heading' === ($inlineHeadingStyleDropped[0]['font_role'] ?? null), 'inline heading style drop carries the heading role');
+$assert('typography_font_family_dropped' === ($inlineHeadingStyleDropped[0]['reason_code'] ?? null), 'typography finding carries stable reason_code');
+$assert('none' === ($inlineHeadingStyleDropped[0]['observed_block'] ?? null), 'dropped typography finding records explicit none observed_block');
 
 // Enrichment: every semantic-parity finding (landmark/navigation) carries source_snippet, observed_block, and reason_code.
 $underSpecifiedResult = ( new HtmlTransformer() )->transform(

@@ -8,12 +8,13 @@ use Automattic\BlocksEngine\PhpTransformer\StaticSite\FontMaterialization\FontMa
 /**
  * Detects source typefaces (linked web-font families and heading/body
  * `font-family` declarations) and reports the ones that are not represented in
- * the materialized output typography.
+ * the output typography.
  *
- * "Represented" is defined by the font materialization plan the transformer can
- * derive from the same sources (see FontMaterializationPlanBuilder), so a font
- * that DOES materialize never produces a finding and the diagnostic stays in
- * agreement with the materialization layer.
+ * A linked web-font is represented when the font materialization plan retains
+ * it. A heading/body family is represented when it is materialized *or* when
+ * a resolved `font-family` declaration will register it as a theme.json
+ * fontFamilies preset — the editor-selectable form of the same stack. A
+ * diagnostic that fires after that registration is noise.
  *
  * Generic only — no provider-, fixture-, or family-specific strings.
  */
@@ -42,6 +43,7 @@ final class TypographyParityAnalyzer
     public function findings(string $html, string $css, array $inlineHeadingDeclarations = array()): array
     {
         $materialized = $this->materializedFamilyKeys($html, $css);
+        $registered = $this->registeredFamilyKeys($html, $css);
 
         $findings = array();
         $seen = array();
@@ -71,7 +73,7 @@ final class TypographyParityAnalyzer
         foreach ( $headingDeclarations as $declaration ) {
             $family = (string) $declaration['family'];
             $key = 'typography_font_family_dropped|' . $this->familyKey($family);
-            if ( '' === $family || isset($seen[$key]) || $this->isRepresented($family, $materialized) ) {
+            if ( '' === $family || isset($seen[$key]) || $this->isRepresented($family, $materialized) || isset($registered[$this->familyKey($family)]) ) {
                 continue;
             }
             $seen[$key] = true;
@@ -102,6 +104,26 @@ final class TypographyParityAnalyzer
         foreach ( (array) ($plan['fonts'] ?? array()) as $font ) {
             if ( is_array($font) && '' !== (string) ($font['family'] ?? '') ) {
                 $keys[$this->familyKey((string) $font['family'])] = true;
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Primary families from resolved CSS `font-family` declarations. Theme.json
+     * registers those stacks as settings.typography.fontFamilies, so they are
+     * already represented as editor-selectable typography.
+     *
+     * @return array<string,true>
+     */
+    private function registeredFamilyKeys(string $html, string $css): array
+    {
+        $keys = array();
+        foreach ( $this->planBuilder->fontFamilyDeclarationsFromCssSources(array($this->styleBlockCss($html), $css)) as $declaration ) {
+            $family = (string) ($declaration['family'] ?? '');
+            if ( '' !== $family ) {
+                $keys[$this->familyKey($family)] = true;
             }
         }
 
