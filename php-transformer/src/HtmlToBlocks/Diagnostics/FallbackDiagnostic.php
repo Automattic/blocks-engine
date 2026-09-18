@@ -70,8 +70,8 @@ final class FallbackDiagnostic
             'html_form_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
-                'diagnostic_class'      => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'preserved_runtime_island',
                 'preservation_strategy' => 'fallback_metadata_with_readable_blocks',
                 'runtime_requirement'   => 'server_or_client_form_handler',
                 'recoverability'        => $formHasControls ? 'recoverable_with_form_provider_materialization' : 'recoverable_with_runtime_mapping',
@@ -108,7 +108,7 @@ final class FallbackDiagnostic
             'html_commerce_controls_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
                 'diagnostic_class'      => 'commerce_runtime_controls_detected',
                 'preservation_strategy' => 'layout_blocks_with_commerce_control_metadata',
                 'runtime_requirement'   => 'commerce_cart_runtime',
@@ -127,8 +127,8 @@ final class FallbackDiagnostic
             'html_script_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
-                'diagnostic_class'      => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'preserved_runtime_island',
                 'disposition'           => 'preserve',
                 'preservation_status'   => 'accepted_runtime_preservation',
                 'js_handling'           => 'preserve_verbatim',
@@ -176,8 +176,8 @@ final class FallbackDiagnostic
             'html_iframe_embed_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
-                'diagnostic_class'      => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'preserved_runtime_island',
                 'preservation_strategy' => 'sanitized_embed_markup',
                 'runtime_requirement'   => 'third_party_embed_runtime',
                 'recoverability'        => 'recoverable_with_embed_provider_or_html_preservation',
@@ -202,8 +202,8 @@ final class FallbackDiagnostic
             'html_canvas_runtime_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
-                'diagnostic_class'      => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'preserved_runtime_island',
                 'preservation_strategy' => 'bounded_raw_html_runtime_island',
                 'runtime_requirement'   => 'canvas_element_and_client_script_execution',
                 'recoverability'        => 'recoverable_with_canvas_markup_preservation_or_rebuilt_interactive_block',
@@ -228,8 +228,8 @@ final class FallbackDiagnostic
             'html_template_runtime_fallback' => array(
                 'severity'              => 'warning',
                 'conversion_classification' => 'runtime_island_preserved',
-                'loss_class'            => 'runtime_island_preserved',
-                'diagnostic_class'      => 'runtime_island_preserved',
+                'loss_class'            => 'preserved_runtime_island',
+                'diagnostic_class'      => 'preserved_runtime_island',
                 'preservation_strategy' => 'bounded_inert_template_runtime_island',
                 'runtime_requirement'   => 'client_template_instantiation',
                 'recoverability'        => 'recoverable_with_client_template_runtime_or_component_rebuild',
