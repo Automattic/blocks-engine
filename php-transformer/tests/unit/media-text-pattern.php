@@ -229,7 +229,7 @@ $assertSame('core/quote', $quoteResult['blocks'][0]['innerBlocks'][0]['blockName
 $styledTextResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><div class="copy-panel" style="padding:1rem"><p>Styled copy</p></div></section>');
 $styledTextBlock = $styledTextResult['blocks'][0]['innerBlocks'][0] ?? array();
 $assertSame('core/group', $styledTextBlock['blockName'] ?? null, 'Styled text wrapper keeps core/group identity.');
-$assertSame('copy-panel blocks-engine-css-owned-layout', $styledTextBlock['attrs']['className'] ?? null, 'Styled text group keeps className plus layout-item marker.');
+$assertSame('copy-panel blocks-engine-css-owned-layout blocks-engine-css-owned-flow', $styledTextBlock['attrs']['className'] ?? null, 'Styled text group keeps className plus layout-item marker.');
 $assertSame('1rem', $styledTextBlock['attrs']['style']['spacing']['padding']['top'] ?? null, 'Styled text group keeps style attrs.');
 
 $plainTextResult = $transformHtml('<section style="display:flex"><img src="x.jpg"><div><h2>Head</h2><p>Copy</p></div></section>');
