@@ -71,6 +71,46 @@ $assert(str_contains($cssWideInheritedMarkup, 'color:#f8fff9'), 'color:inherit r
 $assert(str_contains($cssWideInheritedCss, 'color:#f8fff9!important') && str_contains($cssWideInheritedCss, 'text-align:start!important'), 'color:inherit and text-align:inherit resolve through the native button rule', $cssWideInheritedCss);
 $assert('pass' === ($cssWideInheritedButton['source_reports']['wp_block_validity']['status'] ?? ''), 'CSS-wide inherited native button remains editor-valid', json_encode($cssWideInheritedButton['source_reports']['wp_block_validity'] ?? array()));
 
+// A real design system states its foreground on `body`, not on a class-named
+// or tag-named "high value" ancestor, and often behind a custom property
+// (Tailwind/shadcn `body{color:hsl(var(--foreground))}`). `<body>` carries no
+// class/id/role token and is not one of the structural tag names the style
+// boundary always resolves, so its matched (non-inline) rule was invisible to
+// native-button inheritance even though `<header style="...">` above already
+// worked. This is the exact shape of a real import where a light-background
+// "Start Selling" button sat beside a "Browse Logos" button that had its own
+// explicit white text: only the button with no color of its own lost its
+// label to the theme's white .wp-element-button default.
+$bodyForegroundButton = ( new HtmlTransformer() )->transform(
+    '<style>:root{--foreground:0 0% 7%}body{color:hsl(var(--foreground))}</style><div class="hero"><a class="btn" style="padding:12px 40px;background:#fefefe" href="/sell">Start Selling</a></div>'
+)->toArray();
+$bodyForegroundBlock = $bodyForegroundButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$bodyForegroundMarkup = (string) ($bodyForegroundButton['serialized_blocks'] ?? '');
+$assert(
+    'hsl(0 0% 7%)' === ($bodyForegroundBlock['attrs']['style']['color']['text'] ?? null),
+    'a body-level foreground authored through a custom property fills a filled button with no color of its own',
+    (string) json_encode($bodyForegroundBlock['attrs']['style'] ?? array())
+);
+$assert(
+    str_contains($bodyForegroundMarkup, 'has-text-color') && str_contains($bodyForegroundMarkup, 'color:hsl(0 0% 7%)'),
+    'the body-inherited foreground reaches the native button link markup',
+    $bodyForegroundMarkup
+);
+$assert('pass' === ($bodyForegroundButton['source_reports']['wp_block_validity']['status'] ?? ''), 'body-inherited native button remains editor-valid', json_encode($bodyForegroundButton['source_reports']['wp_block_validity'] ?? array()));
+
+// No regression: a sibling filled button whose OWN fill already authors white
+// text — the same value the theme's .wp-element-button default paints — must
+// stay exactly as explicit, unaffected by the sibling's new inherited fill.
+$matchingDefaultButton = ( new HtmlTransformer() )->transform(
+    '<style>:root{--foreground:0 0% 7%}body{color:hsl(var(--foreground))}</style><div class="hero"><a class="btn btn-primary" style="padding:12px 40px;background:#6d28d9;color:#ffffff" href="/browse">Browse Logos</a></div>'
+)->toArray();
+$matchingDefaultBlock = $matchingDefaultButton['blocks'][0]['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$assert(
+    '#ffffff' === ($matchingDefaultBlock['attrs']['style']['color']['text'] ?? null),
+    'a button whose own fill already authors white text keeps that explicit value unchanged',
+    (string) json_encode($matchingDefaultBlock['attrs']['style'] ?? array())
+);
+
 $defaultHeaderBrand = ( new HtmlTransformer() )->transform(
     '<header><a class="button" style="padding:10px 18px;background:#1d2230" href="/"><span class="brand-mark"><span class="brand-glyph">H</span></span> Header brand</a></header>'
 )->toArray();

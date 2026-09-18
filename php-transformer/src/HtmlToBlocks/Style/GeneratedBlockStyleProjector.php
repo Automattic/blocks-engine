@@ -129,9 +129,18 @@ final class GeneratedBlockStyleProjector
         $inheritedTextAlignment = '';
 
         for ( $ancestor = $anchor->parentNode; $ancestor instanceof DOMElement; $ancestor = $ancestor->parentNode ) {
-            $declarations = $this->styleResolver->presentationDeclarations($ancestor);
+            // `presentationDeclarations()` skips matched stylesheet rules for
+            // ancestors the high-value style boundary does not recognize (a
+            // bare `<body>`/`<html>` with no class tokens, most of all), so an
+            // inherited foreground authored there — `body{color:...}` is the
+            // idiomatic place a design system states it — was invisible here
+            // even though it is exactly the value the source renders with.
+            // `structuralPresentationDeclarations()` resolves every matching
+            // rule unconditionally (the same primitive `inheritedTextAlignment()`
+            // already walks ancestors with), so the walk sees it too.
+            $declarations = $this->styleResolver->structuralPresentationDeclarations($ancestor);
             if ( '' === $inheritedColor && $anchorColorInherits && isset($declarations['color']) ) {
-                $inheritedColor = (string) $declarations['color'];
+                $inheritedColor = $this->styleResolver->resolveCssVariablesInValue((string) $declarations['color'], $ancestor);
             }
             if ( '' === $inheritedTextAlignment && $anchorTextAlignmentInherits && isset($declarations['text-align']) ) {
                 $inheritedTextAlignment = strtolower(trim((string) $declarations['text-align']));
