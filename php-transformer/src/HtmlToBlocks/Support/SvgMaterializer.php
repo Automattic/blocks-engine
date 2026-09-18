@@ -103,6 +103,14 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         $html = $this->ensureSvgImageNamespace($this->minifyInlineSvgForImage($html));
+        if ( $this->cssOwnsMediaBox($element) && ! $this->cssDefinesMediaSize($element) ) {
+            // CSS that only limits the box (max-height, min-width, aspect-ratio)
+            // still sizes from the image's natural dimensions. A standalone SVG
+            // document without width/height has none, so a shrink-to-fit figure
+            // collapses it to 0x0. Give the asset its viewBox size; the carried
+            // CSS limits then scale it exactly as they scaled the inline SVG.
+            $html = $this->ensureInlineSvgSizing($html);
+        }
         $assetHtml = $html;
         $visualPayload = $this->svgImageAssetIdentity($html);
         $path = $this->materializedInlineSvgPath($element, $visualPayload);
@@ -445,6 +453,25 @@ final class SvgMaterializer implements SvgElementMaterializer
         // to their composed document root. Those SVG leaves sit below the native
         // presentation boundary, but their author CSS still owns the viewport.
         return $this->declarationsOwnMediaBox($this->styleResolver->authorStructuralDeclarations($element));
+    }
+
+    /**
+     * Whether source CSS gives the SVG a definite width or height, as opposed
+     * to only min-/max- limits or an aspect ratio that still need an intrinsic
+     * size to resolve against.
+     */
+    private function cssDefinesMediaSize(DOMElement $element): bool
+    {
+        foreach ( array( $this->styleResolver->structuralPresentationDeclarations($element), $this->styleResolver->authorStructuralDeclarations($element) ) as $declarations ) {
+            foreach ( array( 'width', 'height' ) as $property ) {
+                $value = strtolower(trim((string) ($declarations[$property] ?? '')));
+                if ( '' !== $value && 'auto' !== $value ) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -1011,7 +1038,7 @@ final class SvgMaterializer implements SvgElementMaterializer
         }
 
         $attrs = $match[1][0];
-        if ( preg_match('/\s(?:width|height)\s*=/i', $attrs) || preg_match('/\sstyle\s*=\s*(["\'])(?:(?!\1).)*(?:width|height)\s*:/i', $attrs) ) {
+        if ( preg_match('/\s(?:width|height)\s*=/i', $attrs) || preg_match('/\sstyle\s*=\s*(["\'])(?:(?!\1).)*(?<![\w-])(?:width|height)\s*:/i', $attrs) ) {
             return $html;
         }
 
