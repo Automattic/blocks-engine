@@ -72,6 +72,22 @@ final class CanonicalSaveShapeValidator
     );
 
     /**
+     * Target wrappers whose save() also writes an inline `style` from
+     * attributes other than the `style` object (cover background and min
+     * height, media-text grid columns, column flex-basis, separator colors),
+     * so a wrapper style without a `style` attribute is not by itself a
+     * divergence for them.
+     *
+     * @var array<int, string>
+     */
+    private const ATTRIBUTE_STYLED_WRAPPERS = array(
+        'core/cover',
+        'core/media-text',
+        'core/column',
+        'core/separator',
+    );
+
+    /**
      * @param array<int, array<string, mixed>> $blocks
      * @return array<int, array<string, mixed>>
      */
@@ -219,6 +235,23 @@ final class CanonicalSaveShapeValidator
                 $blockName,
                 'anchor "' . $anchor . '" is not emitted as the wrapper id; core save() places the anchor id on the wrapper element.',
                 array( 'reason' => 'anchor_not_on_wrapper', 'anchor' => $anchor )
+            );
+        }
+
+        // core save() writes the wrapper `style` only from the block supports
+        // it serializes out of the `style` attribute. A raw source style on a
+        // wrapper whose attributes carry no style object cannot be regenerated.
+        $wrapperStyle = trim((string) $this->attributeValue($wrapper, 'style'));
+        if ( '' !== $wrapperStyle
+            && ! in_array($blockName, self::ATTRIBUTE_STYLED_WRAPPERS, true)
+            && ( ! is_array($attrs['style'] ?? null) || array() === $attrs['style'] )
+        ) {
+            $this->addFinding(
+                $findings,
+                $path,
+                $blockName,
+                'Wrapper carries inline style "' . $wrapperStyle . '" but the block has no style attribute; core save() only emits a wrapper style from its block supports.',
+                array( 'reason' => 'unexpected_wrapper_style', 'style' => $wrapperStyle )
             );
         }
     }

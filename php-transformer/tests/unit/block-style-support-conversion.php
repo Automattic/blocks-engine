@@ -242,8 +242,9 @@ $assert(200 === count($manyRules[0] ?? array()), '42: final serialized carrier c
 $importantGeometryHtml = '<p style="width:30rem!important;min-height:12rem!important">Important geometry</p>';
 $importantGeometryResult = ( new HtmlTransformer() )->transform($importantGeometryHtml, array())->toArray();
 $importantGeometryMarkup = (string) ($importantGeometryResult['serialized_blocks'] ?? '');
+$importantGeometryCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($importantGeometryResult['assets'] ?? null) ? $importantGeometryResult['assets'] : array()));
 $importantGeometryParity = ( new StaticStyleParityRunner() )->compareSourceToTransformWithGeometry($importantGeometryHtml);
-$assert(str_contains($importantGeometryMarkup, 'width:30rem!important;min-height:12rem!important'), '43: width and min-height !important remain serialized inline', $importantGeometryMarkup);
+$assert(! str_contains($importantGeometryMarkup, 'style=') && str_contains($importantGeometryCss, '{width:30rem !important;min-height:12rem !important}'), '43: width and min-height !important ride the carrier stylesheet, not a raw style core save() cannot reproduce', $importantGeometryMarkup . "\n" . $importantGeometryCss);
 $assert(1.0 === (float) ($importantGeometryParity['geometry_v2']['parity']['score'] ?? 0.0), '44: geometry v2 preserves width and min-height !important', json_encode($importantGeometryParity['geometry_v2']['parity'] ?? array()));
 
 $collisionAllocator = new GeometryCarrierClassAllocator(static fn (string $signature): string => str_repeat('a', 64));
@@ -259,7 +260,8 @@ $assert(
 
 $importantButton = ( new HtmlTransformer() )->transform('<a class="button" href="/buy" style="padding:8px 12px;background:#135e96;width:50%!important;min-width:12rem!important;max-width:30rem!important;height:3rem!important;aspect-ratio:2 / 1!important;flex-basis:20rem!important">Buy</a>', array())->toArray();
 $importantButtonMarkup = (string) ($importantButton['serialized_blocks'] ?? '');
-$assert(! str_contains($importantButtonMarkup, 'wp-block-button__width-50') && str_contains($importantButtonMarkup, 'width:50%!important') && str_contains($importantButtonMarkup, 'min-width:12rem!important') && str_contains($importantButtonMarkup, 'max-width:30rem!important') && str_contains($importantButtonMarkup, 'height:3rem!important') && str_contains($importantButtonMarkup, 'aspect-ratio:2 / 1!important') && str_contains($importantButtonMarkup, 'flex-basis:20rem!important'), '47: core/button preserves source-important geometry on its wrapper without native width classes', $importantButtonMarkup);
+$importantButtonCss = implode("\n", array_map(static fn (array $asset): string => (string) ($asset['content'] ?? ''), is_array($importantButton['assets'] ?? null) ? $importantButton['assets'] : array()));
+$assert(! str_contains($importantButtonMarkup, 'wp-block-button__width-50') && 1 !== preg_match('/<div class="wp-block-button[^"]*"[^>]*style=/', $importantButtonMarkup) && str_contains($importantButtonCss, '{width:50% !important;min-width:12rem !important;max-width:30rem !important;height:3rem !important;aspect-ratio:2 / 1 !important;flex-basis:20rem !important}'), '47: core/button preserves source-important geometry on its wrapper carrier without native width classes', $importantButtonMarkup . "\n" . $importantButtonCss);
 
 $variableGeometryHtml = '<p style="--box-base:30rem;--box-width:var(--box-base,20rem);width:var(--box-width)">Variable geometry</p>';
 $variableGeometryResult = ( new HtmlTransformer() )->transform($variableGeometryHtml, array())->toArray();
