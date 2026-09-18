@@ -6646,7 +6646,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             $wrapper = $child;
         }
 
-        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span' ), true) || '' !== trim($wrapper->textContent ?? '') ) {
+        if ( ! $wrapper instanceof DOMElement || ! in_array(strtolower($wrapper->tagName), array( 'div', 'span', 'p' ), true) ) {
             return null;
         }
 
@@ -8094,36 +8094,53 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
     }
 
     /**
-     * A paragraph with exactly one image-only link is not RichText. Retain a
-     * valid link as responsive media because core/image crop cannot preserve it.
+     * A paragraph whose only content is an image (or an image-only link) is not
+     * RichText — RichText cannot represent `<img>`. Route it through the existing
+     * core/image primitive instead of emitting a core/html island. Mixed content
+     * (image plus real text or other inlines) is left for the RichText fallback.
+     *
+     * A valid link is retained as responsive media because core/image crop
+     * cannot preserve it.
      *
      * @return array<string, mixed>|null
      */
     private function imageBlockFromParagraph(DOMElement $paragraph): ?array
     {
-        $anchor = null;
-        foreach ( $paragraph->childNodes as $child ) {
-            if ( $child instanceof DOMElement ) {
-                if ( $anchor instanceof DOMElement || 'a' !== strtolower($child->tagName) ) {
+        $child = null;
+        foreach ( $paragraph->childNodes as $node ) {
+            if ( $node instanceof DOMElement ) {
+                if ( $child instanceof DOMElement ) {
                     return null;
                 }
-                $anchor = $child;
+                $child = $node;
                 continue;
             }
-            if ( '' !== trim($child->textContent ?? '') ) {
+            if ( '' !== trim($node->textContent ?? '') ) {
                 return null;
             }
         }
 
-        if ( ! $anchor instanceof DOMElement || ! $this->isImageOnlyAnchor($anchor) ) {
+        if ( ! $child instanceof DOMElement ) {
             return null;
         }
 
-        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($anchor, 'href')) ) {
-            return $this->responsiveMediaBlock($anchor);
+        $tagName = strtolower($child->tagName);
+        if ( 'img' === $tagName ) {
+            return $this->convertImageElement($child);
+        }
+        if ( 'picture' === $tagName ) {
+            return $this->convertPictureElement($child);
         }
 
-        $image = $this->firstChildElement($anchor, 'img');
+        if ( 'a' !== $tagName || ! $this->isImageOnlyAnchor($child) ) {
+            return null;
+        }
+
+        if ( '' !== LinkUrlSanitizer::sanitize($this->attr($child, 'href')) ) {
+            return $this->responsiveMediaBlock($child);
+        }
+
+        $image = $this->firstChildElement($child, 'img');
         return $image instanceof DOMElement ? $this->convertImageElement($image) : null;
     }
 
