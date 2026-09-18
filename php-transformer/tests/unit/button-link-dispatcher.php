@@ -196,6 +196,50 @@ $allSource = $makeDispatcher(array(
 $allSourceBlock = $allSource->convertAnchor($elementFrom('<a href="/x" class="source-class">text</a>'), $fallbacks);
 $assert(! array_key_exists('className', $allSourceBlock['attrs']), 'empty-classname-is-dropped');
 
+// A resolved margin and font restated on the paragraph host duplicates what
+// the saved anchor's own class already applies -- and a restated line-height
+// also seeds a real line box on the host that the source's bare inline anchor
+// never had. Both are dropped when the anchor carries a class. `textDecoration`
+// stays: it does not inherit on its own, so a host resolving it from an
+// ancestor must keep restating it for the saved anchor's `inherit` to resolve
+// correctly.
+$dedupedStyle = $makeDispatcher(array(
+    'presentation' => static fn (DOMElement $e, array $p, array $g): array => array(
+        'style' => array(
+            'spacing'    => array( 'margin' => array( 'bottom' => '12px' ) ),
+            'typography' => array(
+                'fontSize'      => '14px',
+                'lineHeight'    => '20px',
+                'fontWeight'    => '600',
+                'letterSpacing' => '0.025em',
+                'textTransform' => 'uppercase',
+                'textDecoration' => 'inherit',
+            ),
+        ),
+    ),
+));
+$dedupedBlock = $dedupedStyle->convertAnchor($elementFrom('<a href="/x" class="cta-link">text</a>'), $fallbacks);
+$assert(! isset($dedupedBlock['attrs']['style']['spacing']), 'duplicated-spacing-dropped-from-paragraph-host');
+$assert(
+    array() === array_diff_key($dedupedBlock['attrs']['style']['typography'] ?? array(), array( 'textDecoration' => true )),
+    'duplicated-typography-dropped-except-text-decoration',
+    json_encode($dedupedBlock['attrs']['style']['typography'] ?? null)
+);
+$assert(
+    'inherit' === ($dedupedBlock['attrs']['style']['typography']['textDecoration'] ?? null),
+    'text-decoration-inheritance-kept-on-paragraph-host'
+);
+
+// Without a source class there is nothing the saved anchor already applies,
+// so the host keeps carrying the resolved presentation as before.
+$classlessStyle = $makeDispatcher(array(
+    'presentation' => static fn (DOMElement $e, array $p, array $g): array => array(
+        'style' => array( 'typography' => array( 'fontSize' => '14px' ) ),
+    ),
+));
+$classlessBlock = $classlessStyle->convertAnchor($elementFrom('<a href="/x">text</a>'), $fallbacks);
+$assert('14px' === ($classlessBlock['attrs']['style']['typography']['fontSize'] ?? null), 'classless-anchor-keeps-resolved-typography');
+
 // An absolutely positioned fragment link gets the carrier class, because its
 // positioning cannot ride the saved anchor.
 $positioned = $makeDispatcher(array(
