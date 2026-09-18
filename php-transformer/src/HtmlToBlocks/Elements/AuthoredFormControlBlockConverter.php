@@ -7,6 +7,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormContr
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredSelectBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\SourceBlockCreator;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
@@ -142,6 +143,51 @@ final class AuthoredFormControlBlockConverter
 
         return array(
             'blockName' => $registry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME),
+            'attrs' => $attrs,
+            'innerBlocks' => array(),
+            'innerHTML' => $markup,
+            'innerContent' => array( $markup ),
+        );
+    }
+
+    /**
+     * Return a compact native textarea on the same terms as `input()`: a
+     * multiline control the source styles has no readable prose equivalent,
+     * because a paragraph keeps neither the entry field nor its authored height.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function textarea(DOMElement $textarea, ?DOMElement $label = null, bool $forceNative = false): ?array
+    {
+        if ( ! $forceNative && array() === ($this->structuralPresentationDeclarations)($textarea) ) {
+            return null;
+        }
+
+        $generator = new AuthoredTextareaBlockGenerator();
+        $registry = ($this->generatedBlocks)();
+        $registry->register(AuthoredTextareaBlockGenerator::class, $generator->definition($registry->namespace()));
+        $attrs = array_filter(array(
+            'id' => SourceDom::attr($textarea, 'id'),
+            'name' => SourceDom::attr($textarea, 'name'),
+            'value' => $textarea->textContent ?? '',
+            'placeholder' => SourceDom::attr($textarea, 'placeholder'),
+            'ariaLabel' => SourceDom::attr($textarea, 'aria-label'),
+            'className' => SourceDom::attr($textarea, 'class'),
+            'style' => SourceDom::attr($textarea, 'style'),
+            'rows' => SourceDom::attr($textarea, 'rows'),
+            'cols' => SourceDom::attr($textarea, 'cols'),
+            'maxLength' => SourceDom::attr($textarea, 'maxlength'),
+            'required' => $textarea->hasAttribute('required'),
+            'disabled' => $textarea->hasAttribute('disabled'),
+            'readOnly' => $textarea->hasAttribute('readonly'),
+            'label' => $label instanceof DOMElement ? $this->metadataBuilder->labelText($label) : '',
+            'labelClassName' => $label instanceof DOMElement ? SourceDom::attr($label, 'class') : '',
+            'labelStyle' => $label instanceof DOMElement ? SourceDom::attr($label, 'style') : '',
+        ), static fn (mixed $value): bool => is_bool($value) ? $value : '' !== $value);
+        $markup = $generator->markup($attrs);
+
+        return array(
+            'blockName' => $registry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME),
             'attrs' => $attrs,
             'innerBlocks' => array(),
             'innerHTML' => $markup,

@@ -10,6 +10,7 @@ use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormBlo
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ReadableFormControlBlockConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\GeneratedBlockRegistry;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredInputBlockGenerator;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Generators\AuthoredTextareaBlockGenerator;
 use Automattic\BlocksEngine\PhpTransformer\WordPress\Runtime;
 use Automattic\BlocksEngine\PhpTransformer\Tests\Support\SourceBlockCreatorFixture;
 
@@ -118,10 +119,25 @@ $combined = $builder->build($formFrom('<form><input aria-label="Email"><button t
 $assert('core/paragraph' === ($combined['innerBlocks'][0]['blockName'] ?? '') && 'core/buttons' === ($combined['innerBlocks'][1]['blockName'] ?? ''), 'submit-buttons-follow-fields');
 
 $styled = $builder->build($formFrom('<form><label for="email">Email</label><input data-styled id="email" name="email"></form>'));
+$assert('form' === ($styled['attrs']['tagName'] ?? ''), 'degraded-form-keeps-the-form-element');
 $fieldGroup = $styled['innerBlocks'][0] ?? array();
 $assert('core/group' === ($fieldGroup['blockName'] ?? ''), 'authored-input-builds-field-group');
-$assert('core/paragraph' === ($fieldGroup['innerBlocks'][0]['blockName'] ?? ''), 'associated-label-precedes-authored-input');
-$assert($authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($fieldGroup['innerBlocks'][1]['blockName'] ?? ''), 'authored-input-follows-associated-label');
+$styledInput = $fieldGroup['innerBlocks'][0] ?? array();
+$assert(1 === count($fieldGroup['innerBlocks'] ?? array()) && $authoredRegistry->blockName(AuthoredInputBlockGenerator::LOCAL_NAME) === ($styledInput['blockName'] ?? ''), 'associated-label-rides-on-the-authored-input');
+$assert('Email' === ($styledInput['attrs']['label'] ?? ''), 'associated-label-text-survives-as-a-label-element');
+
+// A label the source associates by position alone — no `for`, no `id` — is the
+// dominant authored pattern and must survive the degraded form just as well.
+$positional = $builder->build($formFrom('<form><div><label class="field-label">Full name *</label><input data-styled type="text" required></div><div><label>Details *</label><textarea data-styled rows="5" placeholder="Tell us more" required></textarea></div></form>'));
+$positionalInput = $positional['innerBlocks'][0]['innerBlocks'][0] ?? array();
+$assert('Full name *' === ($positionalInput['attrs']['label'] ?? ''), 'field-wrapper-label-reaches-the-authored-input');
+$assert('field-label' === ($positionalInput['attrs']['labelClassName'] ?? ''), 'field-wrapper-label-keeps-its-authored-class');
+$positionalTextarea = $positional['innerBlocks'][1] ?? array();
+$assert($authoredRegistry->blockName(AuthoredTextareaBlockGenerator::LOCAL_NAME) === ($positionalTextarea['blockName'] ?? ''), 'styled-textarea-keeps-an-editable-control');
+$assert('Details *' === ($positionalTextarea['attrs']['label'] ?? '') && '5' === ($positionalTextarea['attrs']['rows'] ?? '') && 'Tell us more' === ($positionalTextarea['attrs']['placeholder'] ?? ''), 'textarea-label-rows-and-placeholder-survive');
+
+$sharedWrapper = $builder->build($formFrom('<form><div><label>Ambiguous</label><input data-styled type="text"><input data-styled type="tel"></div></form>'));
+$assert('' === ($sharedWrapper['innerBlocks'][0]['innerBlocks'][0]['attrs']['label'] ?? ''), 'a-wrapper-shared-by-two-controls-claims-no-label');
 
 $recorded = array();
 $runtimeForm = $builder->build($formFrom('<form><input data-runtime name="email"></form>'));

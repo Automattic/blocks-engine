@@ -12,6 +12,9 @@ use DOMNode;
 /** Builds provider-neutral form and control metadata from source DOM. */
 final class FormControlMetadataBuilder
 {
+    /** How far a control's own field wrapper may sit above it. */
+    private const FIELD_WRAPPER_DEPTH = 4;
+
     /** @param Closure(DOMElement): string $elementSelector */
     public function __construct(
         private readonly Closure $elementSelector,
@@ -402,7 +405,8 @@ final class FormControlMetadataBuilder
         return null;
     }
 
-    private function labelElement(DOMElement $control): ?DOMElement
+    /** The element that labels this control, by `for`, by wrapping, or by field position. */
+    public function labelElement(DOMElement $control): ?DOMElement
     {
         $label = $this->associatedLabel($control);
         if ( $label instanceof DOMElement ) {
@@ -413,6 +417,40 @@ final class FormControlMetadataBuilder
                 return $parent;
             }
         }
+        return $this->fieldWrapperLabel($control);
+    }
+
+    /**
+     * Markup rendered by a client framework routinely omits both `id` and `for`
+     * and states the association by position alone: one label and one control
+     * inside the same field wrapper. That is the only association the source
+     * makes, so read it instead of reporting the control as unlabelled.
+     */
+    private function fieldWrapperLabel(DOMElement $control): ?DOMElement
+    {
+        $depth = 0;
+        for ( $wrapper = $control->parentNode; $wrapper instanceof DOMElement && $depth < self::FIELD_WRAPPER_DEPTH; $wrapper = $wrapper->parentNode, ++$depth ) {
+            if ( in_array(strtolower($wrapper->tagName), array( 'form', 'fieldset', 'body', 'html' ), true) ) {
+                return null;
+            }
+
+            $controls = FormControlClassifier::controlElements($wrapper);
+            // A wrapper shared with another control cannot say which one a label belongs to.
+            if ( 1 !== count($controls) || ! $controls[0]->isSameNode($control) ) {
+                return null;
+            }
+
+            $labels = array();
+            foreach ( $wrapper->getElementsByTagName('label') as $label ) {
+                if ( $label instanceof DOMElement && '' === SourceDom::attr($label, 'for') ) {
+                    $labels[] = $label;
+                }
+            }
+            if ( 1 === count($labels) ) {
+                return $labels[0];
+            }
+        }
+
         return null;
     }
 

@@ -60,23 +60,17 @@ final class ReadableFormBlockBuilder
                 $this->runtimeIslandRecorder->recordControl($control);
             }
 
-            $readableControlBlock = $this->controlBlockConverter->convert($control);
+            // The control's own label is a source fact the degraded form must
+            // keep, so it rides on the control block as a real `<label>` rather
+            // than being dropped with the rest of the replaced subtree.
+            $readableControlBlock = $this->controlBlockConverter->convert($control, $this->metadataBuilder->labelElement($control));
             if ( null === $readableControlBlock ) {
                 continue;
             }
 
-            $fieldBlocks = array();
-            $associatedLabel = $this->metadataBuilder->associatedLabel($control);
-            if ( $associatedLabel instanceof DOMElement && $authoredInputName === ($readableControlBlock['blockName'] ?? '') ) {
-                $labelBlock = $this->controlBlockConverter->convert($associatedLabel);
-                if ( null !== $labelBlock ) {
-                    $fieldBlocks[] = $labelBlock;
-                }
-            }
-            $fieldBlocks[] = $readableControlBlock;
-            $contentBlocks[] = ( 1 === count($fieldBlocks) && $authoredInputName !== ($readableControlBlock['blockName'] ?? '') )
-                ? $fieldBlocks[0]
-                : $this->createBlock->createBlock('core/group', array(), $fieldBlocks, $control);
+            $contentBlocks[] = $authoredInputName === ($readableControlBlock['blockName'] ?? '')
+                ? $this->createBlock->createBlock('core/group', array(), array( $readableControlBlock ), $control)
+                : $readableControlBlock;
         }
 
         if ( array() !== $buttonBlocks ) {
@@ -87,6 +81,14 @@ final class ReadableFormBlockBuilder
             return null;
         }
 
-        return $this->createBlock->createBlock('core/group', ($this->presentationAttributes)($form), $contentBlocks, $form);
+        // A degraded form is still a form: keep the source element so its
+        // controls stay grouped for assistive technology and for a provider
+        // that binds a handler to it later.
+        $attributes = ($this->presentationAttributes)($form);
+        if ( 'form' === strtolower($form->tagName) ) {
+            $attributes['tagName'] = 'form';
+        }
+
+        return $this->createBlock->createBlock('core/group', $attributes, $contentBlocks, $form);
     }
 }

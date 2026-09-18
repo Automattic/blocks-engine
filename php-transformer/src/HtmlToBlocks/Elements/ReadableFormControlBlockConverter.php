@@ -34,8 +34,11 @@ final class ReadableFormControlBlockConverter
     ) {
     }
 
-    /** @return array<string, mixed>|null */
-    public function convert(DOMElement $element): ?array
+    /**
+     * @param DOMElement|null $label The element the source uses to label this control, when one was resolved.
+     * @return array<string, mixed>|null
+     */
+    public function convert(DOMElement $element, ?DOMElement $label = null): ?array
     {
         $tagName = strtolower($element->tagName);
 
@@ -55,7 +58,7 @@ final class ReadableFormControlBlockConverter
         if ( ($this->isRuntimeDomTarget)($element) ) {
             $this->runtimeIslandRecorder->recordControl($element);
             if ( 'input' === $tagName ) {
-                $inputBlock = $this->authoredBlockConverter->input($element, null, true);
+                $inputBlock = $this->authoredBlockConverter->input($element, $label, true);
                 if ( null !== $inputBlock ) {
                     return $inputBlock;
                 }
@@ -77,16 +80,23 @@ final class ReadableFormControlBlockConverter
         }
 
         if ( 'select' === $tagName ) {
-            $selectBlock = $this->authoredBlockConverter->select($element);
+            $selectBlock = $this->authoredBlockConverter->select($element, false, $label);
             if ( null !== $selectBlock ) {
                 return $selectBlock;
             }
         }
 
         if ( 'input' === $tagName ) {
-            $inputBlock = $this->authoredBlockConverter->input($element);
+            $inputBlock = $this->authoredBlockConverter->input($element, $label);
             if ( null !== $inputBlock ) {
                 return $inputBlock;
+            }
+        }
+
+        if ( 'textarea' === $tagName ) {
+            $textareaBlock = $this->authoredBlockConverter->textarea($element, $label);
+            if ( null !== $textareaBlock ) {
+                return $textareaBlock;
             }
         }
 
