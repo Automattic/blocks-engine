@@ -23,6 +23,16 @@ final class CommerceFallbackReporter
 {
     private const MAX_CANDIDATES = 100;
 
+    /**
+     * When every qualifying card in a grid was admitted only through the
+     * weaker image-corroborated catalog path (no schema.org evidence and no
+     * cart control anywhere in the grid), require more repeated cards than the
+     * authoritative-signal minimum before trusting the grid as commerce. A
+     * small (2-3 card) pricing/plan comparison is a much more common false
+     * positive at low repetition than a real product catalog is.
+     */
+    private const MIN_IMAGE_ONLY_QUALIFIED_CARDS = 4;
+
     public function __construct(
         private readonly CommerceStructureRecognizer $recognizer,
         private readonly Runtime $runtime,
@@ -82,6 +92,22 @@ final class CommerceFallbackReporter
             if ( count($products) < 2 ) {
                 continue;
             }
+
+            // A card only reaches here via schema.org evidence, a cart control,
+            // or the weaker image-corroborated catalog path (see
+            // `CommerceStructureRecognizer::productCardData()`). When every
+            // qualifying card in this grid used only the weaker path, require
+            // more repetition before trusting it as commerce, since a small
+            // pricing/plan comparison is a far more common false positive at
+            // low repetition than a real product catalog is.
+            $imageOnlyQualified = array_filter($products, static fn (array $product): bool => true === ($product['_catalog_image_only'] ?? false));
+            if ( count($imageOnlyQualified) === count($products) && count($products) < self::MIN_IMAGE_ONLY_QUALIFIED_CARDS ) {
+                continue;
+            }
+            foreach ( $products as &$product ) {
+                unset($product['_catalog_image_only']);
+            }
+            unset($product);
 
             $coveredPaths[] = $path;
 
@@ -163,6 +189,10 @@ final class CommerceFallbackReporter
 
             $product = $this->recognizer->productCardData($child);
             if ( null !== $product ) {
+                // Internal marker consumed and stripped by the caller
+                // (`appendProductGridFallbacks()`) before this reaches a
+                // published finding; never part of the diagnostic contract.
+                $product['_catalog_image_only'] = ! $this->recognizer->isSchemaProductCard($child) && null === $this->recognizer->cartControlElement($child);
                 $binding = $this->commerceBindingForCard($child, $blocks);
                 if ( array() !== $binding ) {
                     $product['binding'] = $binding;

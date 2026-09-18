@@ -86,6 +86,49 @@ $wooNamed = $element(
 );
 $assert(null === $recognizer->productCardData($wooNamed), 'a shop-provider class name without schema.org or triad is not a product');
 
+// A browse/marketplace catalog card: no schema.org markup and no add-to-cart
+// control (the purchase action lives on a detail page), but a name, a
+// one-time price, and a per-card photo. This is the pattern real captured
+// marketplace grids use (see blocks-engine issue tracking browse-capture
+// evidence): the structural quad qualifies it without a cart control.
+$catalogImageCard = $element(
+    '<div class="card"><img src="/media/ring.jpg" alt="Solaris Ring"><h3>Solaris Ring</h3><span class="price">$64.99</span></div>'
+);
+$catalogImageProduct = $recognizer->productCardData($catalogImageCard);
+$assert(is_array($catalogImageProduct) && 'Solaris Ring' === ($catalogImageProduct['name'] ?? null), 'name + one-time price + per-card image qualifies a product without a cart control');
+$assert('$64.99' === ($catalogImageProduct['price'] ?? null), 'catalog-image card price is extracted');
+$assert(true !== ($catalogImageProduct['has_cart_control'] ?? null), 'catalog-image card records no cart control');
+$assert('/media/ring.jpg' === ($catalogImageProduct['image']['src'] ?? null), 'catalog-image card retains its image');
+
+// A recurring/subscription price disqualifies the image-corroborated path
+// even when a photo is present: a plan card that happens to carry a photo is
+// still a plan, not a one-time-purchase item.
+$recurringImageCard = $element(
+    '<div class="tier card"><img src="/img/pro-plan.jpg" alt="Pro plan"><h3>Pro</h3><span class="price">$29/mo</span><a href="/signup">Get started</a></div>'
+);
+$assert(null === $recognizer->productCardData($recurringImageCard), 'a recurring-price plan card is not a product even with a photo');
+
+$recurringImageCardVariant = $element(
+    '<div class="tier card"><img src="/img/pro-plan.jpg" alt="Pro plan"><h3>Pro</h3><span class="price">$29</span><span class="billing">Billed monthly</span><a href="/signup">Get started</a></div>'
+);
+$assert(null === $recognizer->productCardData($recurringImageCardVariant), 'a "billed monthly" plan card is not a product even with a photo');
+
+// A blog post card (photo + heading + excerpt, no price at all) is never a
+// product regardless of the image-corroborated path, since a price is
+// required before any qualification path is considered.
+$blogPostCard = $element(
+    '<article class="post-card"><img src="/img/post.jpg" alt="Post thumbnail"><h3>How We Shipped It</h3><p>A behind-the-scenes look at the release.</p></article>'
+);
+$assert(null === $recognizer->productCardData($blogPostCard), 'a blog post card without a price is not a product');
+
+// A feature card uses an inline icon, not a photographic <img>, so it never
+// qualifies through the image-corroborated path even if it somehow carried
+// price-like text.
+$featureCard = $element(
+    '<div class="feature card"><svg viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"></circle></svg><h3>Fast</h3><p>Blazing speed, $0 setup.</p></div>'
+);
+$assert(null === $recognizer->productCardData($featureCard), 'a feature card with an inline icon (no <img>) is not a product');
+
 $grid = $element(
     '<ul class="product-grid">'
     . '<li itemscope itemtype="https://schema.org/Product"><h3 itemprop="name">Desk Lamp</h3><span itemprop="price">$48</span><a class="add-to-cart" href="/cart">Add to cart</a></li>'

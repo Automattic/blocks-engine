@@ -104,7 +104,14 @@ final class CommerceStructureRecognizer
      * A card qualifies when it declares schema.org Product/Offer structure
      * (microdata `itemtype` Product or both `itemprop` name and price), OR carries
      * the structural triad: a name, a currency-formatted price, and an
-     * add-to-cart/buy control.
+     * add-to-cart/buy control, OR carries the structural quad: a name, a
+     * one-time (non-recurring) currency-formatted price, and a per-card
+     * photographic image — the pattern a browse/marketplace grid uses when the
+     * purchase action lives on a detail page rather than the grid card itself,
+     * so no cart-control token is present in the card's own markup. The image
+     * is required for this third path so a bare pricing-tier/plan card (see
+     * `isRecurringPriceCard()`) is never treated as a product merely for
+     * pairing a name with a price.
      *
      * @return array<string, mixed>|null
      */
@@ -114,15 +121,14 @@ final class CommerceStructureRecognizer
         $prices = $this->productPriceTexts($card);
         $hasCart = $this->hasCartControl($card);
         $isSchemaProduct = $this->isSchemaProductCard($card);
+        $image = $this->productImage($card);
 
         if ( '' === $name || array() === $prices ) {
             return null;
         }
 
-        // schema.org Product/Offer is an authoritative commerce signal, so it
-        // qualifies a card on its own. Otherwise require the full structural triad
-        // (name + price + cart control) to avoid flagging generic content grids.
-        if ( ! $isSchemaProduct && ! $hasCart ) {
+        $isCatalogImageCard = null !== $image && ! $this->isRecurringPriceCard($card);
+        if ( ! $isSchemaProduct && ! $hasCart && ! $isCatalogImageCard ) {
             return null;
         }
 
@@ -131,10 +137,81 @@ final class CommerceStructureRecognizer
             'price'            => $prices['price'],
             'sale_price'       => $prices['sale_price'] ?? null,
             'description'      => $this->productDescriptionText($card, $name),
-            'image'            => $this->productImage($card),
+            'image'            => $image,
             'has_cart_control' => $hasCart,
             'source_selector'  => SourceDom::elementSelector($card),
         ), static fn (mixed $value, string $key): bool => in_array($key, array( 'sale_price', 'description', 'image' ), true) || ( null !== $value && '' !== $value ), ARRAY_FILTER_USE_BOTH);
+    }
+
+    /**
+     * Whether the card declares schema.org Product/Offer structure via microdata.
+     *
+     * Public so a container-level aggregator (`CommerceFallbackReporter`) can
+     * distinguish an authoritative qualification (schema.org or an explicit
+     * cart control) from the weaker image-corroborated qualification in
+     * `productCardData()` and require more repetition before trusting the
+     * weaker signal alone.
+     */
+    public function isSchemaProductCard(DOMElement $card): bool
+    {
+        $itemtype = strtolower(SourceDom::attr($card, 'itemtype'));
+        if ( str_contains($itemtype, 'schema.org/product') ) {
+            return true;
+        }
+
+        $hasName = null !== $this->firstDescendantWithItemprop($card, array( 'name' ));
+        $hasPrice = null !== $this->firstDescendantWithItemprop($card, array( 'price' ));
+        if ( $hasName && $hasPrice ) {
+            return true;
+        }
+
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( $descendant instanceof DOMElement && str_contains(strtolower(SourceDom::attr($descendant, 'itemtype')), 'schema.org/offer') ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Whether the card reads as recurring/subscription (e.g. "$9/mo", "$29 per
+     * month", "Billed monthly") rather than a one-time purchase. Scans the
+     * card's whole text rather than only its price element so a billing-cadence
+     * label placed next to (rather than inside) the price element still counts.
+     * A recurring price disqualifies the image-corroborated catalog path so a
+     * subscription/plan card that happens to carry a decorative image is still
+     * never treated as a product; an occasional unrelated product description
+     * that mentions e.g. "restocked monthly" only forfeits this weakest
+     * qualifying path; schema.org or an explicit cart control still qualify it.
+     */
+    private function isRecurringPriceCard(DOMElement $card): bool
+    {
+        $text = $this->spacedLeafText($card);
+
+        return '' !== $text && (bool) preg_match('/\b(?:per|\/)\s*(?:mo|month|months|yr|year|years|wk|week|weeks|day|days)\b|\b(?:monthly|yearly|annually|billed|subscription|recurring)\b/i', $text);
+    }
+
+    /**
+     * The card's text with each leaf element's text joined by a space, unlike
+     * raw `textContent` concatenation which abuts adjacent inline elements
+     * with no separator (e.g. "$29/mo" immediately followed by "Get started"
+     * becomes "...moGet..." and silently breaks a `\b` word-boundary match).
+     */
+    private function spacedLeafText(DOMElement $card): string
+    {
+        $parts = array();
+        foreach ( $card->getElementsByTagName('*') as $descendant ) {
+            if ( ! $descendant instanceof DOMElement || SourceDom::childElementCount($descendant) > 0 ) {
+                continue;
+            }
+            $text = $this->collapsedText($descendant);
+            if ( '' !== $text ) {
+                $parts[] = $text;
+            }
+        }
+
+        return implode(' ', $parts);
     }
 
     public function cartControlElement(DOMElement $card): ?DOMElement
@@ -185,31 +262,6 @@ final class CommerceStructureRecognizer
 
         return (bool) preg_match('/(?:^|[\s_-])(?:cards|features|services|providers|testimonials|resources|posts|projects|stats|badges|grid|grid-[0-9]+|tiles|columns|collection|gallery)(?:$|[\s_-])/', $className)
             || (bool) preg_match('/(?:^|;)\s*(?:display\s*:\s*grid|grid-template-columns\s*:)/', $style);
-    }
-
-    /**
-     * Whether the card declares schema.org Product/Offer structure via microdata.
-     */
-    private function isSchemaProductCard(DOMElement $card): bool
-    {
-        $itemtype = strtolower(SourceDom::attr($card, 'itemtype'));
-        if ( str_contains($itemtype, 'schema.org/product') ) {
-            return true;
-        }
-
-        $hasName = null !== $this->firstDescendantWithItemprop($card, array( 'name' ));
-        $hasPrice = null !== $this->firstDescendantWithItemprop($card, array( 'price' ));
-        if ( $hasName && $hasPrice ) {
-            return true;
-        }
-
-        foreach ( $card->getElementsByTagName('*') as $descendant ) {
-            if ( $descendant instanceof DOMElement && str_contains(strtolower(SourceDom::attr($descendant, 'itemtype')), 'schema.org/offer') ) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
