@@ -130,6 +130,12 @@ final class EngineSupportCss
             // their valid paragraph host must not create a line box in document flow.
             $parts[] = ':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}';
         }
+        if ( str_contains($serializedBlocks, SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS) ) {
+            // A synthesized core/buttons wrapper is required for validity, but it
+            // did not exist in the source. Flatten it so positioned children keep
+            // the authored containing block instead of a collapsed wrapper box.
+            $parts[] = ':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}';
+        }
         if ( str_contains($serializedBlocks, self::EMPTY_FLEX_ITEM_CLASS) ) {
             $parts[] = ':where(.' . self::EMPTY_FLEX_ITEM_CLASS . '){flex:0 0 0!important;width:0!important;min-width:0!important;margin-left:0!important;margin-right:0!important}';
         }

@@ -69,6 +69,10 @@ $fragment = $css->beforeAuthorCss(ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK
 $assert(1 === count($fragment), 'positioned fragment link emits one before-author rule');
 $assert(':where(.' . ButtonLinkDispatcher::POSITIONED_FRAGMENT_LINK_CARRIER_CLASS . '){display:contents!important}' === $fragment[0], 'positioned fragment link reuses ButtonLinkDispatcher constant');
 
+$neutralButtons = $css->beforeAuthorCss(SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS, 'blocks-engine/layout-shell');
+$assert(1 === count($neutralButtons), 'layout-neutral buttons wrapper emits one before-author rule');
+$assert(':where(.' . SourceBlockAttributeProjector::LAYOUT_NEUTRAL_BUTTONS_CLASS . '){display:contents!important}' === $neutralButtons[0], 'layout-neutral buttons wrapper reuses SourceBlockAttributeProjector constant');
+
 $listNavRules = $css->listNavigationHostRepairCss('blocks-engine-list-navigation blocks-engine-native-responsive-navigation', '');
 $assertLayer($listNavRules, CascadeLayer::LIST_NAVIGATION_REPAIR, 'list-navigation host repair rules are all tagged LIST_NAVIGATION_REPAIR');
 $listNav = $css_of($listNavRules);

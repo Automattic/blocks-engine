@@ -165,6 +165,31 @@ final class InlineGeometry
     }
 
     /**
+     * Inline insets on an out-of-flow control land on the child block. A
+     * synthesized core/buttons wrapper must not become their containing block.
+     */
+    public function hasChildOwnedPositionedOffsets(DOMElement $element): bool
+    {
+        $declarations = ($this->cssDeclarations)(SourceDom::attr($element, 'style'));
+        $hasInset = false;
+        foreach ( array( 'top', 'right', 'bottom', 'left', 'inset' ) as $property ) {
+            if ( '' !== trim((string) ($declarations[ $property ] ?? '')) ) {
+                $hasInset = true;
+                break;
+            }
+        }
+        if ( ! $hasInset ) {
+            return false;
+        }
+
+        $position = CssValueInspector::comparable(
+            (string) (($this->structuralPresentationDeclarations)($element)['position'] ?? '')
+        );
+
+        return in_array($position, array( 'absolute', 'fixed', 'sticky' ), true);
+    }
+
+    /**
      * @param array<string, string> $declarations
      */
     private function inlineDeclaresOffsets(array $declarations): bool
