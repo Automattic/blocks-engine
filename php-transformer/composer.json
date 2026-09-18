@@ -244,6 +244,7 @@
             "php tests/unit/readable-form-block-builder.php",
             "php tests/unit/form-composition-planner.php",
             "php tests/unit/form-fallback-finding-builder.php",
+      "php tests/unit/form-control-topology-legend.php",
              "php tests/unit/form-dispatcher.php",
              "php tests/unit/native-get-form-workflow.php",
              "php tests/unit/element-conversion-prelude.php",
