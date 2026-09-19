@@ -109,6 +109,49 @@ $assert(
     json_encode($sharedWrapperControls)
 );
 
+// A wrapping <label> that contains the visible name, the control, and helper
+// copy after the control must not concatenate those two strings. The helper
+// is the field description; the label is only the name.
+$wrappingLabelControls = $controlsByName(
+    '<main><form method="post" action="/join">'
+    . '<label class="block"><span>Occupation / business</span>'
+    . '<input maxlength="120" name="occupation">'
+    . '<span class="mt-1 block text-xs">Helps the trade committee connect members.</span></label>'
+    . '<button type="submit">Send</button></form></main>'
+);
+$assert(
+    'Occupation / business' === ( $wrappingLabelControls['occupation']['label'] ?? null ),
+    'a wrapping label keeps only the visible name as the control label',
+    json_encode($wrappingLabelControls['occupation'] ?? null)
+);
+$assert(
+    'Helps the trade committee connect members.' === ( $wrappingLabelControls['occupation']['description'] ?? null ),
+    'helper copy after the control inside a wrapping label is the field description',
+    json_encode($wrappingLabelControls['occupation'] ?? null)
+);
+$assert(
+    ! str_contains( (string) ( $wrappingLabelControls['occupation']['label'] ?? '' ), 'Helps' ),
+    'the description is not concatenated onto the wrapping label string'
+);
+
+// Classic wrapping labels put the visible name after the control.
+// That trailing copy is the label, not a description.
+$trailingNameControls = $controlsByName(
+    '<main><form method="post" action="/join">'
+    . '<label><input type="radio" name="format" value="in-person"> In-person meeting</label>'
+    . '<button type="submit">Send</button></form></main>'
+);
+$assert(
+    'In-person meeting' === ( $trailingNameControls['format']['label'] ?? null ),
+    'a wrapping label whose name follows the control keeps that copy as the label',
+    json_encode($trailingNameControls['format'] ?? null)
+);
+$assert(
+    ! isset($trailingNameControls['format']['description']),
+    'trailing wrapping-label copy is not treated as a field description',
+    json_encode($trailingNameControls['format'] ?? null)
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form field description FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
