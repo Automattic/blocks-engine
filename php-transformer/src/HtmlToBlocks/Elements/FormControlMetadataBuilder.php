@@ -547,7 +547,12 @@ final class FormControlMetadataBuilder
                 // after the control. Skip the name (it does not follow the control);
                 // keep the helper so it is not folded into the label string.
                 if ( SourceDom::elementContains($labelElement, $control) ) {
-                    if ( 0 === ( $control->compareDocumentPosition($node) & \DOMNode::DOCUMENT_POSITION_FOLLOWING ) ) {
+                    // Helper copy follows the control only when the visible name
+                    // already preceded it. `<label><input> Name</label>` keeps
+                    // that trailing copy as the label, not a description.
+                    if ( 0 === ( $control->compareDocumentPosition($node) & \DOMNode::DOCUMENT_POSITION_FOLLOWING )
+                        || ! $this->wrappingLabelHasLeadingName($labelElement)
+                    ) {
                         continue;
                     }
                 } elseif ( SourceDom::elementContains($labelElement, $node) || SourceDom::elementContains($node, $labelElement) ) {
@@ -675,18 +680,46 @@ final class FormControlMetadataBuilder
             return '';
         }
 
-        $text = '';
+        $before = '';
+        $after = '';
         $seenControl = false;
         foreach ( $node->childNodes as $child ) {
             if ( $this->subtreeHasControl($child) ) {
-                $text .= $this->labelTextWithoutControls($child);
+                $before .= $this->labelTextWithoutControls($child);
                 $seenControl = true;
                 continue;
             }
             if ( $seenControl ) {
+                $after .= $this->labelTextWithoutControls($child);
                 continue;
             }
-            $text .= $this->labelTextWithoutControls($child);
+            $before .= $this->labelTextWithoutControls($child);
+        }
+
+        return '' !== trim($before) ? $before : $before . $after;
+    }
+
+    private function wrappingLabelHasLeadingName(DOMElement $label): bool
+    {
+        return '' !== trim($this->textBeforeControl($label));
+    }
+
+    private function textBeforeControl(DOMNode $node): string
+    {
+        if ( XML_TEXT_NODE === $node->nodeType ) {
+            return $node->textContent ?? '';
+        }
+        if ( $node instanceof DOMElement && ( FormControlClassifier::isControlElement($node) || 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) ) {
+            return '';
+        }
+
+        $text = '';
+        foreach ( $node->childNodes as $child ) {
+            if ( $this->subtreeHasControl($child) ) {
+                $text .= $this->textBeforeControl($child);
+                break;
+            }
+            $text .= $this->textBeforeControl($child);
         }
 
         return $text;

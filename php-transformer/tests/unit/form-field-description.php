@@ -134,6 +134,24 @@ $assert(
     'the description is not concatenated onto the wrapping label string'
 );
 
+// Classic wrapping labels put the visible name after the control.
+// That trailing copy is the label, not a description.
+$trailingNameControls = $controlsByName(
+    '<main><form method="post" action="/join">'
+    . '<label><input type="radio" name="format" value="in-person"> In-person meeting</label>'
+    . '<button type="submit">Send</button></form></main>'
+);
+$assert(
+    'In-person meeting' === ( $trailingNameControls['format']['label'] ?? null ),
+    'a wrapping label whose name follows the control keeps that copy as the label',
+    json_encode($trailingNameControls['format'] ?? null)
+);
+$assert(
+    ! isset($trailingNameControls['format']['description']),
+    'trailing wrapping-label copy is not treated as a field description',
+    json_encode($trailingNameControls['format'] ?? null)
+);
+
 if ( 0 < $failures ) {
     fwrite(STDERR, "form field description FAILED: {$passes} passed, {$failures} failed\n");
     exit(1);
