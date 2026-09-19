@@ -550,7 +550,7 @@ final class FormControlMetadataBuilder
                     // Helper copy follows the control only when the visible name
                     // already preceded it. `<label><input> Name</label>` keeps
                     // that trailing copy as the label, not a description.
-                    if ( 0 === ( $control->compareDocumentPosition($node) & \DOMNode::DOCUMENT_POSITION_FOLLOWING )
+                    if ( ! $this->nodeFollowsControl($node, $control, $wrapper)
                         || ! $this->wrappingLabelHasLeadingName($labelElement)
                     ) {
                         continue;
@@ -697,6 +697,21 @@ final class FormControlMetadataBuilder
         }
 
         return '' !== trim($before) ? $before : $before . $after;
+    }
+
+    private function nodeFollowsControl(DOMElement $node, DOMElement $control, DOMElement $scope): bool
+    {
+        $cursor = $control;
+        while ( $cursor instanceof DOMNode && ! $cursor->isSameNode($scope) ) {
+            for ( $sibling = $cursor->nextSibling; $sibling instanceof DOMNode; $sibling = $sibling->nextSibling ) {
+                if ( $sibling instanceof DOMElement && ( $sibling->isSameNode($node) || SourceDom::elementContains($sibling, $node) ) ) {
+                    return true;
+                }
+            }
+            $cursor = $cursor->parentNode;
+        }
+
+        return false;
     }
 
     private function wrappingLabelHasLeadingName(DOMElement $label): bool
