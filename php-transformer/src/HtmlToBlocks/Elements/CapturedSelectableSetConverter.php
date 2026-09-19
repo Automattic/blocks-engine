@@ -13,6 +13,7 @@ use DOMElement;
 final class CapturedSelectableSetConverter implements ElementConverter
 {
     public const VISUALLY_HIDDEN_TABLIST_CLASS = 'blocks-engine-tablist-visually-hidden';
+    public const TABLIST_ROW_ATTRIBUTE = 'data-blocks-engine-tablist-row';
 
     /**
      * @param Closure(DOMElement, array<int, array<string, mixed>>&): array<int, array<string, mixed>> $convertChildren
@@ -35,6 +36,12 @@ final class CapturedSelectableSetConverter implements ElementConverter
     /** @param array<int, array<string, mixed>> $fallbacks */
     public function convert(DOMElement $element, string $tagName, array &$fallbacks): ConversionOutcome
     {
+        if ('' !== SourceDom::attr($element, self::TABLIST_ROW_ATTRIBUTE)
+            && 'tablist' !== strtolower(trim(SourceDom::attr($element, 'role')))
+            && 'true' !== SourceDom::attr($element, 'data-blocks-engine-captured-selectable-set')
+        ) {
+            return ConversionOutcome::handled(null);
+        }
         if ('true' !== SourceDom::attr($element, 'data-blocks-engine-captured-selectable-set')) {
             return ConversionOutcome::unhandled();
         }
@@ -105,22 +112,55 @@ final class CapturedSelectableSetConverter implements ElementConverter
             ), static fn ($value): bool => '' !== $value), $children, $panel);
         }
 
-        $tabListAttributes = array_merge($this->presentation->presentationAttributes($tabList), array('tabs' => $labels));
+        $hidden = 'hidden' === strtolower(trim(SourceDom::attr($tabList, 'data-blocks-engine-tablist-presentation')));
+        $row = $hidden ? null : $this->triggerRowSource($tabList);
+        if ($row instanceof DOMElement) {
+            $tabListAttributes = array_merge($this->presentation->presentationAttributes($row), array('tabs' => $labels));
+            $tabListSource = null;
+        } elseif (! $hidden) {
+            $tabListAttributes = array_filter(array(
+                'className' => trim(SourceDom::attr($tabList, 'class')),
+                'tabs' => $labels,
+            ), static fn ($value): bool => is_array($value) ? array() !== $value : '' !== trim((string) $value));
+            $tabListSource = null;
+        } else {
+            $tabListAttributes = array_merge($this->presentation->presentationAttributes($tabList), array('tabs' => $labels));
+            $tabListSource = $tabList;
+        }
         unset($tabListAttributes['anchor']);
         $ariaLabel = trim(SourceDom::attr($tabList, 'aria-label'));
         if ('' !== $ariaLabel) {
             $tabListAttributes['ariaLabel'] = $ariaLabel;
         }
-        if ('hidden' === strtolower(trim(SourceDom::attr($tabList, 'data-blocks-engine-tablist-presentation')))) {
+        if ($hidden) {
             $hiddenClass = trim(($this->visuallyHiddenClassName)());
             if ('' !== $hiddenClass) {
                 $tabListAttributes['className'] = trim((string) ($tabListAttributes['className'] ?? '') . ' ' . $hiddenClass);
             }
         }
 
-        return $this->createBlock->createBlock('core/tabs', $this->presentation->presentationAttributes($element), array(
-            $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabList),
+        return $this->createBlock->createBlock('core/tabs', array(), array(
+            $this->createBlock->createBlock('core/tab-list', $tabListAttributes, array(), $tabListSource),
             $this->createBlock->createBlock('core/tab-panels', array(), $panelBlocks),
-        ), $element);
+        ));
+    }
+
+    private function triggerRowSource(DOMElement $tabList): ?DOMElement
+    {
+        $identity = trim(SourceDom::attr($tabList, self::TABLIST_ROW_ATTRIBUTE));
+        if ('' === $identity || 1 !== preg_match('/^[A-Za-z0-9-]+$/', $identity)) {
+            return null;
+        }
+        $document = $tabList->ownerDocument;
+        if (! $document instanceof \DOMDocument) {
+            return null;
+        }
+        foreach ((new \DOMXPath($document))->query('//*[@' . self::TABLIST_ROW_ATTRIBUTE . '="' . $identity . '"]') ?: array() as $node) {
+            if ($node instanceof DOMElement && ! $node->isSameNode($tabList)) {
+                return $node;
+            }
+        }
+
+        return null;
     }
 }

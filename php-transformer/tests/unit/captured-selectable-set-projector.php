@@ -61,6 +61,14 @@ $assert(! str_contains($markup, 'data-blocks-engine-tablist-presentation="hidden
 $assert(str_contains($markup, 'role="tab"') && str_contains($markup, '>Alpha<') && str_contains($markup, '>Beta<'), 'member labels become tab names');
 $assert(str_contains($markup, 'Alpha specification') && str_contains($markup, 'Beta specification'), 'each captured region is inlined as a tab panel');
 $assert(! str_contains($markup, 'Select an item'), 'the frozen placeholder is replaced');
+$assert(str_contains($markup, 'data-blocks-engine-tablist-row='), 'a distinct source trigger row is linked onto the projected tablist');
+
+$rowSource = '<html><body><main><div class="step-row" style="display:flex;width:1216px"><button type="button">Alpha</button><button type="button">Beta</button></div><div class="detail"><p>Select an item</p></div></main></body></html>';
+$rowCaptured = $project($files($rowSource, array($member(0, 'Alpha', $alphaHtml), $member(1, 'Beta', $betaHtml))));
+$rowMarkup = (string) ($rowCaptured['files'][0]['content'] ?? '');
+$assert(1 === preg_match('/role="tablist"[^>]*class="step-row"/', $rowMarkup) || 1 === preg_match('/class="step-row"[^>]*role="tablist"/', $rowMarkup), 'the tablist inherits the source trigger row class');
+$assert(str_contains($rowMarkup, 'display:flex') && str_contains($rowMarkup, 'width:1216px'), 'the tablist inherits the source trigger row inline geometry');
+$assert(2 === substr_count($rowMarkup, 'data-blocks-engine-tablist-row='), 'the surviving trigger row and tablist share one row identity');
 
 $fragmentSource = '<main><div><button type="button">Alpha</button><button type="button">Beta</button></div><div><p>Select an item</p></div></main>';
 $fragment = $project($files($fragmentSource, array($member(0, 'Alpha', $alphaHtml), $member(1, 'Beta', $betaHtml))));
@@ -151,6 +159,7 @@ $graphic = $project($files($graphicSource, array(
 $graphicMarkup = (string) ($graphic['files'][0]['content'] ?? '');
 $assert(1 === ($graphic['projected_count'] ?? 0), 'graphic-host members still project one selectable set');
 $assert(str_contains($graphicMarkup, 'data-blocks-engine-tablist-presentation="hidden"'), 'triggers inside a graphic host hide the projected tablist');
+$assert(! str_contains($graphicMarkup, 'data-blocks-engine-tablist-row='), 'graphic-host triggers do not project a visible trigger-row identity onto the tablist');
 $assert(! str_contains($graphicMarkup, 'display:none') && ! str_contains($graphicMarkup, 'display: none'), 'the hidden tablist does not use display:none');
 $assert(str_contains($graphicMarkup, 'role="tablist"') && 2 === substr_count($graphicMarkup, 'role="tab"'), 'the hidden tablist remains an accessible tab control');
 $assert(str_contains($graphicMarkup, '>FR1 1,530 ft') && str_contains($graphicMarkup, '>FR2 1,530 ft'), 'graphic-host labels keep element-separated text');
