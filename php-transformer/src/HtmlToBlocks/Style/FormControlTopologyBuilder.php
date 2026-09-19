@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
-use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use DOMElement;
 
 /** Builds the bounded source wrapper topology for form fallback metadata. */
@@ -180,7 +179,12 @@ final class FormControlTopologyBuilder
         $id = trim($element->hasAttribute('id') ? $element->getAttribute('id') : '');
         if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $id) ) $presentation['source_id'] = $id;
 
-        $classes = SourceDom::boundedClassTokens($element->hasAttribute('class') ? $element->getAttribute('class') : '', self::MAX_CLASSES);
+        $classes = array();
+        $classAttribute = $element->hasAttribute('class') ? $element->getAttribute('class') : '';
+        foreach ( preg_split('/\s+/', trim($classAttribute)) ?: array() as $class ) {
+            if ( count($classes) >= self::MAX_CLASSES ) break;
+            if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class) ) $classes[] = $class;
+        }
         if ( array() !== $classes ) $presentation['class'] = implode(' ', $classes);
 
         if ( 'fieldset' === $tag ) {

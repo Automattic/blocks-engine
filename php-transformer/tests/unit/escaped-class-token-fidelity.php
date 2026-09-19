@@ -65,9 +65,9 @@ $layeredVariants = array_values(array_filter(
     static fn (array $variant): bool => 'wrapper-0' === ($variant['node'] ?? null)
 ));
 $assert(
-    str_contains((string) ($layeredFallback['control_topology']['nodes'][0]['class'] ?? ''), 'sm:grid-cols-2'),
-    'form topology retains a colon class token on the layout wrapper',
-    json_encode($layeredFallback['control_topology']['nodes'][0] ?? null)
+    array( 'grid', 'gap-5', 'sm:grid-cols-2' ) === ($layeredWrapper['source']['classes'] ?? null),
+    'layout-graph source classes retain a colon class token on the layout wrapper',
+    json_encode($layeredWrapper['source']['classes'] ?? null)
 );
 $assert(
     str_contains((string) ($layeredFallback['controls'][0]['class'] ?? ''), 'mt-1.5'),

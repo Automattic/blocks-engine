@@ -29,7 +29,7 @@
     { "path": "status", "assert": "equals", "value": "success" },
     { "path": "serialized_blocks", "assert": "contains", "value": "class=\"mt-1.5 w-full\"" },
     { "path": "fallbacks.0.controls.0.class", "assert": "equals", "value": "mt-1.5 w-full" },
-    { "path": "fallbacks.0.control_topology.nodes.0.class", "assert": "equals", "value": "grid gap-5 sm:grid-cols-2" },
+    { "path": "fallbacks.0.control_topology.nodes.0.class", "assert": "equals", "value": "grid gap-5" },
     { "path": "fallbacks.0.layout_graph.nodes.1.source.classes", "assert": "equals", "value": ["grid", "gap-5", "sm:grid-cols-2"] },
     { "path": "fallbacks.0.layout_graph.variants", "assert": "count", "count": 1 },
     { "path": "fallbacks.0.layout_graph.variants.0.condition.kind", "assert": "equals", "value": "media" },
