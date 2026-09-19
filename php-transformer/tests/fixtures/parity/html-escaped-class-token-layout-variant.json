@@ -1,0 +1,40 @@
+{
+  "schema": "blocks-engine/php-transformer/parity-fixture/v1",
+  "name": "html-escaped-class-token-layout-variant",
+  "description": "Whitespace-delimited class tokens that contain . or : survive form receipts, and a media-scoped layout rule reaches layout_graph as a variant.",
+  "source_reference": {
+    "repo": "php-transformer",
+    "path": "tests/fixtures/parity/html-escaped-class-token-layout-variant.json",
+    "notes": "HTML class tokens are whitespace-delimited. A character that must be escaped in a CSS identifier is still a legal token. A @media-gated layout declaration is a stated condition, including when the stylesheet wraps it in a cascade layer."
+  },
+  "legacy_comparison": {
+    "skip": true,
+    "reason": "This upstream primitive fixture has no downstream legacy comparison."
+  },
+  "operation": "html_transformer.transform",
+  "input": {
+    "content": "<main><form method=\"post\" action=\"#\"><div class=\"grid gap-5 sm:grid-cols-2\"><label class=\"block\"><span>Message</span><textarea name=\"m\" class=\"mt-1.5 w-full\"></textarea></label></div><button type=\"submit\">Send</button></form></main>",
+    "options": {
+      "static_css": "@layer utilities{.grid{display:grid}.gap-5{gap:1.25rem}.mt-1\\.5{margin-top:0.375rem}@media (width>=40rem){.sm\\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}}"
+    }
+  },
+  "expected_blocks": [
+    { "path": "blocks.0", "name": "core/group", "attrs": { "tagName": "form" } },
+    { "path": "blocks.0.innerBlocks.0", "name": "custom/authored-textarea", "attrs": { "name": "m", "className": "mt-1.5 w-full" } }
+  ],
+  "expected_fallbacks": [
+    { "type": "html", "reason": "form_requires_runtime", "diagnostic_code": "html_form_fallback" }
+  ],
+  "expect": [
+    { "path": "status", "assert": "equals", "value": "success" },
+    { "path": "serialized_blocks", "assert": "contains", "value": "class=\"mt-1.5 w-full\"" },
+    { "path": "fallbacks.0.controls.0.class", "assert": "equals", "value": "mt-1.5 w-full" },
+    { "path": "fallbacks.0.control_topology.nodes.0.class", "assert": "equals", "value": "grid gap-5 sm:grid-cols-2" },
+    { "path": "fallbacks.0.layout_graph.nodes.1.source.classes", "assert": "equals", "value": ["grid", "gap-5", "sm:grid-cols-2"] },
+    { "path": "fallbacks.0.layout_graph.variants", "assert": "count", "count": 1 },
+    { "path": "fallbacks.0.layout_graph.variants.0.condition.kind", "assert": "equals", "value": "media" },
+    { "path": "fallbacks.0.layout_graph.variants.0.condition.query", "assert": "equals", "value": "(width>=40rem)" },
+    { "path": "fallbacks.0.layout_graph.variants.0.layout_patch.columns", "assert": "equals", "value": "repeat(2,minmax(0,1fr))" },
+    { "path": "fallbacks.0.presentation_graph.controls.0.control.styles.margin_top", "assert": "equals", "value": "0.375rem" }
+  ]
+}

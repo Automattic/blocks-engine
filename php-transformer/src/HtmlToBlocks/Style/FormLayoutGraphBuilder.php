@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Classification\FormControlClassifier;
+use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssAnalysisLimits;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssRuleAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssSelectorMatcher;
@@ -597,12 +598,16 @@ final class FormLayoutGraphBuilder
             // the presentation graph, which overlays as CSS. Field-list gap is
             // the exception: a provider form flattens that wrapper, so the
             // authored stack spacing has to ride on the form node itself.
+            // A layered rule that is itself media/container/supports-gated is
+            // not an unlayered base fact — it is a stated condition, so it
+            // still belongs on variants.
             $layered = null !== ( $rule['layer'] ?? null );
-            if ( $layered && ! $spacingFromLayers ) {
+            $conditionalRule = null !== ( $rule['condition'] ?? null );
+            if ( $layered && ! $spacingFromLayers && ! $conditionalRule ) {
                 continue;
             }
             $ruleDeclarations = $rule['declarations'];
-            if ( $layered ) {
+            if ( $layered && ! $conditionalRule ) {
                 $ruleDeclarations = array_values(array_filter(
                     $ruleDeclarations,
                     static fn (array $declaration): bool => in_array($declaration['name'], self::SPACING_PROPERTIES, true)
@@ -735,7 +740,7 @@ final class FormLayoutGraphBuilder
     /** @return array<string, mixed> */
     private function source(DOMElement $element): array
     {
-        $classes = array_values(array_filter(preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array(), static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $class)));
-        return array( 'tag' => strtolower($element->tagName), 'id' => 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $element->getAttribute('id')) ? $element->getAttribute('id') : null, 'classes' => array_slice($classes, 0, 8) );
+        $classes = SourceDom::boundedClassTokens($element->getAttribute('class'));
+        return array( 'tag' => strtolower($element->tagName), 'id' => 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $element->getAttribute('id')) ? $element->getAttribute('id') : null, 'classes' => $classes );
     }
 }
