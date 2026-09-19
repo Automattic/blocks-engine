@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Support\SourceDom;
@@ -542,7 +543,7 @@ final class StyleResolver implements ElementPresentationResolver
             return true;
         }
         foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
-            if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?![\w-])/', $selector) ) {
+            if ( '' !== $className && 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/', $selector) ) {
                 return true;
             }
         }
@@ -2285,12 +2286,9 @@ final class StyleResolver implements ElementPresentationResolver
             return '#' . $id;
         }
 
-        $classes = array_values(array_filter(
-            preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array(),
-            static fn (string $class): bool => 1 === preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class)
-        ));
+        $classes = SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'));
 
-        return array() === $classes ? '' : '.' . implode('.', $classes);
+        return array() === $classes ? '' : CssIdent::compoundClassSelector($classes);
     }
 
     private function editorAnchorClassName(DOMElement $element): string
@@ -3249,7 +3247,7 @@ final class StyleResolver implements ElementPresentationResolver
                 // Retain references in selectors outside the matcher's subset,
                 // including generated content and functional pseudo-classes.
                 if ( ! ($selector['parsed']['supported'] ?? false)
-                    && preg_match('/\.' . preg_quote($className, '/') . '(?![a-zA-Z0-9_-])/', $selector['selector']) ) {
+                    && preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![a-zA-Z0-9_-])/', $selector['selector']) ) {
                     return true;
                 }
             }

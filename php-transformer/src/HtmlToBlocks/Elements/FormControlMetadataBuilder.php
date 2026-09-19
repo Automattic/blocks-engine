@@ -578,16 +578,7 @@ final class FormControlMetadataBuilder
 
     private function classNames(DOMElement $element): string
     {
-        $classes = array();
-        foreach ( preg_split('/\s+/', trim(SourceDom::attr($element, 'class'))) ?: array() as $className ) {
-            if ( count($classes) >= 16 ) {
-                break;
-            }
-            if ( 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $className) ) {
-                $classes[] = $className;
-            }
-        }
-        return implode(' ', $classes);
+        return implode(' ', SourceDom::boundedClassTokens(SourceDom::attr($element, 'class'), 16));
     }
 
     public function submitText(DOMElement $control, string $fallback): string

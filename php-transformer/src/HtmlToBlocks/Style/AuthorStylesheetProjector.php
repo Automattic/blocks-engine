@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssValueSplitter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\RichText\RichTextMarkerSelector;
@@ -1356,8 +1357,8 @@ final class AuthorStylesheetProjector
                 $specificityShim = ':not(#' . $context->authorStyles->idSpecificityShim() . ')';
             } else {
                 foreach ( preg_split('/\s+/', trim($element->getAttribute('class'))) ?: array() as $className ) {
-                    if ( '' !== $className && 1 === preg_match('/\.' . preg_quote($className, '/') . '(?![\w-])/', $selector) ) {
-                        $pattern = '/\.' . preg_quote($className, '/') . '(?![\w-])/';
+                    if ( '' !== $className && 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/', $selector) ) {
+                        $pattern = '/' . CssIdent::classSelectorRegex($className) . '(?![\w-])/';
                         $specificityShim = ':not(.' . $context->authorStyles->classSpecificityShim() . ')';
                         break;
                     }

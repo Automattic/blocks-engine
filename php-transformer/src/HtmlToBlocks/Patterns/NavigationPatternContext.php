@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Patterns;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\ProjectedNavigationConverter;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Elements\RuntimeIslandAnalyzer;
 use Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Session\HtmlTransformerSession;
@@ -328,7 +329,7 @@ final class NavigationPatternContext
             return;
         }
 
-        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation-item__content';
+        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation-item__content';
         $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $declarations));
     }
 
@@ -424,7 +425,7 @@ final class NavigationPatternContext
 
         // Descendant, not child: core nests the container inside its responsive
         // wrapper, so a child combinator never reaches it.
-        $selector = '.wp-block-navigation.' . implode('.', $authorClasses) . ' .wp-block-navigation__container';
+        $selector = '.wp-block-navigation' . CssIdent::compoundClassSelector($authorClasses) . ' .wp-block-navigation__container';
         $this->sourceTargetProjection->record(SourceDom::elementSelector($navigation), $selector, implode(';', $resets));
     }
 

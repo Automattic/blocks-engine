@@ -262,6 +262,38 @@ final class SourceDom
         return array_values(array_filter(preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array()));
     }
 
+    /**
+     * Whitespace-delimited class tokens that a receipt may retain.
+     *
+     * `.` and `:` are legal inside a token; they are not selector delimiters.
+     * Tokens that need CSS escaping are still tokens. Length and count stay
+     * bounded so metadata stays finite.
+     *
+     * @return list<string>
+     */
+    public static function boundedClassTokens(string $classAttribute, int $maxCount = 8, int $maxLength = 80): array
+    {
+        $tokens = array();
+        foreach ( preg_split('/\s+/', trim($classAttribute)) ?: array() as $token ) {
+            if ( ! self::isBoundedClassToken($token, $maxLength) ) {
+                continue;
+            }
+            $tokens[] = $token;
+            if ( count($tokens) >= $maxCount ) {
+                break;
+            }
+        }
+
+        return $tokens;
+    }
+
+    public static function isBoundedClassToken(string $token, int $maxLength = 80): bool
+    {
+        return '' !== $token
+            && strlen($token) <= $maxLength
+            && 1 === preg_match('/^[A-Za-z0-9_-][A-Za-z0-9_.:-]*$/D', $token);
+    }
+
     public static function childElementCount(DOMElement $element): int
     {
         $count = 0;

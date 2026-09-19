@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Automattic\BlocksEngine\PhpTransformer\HtmlToBlocks\Style;
 
+use Automattic\BlocksEngine\PhpTransformer\Css\CssIdent;
 use Automattic\BlocksEngine\PhpTransformer\Css\CssStylesheetTransformer;
 
 /**
@@ -94,14 +95,7 @@ final class ColorSchemeVariant
 
     public static function cssEscapeIdent(string $ident): string
     {
-        $escaped = '';
-        $length = strlen($ident);
-        for ( $offset = 0; $offset < $length; $offset++ ) {
-            $character = $ident[ $offset ];
-            $escaped .= 1 === preg_match('/[A-Za-z0-9_-]/', $character) ? $character : '\\' . $character;
-        }
-
-        return $escaped;
+        return CssIdent::escape($ident);
     }
 
     public static function cssContainsClassSelector(string $css, string $className): bool
@@ -109,11 +103,8 @@ final class ColorSchemeVariant
         if ( '' === $className ) {
             return false;
         }
-        if ( 1 === preg_match('/\.' . preg_quote($className, '/') . '(?:\b|(?=[.#:\[]))/', $css) ) {
-            return true;
-        }
 
-        return str_contains($css, '.' . self::cssEscapeIdent($className));
+        return 1 === preg_match('/' . CssIdent::classSelectorRegex($className) . '(?:\b|(?=[.#:\[]))/', $css);
     }
 
     private static function gatePattern(): string
