@@ -542,10 +542,17 @@ final class FormControlMetadataBuilder
             if ( SourceDom::elementContains($control, $node) || SourceDom::elementContains($node, $control) ) {
                 continue;
             }
-            if ( $labelElement instanceof DOMElement
-                && ( SourceDom::elementContains($labelElement, $node) || SourceDom::elementContains($node, $labelElement) )
-            ) {
-                continue;
+            if ( $labelElement instanceof DOMElement ) {
+                // A wrapping label owns both the visible name and any helper copy
+                // after the control. Skip the name (it does not follow the control);
+                // keep the helper so it is not folded into the label string.
+                if ( SourceDom::elementContains($labelElement, $control) ) {
+                    if ( 0 === ( $control->compareDocumentPosition($node) & \DOMNode::DOCUMENT_POSITION_FOLLOWING ) ) {
+                        continue;
+                    }
+                } elseif ( SourceDom::elementContains($labelElement, $node) || SourceDom::elementContains($node, $labelElement) ) {
+                    continue;
+                }
             }
             if ( 'true' === strtolower(SourceDom::attr($node, 'aria-hidden')) ) {
                 continue;
@@ -669,11 +676,34 @@ final class FormControlMetadataBuilder
         }
 
         $text = '';
+        $seenControl = false;
         foreach ( $node->childNodes as $child ) {
+            if ( $this->subtreeHasControl($child) ) {
+                $text .= $this->labelTextWithoutControls($child);
+                $seenControl = true;
+                continue;
+            }
+            if ( $seenControl ) {
+                continue;
+            }
             $text .= $this->labelTextWithoutControls($child);
         }
 
         return $text;
+    }
+
+    private function subtreeHasControl(DOMNode $node): bool
+    {
+        if ( $node instanceof DOMElement && FormControlClassifier::isControlElement($node) ) {
+            return true;
+        }
+        foreach ( $node->childNodes as $child ) {
+            if ( $this->subtreeHasControl($child) ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
