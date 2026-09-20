@@ -50,6 +50,11 @@ $assert('div' === ShellLandmarkPolicy::templatePartTagName('parts/navigation.htm
 $assert('header' === ShellLandmarkPolicy::templatePartAreaTagName('header') && 'footer' === ShellLandmarkPolicy::templatePartAreaTagName('footer') && 'div' === ShellLandmarkPolicy::templatePartAreaTagName('uncategorized'), 'core template part area tags are centralized');
 $assert('uncategorized' === ShellLandmarkPolicy::templatePartArea('pages/main.html', ''), 'main-named content is not promoted to a template part area');
 
+$withCorrespondence = '<a class="nav-link data-liberation-responsive-counterpart-f0edc2abe43b" data-dla-responsive-source="root:a:1" href="/">Home</a>';
+$withoutCorrespondence = '<a class="nav-link" href="/">Home</a>';
+$assert(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($withCorrespondence) === $withoutCorrespondence, 'shell identity ignores capture correspondence classes and source attributes');
+$assert(ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup('<a class="be-responsive-counterpart-abc123def456" href="/">Home</a>') === '<a href="/">Home</a>', 'shell identity ignores engine correspondence classes and drops an emptied class attribute');
+
 if ( $failures > 0 ) {
     fwrite(STDERR, PHP_EOL . "ShellLandmarkPolicy unit tests: {$passes} passed, {$failures} FAILED" . PHP_EOL);
     exit(1);

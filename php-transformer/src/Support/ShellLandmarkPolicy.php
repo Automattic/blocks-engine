@@ -121,6 +121,26 @@ final class ShellLandmarkPolicy
         return self::TEMPLATE_PART_AREA_TAGS[$area] ?? self::TEMPLATE_PART_AREA_TAGS['uncategorized'];
     }
 
+    /**
+     * Drop capture-time responsive correspondence tokens from shell identity.
+     *
+     * Desktop/mobile document pairs stamp per-element correspondence classes and
+     * source attributes that do not change the authored chrome. Identity
+     * comparison must ignore them so equivalent nested headers still cluster.
+     */
+    public static function withoutResponsiveCorrespondenceMarkup(string $markup): string
+    {
+        $markup = preg_replace('/\s*(?:data-liberation-responsive-counterpart-|be-responsive-counterpart-)[a-f0-9]+/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*data-dla-responsive-source="[^"]*"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/class="\s+/', 'class="', $markup) ?? $markup;
+        $markup = preg_replace('/"className":"\s+/', '"className":"', $markup) ?? $markup;
+        $markup = preg_replace('/\s*class="\s*"/', '', $markup) ?? $markup;
+        $markup = preg_replace('/,"className":""/', '', $markup) ?? $markup;
+        $markup = preg_replace('/"className":"",/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\{"className":""\}/', '{}', $markup) ?? $markup;
+        return $markup;
+    }
+
     private static function templatePartKind(string $path, string $role): string
     {
         if ( preg_match('/\b(header|footer|sidebar|navigation)\b/i', $path . ' ' . $role, $match) ) {

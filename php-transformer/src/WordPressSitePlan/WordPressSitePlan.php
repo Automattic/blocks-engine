@@ -1370,7 +1370,20 @@ final class WordPressSitePlan
                 $sourceMatches = array_values(array_filter($sourceRanges, static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length'])));
                 if (isset($anchor['source_occurrence_count']) && $anchor['source_occurrence_count'] !== count($sourceMatches)) throw new InvalidArgumentException('A runtime entity binding source anchor is ambiguous after reprojection.');
                 $candidates = array(); foreach ($sourceRanges as $index => $sourceRange) { $canonicalRange = $canonicalRanges[$index] ?? null; if ($anchor['source_block_markup'] === substr($sourceMarkup, $sourceRange['offset'], $sourceRange['length']) && $anchor['source_occurrence'] === self::occurrenceAtOffset($sourceMarkup, $anchor['source_block_markup'], $sourceRange['offset']) && is_array($canonicalRange) && $search === substr($markup, $canonicalRange['offset'], $canonicalRange['length']) && !isset($claimedOffsets[$canonicalRange['offset']])) $candidates[] = array('source' => $sourceRange, 'canonical' => $canonicalRange); }
-                if (array() === $candidates) { $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length']))); $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length']) && !isset($claimedOffsets[$range['offset']]))); if (1 === count($sourceMatches) && 1 === count($canonicalMatches)) $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $canonicalMatches[0]); }
+                if (array() === $candidates) {
+                    $sourceMatches = array_values(array_filter(self::blockRanges($sourceMarkup), static fn(array $range): bool => $anchor['source_block_markup'] === substr($sourceMarkup, $range['offset'], $range['length'])));
+                    $canonicalMatches = array_values(array_filter(self::blockRanges($markup), static fn(array $range): bool => $search === substr($markup, $range['offset'], $range['length'])));
+                    $unclaimedCanonical = array_values(array_filter($canonicalMatches, static fn(array $range): bool => !isset($claimedOffsets[$range['offset']])));
+                    if (1 === count($sourceMatches) && 1 === count($unclaimedCanonical)) {
+                        $candidates[] = array('source' => $sourceMatches[0], 'canonical' => $unclaimedCanonical[0]);
+                    } elseif (count($sourceMatches) === count($canonicalMatches) && array() !== $canonicalMatches) {
+                        $occurrence = is_int($anchor['source_occurrence'] ?? null) ? $anchor['source_occurrence'] : (is_int($identity['source_occurrence'] ?? null) ? $identity['source_occurrence'] : null);
+                        $index = is_int($occurrence) ? $occurrence - 1 : null;
+                        if (is_int($index) && isset($sourceMatches[$index], $canonicalMatches[$index]) && !isset($claimedOffsets[$canonicalMatches[$index]['offset']])) {
+                            $candidates[] = array('source' => $sourceMatches[$index], 'canonical' => $canonicalMatches[$index]);
+                        }
+                    }
+                }
                 if (1 !== count($candidates)) throw new InvalidArgumentException('A runtime entity binding no longer identifies one exact emitted canonical block.');
                 $claimedOffsets[$candidates[0]['canonical']['offset']] = true; $resolved[] = array($identity, $candidates[0]['canonical']);
             }

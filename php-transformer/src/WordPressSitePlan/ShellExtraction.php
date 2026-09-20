@@ -49,9 +49,9 @@ final class ShellExtraction
             $candidates[] = $row;
         }
         $sourcePath = WordPressSitePlan::value($document, 'source_path');
-        $nestedChrome = $this->nestedChromeCandidates($canonical, $sourcePath);
-        if (array() !== $nestedChrome) return array_merge($candidates, $nestedChrome);
-        return array_merge($candidates, $this->nestedLandmarkShellCandidates($canonical, $sourcePath, array_column($candidates, 'area')));
+        $nestedLandmarks = $this->nestedLandmarkShellCandidates($canonical, $sourcePath, array_column($candidates, 'area'));
+        if (array() !== $nestedLandmarks) return array_merge($candidates, $nestedLandmarks);
+        return array_merge($candidates, $this->nestedChromeCandidates($canonical, $sourcePath));
     }
 
     /** @return array<int,array<string,mixed>> */
@@ -91,14 +91,18 @@ final class ShellExtraction
         foreach (array('header', 'footer') as $area) {
             if (in_array($area, $occupiedAreas, true)) continue;
             $rows = $this->nestedLandmarkCandidates($markup, $sourcePath, $area);
-            if (1 !== count($rows)) continue;
+            if (array() === $rows) continue;
+            $identities = array_column($rows, 'identity_markup');
+            if (1 !== count(array_unique($identities))) continue;
             $row = $rows[0];
             $identity = $row['identity_markup'];
             if ('' === $identity) continue;
             $partMarkup = self::withoutLandmarkTagName(self::withoutCurrentNavigationState($row['markup']));
+            $additional = array();
+            foreach (array_slice($rows, 1) as $extra) $additional[] = array('offset' => $extra['offset'], 'length' => $extra['length'], 'markup' => $extra['markup']);
             // The candidate's own block-tree offset is carried forward so removal
             // never needs to re-derive its position by searching for its bytes.
-            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length']);
+            $candidates[] = array('area' => $area, 'markup' => $row['markup'], 'inner_markup' => $row['markup'], 'template_part_markup' => $partMarkup, 'identity_markup' => $identity, 'classes' => array(), 'source_path' => $sourcePath, 'source_hash' => $row['source_hash'], 'nested_shell' => true, 'offset' => $row['offset'], 'length' => $row['length'], 'additional_ranges' => $additional);
         }
         return $candidates;
     }
@@ -116,8 +120,10 @@ final class ShellExtraction
             $candidates = array(); $variantCount = null; $rejected = false;
             foreach ($applicable as $index => $page) {
                 $rows = $this->nestedLandmarkCandidates($page['canonical_block_markup'], $page['source_path'], $area);
-                if (array() === $rows || (null !== $variantCount && $variantCount !== count($rows))) { $rejected = true; break; }
-                $variantCount = count($rows); $candidates[$index] = $rows;
+                if (array() === $rows) { $rejected = true; break; }
+                $count = self::logicalNestedVariantCount($rows);
+                if (null !== $variantCount && $variantCount !== $count) { $rejected = true; break; }
+                $variantCount = $count; $candidates[$index] = $rows;
                 foreach ($rows as $candidate) if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $candidate['offset'], $candidate['length'])) { $rejected = true; break 2; }
             }
             if ($rejected || null === $variantCount || 1 === $variantCount) continue;
@@ -203,6 +209,14 @@ final class ShellExtraction
         return $rows;
     }
 
+    /** @param array<int,array<string,mixed>> $rows */
+    private static function logicalNestedVariantCount(array $rows): int
+    {
+        $identities = array_column($rows, 'identity_markup');
+        if (array() !== $identities && 1 === count(array_unique($identities))) return 1;
+        return count($rows);
+    }
+
     /** @param array<int,array<string,mixed>> $pages @param array<string,true> $reservedSlugs @param array<int,array<string,mixed>> $runtimeDeclarations @return array{pages:array<int,array<string,mixed>>,parts:array<int,array<string,mixed>>,runtime_declarations:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>} */
     public function sharedShells(array $pages, array $reservedSlugs = array(), array $runtimeDeclarations = array()): array
     {
@@ -263,7 +277,7 @@ final class ShellExtraction
                 $withoutShell = isset($candidate['legacy_content_markup'])
                     ? (($candidate['legacy_page_markup'] ?? null) === $page['canonical_block_markup'] ? $candidate['legacy_content_markup'] : null)
                     : (!empty($candidate['nested_shell'])
-                        ? $this->withoutNestedShell($page['canonical_block_markup'], $candidate['markup'], $candidate['offset'] ?? null)
+                        ? $this->withoutNestedShell($page['canonical_block_markup'], $candidate)
                         : $this->withoutTopLevelShell($page['canonical_block_markup'], $area, $candidate['markup'], $candidate['offset'] ?? null));
                 if (null === $withoutShell) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_ambiguous', 'severity' => 'warning', 'message' => "{$area} shell candidate cannot be removed unambiguously from {$page['source_path']}.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'removal_ambiguous', $candidates));
@@ -279,12 +293,14 @@ final class ShellExtraction
                 $page = $pages[$index];
                 $candidate = $candidates[$index][0];
                 $legacyContentRange = $candidate['legacy_content_range'] ?? null;
-                $range = !empty($candidate['nested_shell'])
-                    ? $this->nestedShellRange($page['canonical_block_markup'], $candidate['markup'], $candidate['offset'] ?? null)
-                    : $this->topLevelShellRange($page['canonical_block_markup'], $area, $candidate['markup'], $candidate['offset'] ?? null);
-                $containsBinding = is_array($legacyContentRange)
-                    ? $this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length'])
-                    : (is_array($range) && $this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length']));
+                $containsBinding = false;
+                if (is_array($legacyContentRange)) {
+                    $containsBinding = $this->shellContainsRuntimeBindingOutsideRange($runtimeDeclarations, $page, $legacyContentRange['offset'], $legacyContentRange['length']);
+                } else {
+                    foreach ($this->nestedShellRanges($page['canonical_block_markup'], $candidate, $area) as $range) {
+                        if ($this->shellContainsRuntimeBinding($runtimeDeclarations, $page, $range['offset'], $range['length'])) { $containsBinding = true; break; }
+                    }
+                }
                 if ($containsBinding) {
                     $diagnostics[] = array('code' => 'wordpress_site_plan_shell_retained_runtime_binding', 'severity' => 'info', 'message' => "{$area} shell remains page-owned because it contains a runtime entity binding anchor.", 'area' => $area, 'source_path' => $page['source_path'], 'provenance' => $this->shellProvenance($area, 'retained', 'runtime_binding', $candidates));
                     $retainedForRuntimeBinding = true;
@@ -352,10 +368,46 @@ final class ShellExtraction
         return $this->replaceTopLevelShell($markup, $area, '', $candidateMarkup, $offset);
     }
 
-    private function withoutNestedShell(string $markup, string $candidateMarkup, ?int $offset = null): ?string
+    /** @param array<string,mixed> $candidate */
+    private function withoutNestedShell(string $markup, array $candidate): ?string
     {
-        $range = $this->nestedShellRange($markup, $candidateMarkup, $offset);
-        return is_array($range) ? substr($markup, 0, $range['offset']) . substr($markup, $range['offset'] + $range['length']) : null;
+        $identity = (string) ($candidate['identity_markup'] ?? '');
+        $area = (string) ($candidate['area'] ?? '');
+        $matches = array();
+        if ('' !== $identity && '' !== $area) {
+            foreach ($this->nestedLandmarkCandidates($markup, (string) ($candidate['source_path'] ?? ''), $area) as $row) {
+                if ($identity === ($row['identity_markup'] ?? null)) $matches[] = $row;
+            }
+        }
+        if (array() === $matches) {
+            $ranges = $this->nestedShellRanges($markup, $candidate, $area);
+            if (array() === $ranges) return null;
+            $matches = $ranges;
+        }
+        usort($matches, static fn(array $left, array $right): int => $right['offset'] <=> $left['offset']);
+        foreach ($matches as $row) $markup = substr($markup, 0, $row['offset']) . substr($markup, $row['offset'] + $row['length']);
+        return $markup;
+    }
+
+    /**
+     * @param array<string,mixed> $candidate
+     * @return array<int,array{offset:int,length:int}>
+     */
+    private function nestedShellRanges(string $markup, array $candidate, string $area): array
+    {
+        if (!empty($candidate['nested_shell'])) {
+            $ranges = array();
+            $primary = $this->nestedShellRange($markup, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
+            if (is_array($primary)) $ranges[] = $primary;
+            foreach ($candidate['additional_ranges'] ?? array() as $extra) {
+                if (!is_array($extra) || !is_string($extra['markup'] ?? null)) continue;
+                $range = $this->nestedShellRange($markup, $extra['markup'], isset($extra['offset']) && is_int($extra['offset']) ? $extra['offset'] : null);
+                if (is_array($range)) $ranges[] = $range;
+            }
+            return $ranges;
+        }
+        $range = $this->topLevelShellRange($markup, $area, (string) ($candidate['markup'] ?? ''), isset($candidate['offset']) && is_int($candidate['offset']) ? $candidate['offset'] : null);
+        return is_array($range) ? array($range) : array();
     }
 
     /**
@@ -479,8 +531,11 @@ final class ShellExtraction
     private static function normalizeNestedChromeMarkup(string $markup): string
     {
         $markup = self::withoutCurrentNavigationState($markup, true);
-        $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
-        return preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*blocks-engine-(?:source-[a-z0-9_-]+|attribute(?:-state)?|richtext|control|specificity-class|disclosure-summary)-[a-f0-9]{6,}(?:-\d+)?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/\s*be-inline-geometry-[a-f0-9]{64}/', '', $markup) ?? $markup;
+        $markup = preg_replace('/--blocks-engine-richtext-marker:\s*blocks-engine-richtext-[a-f0-9]+-\d+;?/', '', $markup) ?? $markup;
+        $markup = preg_replace('/(?:\.\.\/)+assets\//', 'assets/', $markup) ?? $markup;
+        return ShellLandmarkPolicy::withoutResponsiveCorrespondenceMarkup($markup);
     }
 
     private static function withoutLandmarkTagName(string $markup): string
