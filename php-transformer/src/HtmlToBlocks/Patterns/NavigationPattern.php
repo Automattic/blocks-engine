@@ -1785,15 +1785,13 @@ final class NavigationPattern implements PatternRecognizerInterface
 
     /**
      * A single class token safe to carry from a replaced wrapper onto the
-     * generated navigation item. Allows the internal `.` a utility framework
-     * commonly uses for fractional scale steps (`gap-1.5`, `px-3.5`) — unlike
-     * {@see self::authorClassNames()}'s selector-building character set, this
-     * value only ever reaches an HTML `class` attribute, which does not need
-     * CSS-selector escaping.
+     * generated navigation item. HTML class tokens are whitespace-delimited;
+     * `.` and `:` are legal inside a token. Unlike selector composition, this
+     * value only ever reaches an HTML `class` attribute.
      */
     private function isCarriableWrapperClassName(string $candidate): bool
     {
-        return '' !== $candidate && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_.-]{0,79}$/D', $candidate);
+        return SourceDom::isBoundedClassToken($candidate);
     }
 
     /**
@@ -1878,9 +1876,8 @@ final class NavigationPattern implements PatternRecognizerInterface
 
         return array_values(array_filter(
             $classes,
-            static fn (string $candidate): bool => '' !== $candidate
+            static fn (string $candidate): bool => SourceDom::isBoundedClassToken($candidate)
                 && ! str_starts_with($candidate, 'blocks-engine-')
-                && 1 === preg_match('/^[A-Za-z_][A-Za-z0-9_-]{0,79}$/D', $candidate)
         ));
     }
 

@@ -59,6 +59,8 @@ $assert(SourceDom::attr($element('<a href="">y</a>'), 'href') === '', 'an empty 
 $assert(SourceDom::hasClass($element('<div class="a b">x</div>'), 'b'), 'a class in a list is found');
 $assert(! SourceDom::hasClass($element('<div class="ab">x</div>'), 'b'), 'a substring is not a class match');
 $assert(SourceDom::classNames($element('<div class=" a   b ">x</div>')) === array('a', 'b'), 'class lists collapse whitespace');
+$assert(SourceDom::boundedClassTokens('mt-1.5 sm:grid-cols-2') === array('mt-1.5', 'sm:grid-cols-2'), 'bounded class tokens keep decimal and colon characters');
+$assert(SourceDom::boundedClassTokens('safe bad/token one') === array('safe', 'one'), 'bounded class tokens still drop slash tokens');
 
 $assert(SourceDom::mergeClassNames('a b', 'b c') === 'a b c', 'merging class lists de-duplicates');
 $assert(SourceDom::mergeClassNames('  a  ', '', 'a') === 'a', 'merging trims and drops empties');
