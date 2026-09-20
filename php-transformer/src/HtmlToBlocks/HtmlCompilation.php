@@ -9070,25 +9070,36 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             return null;
         }
 
-        $children = array_values(array_filter(
-            iterator_to_array($element->childNodes),
-            static fn (mixed $child): bool => $child instanceof DOMElement
-        ));
-        $half = intdiv(count($children), 2);
-        if ( 2 > $half || 0 !== count($children) % 2 ) {
+        $children = $this->authoredMarqueeElementChildren($element);
+        $count = count($children);
+        if ( 0 === $count || 0 !== $count % 2 ) {
             return null;
         }
 
-        $signature = static function (DOMElement $item): string {
-            return strtolower($item->tagName) . "\0" . trim($item->getAttribute('class')) . "\0" . trim($item->textContent ?? '');
+        $half = intdiv($count, 2);
+        $signature = static function (DOMElement $item) use (&$signature): string {
+            $parts = array(
+                strtolower($item->tagName),
+                trim($item->getAttribute('class')),
+                trim($item->textContent ?? ''),
+            );
+            foreach ( $item->childNodes as $child ) {
+                if ( $child instanceof DOMElement ) {
+                    $parts[] = $signature($child);
+                }
+            }
+
+            return implode("\0", $parts);
         };
         for ( $index = 0; $index < $half; ++$index ) {
-            if ( 0 !== $children[$index]->childElementCount
-                || 0 !== $children[$index + $half]->childElementCount
-                || $signature($children[$index]) !== $signature($children[$index + $half])
-            ) {
+            if ( $signature($children[$index]) !== $signature($children[$index + $half]) ) {
                 return null;
             }
+        }
+
+        $itemSources = $this->authoredMarqueeItemSources($children, $half);
+        if ( null === $itemSources ) {
+            return null;
         }
 
         $motion = $this->authoredMarqueeMotion($element);
@@ -9097,13 +9108,13 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         }
 
         $items = array();
-        foreach ( array_slice($children, 0, $half) as $item ) {
-            $text = trim($item->textContent ?? '');
-            if ( '' === $text ) {
+        foreach ( $itemSources as $item ) {
+            $content = $this->authoredMarqueeItemContent($item);
+            if ( null === $content ) {
                 return null;
             }
             $items[] = array(
-                'content' => $this->runtime->escapeHtml($text),
+                'content' => $content,
                 'className' => trim($this->attr($item, 'class')),
                 'marker' => trim($this->attr($item, 'data-blocks-engine-richtext-marker')),
             );
@@ -9126,6 +9137,59 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
             'innerHTML' => $markup,
             'innerContent' => array( $markup ),
         );
+    }
+
+    /**
+     * @return list<DOMElement>
+     */
+    private function authoredMarqueeElementChildren(DOMElement $element): array
+    {
+        return array_values(array_filter(
+            iterator_to_array($element->childNodes),
+            static fn (mixed $child): bool => $child instanceof DOMElement
+        ));
+    }
+
+    /**
+     * @param list<DOMElement> $children
+     * @return list<DOMElement>|null
+     */
+    private function authoredMarqueeItemSources(array $children, int $half): ?array
+    {
+        $leaves = true;
+        foreach ( $children as $child ) {
+            if ( 0 !== $child->childElementCount ) {
+                $leaves = false;
+                break;
+            }
+        }
+        if ( $leaves && 2 <= $half ) {
+            return array_slice($children, 0, $half);
+        }
+        if ( 2 === count($children) && 0 < $children[0]->childElementCount ) {
+            $items = $this->authoredMarqueeElementChildren($children[0]);
+            return array() === $items ? null : $items;
+        }
+
+        return null;
+    }
+
+    private function authoredMarqueeItemContent(DOMElement $item): ?string
+    {
+        if ( 0 === $item->childElementCount ) {
+            $text = trim($item->textContent ?? '');
+            return '' === $text ? null : $this->runtime->escapeHtml($text);
+        }
+
+        $content = $this->richTextMaterializer->content($item);
+        if ( '' === trim($this->runtime->stripAllTags($content))
+            || $this->richTextMaterializer->hasStructuralHtml($content)
+            || $this->richTextMaterializer->requiresHtmlFallback($content)
+        ) {
+            return null;
+        }
+
+        return $content;
     }
 
     /** @return array{direction: string, duration: float}|null */
@@ -9269,7 +9333,7 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
 
     private function marqueeTranslationPercentage(string $transform): ?float
     {
-        if ( ! preg_match('/translateX\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
+        if ( ! preg_match('/translate(?:X)?\s*\(\s*(-?[0-9]+(?:\.[0-9]+)?)(%?)\s*\)/i', $transform, $match) ) {
             return null;
         }
         $value = (float) $match[1];
