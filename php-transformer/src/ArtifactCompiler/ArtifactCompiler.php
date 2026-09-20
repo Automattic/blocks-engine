@@ -235,6 +235,12 @@ final class ArtifactCompiler
         $runtimeDeclarationDiagnostics = array();
         $runtimeEntityRecords = array();
         $normalized['runtime_declarations'] = $this->runtimeDeclarationsFromFallbacks($normalized['runtime_declarations'], $allFallbacks, $entryPath, $normalized['files'], $runtimeDeclarationDiagnostics, $runtimeEntityRecords);
+        // `_collection_binding_declined` is consumed above and never part of
+        // the published fallback contract.
+        $allFallbacks = array_map(static function (mixed $fallback): mixed {
+            if (is_array($fallback)) unset($fallback['_collection_binding_declined']);
+            return $fallback;
+        }, $allFallbacks);
         $normalized['files'] = $this->applyAuthorStylesheetProjections($normalized['files'], $authorStylesheetProjections, $entryBlocks['author_stylesheet_projections']);
         $normalized['files'] = $this->chunkProjectedStylesheets($normalized['files']);
         foreach ($normalized['files'] as $file) {
@@ -903,6 +909,9 @@ final class ArtifactCompiler
             $sourcePath = is_string($fallback['source'] ?? null) ? $fallback['source'] : $entryPath;
             if ( 'html_product_grid_fallback' === $code ) {
                 $container = is_string($fallback['container_selector'] ?? null) ? $fallback['container_selector'] : (is_string($fallback['selector'] ?? null) ? $fallback['selector'] : '');
+                if ( true === ($fallback['_collection_binding_declined'] ?? false) ) {
+                    $diagnostics[] = $this->declinedProductGridBindingDiagnostic($fallback, $sourcePath, $container);
+                }
                 foreach ( is_array($fallback['products'] ?? null) ? $fallback['products'] : array() as $product ) {
                     if ( ! is_array($product) ) continue;
                     $name = is_scalar($product['name'] ?? null) ? trim((string) $product['name']) : '';
@@ -1038,6 +1047,42 @@ final class ArtifactCompiler
             'pattern_family' => 'interactive_form',
             'repair_bucket' => 'materialize_form_provider',
             'suggested_repair_class' => 'materialize_form_provider',
+            'source' => self::class,
+        );
+    }
+
+    /**
+     * Name the contract that stopped a product grid's shared collection
+     * anchor from reaching the runtime product entities it covers. A grid
+     * whose cards have no cart control of their own shares one anchor — the
+     * grid container's own emitted block (see `CommerceFallbackReporter`) —
+     * resolved against the page's actual block tree the same way
+     * blocks-engine#718/#1975 resolves a div pseudo-form's anchor. When that
+     * resolution fails (the container has no block a selector can identify),
+     * the grid's products are declined rather than emitting an anchor that
+     * does not genuinely, uniquely identify the grid's own source region: a
+     * declined grid leaves a working site with unresolved products; an
+     * ambiguous anchor destroys the whole import (blocks-engine#2024/#2026).
+     *
+     * @param array<string,mixed> $fallback
+     * @return array<string,mixed>
+     */
+    private function declinedProductGridBindingDiagnostic(array $fallback, string $sourcePath, string $selector): array
+    {
+        $productCount = is_array($fallback['products'] ?? null) ? count($fallback['products']) : 0;
+        return array(
+            'code' => 'runtime_product_grid_binding_declined',
+            'severity' => 'warning',
+            'message' => 'A product grid\'s shared collection binding anchor was declined because its container could not be resolved to one page-owned emitted block.',
+            'source_path' => substr($sourcePath, 0, 256),
+            'selector' => substr($selector, 0, 256),
+            'failed_check' => 'page_owned_collection_anchor_unresolved',
+            'product_count' => $productCount,
+            'entity_schema' => 'generic/products/v1',
+            'reason_code' => 'runtime_product_grid_binding_declined',
+            'pattern_family' => 'commerce_product_grid',
+            'repair_bucket' => 'materialize_shop_provider',
+            'suggested_repair_class' => 'materialize_shop_provider',
             'source' => self::class,
         );
     }

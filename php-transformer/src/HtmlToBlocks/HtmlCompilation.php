@@ -6369,7 +6369,23 @@ final class HtmlCompilation implements SourceBlockCreator, RichTextInlinePolicy,
         foreach ( $fallbacks as &$fallback ) {
             if (is_array($fallback['binding'] ?? null)) $finalize($fallback['binding']);
             if (is_array($fallback['products'] ?? null)) {
-                foreach ($fallback['products'] as &$product) if (is_array($product['binding'] ?? null)) $finalize($product['binding']);
+                foreach ($fallback['products'] as &$product) {
+                    if (is_array($product['binding'] ?? null)) {
+                        // A `commerce_collection` anchor that fails to resolve
+                        // here (its container has no emitted block a selector
+                        // can identify) is declined rather than left dangling:
+                        // `ArtifactCompiler` reports why via a diagnostic
+                        // instead of silently omitting the whole grid's
+                        // binding intent. See `_binding_anchor_selector` above
+                        // for the only anchor shape that can hit this path.
+                        $isCollectionAnchor = 'commerce_collection' === ($product['binding']['role'] ?? null) && is_string($product['binding']['_binding_anchor_selector'] ?? null);
+                        $finalize($product['binding']);
+                        if ( $isCollectionAnchor && array() === $product['binding'] ) {
+                            unset($product['binding']);
+                            $fallback['_collection_binding_declined'] = true;
+                        }
+                    }
+                }
                 unset($product);
             }
         }

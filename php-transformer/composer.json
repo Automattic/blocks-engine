@@ -70,6 +70,7 @@
             "php tests/contract/shared-shell-plan.php",
             "php tests/contract/shared-chrome-stylesheet-scope.php",
       "php tests/contract/viewport-hidden-document-variants.php",
+      "php tests/contract/product-grid-collection-anchors.php",
       "php tests/contract/header-link-cluster-navigation.php",
       "php tests/contract/empty-visual-figure.php",
       "php tests/contract/layout-geometry-proof.php",
