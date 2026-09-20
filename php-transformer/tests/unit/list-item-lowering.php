@@ -77,6 +77,30 @@ $layoutSvg = (new HtmlTransformer())->transform('<style>.assistant{display:grid}
 $layoutSvgMarkup = (string) ($layoutSvg['serialized_blocks'] ?? '');
 if (0 !== ($layoutSvg['source_reports']['editability_report']['metrics']['structural_rich_text_attribute_count'] ?? -1) || str_contains($layoutSvgMarkup, '<svg') || !str_contains($layoutSvgMarkup, 'materialized-svg') || !str_contains($layoutSvgMarkup, 'Assistant') || 'pass' !== ((new BlockValidityValidator())->validateBlocks($layoutSvg['blocks'] ?? array())['status'] ?? '')) throw new RuntimeException('Author-owned layout text leaves materialize nested SVG as native RichText image objects instead of storing structural SVG in editable content.');
 
+$archive = (new HtmlTransformer())->transform(
+    '<style>.index{display:grid;gap:1.5rem}.row{display:flex}.row-inner{display:flex;width:100%;align-items:flex-start}'
+    . '.date{width:6rem;flex-shrink:0}.body{flex:1 1 0%}.title{margin:0}.dek{margin-top:.25rem;margin-bottom:.25rem}</style>'
+    . '<ul class="index"><li class="row"><div class="row-inner"><span class="date">Jun 4</span>'
+    . '<div class="body"><h3 class="title"><a href="/one">One</a></h3>'
+    . '<div class="dek">Excerpt one</div><a href="/one">Read more</a></div></div></li>'
+    . '<li class="row"><div class="row-inner"><span class="date">Jan 26</span>'
+    . '<div class="body"><h3 class="title"><a href="/two">Two</a></h3>'
+    . '<div class="dek">Excerpt two</div><a href="/two">Read more</a></div></div></li></ul>'
+)->toArray();
+$archiveMarkup = (string) ($archive['serialized_blocks'] ?? '');
+if (str_contains($archiveMarkup, '<!-- wp:list') || !str_contains($archiveMarkup, 'tagName":"ul"') || !str_contains($archiveMarkup, 'tagName":"li"')) throw new RuntimeException('A dated archive index with block descendants stays on the structural list path.');
+if (!str_contains($archiveMarkup, 'index blocks-engine-css-owned-layout blocks-engine-css-owned-grid')) throw new RuntimeException('A dated archive index keeps CSS-owned grid so gap, not core flow, sets row rhythm.');
+if (!str_contains($archiveMarkup, 'row-inner blocks-engine-css-owned-layout blocks-engine-css-owned-flow') || !str_contains($archiveMarkup, 'body blocks-engine-css-owned-layout blocks-engine-css-owned-flow')) throw new RuntimeException('Structural-list inner flex rows and stacked flex items neutralize WordPress flow so source child margins own vertical rhythm.');
+if (!str_contains($archiveMarkup, '<p class="dek">Excerpt one</p>') || str_contains($archiveMarkup, 'wp-block-group dek')) throw new RuntimeException('A margin-styled excerpt div becomes a paragraph carrying its classes, not a group wrapping a classless paragraph.');
+if (str_contains($archiveMarkup, '<!-- wp:html') || 'pass' !== ($archive['source_reports']['wp_block_validity']['status'] ?? null)) throw new RuntimeException('A dated archive index remains Gutenberg-valid without HTML fallback.');
+
+$stackedCopy = (new HtmlTransformer())->transform(
+    '<style>.split{display:grid;grid-template-columns:1fr 1fr;gap:2rem}.copy h2{margin:0}</style>'
+    . '<div class="split"><div class="copy"><p class="eyebrow">Label</p><h2>Title</h2><p>Body copy that keeps default paragraph margins.</p></div><div class="aside"><p>Aside</p></div></div>'
+)->toArray();
+$stackedCopyMarkup = (string) ($stackedCopy['serialized_blocks'] ?? '');
+if (!str_contains($stackedCopyMarkup, 'copy blocks-engine-css-owned-layout') || str_contains($stackedCopyMarkup, 'copy blocks-engine-css-owned-layout blocks-engine-css-owned-flow')) throw new RuntimeException('A stacked no-gap wrapper outside a structural list must not neutralize core flow; source paragraph margins remain the rhythm.');
+
 $boldSvgLabel = (new HtmlTransformer())->transform('<style>.bot b{color:#176247}</style><main><section class="ai-grid"><div class="chat"><div><b>Farmer</b><p>Question</p></div><div class="bot"><b><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M12 2v20"></path></svg> Krishishala AI</b><p>Response</p></div></div></section></main>')->toArray();
 $boldSvgLabelMarkup = (string) ($boldSvgLabel['serialized_blocks'] ?? '');
 $boldSvgLabelCss = implode("\n", array_map(static fn (array $asset): string => 'author-css' === ($asset['source'] ?? null) ? (string) ($asset['content'] ?? '') : '', $boldSvgLabel['assets'] ?? array()));
