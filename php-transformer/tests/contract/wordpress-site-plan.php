@@ -176,6 +176,15 @@ $recipe89Markup = $recipe89Artifact['source_reports']['wordpress_site_plan']['pa
 $assert(!isset($recipe89Artifact['source_reports']['wordpress_site_plan_diagnostics']) && str_contains($recipe89Markup, WordPressSitePlan::TOKEN_PREFIX), 'Fixture 89 recipe-shaped base64 website artifact tokenizes Gutenberg image URLs when the referenced image payload is declared.');
 $stagedCss = (new AssetReferenceCanonicalizer(array(array('source_path' => 'images.squarespace-cdn.com/hero.svg', 'token' => 'asset-0123456789abcdef'))))->content('main { a:url(_external/images.squarespace-cdn.com/hero.svg); b:url(/_external/images.squarespace-cdn.com/hero.svg); }', 'website/style.css');
 $assert(2 === substr_count($stagedCss, WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}'), 'Transport-prefixed and root-prefixed external CSS URLs canonicalize to matching artifact asset tokens.');
+$wrappedExternal = new AssetReferenceCanonicalizer(array(
+    array('source_path' => 'website/_external/cdn.example.test/font.woff2', 'token' => 'asset-0123456789abcdef'),
+    array('source_path' => 'website/assets/_external/cdn.example.test/local.woff2', 'token' => 'asset-fedcba9876543210'),
+    array('source_path' => 'website/_external/cdn.example.test/local.woff2', 'token' => 'asset-0000000000000000'),
+), 'website');
+$wrappedEditorCss = $wrappedExternal->cssFromOrigins('@font-face{src:url(_external/cdn.example.test/font.woff2?v=1#font)}', array('website/assets/source.css', 'assets/css/editor-static-state.css'));
+$assert(str_contains($wrappedEditorCss, WordPressSitePlan::TOKEN_PREFIX . 'asset-0123456789abcdef}}?v=1#font'), 'Generated editor CSS resolves a transport-prefixed asset under the declared site wrapper and preserves URL suffixes.');
+$assert(WordPressSitePlan::TOKEN_PREFIX . 'asset-fedcba9876543210}}' === $wrappedExternal->reference('_external/cdn.example.test/local.woff2', 'website/assets/source.css'), 'Existing origin-relative external asset bindings precede site-root fallback.');
+$assert(null === $wrappedExternal->reference('_external/cdn.example.test/missing.woff2', 'assets/css/editor.css') && null === $wrappedExternal->reference('_external/../../secret.woff2', 'assets/css/editor.css'), 'Site-root fallback neither invents undeclared assets nor escapes the wrapper.');
 $entitySrcsetToken = 'asset-fedcba9876543210';
 $entitySrcsetCanonicalizer = new AssetReferenceCanonicalizer(array(array('source_path' => "website/external/Happy Women's Day.jpg", 'token' => $entitySrcsetToken)), 'website');
 $entitySrcset = $entitySrcsetCanonicalizer->content('<img srcset="/external/Happy%20Women&#039;s%20Day.jpg 1x">', 'website/index.html');
