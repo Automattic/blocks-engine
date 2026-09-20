@@ -42,6 +42,7 @@ final class ElementConversionPrelude
         private readonly CapturedSelectableSetConverter $capturedSelectableSet,
         private readonly ScrollStateConverter $scrollState,
         private readonly ThemeToggleConverter $themeToggle,
+        private readonly CopyToClipboardConverter $copyToClipboard,
         private readonly FormDispatcher $formDispatcher,
         private readonly SearchBlockConverter $searchBlockConverter,
         private readonly RuntimeIslandAnalyzer $runtimeIslands,
@@ -136,6 +137,11 @@ final class ElementConversionPrelude
         $themeToggle = $this->themeToggle->convert($element, $tagName, $fallbacks);
         if ( $themeToggle->handled ) {
             return $themeToggle;
+        }
+
+        $copyToClipboard = $this->copyToClipboard->convert($element, $tagName, $fallbacks);
+        if ( $copyToClipboard->handled ) {
+            return $copyToClipboard;
         }
 
         if ( 'form' === $tagName ) {
