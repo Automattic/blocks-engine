@@ -74,6 +74,12 @@ final class AssetReferenceCanonicalizer
             if (isset($this->tokensBySource[$relativeIdentity])) {
                 return $this->tokensBySource[$relativeIdentity] . $suffix;
             }
+            // Generated stylesheets can retain a transport-root reference after
+            // moving away from the source document's website/ wrapper.
+            $rootedIdentity = self::rootedIdentity($externalPath, $this->siteRoot);
+            if (isset($this->tokensBySource[$rootedIdentity])) {
+                return $this->tokensBySource[$rootedIdentity] . $suffix;
+            }
             $stagedIdentity = substr($externalPath, strlen('_external/'));
             if (isset($this->tokensBySource[$stagedIdentity])) {
                 return $this->tokensBySource[$stagedIdentity] . $suffix;
