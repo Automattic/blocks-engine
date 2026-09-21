@@ -314,7 +314,14 @@ function fixBlockRecursively(
     (rawBlock && rawBlock.blockName === block.name && rawBlock.attrs) ||
     (block.__unstableBlockSource && block.__unstableBlockSource.attrs) ||
     null;
-  if (rawCommentAttrs && commentAttrsAltered(block.attributes, rawCommentAttrs)) {
+  // Invalid blocks can retain the same parsed attrs as the comment delimiter
+  // while still having stale source HTML. Rebuild them from the authoritative
+  // comment attrs so save() emits every declared style, including per-side
+  // button borders.
+  if (
+    rawCommentAttrs &&
+    (block.isValid === false || commentAttrsAltered(block.attributes, rawCommentAttrs))
+  ) {
     const sourceHtml =
       typeof block.originalContent === 'string'
         ? block.originalContent

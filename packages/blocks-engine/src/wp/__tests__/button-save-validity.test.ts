@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { setupDomGlobals } from '../dom-globals.js';
+import { canonicalize } from '../canonicalize.js';
 
 const require = createRequire(import.meta.url);
 
@@ -44,6 +45,41 @@ describe('core/button save validity', () => {
     expect(persisted).not.toContain('wp-block-button__link has-background product-row');
     expect(reloaded).toHaveLength(1);
     expect(wp.validateBlock(reloaded[0])[0]).toBe(true);
+  });
+
+  it('saves per-side border styles on the button anchor', () => {
+    const button = wp.createBlock('core/button', {
+      text: 'Pre-order now',
+      url: '/contact',
+      style: {
+        border: {
+          top: { width: '1px', style: 'solid', color: '#ffffff' },
+          bottom: { width: '1px', style: 'solid', color: '#ffffff' },
+        },
+      },
+    });
+    const persisted = wp.serialize([button]);
+    const reloaded = wp.parse(persisted);
+
+    expect(persisted).toContain('border-top-color:#ffffff');
+    expect(persisted).toContain('border-top-style:solid');
+    expect(persisted).toContain('border-top-width:1px');
+    expect(persisted).toContain('border-bottom-color:#ffffff');
+    expect(persisted).toContain('border-bottom-style:solid');
+    expect(persisted).toContain('border-bottom-width:1px');
+    expect(wp.validateBlock(reloaded[0])[0]).toBe(true);
+  });
+
+  it('preserves per-side border styles when parsing imported markup', () => {
+    const imported = `<!-- wp:button {"tagName":"a","type":"button","url":"/contact","text":"Pre-order now","linkTarget":"_self","className":"blocks-engine-control-fixture","style":{"color":{"background":"transparent"},"border":{"top":{"width":"1px","style":"solid","color":"#ffffff"},"bottom":{"width":"1px","style":"solid","color":"#ffffff"}},"spacing":{"padding":{"top":"1px","right":"1px","bottom":"1px","left":"1px"}}},"anchor":"fixture"} -->
+<div class="wp-block-button blocks-engine-control-fixture"><a class="wp-block-button__link has-background wp-element-button" style="background-color:transparent;padding-top:1px;padding-right:1px;padding-bottom:1px;padding-left:1px" href="/contact" target="_self">Pre-order now</a></div>
+<!-- /wp:button -->`;
+    const persisted = canonicalize(imported).html;
+    const parsed = wp.parse(persisted);
+
+    expect(persisted).toContain('border-top-color:#ffffff');
+    expect(persisted).toContain('border-bottom-color:#ffffff');
+    expect(wp.validateBlock(parsed[0])[0]).toBe(true);
   });
 
   it('round-trips separate visible and hidden button label markers from the PHP fixture', () => {
