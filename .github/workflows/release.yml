@@ -26,13 +26,44 @@ concurrency:
 # not the event SHA that started this workflow. Each job's `if: !cancelled()`
 # means a sibling's failure never blocks or skips the others — every
 # component release attempt runs and reports its own outcome independently.
+#
+# Pins, and what each one is for (every SHA below was verified by fetching
+# the tag directly from its source repo and checking `^{commit}` equality —
+# not assumed from the tag name):
+#
+# - `uses: .../release.yml@v2.19.1` selects the released revision of the
+#   reusable release workflow itself.
+# - `action-ref: v2.19.1` is the homeboy-action revision that workflow
+#   checks out into `.homeboy-action` for the composite action steps. Kept
+#   in lockstep with the `uses:` pin above. v2.19.1 is released and contains
+#   v2.19.0 (the previously pinned candidate commit
+#   b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc) plus two additional merged,
+#   released fixes (homeboy-action#490, #491); no unreleased commits.
+# - `extension-ref` pins the homeboy-extensions monorepo commit each job's
+#   declared extension installs from. It is required, not optional: the
+#   installed homeboy CLI's `install_for_component` path clones the
+#   extension source with no revision when `extension-ref` is empty,
+#   landing on whatever the source's default branch currently is rather
+#   than a released extension version (verified by reading
+#   crates/homeboy-core/src/extension/lifecycle/{mod,install_sources}.rs at
+#   homeboy v0.383.0). Each job is pinned to the release tag for the
+#   extension IT ACTUALLY DECLARES, not the previous candidate SHA reused
+#   across all three jobs regardless of which extension a job needs:
+#     - php/figma declare `wordpress` (see their homeboy.json) → pinned to
+#       `wordpress-v3.48.6`, whose peeled commit
+#       (7f28a979517a96e003d0510d64bc5139c259837d) is exactly the earlier
+#       candidate SHA — same content, now referenced by its released tag.
+#     - javascript declares `nodejs` (see packages/blocks-engine/homeboy.json)
+#       → pinned to `nodejs-v3.7.4`, this repo's own extension, not the
+#       wordpress tag the previous candidate SHA happened to also contain a
+#       valid (but non-current) snapshot of.
 jobs:
   javascript:
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
     with:
       component: packages/blocks-engine
-      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
-      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
+      action-ref: v2.19.1
+      extension-ref: nodejs-v3.7.4
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
@@ -41,11 +72,11 @@ jobs:
   php:
     needs: javascript
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
     with:
       component: php-transformer
-      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
-      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
+      action-ref: v2.19.1
+      extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
@@ -59,11 +90,11 @@ jobs:
   figma:
     needs: php
     if: ${{ !cancelled() }}
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2.19.1
     with:
       component: figma-transformer
-      action-ref: b2ff19a4e71772a1d6b376b7c0bf00d8ef3415cc
-      extension-ref: 7f28a979517a96e003d0510d64bc5139c259837d
+      action-ref: v2.19.1
+      extension-ref: wordpress-v3.48.6
       prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk

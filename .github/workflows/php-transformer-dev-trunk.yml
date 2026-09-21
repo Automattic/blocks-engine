@@ -4,7 +4,7 @@ name: PHP Transformer dev-trunk mirror
 # target replacement is one homeboy-action invocation with no consumer
 # ssh-agent, key handling, known-hosts writing, or `git push`:
 #
-#   - uses: Extra-Chill/homeboy-action@<released-tag>
+#   - uses: Extra-Chill/homeboy-action@v2.19.1
 #     with:
 #       component: php-transformer
 #       commands: git subtree php-transformer ${{ github.sha }} --apply --branch-only
@@ -13,21 +13,44 @@ name: PHP Transformer dev-trunk mirror
 #         github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl
 #       ssh-require-known-hosts: true
 #
-# homeboy-action's native `git` operation routing needed for that single
-# invocation released in v2.19.0 (Extra-Chill/homeboy-action#488). It is not
-# the blocker anymore. The remaining blocker is the Homeboy CLI itself:
-# `homeboy git subtree` (Extra-Chill/homeboy#14837, implemented in
-# Extra-Chill/homeboy#14851) merged to the CLI's main branch but has not yet
-# shipped in a released Homeboy tag as of this change (confirmed by running
-# the actual v0.382.0 release binary: `homeboy git subtree --help` reports
-# "unrecognized subcommand"). Switching this workflow to the invocation above
-# before that ships would break the mirror at runtime. Move to the native
-# invocation the moment a released Homeboy tag contains `homeboy git
-# subtree`; until then this shell-based bridge remains the only working
-# path and must not be replaced by a hand-rolled `homeboy git subtree`
+# Both prior blockers are gone: homeboy-action's native `git` operation
+# routing shipped in v2.19.0 (Extra-Chill/homeboy-action#488), and
+# `homeboy git subtree` itself shipped in Homeboy v0.383.0
+# (Extra-Chill/homeboy#14851) — confirmed by downloading that exact released
+# binary and running it against a disposable bare-repository fixture: preview
+# mutates nothing, `--apply` publishes a tree byte-identical to the source
+# subtree, a re-run is idempotent, `--branch-only` correctly excludes tag
+# publication (and, separately, tag publication works when it's not passed),
+# a `fast_forward` branch_policy correctly refuses to force-push over
+# divergent mirror history, and sibling components (figma-transformer) are
+# never touched by a php-transformer publish or vice versa.
+#
+# The remaining blocker is a new one found during that same verification,
+# not a shape/config problem: v0.383.0's `homeboy git subtree` has a
+# reproducible bug in its OWN result serialization on the SUCCESS path only.
+# Every invocation that actually performs the git subtree split-and-push
+# correctly (preview and apply both) still exits non-zero afterward with
+# `{"success": false, "exit_code": 1, "diagnostics": {"code":
+# "internal.json_error", "message": "JSON error", "details": {"context":
+# "serialize response", "error": "git command output payload must serialize
+# as an object"}}}` — confirmed the underlying push/tag operation itself
+# genuinely succeeded in every case (mirror ref inspected directly after each
+# run) and that this is specific to the success path: pointing the same
+# command at a broken remote produces a normal, correctly serialized
+# `git.command_failed` / exit_code 20 failure result instead. homeboy-action's
+# `scripts/operations/run-operations.sh` (routes `commands: git subtree ...`)
+# has no special case for this — it maps any nonzero `homeboy` exit code
+# straight to a failed step (`RESULTS+={cmd: "fail"}`, `any-failed=true`).
+# Switching this workflow to the invocation above today would therefore turn
+# a currently-working, correctly-reporting bridge into one that silently
+# still publishes the mirror correctly but reports every single run as a
+# failed CI job. Move to the native invocation once a released Homeboy tag
+# fixes `git subtree` success-path result serialization; until then this
+# shell-based bridge remains the only path with a CI status that reflects
+# reality, and must not be replaced by a hand-rolled `homeboy git subtree`
 # invocation with manual ssh-agent/known-hosts setup, which would just
 # reintroduce the same consumer-owned credential handling this bridge exists
-# to retire.
+# to retire while ALSO breaking CI status reporting.
 
 on:
   push:
