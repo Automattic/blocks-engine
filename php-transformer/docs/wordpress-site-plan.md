@@ -30,6 +30,12 @@ declared synthetic pages, so materializers create the same hierarchy without inf
 or manually reparenting pages. A physical directory index replaces the corresponding
 synthetic parent; route collisions fail closed. A safe lowercase `metadata.route_path`
 is preserved when the source contract declares an explicit canonical route.
+A percent sequence inside a source path segment is the author's title punctuation that
+the source CMS slugified into a filename, so each segment is decoded once before it is
+slugified and an encoded path resolves to the route its decoded literal spelling
+produces. That single decode may not give a path structure the undecoded path did not
+have: an encoded separator, dot segment, or NUL byte fails closed on the same rules
+that reject their literal spellings.
 The canonical route map is computed before page, link, metadata, operation, resolver,
 report, and script-scope projection. It rewrites relative and root-relative document
 links while preserving query and fragment suffixes; declared asset references continue
