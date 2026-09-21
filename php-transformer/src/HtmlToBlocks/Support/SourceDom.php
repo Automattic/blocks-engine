@@ -162,6 +162,37 @@ final class SourceDom
         return $id;
     }
 
+    /**
+     * A source id preserved onto Gutenberg's generic "HTML anchor" block
+     * support (the `anchor` attribute, rendered as the block wrapper's `id`).
+     *
+     * Unlike {@see self::safeAnchor()} — which additionally requires a
+     * CSS-identifier shape because its callers build `#id` selectors or
+     * `class` tokens from the result — the `anchor` support has no such
+     * constraint. `save()` writes it as a literal HTML attribute value, which
+     * the block materializer already escapes with `htmlspecialchars()`
+     * ({@see BlockFactory::htmlAttrs()}), so any non-empty, control-character-free
+     * string round-trips safely and validates.
+     *
+     * This distinction matters because a same-document navigation target's id
+     * is exactly the text a captured `href="#…"` fragment decodes to, and that
+     * text is authored content, not a generated identifier — a human- or
+     * builder-assigned name ("Section 10", "Contact Us") that commonly starts
+     * with a digit or contains a space. Routing it through the CSS-identifier
+     * rules of {@see self::safeAnchor()} silently drops it, which strands the
+     * fragment link with nothing on the page for it to reach: the anchor
+     * survives on the link but not on its target.
+     */
+    public static function anchorAttributeValue(string $id): string
+    {
+        $id = trim($id);
+        if ( '' === $id || preg_match('/[\x00-\x1F\x7F]/', $id) ) {
+            return '';
+        }
+
+        return $id;
+    }
+
     public static function hasClass(DOMElement $element, string $className): bool
     {
         return in_array($className, preg_split('/\s+/', trim(self::attr($element, 'class'))) ?: array(), true);
