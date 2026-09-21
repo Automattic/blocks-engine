@@ -7,10 +7,12 @@
     "publish": true,
     "subtree": [
       {
-        "prefix": ".",
+        "prefix": "php-transformer",
         "remote": "https://github.com/Automattic/blocks-engine-php-transformer.git",
         "branch": "trunk",
-        "tag": true
+        "tag": true,
+        "tag_template": "v{version}",
+        "branch_policy": "fast_forward"
       }
     ]
   },

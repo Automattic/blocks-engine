@@ -25,31 +25,38 @@ concurrency:
 # not the event SHA that started this workflow.
 jobs:
   javascript:
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
     with:
       component: packages/blocks-engine
+      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
+      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
-      dispatch-repo: Automattic/static-site-importer
-      dispatch-event: blocks-engine-component-released
     secrets: inherit
 
   php:
     needs: javascript
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    if: ${{ always() && (needs.javascript.result == 'success' || needs.javascript.result == 'skipped') }}
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
     with:
       component: php-transformer
+      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
+      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
-      dispatch-repo: Automattic/static-site-importer
-      dispatch-event: blocks-engine-component-released
     secrets: inherit
 
   figma:
     needs: php
-    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    if: ${{ always() && (needs.php.result == 'success' || needs.php.result == 'skipped') }}
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@d21c46a3a25b16895c36124a6af481a6f97f8636
     with:
       component: figma-transformer
+      action-ref: d21c46a3a25b16895c36124a6af481a6f97f8636
+      extension-ref: b94cad68433a34c9129681b1c1a57e63364719db
+      prepared-ref: trunk
       dry-run: ${{ inputs.dry-run || false }}
       release-branch: trunk
     secrets: inherit
