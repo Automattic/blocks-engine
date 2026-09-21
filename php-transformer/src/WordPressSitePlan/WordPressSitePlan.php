@@ -214,7 +214,7 @@ final class WordPressSitePlan
             $tokens = array_merge($tokens, $this->tokens($placeholderAssets));
             $assetWrites = array_merge($assetWrites, $this->assetWrites($placeholderAssets, $references));
         }
-        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens), $assetWrites);
+        $writes = array_merge($this->scaffoldWrites($assets, $templates, $parts, $scriptLoading['scripts'], $themeProjection['theme'], $tokens, $pages), $assetWrites);
         $recoveryDiagnostics = array_merge($this->unresolvedNavigationDiagnostics(), $this->missingMedia->diagnostics());
         $plan = array(
             'schema' => self::SCHEMA,
@@ -1183,18 +1183,18 @@ final class WordPressSitePlan
     private static function routeAncestors(string $path): array { $ancestors = array(); for ($parent = self::parentRoutePath($path); '/' !== $parent; $parent = self::parentRoutePath($parent)) $ancestors[] = $parent; return array_reverse($ancestors); }
     private static function routeSlug(string $path): string { return trim((string) basename($path), '/'); }
 
-    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @return array<int,array<string,mixed>> */
-    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens): array
+    /** @param array<int,array<string,mixed>> $assets @param array<int,array<string,string>> $templates @param array<int,array<string,mixed>> $parts @param array<int,array<string,mixed>> $pages @return array<int,array<string,mixed>> */
+    private function scaffoldWrites(array $assets, array $templates, array $parts, array $scripts, array $theme, array $tokens, array $pages = array()): array
     {
         $writes = array($this->write('theme_scaffold', 'style.css', "/*\nTheme Name: Blocks Engine Site\nText Domain: blocks-engine-site\n*/\n"), $this->write('theme_scaffold', 'theme.json', json_encode($theme, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n"));
-        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates));
+        $writes[] = $this->write('theme_bootstrap', 'functions.php', self::bootstrap($assets, $scripts, $parts, $tokens, $templates, $pages));
         foreach ( $templates as $template ) $writes[] = $this->write('theme_template', $template['target_path'], $template['canonical_block_markup']);
         foreach ( $parts as $part ) $writes[] = $this->write('theme_template_part', 'parts/' . $part['slug'] . '.html', $part['canonical_block_markup']);
         return $writes;
     }
 
     /** @param array<int,array<string,mixed>> $assets */
-    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array()): string
+    private static function bootstrap(array $assets, array $scripts = array(), array $parts = array(), array $tokens = array(), array $templates = array(), array $pages = array()): string
     {
         $lines = array("<?php", self::SOURCE_TEXT_TYPOGRAPHY, "add_action( 'wp_enqueue_scripts', static function (): void {");
         foreach ($assets as $asset) {
@@ -1274,6 +1274,23 @@ final class WordPressSitePlan
             $lines[] = '    $slugs = ' . var_export($inlineShellSlugs, true) . ';';
             $lines[] = "    if ( ! in_array( (string) ( \$block['attrs']['slug'] ?? '' ), \$slugs, true ) || ! preg_match( '/^<([a-z][a-z0-9-]*)\\b[^>]*>(.*)<\\/\\1>$/s', \$content, \$match ) ) return \$content;";
             $lines[] = "    return \$match[2];";
+            $lines[] = "}, 10, 2 );";
+        }
+        $hasCurrentNavigationItem = false;
+        foreach (array_merge($templates, $parts, $pages) as $document) {
+            if (str_contains((string) ($document['canonical_block_markup'] ?? ''), 'blocks-engine-current-navigation-item')) { $hasCurrentNavigationItem = true; break; }
+        }
+        if ($hasCurrentNavigationItem) {
+            // core/navigation-link is fully dynamic: render_block_core_navigation_link()
+            // ignores saved content and only adds aria-current="page" when its own
+            // id/kind match the queried object, which never happens for the "custom"
+            // kind links this engine emits. The current item is already marked with
+            // the blocks-engine-current-navigation-item class (a respected className
+            // block support), so recover the semantic + the source's/engine's own
+            // [aria-current] styling hooks by adding the attribute at render time.
+            $lines[] = "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {";
+            $lines[] = "    if ( ! str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' ) || str_contains( \$content, 'aria-current' ) ) return \$content;";
+            $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
         }
         $lines[] = "add_filter( 'block_editor_settings_all', static function ( array \$settings ): array { \$settings['styles'][] = array( 'css' => " . var_export(self::EDITOR_CORE_IMAGE_INTERACTION_CSS . self::EDITOR_POST_TITLE_INTERACTION_CSS . self::EDITOR_LINK_INTERACTION_CSS, true) . ", '__unstableType' => 'theme' ); return \$settings; }, 20 );";
@@ -1659,7 +1676,7 @@ final class WordPressSitePlan
         if (!is_array($theme) || 3 !== ($theme['version'] ?? null) || !is_array($theme['settings'] ?? null) || !is_array($theme['styles'] ?? null)) throw new InvalidArgumentException('WordPress site plan theme.json shape is unsupported.');
         $bootstrap = $writes['functions.php'] ?? null;
         $scriptLoading = (new self())->scriptLoading($plan['pages'], $plan['template_parts'], $plan['assets'], $plan['reference_tokens'], $plan['operations'], $plan['runtime_declarations']);
-        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
+        if (!is_array($bootstrap) || 'theme_bootstrap' !== ($bootstrap['kind'] ?? null) || 'wordpress-site-plan/functions.php' !== ($bootstrap['source_path'] ?? null) || self::bootstrap($plan['assets'], $scriptLoading['scripts'], $plan['template_parts'], $plan['reference_tokens'], $plan['templates'], $plan['pages']) !== ($bootstrap['payload']['data'] ?? null)) throw new InvalidArgumentException('WordPress site plan functions.php bootstrap is invalid.');
     }
     /** @param array<int,mixed> $declarations @param array<int,array<string,mixed>> $assets @param array<string,array<string,mixed>> $writes */
     private static function assertAssetPublicationDeclarations(array $declarations, array $assets, array $writes): void

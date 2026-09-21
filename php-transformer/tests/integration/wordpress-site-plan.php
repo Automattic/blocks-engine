@@ -323,6 +323,30 @@ $assert('core/query' === ($indexQuery['blockName'] ?? null) && 10 === ($indexQue
 $assert(str_contains($searchTemplate, '"tagName":"main"') && str_contains($searchTemplate, 'wp:query-title') && str_contains($searchTemplate, 'wp:query-no-results'), 'generated search template owns a main landmark, native query title, and explicit empty-results state.');
 $post = $essay; $setRequest($post, false); $singleRendered = do_blocks($singleTemplate); wp_reset_postdata();
 $assert(str_contains($singleTemplate, 'wp:post-content') && str_contains($singleRendered, 'Essay'), 'WordPress renders each imported post through a standard singular template with its post content.');
+// core/navigation-link is fully dynamic: WordPress core's own
+// render_block_core_navigation_link() ignores saved content and only adds
+// aria-current="page" when the link's id/kind resolve against the queried
+// object, which never happens for the "custom" kind links this engine emits
+// for a static-site import. The generated theme bootstrap instead recovers
+// the missing attribute at render time, keyed off the frontend
+// blocks-engine-current-navigation-item className the engine already emits
+// for the page's own current item. Prove this against a real WordPress
+// render: the current item gets aria-current="page", its sibling does not.
+$currentNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav><main><p>Home</p></main></body></html>')))->toArray();
+$currentNavPlan = $currentNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$currentNavWrites = array(); foreach ($currentNavPlan['writes'] ?? array() as $write) $currentNavWrites[$write['target_path']] = $write;
+$currentNavBootstrap = (string) ($currentNavWrites['functions.php']['payload']['data'] ?? '');
+$currentNavClosureStart = strpos($currentNavBootstrap, "static function ( string \$content, array \$block ): string {");
+if (false === $currentNavClosureStart) throw new RuntimeException('The generated theme bootstrap does not declare the navigation-link current-item filter closure.');
+$currentNavClosureEnd = strpos($currentNavBootstrap, "\n}, 10, 2 );", $currentNavClosureStart);
+if (false === $currentNavClosureEnd) throw new RuntimeException('The navigation-link current-item filter closure has no discoverable closing statement.');
+eval('$currentNavFilter = ' . substr($currentNavBootstrap, $currentNavClosureStart, $currentNavClosureEnd + 2 - $currentNavClosureStart) . ';');
+add_filter('render_block_core/navigation-link', $currentNavFilter, 10, 2);
+$currentNavPageMarkup = (string) ($currentNavPlan['pages'][0]['canonical_block_markup'] ?? '');
+$currentNavRendered = do_blocks($currentNavPageMarkup);
+remove_filter('render_block_core/navigation-link', $currentNavFilter, 10);
+$assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/"><span class="wp-block-navigation-item__label">Home</span></a>'), 'WordPress renders the current navigation-link item with aria-current="page", recovering both accessibility semantics and the source stylesheet\'s own [aria-current] active-state styling hook.');
+$assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content"  href="/music"><span class="wp-block-navigation-item__label">Music</span></a>'), 'WordPress leaves a non-current sibling navigation-link item without aria-current.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);

@@ -752,6 +752,34 @@ $assert(count($plan['pages']) === ($plan['reporting']['metrics']['source_documen
 $bootstrap = (string) $writes['functions.php']['payload']['data'];
 $assert(str_contains($bootstrap, "wp_register_script") && str_contains($bootstrap, "get_theme_file_uri(") && str_contains($bootstrap, "https://cdn.example.test/external.js") && str_contains($bootstrap, "'strategy' => 'async'") && str_contains($bootstrap, "script_loader_tag") && str_contains($bootstrap, "'nomodule' => true") && str_contains($bootstrap, "'type' => 'module'") && str_contains($bootstrap, 'is_front_page()') && str_contains($bootstrap, "'nested/about' === trim( get_page_uri( get_queried_object_id() ), '/' )") && str_contains($bootstrap, "add_action( 'enqueue_block_assets'") && str_contains($bootstrap, "add_action( 'after_setup_theme'") && str_contains($bootstrap, "add_editor_style( \$style['target_path'] )") && str_contains($bootstrap, "! empty( \$style['editor_only'] )") && str_contains($bootstrap, "add_filter( 'block_editor_settings_all'") && str_contains($bootstrap, "get_theme_file_path( \$style['target_path'] )") && str_contains($bootstrap, "'baseURL' => get_theme_file_uri( \$style['target_path'] )") && str_contains($bootstrap, "get_option( 'page_on_front' )") && str_contains($bootstrap, "'_blocks_engine_reconciliation_identity'") && !str_contains($bootstrap, "array (\n  0 => 'blocks-engine-script-"), 'Canonical functions.php registers editor-only presentation styles through Core iframe and scoped editor settings APIs.');
 
+// core/navigation-link is fully dynamic: WordPress core's own
+// render_block_core_navigation_link() ignores saved content and only adds
+// aria-current="page" when the link's id/kind resolve against the queried
+// object, which never happens for the "custom" kind links this engine
+// emits for a static-site import. The current item is already marked with
+// the frontend blocks-engine-current-navigation-item className (a
+// respected className block support), so the theme bootstrap must recover
+// the missing accessibility attribute -- and the [aria-current] CSS hook
+// the source's own stylesheet (and the engine's own generated current-item
+// rules) already key off -- at render time.
+$currentNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<!doctype html><html><body><nav aria-label="Primary"><ul class="nav-links"><li><a href="/" class="active">Home</a></li><li><a href="/music">Music</a></li></ul></nav><main><p>Home</p></main></body></html>')))->toArray();
+$currentNavBootstrap = (string) ($writeMap($currentNavArtifact['source_reports']['wordpress_site_plan']['writes'] ?? array())['functions.php']['payload']['data'] ?? '');
+$assert(str_contains($currentNavBootstrap, "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {"), 'A plan carrying a frontend current-item marker registers a navigation-link render filter that can recover aria-current.');
+$noCurrentNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array('index.html' => '<main><p>No navigation here</p></main>')))->toArray();
+$noCurrentNavBootstrap = (string) ($writeMap($noCurrentNavArtifact['source_reports']['wordpress_site_plan']['writes'] ?? array())['functions.php']['payload']['data'] ?? '');
+$assert(! str_contains($noCurrentNavBootstrap, 'render_block_core/navigation-link'), 'A plan with no current-item marker anywhere omits the navigation-link render filter.');
+$currentNavClosureStart = strpos($currentNavBootstrap, "static function ( string \$content, array \$block ): string {");
+$assert(false !== $currentNavClosureStart, 'The navigation-link current-item filter closure is discoverable in the bootstrap output.');
+$currentNavClosureEnd = strpos($currentNavBootstrap, "\n}, 10, 2 );", $currentNavClosureStart);
+$assert(false !== $currentNavClosureEnd, 'The navigation-link current-item filter closure has a discoverable closing statement.');
+eval('$blocksEngineCurrentNavigationLinkFilter = ' . substr($currentNavBootstrap, $currentNavClosureStart, $currentNavClosureEnd + 2 - $currentNavClosureStart) . ';');
+$currentItemMarkup = $blocksEngineCurrentNavigationLinkFilter('<a class="wp-block-navigation-item__content" href="/">Home</a>', array('attrs' => array('className' => 'blocks-engine-current-navigation-item')));
+$assert(str_contains($currentItemMarkup, ' aria-current="page"'), 'The current navigation-link item receives aria-current="page" at render time.');
+$siblingMarkup = '<a class="wp-block-navigation-item__content" href="/music">Music</a>';
+$assert($siblingMarkup === $blocksEngineCurrentNavigationLinkFilter($siblingMarkup, array('attrs' => array('className' => ''))), 'A sibling navigation-link item that is not marked current is left untouched.');
+$alreadyActiveMarkup = '<a class="wp-block-navigation-item__content" href="/post" aria-current="page">Post</a>';
+$assert($alreadyActiveMarkup === $blocksEngineCurrentNavigationLinkFilter($alreadyActiveMarkup, array('attrs' => array('className' => 'blocks-engine-current-navigation-item'))), 'A link WordPress core already marked active is not double-stamped with a second aria-current attribute.');
+
 // #1878: the editor presentation matcher must resolve a page scope by persisted
 // reconciliation identity first -- exactly like it already does for post scopes --
 // falling back to route_path only when the identity post meta is absent. Without
