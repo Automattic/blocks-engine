@@ -1276,20 +1276,40 @@ final class WordPressSitePlan
             $lines[] = "    return \$match[2];";
             $lines[] = "}, 10, 2 );";
         }
-        $hasCurrentNavigationItem = false;
+        $hasNavigationLink = false;
         foreach (array_merge($templates, $parts, $pages) as $document) {
-            if (str_contains((string) ($document['canonical_block_markup'] ?? ''), 'blocks-engine-current-navigation-item')) { $hasCurrentNavigationItem = true; break; }
+            $markup = (string) ($document['canonical_block_markup'] ?? '');
+            // Require the navigation container alongside a link, not merely the
+            // link comment text, so the filter is only emitted where core/navigation
+            // actually renders a navigation-link item: a bare "wp:navigation-link"
+            // substring can appear in unrelated JSON/attribute contexts that never
+            // reach render_block_core_navigation_link().
+            if (str_contains($markup, 'wp:navigation-link') && str_contains($markup, 'wp:navigation ')) { $hasNavigationLink = true; break; }
         }
-        if ($hasCurrentNavigationItem) {
+        if ($hasNavigationLink) {
             // core/navigation-link is fully dynamic: render_block_core_navigation_link()
             // ignores saved content and only adds aria-current="page" when its own
             // id/kind match the queried object, which never happens for the "custom"
-            // kind links this engine emits. The current item is already marked with
-            // the blocks-engine-current-navigation-item class (a respected className
-            // block support), so recover the semantic + the source's/engine's own
-            // [aria-current] styling hooks by adding the attribute at render time.
+            // kind links this engine emits. When navigation is inlined per page, the
+            // current item is already marked with the blocks-engine-current-navigation-item
+            // class (a respected className block support). That marker cannot work once
+            // navigation is hoisted into a shared template part, because one rendered
+            // part serves every route, so also recover aria-current by comparing the
+            // link's own canonical route URL against the page currently being served.
+            // Either signal recovers the semantic and the source's/engine's own
+            // [aria-current] styling hook at render time.
             $lines[] = "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {";
-            $lines[] = "    if ( ! str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' ) || str_contains( \$content, 'aria-current' ) ) return \$content;";
+            $lines[] = "    if ( str_contains( \$content, 'aria-current' ) ) return \$content;";
+            $lines[] = "    \$current = str_contains( (string) ( \$block['attrs']['className'] ?? '' ), 'blocks-engine-current-navigation-item' );";
+            $lines[] = "    if ( ! \$current ) {";
+            $lines[] = "        \$url = is_string( \$block['attrs']['url'] ?? null ) ? trim( (string) \$block['attrs']['url'] ) : '';";
+            $lines[] = "        if ( '' !== \$url && '/' === \$url[0] && ( 1 === strlen( \$url ) || '/' !== \$url[1] ) ) {";
+            $lines[] = "            \$target = '/' . trim( (string) parse_url( \$url, PHP_URL_PATH ), '/' );";
+            $lines[] = "            \$served = is_front_page() ? '/' : ( is_page() ? '/' . trim( (string) get_page_uri( get_queried_object_id() ), '/' ) : null );";
+            $lines[] = "            \$current = null !== \$served && \$target === \$served;";
+            $lines[] = "        }";
+            $lines[] = "    }";
+            $lines[] = "    if ( ! \$current ) return \$content;";
             $lines[] = "    return preg_replace( '/(<a\\b[^>]*\\bclass=\"[^\"]*\\bwp-block-navigation-item__content\\b[^\"]*\")/', '\$1 aria-current=\"page\"', \$content, 1 ) ?? \$content;";
             $lines[] = "}, 10, 2 );";
         }

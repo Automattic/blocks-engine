@@ -780,6 +780,87 @@ $assert($siblingMarkup === $blocksEngineCurrentNavigationLinkFilter($siblingMark
 $alreadyActiveMarkup = '<a class="wp-block-navigation-item__content" href="/post" aria-current="page">Post</a>';
 $assert($alreadyActiveMarkup === $blocksEngineCurrentNavigationLinkFilter($alreadyActiveMarkup, array('attrs' => array('className' => 'blocks-engine-current-navigation-item'))), 'A link WordPress core already marked active is not double-stamped with a second aria-current attribute.');
 
+// The filter above recovers aria-current only where the current item carries
+// the static blocks-engine-current-navigation-item marker, which the engine
+// can only bake into navigation when it stays inlined per page. Once
+// navigation is hoisted into a shared template part (extending #2084), one
+// rendered part serves every route, so the marker can never identify a
+// "current" item for more than one page -- withoutCurrentNavigationState()
+// strips it for exactly this reason. The same unified filter must also
+// recover aria-current by comparing each link's own canonical route URL
+// against the page currently being served, so shared-part navigation, the
+// front page, and near-miss routes (/day-1 must never match /day-13) all
+// resolve correctly.
+$sharedRouteNav = static fn(): string => '<header id="site-nav" class="site-nav"><nav aria-label="Primary"><a href="/">Home</a><a href="/day-1">Day 1</a><a href="/day-13">Day 13</a></nav></header>';
+$sharedRouteNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $sharedRouteNav() . '<main><p>Home</p></main>',
+    'day-1.html' => $sharedRouteNav() . '<main><p>Day 1</p></main>',
+    'day-13.html' => $sharedRouteNav() . '<main><p>Day 13</p></main>',
+)))->toArray();
+$sharedRouteNavPlan = $sharedRouteNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$sharedRouteNavHeader = current(array_filter($sharedRouteNavPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+$assert(is_array($sharedRouteNavHeader) && array() !== $sharedRouteNavHeader, 'A navigation header repeated across every page extracts into one shared template part.');
+$sharedRouteNavHeaderMarkup = (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? '');
+$assert(str_contains($sharedRouteNavHeaderMarkup, '"url":"/day-1"') && str_contains($sharedRouteNavHeaderMarkup, '"url":"/day-13"') && str_contains($sharedRouteNavHeaderMarkup, '"url":"/"') && !str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries every canonical route URL and no static current-item marker, since one rendered part serves every route.');
+$sharedRouteNavBootstrap = (string) ($writeMap($sharedRouteNavPlan['writes'] ?? array())['functions.php']['payload']['data'] ?? '');
+$assert(str_contains($sharedRouteNavBootstrap, "add_filter( 'render_block_core/navigation-link', static function ( string \$content, array \$block ): string {"), 'A shared template-part navigation with no static current-item marker still registers the recovery filter, because the filter also matches by URL.');
+$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {");
+$assert(false !== $sharedRouteNavClosureStart, 'The shared-part navigation filter closure is discoverable in the bootstrap output.');
+$sharedRouteNavClosureEnd = strpos($sharedRouteNavBootstrap, "\n}, 10, 2 );", $sharedRouteNavClosureStart);
+$assert(false !== $sharedRouteNavClosureEnd, 'The shared-part navigation filter closure has a discoverable closing statement.');
+eval('$blocksEngineSharedRouteNavigationLinkFilter = ' . substr($sharedRouteNavBootstrap, $sharedRouteNavClosureStart, $sharedRouteNavClosureEnd + 2 - $sharedRouteNavClosureStart) . ';');
+
+if (!class_exists('WP_Post')) {
+    class WP_Post
+    {
+        public string $post_name = '';
+        public function __construct(public int $ID, public string $post_type) {}
+    }
+}
+$pageScopeUriByPostId = array();
+$blocksEngineNavQueryState = array('front_page' => false, 'page' => false, 'queried_id' => 0);
+if (!function_exists('is_front_page')) { function is_front_page(): bool { global $blocksEngineNavQueryState; return (bool) $blocksEngineNavQueryState['front_page']; } }
+if (!function_exists('is_page')) { function is_page(): bool { global $blocksEngineNavQueryState; return (bool) $blocksEngineNavQueryState['page']; } }
+if (!function_exists('get_queried_object_id')) { function get_queried_object_id(): int { global $blocksEngineNavQueryState; return (int) $blocksEngineNavQueryState['queried_id']; } }
+if (!function_exists('get_page_uri')) {
+    function get_page_uri($page = 0): string
+    {
+        global $pageScopeUriByPostId;
+        $id = $page instanceof WP_Post ? $page->ID : (int) $page;
+        return $pageScopeUriByPostId[$id] ?? '';
+    }
+}
+$pageScopeUriByPostId[101] = 'day-1';
+$pageScopeUriByPostId[113] = 'day-13';
+$sharedRouteLinkContent = static fn(string $url, string $label): string => '<a class="wp-block-navigation-item__content" href="' . $url . '"><span class="wp-block-navigation-item__label">' . $label . '</span></a>';
+$applySharedRouteFilter = static fn(string $url, string $label): string => $blocksEngineSharedRouteNavigationLinkFilter($sharedRouteLinkContent($url, $label), array('attrs' => array('url' => $url, 'label' => $label, 'kind' => 'custom')));
+
+// Serving day-1: only the "/day-1" link is current. The near-miss "/day-13"
+// link (and the front-page "/" link) must not be marked, proving the match
+// is exact rather than prefix-based.
+$blocksEngineNavQueryState = array('front_page' => false, 'page' => true, 'queried_id' => 101);
+$assert(str_contains($applySharedRouteFilter('/day-1', 'Day 1'), ' aria-current="page"'), 'Serving /day-1 marks the matching shared-part navigation-link item current.');
+$assert(!str_contains($applySharedRouteFilter('/day-13', 'Day 13'), 'aria-current'), 'Serving /day-1 does not mark the near-miss /day-13 sibling current: a route match is exact, never a prefix match.');
+$assert(!str_contains($applySharedRouteFilter('/', 'Home'), 'aria-current'), 'Serving /day-1 does not mark the front-page link current.');
+
+// Serving day-13: only the "/day-13" link is current, proving the near miss
+// fails symmetrically in both directions.
+$blocksEngineNavQueryState = array('front_page' => false, 'page' => true, 'queried_id' => 113);
+$assert(str_contains($applySharedRouteFilter('/day-13', 'Day 13'), ' aria-current="page"'), 'Serving /day-13 marks the matching shared-part navigation-link item current.');
+$assert(!str_contains($applySharedRouteFilter('/day-1', 'Day 1'), 'aria-current'), 'Serving /day-13 does not mark the near-miss /day-1 sibling current.');
+
+// Serving the front page: only a link to "/" is current, regardless of the
+// front page's own underlying route slug.
+$blocksEngineNavQueryState = array('front_page' => true, 'page' => false, 'queried_id' => 999);
+$assert(str_contains($applySharedRouteFilter('/', 'Home'), ' aria-current="page"'), 'Serving the front page marks a link to "/" current.');
+$assert(!str_contains($applySharedRouteFilter('/day-1', 'Day 1'), 'aria-current'), 'Serving the front page does not mark an unrelated route link current.');
+
+// The static-marker signal still short-circuits and takes precedence over
+// URL comparison, and the double-add guard still holds, unchanged from #2084.
+$blocksEngineNavQueryState = array('front_page' => false, 'page' => true, 'queried_id' => 101);
+$markerCurrentMarkup = $blocksEngineSharedRouteNavigationLinkFilter($sharedRouteLinkContent('/day-13', 'Day 13'), array('attrs' => array('className' => 'blocks-engine-current-navigation-item', 'url' => '/day-13')));
+$assert(str_contains($markerCurrentMarkup, ' aria-current="page"'), 'The static current-item marker still takes precedence over URL comparison.');
+
 // #1878: the editor presentation matcher must resolve a page scope by persisted
 // reconciliation identity first -- exactly like it already does for post scopes --
 // falling back to route_path only when the identity post meta is absent. Without

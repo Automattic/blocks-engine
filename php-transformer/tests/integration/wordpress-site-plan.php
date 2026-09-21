@@ -347,6 +347,54 @@ $currentNavRendered = do_blocks($currentNavPageMarkup);
 remove_filter('render_block_core/navigation-link', $currentNavFilter, 10);
 $assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/"><span class="wp-block-navigation-item__label">Home</span></a>'), 'WordPress renders the current navigation-link item with aria-current="page", recovering both accessibility semantics and the source stylesheet\'s own [aria-current] active-state styling hook.');
 $assert(str_contains($currentNavRendered, '<a class="wp-block-navigation-item__content"  href="/music"><span class="wp-block-navigation-item__label">Music</span></a>'), 'WordPress leaves a non-current sibling navigation-link item without aria-current.');
+// Extending #2084: when the same navigation is hoisted into a SHARED template
+// part (the common case for a real multi-page import), one rendered part
+// serves every route, so the static blocks-engine-current-navigation-item
+// marker cannot identify a "current" item for more than one page --
+// withoutCurrentNavigationState() strips it for exactly this reason. Prove
+// against real WordPress rendering that the unified filter still recovers
+// aria-current by comparing each link's own canonical route URL against the
+// page currently being served: the matching route is current, its near-miss
+// sibling is not, and a link to "/" is current only while the front page is
+// served.
+$sharedRouteNav = static fn(): string => '<header id="site-nav" class="site-nav"><nav aria-label="Primary"><a href="/">Home</a><a href="/day-1">Day 1</a><a href="/day-13">Day 13</a></nav></header>';
+$sharedRouteNavArtifact = (new ArtifactCompiler())->compile(array('entrypoint' => 'index.html', 'files' => array(
+    'index.html' => $sharedRouteNav() . '<main><p>Home</p></main>',
+    'day-1.html' => $sharedRouteNav() . '<main><p>Day 1</p></main>',
+    'day-13.html' => $sharedRouteNav() . '<main><p>Day 13</p></main>',
+)))->toArray();
+$sharedRouteNavPlan = $sharedRouteNavArtifact['source_reports']['wordpress_site_plan'] ?? array();
+$sharedRouteNavHeader = current(array_filter($sharedRouteNavPlan['template_parts'] ?? array(), static fn(array $part): bool => 'header' === ($part['area'] ?? null)));
+if (!is_array($sharedRouteNavHeader) || array() === $sharedRouteNavHeader) throw new RuntimeException('Expected the repeated navigation header to extract into a shared template part.');
+$sharedRouteNavHeaderMarkup = (string) ($sharedRouteNavHeader['canonical_block_markup'] ?? '');
+$assert(!str_contains($sharedRouteNavHeaderMarkup, 'blocks-engine-current-navigation-item'), 'The shared header carries no static current-item marker, since one rendered part serves every route.');
+$sharedRouteNavWrites = array(); foreach ($sharedRouteNavPlan['writes'] ?? array() as $write) $sharedRouteNavWrites[$write['target_path']] = $write;
+$sharedRouteNavBootstrap = (string) ($sharedRouteNavWrites['functions.php']['payload']['data'] ?? '');
+$sharedRouteNavClosureStart = strpos($sharedRouteNavBootstrap, "static function ( string \$content, array \$block ): string {");
+if (false === $sharedRouteNavClosureStart) throw new RuntimeException('The generated theme bootstrap does not declare the navigation-link current-item filter closure for a shared-part-only navigation.');
+$sharedRouteNavClosureEnd = strpos($sharedRouteNavBootstrap, "\n}, 10, 2 );", $sharedRouteNavClosureStart);
+if (false === $sharedRouteNavClosureEnd) throw new RuntimeException('The shared-part navigation filter closure has no discoverable closing statement.');
+eval('$sharedRouteNavFilter = ' . substr($sharedRouteNavBootstrap, $sharedRouteNavClosureStart, $sharedRouteNavClosureEnd + 2 - $sharedRouteNavClosureStart) . ';');
+$day1Id = wp_insert_post(array('post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Day 1', 'post_name' => 'day-1'), true);
+if (is_wp_error($day1Id)) throw new RuntimeException($day1Id->get_error_message());
+$pageIds['shared-route-nav-day-1'] = $day1Id;
+$day13Id = wp_insert_post(array('post_type' => 'page', 'post_status' => 'publish', 'post_title' => 'Day 13', 'post_name' => 'day-13'), true);
+if (is_wp_error($day13Id)) throw new RuntimeException($day13Id->get_error_message());
+$pageIds['shared-route-nav-day-13'] = $day13Id;
+$day1Page = get_post($day1Id); if (!$day1Page) throw new RuntimeException('Could not load day-1 page.');
+$day13Page = get_post($day13Id); if (!$day13Page) throw new RuntimeException('Could not load day-13 page.');
+add_filter('render_block_core/navigation-link', $sharedRouteNavFilter, 10, 2);
+$setRequest($day1Page, false);
+$day1Rendered = do_blocks($sharedRouteNavHeaderMarkup); wp_reset_postdata();
+$setRequest($day13Page, false);
+$day13Rendered = do_blocks($sharedRouteNavHeaderMarkup); wp_reset_postdata();
+$post = $frontPage; $setRequest($frontPage, true);
+$frontSharedRendered = do_blocks($sharedRouteNavHeaderMarkup); wp_reset_postdata();
+remove_filter('render_block_core/navigation-link', $sharedRouteNavFilter, 10);
+$assert(str_contains($day1Rendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/day-1">') && !str_contains($day1Rendered, 'aria-current="page"  href="/day-13"'), 'Serving /day-1 renders only the /day-1 shared-part navigation-link item as current, proving the near-miss /day-13 route is never mistaken for it.');
+$assert(!str_contains($day1Rendered, 'aria-current="page"  href="/"'), 'Serving /day-1 does not render the front-page shared-part link as current.');
+$assert(str_contains($day13Rendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/day-13">') && !str_contains($day13Rendered, 'aria-current="page"  href="/day-1"'), 'Serving /day-13 renders only the /day-13 shared-part navigation-link item as current, proving the near-miss /day-1 route is never mistaken for it.');
+$assert(str_contains($frontSharedRendered, '<a class="wp-block-navigation-item__content" aria-current="page"  href="/">') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-1"') && !str_contains($frontSharedRendered, 'aria-current="page"  href="/day-13"'), 'Serving the front page renders only the "/" shared-part navigation-link item as current.');
 fwrite(STDOUT, "wordpress-site-plan WordPress integration passed\n");
 } finally {
     foreach ($pageIds as $id) wp_delete_post((int) $id, true);
